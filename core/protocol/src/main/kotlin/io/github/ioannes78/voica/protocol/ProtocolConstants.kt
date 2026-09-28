@@ -25,7 +25,10 @@ object ProtocolConstants {
         const val VERSION_RESPONSE = 11
         const val GET_AUTH = 12
         const val AUTH_RESPONSE = 13
-        const val BATTERY_CHARGING = 110
+        const val BATTERY_VALUE_CHARGING = 110
+
+        @Deprecated("Use BATTERY_VALUE_CHARGING; 110 is a battery-response value, not a command.")
+        const val BATTERY_CHARGING = BATTERY_VALUE_CHARGING
     }
 
     object Realtime {

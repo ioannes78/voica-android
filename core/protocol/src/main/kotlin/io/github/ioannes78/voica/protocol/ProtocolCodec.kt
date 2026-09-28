@@ -43,6 +43,24 @@ object ProtocolCodec {
         return buildFrame(sequence, data)
     }
 
+    fun buildSyncTime(sequence: Int, time: DeviceTime): ByteArray {
+        val params = byteArrayOf(
+            (time.year and 0xFF).toByte(),
+            ((time.year ushr 8) and 0xFF).toByte(),
+            time.month.toByte(),
+            time.day.toByte(),
+            time.hour.toByte(),
+            time.minute.toByte(),
+            time.second.toByte(),
+        )
+        return buildCommand(
+            sequence,
+            ProtocolConstants.Type.CONTROL,
+            ProtocolConstants.Control.SYNC_TIME,
+            params,
+        )
+    }
+
     fun encodeFilename24(filename: String): ByteArray {
         val output = ByteArray(ProtocolConstants.FILENAME_FIELD_LENGTH)
         var offset = 0
@@ -111,6 +129,9 @@ object ProtocolCodec {
 
     fun buildGetVersion(sequence: Int): ByteArray =
         buildCommand(sequence, ProtocolConstants.Type.CONTROL, ProtocolConstants.Control.GET_VERSION)
+
+    fun buildGetAuth(sequence: Int): ByteArray =
+        buildCommand(sequence, ProtocolConstants.Type.CONTROL, ProtocolConstants.Control.GET_AUTH)
 
     fun buildFileListRequest(sequence: Int): ByteArray =
         buildCommand(sequence, ProtocolConstants.Type.FILE, ProtocolConstants.File.LIST_REQUEST)
