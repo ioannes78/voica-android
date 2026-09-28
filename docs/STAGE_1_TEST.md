@@ -2,45 +2,61 @@
 
 ## 自动测试
 
-- [ ] CRC-16/XMODEM 标准向量
-- [ ] Sequence 255 → 0
-- [ ] 2-2 36B Golden Frame
-- [ ] 2-12 Segment Frame
-- [ ] Delete-one Frame
-- [ ] UTF-8 24B 文件名
-- [ ] 拆包
-- [ ] 粘包
-- [ ] 前导噪声
-- [ ] CRC 错误恢复
-- [ ] 超长 LEN 恢复
-- [ ] AE22/AE23 独立 parser
-- [ ] 文件列表 BE
-- [ ] 容量 LE
-- [ ] 容量 BE
-- [ ] 短 Body 安全
+- [x] CRC-16/XMODEM 标准向量
+- [x] Sequence 255 → 0
+- [x] 2-2 36B Golden Frame
+- [x] 2-12 Segment Frame
+- [x] Delete-one Frame
+- [x] UTF-8 24B 文件名
+- [x] 拆包
+- [x] 粘包
+- [x] 前导噪声
+- [x] CRC 错误恢复
+- [x] 超长 LEN 恢复
+- [x] AE22/AE23 独立 parser
+- [x] 文件列表 BE
+- [x] 容量 LE
+- [x] 容量 BE
+- [x] 短 Body 安全
 
 ## 构建
 
-- [ ] `:core:protocol:test`
-- [ ] `:app:assembleDebug`
-- [ ] GitHub Actions PR CI
+- [x] `:core:protocol:test`
+- [x] `:app:assembleDebug`
+- [x] GitHub Actions PR CI
 
-## CI 记录
+最终成功 CI：
 
-- 初始 PR CI 在 Android SDK setup Action 阶段失败，原因是第三方 Action 默认请求已移除的旧 `tools` SDK 包。
-- 第二次环境验证发现 Runner 的 Android SDK 已预装，但 `sdkmanager` 未加入 PATH；已改为显式调用 `$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager`。前两类失败均不属于应用代码或协议测试失败。
+- Workflow：`Stage 1 CI`
+- Run ID：`36468839882`
+- 结果：`success`
+- 验证实现提交：`3ac16dff92f10058c225392f1f693808a6396c28`
+- APK Artifact：`Voica-0.1.0-stage1-debug`
+- Artifact ID：`10990273111`
+- Artifact SHA-256 digest：`8b604ef81c4e01fa9b74b4c7c735705d815a7c8e19b904d4fe2a08bbd6361c2e`
+
+## CI 调整记录
+
+Stage 1 首次建立 CI 时遇到的是 Runner/SDK 工具链问题，而非协议实现问题：
+
+1. `android-actions/setup-android@v3` 默认旧 `tools` 包不可用。
+2. Runner 旧 sdkmanager 看不到 Android 37。
+3. 最终采用 Android SDK Platform 37.1，并在 AGP 中设置 `compileSdk = 37`、`compileSdkMinor = 1`。
+4. `activity-compose` 修正为 Google Maven 可解析的稳定版 `1.13.0`。
+5. 最终 Run `36468839882` 完整通过协议单测和 Debug APK 构建。
 
 ## APK 真机安装
 
-用户确认：
-- [ ] APK 可安装
-- [ ] App 可启动
-- [ ] 默认简体中文
-- [ ] 录音 Tab 可显示
-- [ ] 设置 Tab 可切换
-- [ ] 协议诊断 CRC 显示“通过”
-- [ ] 协议诊断 FrameParser 显示“通过”
-- [ ] 2-2 导入帧显示 36 bytes
-- [ ] 无启动闪退
+用户于 2026-09-29 确认真机测试通过：
 
-完成以上真机检查后才创建最终 `STAGE_1_FREEZE.md`。
+- [x] APK 可安装
+- [x] App 可启动
+- [x] 默认简体中文
+- [x] 录音 Tab 可显示
+- [x] 设置 Tab 可切换
+- [x] 协议诊断 CRC 显示“通过”
+- [x] 协议诊断 FrameParser 显示“通过”
+- [x] 2-2 导入帧显示 36 bytes
+- [x] 无启动闪退
+
+结论：**Stage 1 验收通过，可以 Freeze 并合并 main。**

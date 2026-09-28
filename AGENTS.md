@@ -4,6 +4,15 @@
 
 当前 `ioannes78/voica-android` 仓库是 Voica 项目实现状态的唯一事实来源。
 
+当前已冻结基线：**Stage 1**
+
+Stage 1 Freeze/Handoff：
+
+- `docs/STAGE_1_FREEZE.md`
+- `docs/STAGE_1_HANDOFF.md`
+
+下一阶段：**Stage 2 — BLE 连接 + 设备基础信息**
+
 Kardo 参考基线固定为：
 
 - 仓库：`laidely/kardo`
@@ -61,18 +70,25 @@ Kardo 参考基线固定为：
 
 ## 五、Android 技术基线
 
+Stage 1 已确定：
+
 - 开发语言：Kotlin
 - UI：Jetpack Compose
 - 并发：Kotlin Coroutines / Flow
 - 构建：Gradle Kotlin DSL
-- Application ID：暂定 `io.github.ioannes78.voica`
-- ABI 优先：`arm64-v8a`
-- minSdk：Stage 1 中最终确定
+- Application ID：`io.github.ioannes78.voica`
+- minSdk：26
+- targetSdk：37
+- compileSdk：37.1
+- JDK：17
 - 默认产品语言：简体中文
+
+ABI 策略在引入 Native/ML 组件的后续 Stage 再冻结；优先考虑 `arm64-v8a`。
 
 ## 六、架构规则
 
 - BLE transport、二进制协议、音频、数据库、ASR、说话人分离、AI 和 UI 必须保持清晰边界。
+- `:core:protocol` 保持纯 Kotlin，不依赖 Android BLE API。
 - AE22 与 AE23 通知必须使用独立的流式帧解析器。
 - GATT 操作必须串行化。
 - TYPE=2/CMD=2 文件导入请求按完整 36B 协议帧处理。
@@ -95,8 +111,8 @@ Kardo 参考基线固定为：
 - 36B 文件导入请求
 - 单文件删除请求布局
 - 文件名候选回退
-- Opus 包/容器转换关键约束
-- 转写时间段归一化和合并规则
+- 后续加入音频后覆盖 Opus 包/容器转换关键约束
+- 后续加入转写后覆盖时间段归一化和合并规则
 
 **CI 成功不等于真机验收成功。**
 
@@ -109,5 +125,6 @@ CI 默认保持精简：
 - PR 运行快速 build/unit test
 - 当前阶段不需要时，不运行模拟器或 Instrumentation
 - 同一提交避免重复 Workflow
+- 使用 concurrency / cancel-in-progress 避免无效重复运行
 - 实验分支不自动触发昂贵构建
 - APK 构建按阶段验收需要触发
