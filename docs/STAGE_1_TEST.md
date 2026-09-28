@@ -25,6 +25,11 @@
 - [ ] `:app:assembleDebug`
 - [ ] GitHub Actions PR CI
 
+## CI 记录
+
+- 初始 PR CI 在 Android SDK setup Action 阶段失败，原因是第三方 Action 默认请求已移除的旧 `tools` SDK 包。
+- 已改为直接使用 GitHub Runner 预装的 `sdkmanager`，该失败不属于应用代码或协议测试失败。
+
 ## APK 真机安装
 
 用户确认：
