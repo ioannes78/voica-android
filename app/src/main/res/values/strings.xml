@@ -1,23 +1,76 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Voica</string>
-    <string name="app_subtitle">AI 录音卡</string>
-    <string name="version_label">0.1.0 Stage 1</string>
-    <string name="tab_recordings">录音</string>
+    <string name="stage2_subtitle">BLE 设备连接与基础信息</string>
+    <string name="version_label">0.2.0 Stage 2</string>
+    <string name="tab_device">设备</string>
     <string name="tab_settings">设置</string>
-    <string name="device_title">设备</string>
-    <string name="device_not_connected">尚未连接</string>
-    <string name="protocol_diagnostics">协议诊断</string>
-    <string name="protocol_core_loaded">协议核心已加载</string>
-    <string name="protocol_version">QS668 / CB08 V1</string>
-    <string name="status_pass">通过</string>
-    <string name="status_fail">失败</string>
-    <string name="diagnostic_crc">CRC-16/XMODEM</string>
-    <string name="diagnostic_parser">FrameParser</string>
-    <string name="diagnostic_import_frame">2-2 导入帧</string>
-    <string name="settings_title">Stage 1 设置</string>
+
+    <string name="device_status">设备状态</string>
+    <string name="permission_needed">需要蓝牙权限才能扫描和连接设备。</string>
+    <string name="permission_grant">授予蓝牙权限</string>
+
+    <string name="scan_title">蓝牙扫描</string>
+    <string name="scan_start">扫描设备</string>
+    <string name="scan_stop">停止扫描</string>
+    <string name="scan_scanning">正在扫描，默认约 8 秒结束。</string>
+    <string name="scan_timeout">本轮扫描已结束。</string>
+    <string name="scan_idle">尚未开始扫描。</string>
+    <string name="unnamed_device">未命名 BLE 设备</string>
+    <string name="ae20_advertised">广播中发现 AE20</string>
+    <string name="ae20_not_advertised">广播中未发现 AE20，连接后继续验证</string>
+    <string name="connect">连接</string>
+    <string name="disconnect">断开连接</string>
+
+    <string name="device_info">设备信息</string>
+    <string name="info_name">名称</string>
+    <string name="info_address">设备地址</string>
+    <string name="info_battery">电量 / 充电</string>
+    <string name="info_capacity_remaining">剩余容量</string>
+    <string name="info_capacity_total">总容量</string>
+    <string name="info_firmware">固件版本</string>
+    <string name="info_auth">Auth</string>
+    <string name="info_mtu">实际 MTU</string>
+    <string name="info_atomic36">36B 原子写</string>
+    <string name="info_data168">168B 数据通道</string>
+    <string name="battery_charging">充电中</string>
+    <string name="auth_read_ok">已读取</string>
+    <string name="auth_unknown">未读取</string>
+    <string name="refresh">刷新设备信息</string>
+    <string name="sync_time">同步时间</string>
+    <string name="yes">支持</string>
+    <string name="no">不支持</string>
+
+    <string name="state_unavailable">当前设备不支持蓝牙低功耗。</string>
+    <string name="state_permission_required">等待蓝牙权限</string>
+    <string name="state_bluetooth_off">蓝牙已关闭</string>
+    <string name="state_idle">未连接</string>
+    <string name="state_scanning">正在扫描</string>
+    <string name="state_connecting">正在连接设备</string>
+    <string name="state_link_connected">蓝牙链路已连接</string>
+    <string name="state_discovering">正在发现 AE20 服务</string>
+    <string name="state_ae22">正在启用 AE22 通知</string>
+    <string name="state_ae23">正在启用 AE23 通知</string>
+    <string name="state_mtu">正在协商 MTU 517</string>
+    <string name="state_ready">设备已就绪</string>
+    <string name="state_disconnecting">正在断开</string>
+    <string name="state_disconnected">设备已断开</string>
+    <string name="state_reconnect">等待第 %1$d 次重连（%2$d 秒）</string>
+    <string name="state_error">连接错误</string>
+
+    <string name="error_permission">蓝牙权限不足</string>
+    <string name="error_unavailable">当前设备不支持 BLE</string>
+    <string name="error_bluetooth_off">请先打开蓝牙</string>
+    <string name="error_mtu_small">MTU 小于 39，无法满足设备协议要求</string>
+
+    <string name="diagnostics_show">显示 BLE 诊断</string>
+    <string name="diagnostics_hide">隐藏 BLE 诊断</string>
+    <string name="diagnostics_title">BLE Diagnostics</string>
+    <string name="diagnostics_recent_log">最近通信日志</string>
+
+    <string name="settings_title">Stage 2 设置</string>
     <string name="settings_language">默认语言</string>
     <string name="settings_language_value">简体中文</string>
     <string name="settings_scope">当前范围</string>
-    <string name="settings_scope_value">工程基础 + 协议核心</string>
+    <string name="settings_scope_value">BLE 连接 + 设备基础信息</string>
 </resources>
