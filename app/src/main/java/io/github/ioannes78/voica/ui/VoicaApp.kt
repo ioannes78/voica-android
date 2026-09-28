@@ -199,7 +199,16 @@ private fun DeviceScreen(
 
         actionMessage?.let { message ->
             item {
-                Text(message, style = MaterialTheme.typography.bodySmall)
+                Text(
+                    stringResource(
+                        if (message == DeviceActionMessage.SYNC_SENT) {
+                            R.string.sync_sent
+                        } else {
+                            R.string.sync_failed
+                        },
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
 
@@ -385,8 +394,10 @@ private fun DiagnosticsCard(diagnostics: BleDiagnostics) {
                 "AE21 properties",
                 diagnostics.shape.ae21Properties?.toString() ?: "--",
             )
-            DiagnosticLine("AE22 notify", diagnostics.shape.ae22Found.toString())
-            DiagnosticLine("AE23 notify", diagnostics.shape.ae23Found.toString())
+            DiagnosticLine("AE22 found", diagnostics.shape.ae22Found.toString())
+            DiagnosticLine("AE22 subscribed", diagnostics.ae22Subscribed.toString())
+            DiagnosticLine("AE23 found", diagnostics.shape.ae23Found.toString())
+            DiagnosticLine("AE23 subscribed", diagnostics.ae23Subscribed.toString())
             DiagnosticLine(
                 "Queue",
                 diagnostics.queue.activeOperation ?: "idle",

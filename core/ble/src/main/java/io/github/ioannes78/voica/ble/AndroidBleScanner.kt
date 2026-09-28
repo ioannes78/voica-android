@@ -7,7 +7,6 @@ import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.os.SystemClock
-import java.util.LinkedHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -23,8 +22,7 @@ class AndroidBleScanner(
 ) : BleScanner {
     private val applicationContext = context.applicationContext
     private val bluetoothManager = applicationContext.getSystemService(BluetoothManager::class.java)
-    private val lock = Any()
-    private val devices = LinkedHashMap<String, BleScanDevice>()
+    private val accumulator = BleScanAccumulator()
     private var timeoutJob: Job? = null
 
     private val mutableState = MutableStateFlow(BleScanState())
@@ -88,7 +86,7 @@ class AndroidBleScanner(
             return
         }
 
-        synchronized(lock) { devices.clear() }
+        accumulator.clear()
         mutableState.value = BleScanState(isScanning = true)
         val settings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
@@ -172,15 +170,7 @@ class AndroidBleScanner(
             likelyQs668 = candidate,
         )
 
-        val snapshot = synchronized(lock) {
-            devices[address] = model
-            devices.values
-                .sortedWith(
-                    compareByDescending<BleScanDevice> { it.advertisesAe20 }
-                        .thenByDescending { it.likelyQs668 }
-                        .thenByDescending { it.rssi },
-                )
-        }
+        val snapshot = accumulator.upsert(model)
         mutableState.value = mutableState.value.copy(devices = snapshot)
     }
 }

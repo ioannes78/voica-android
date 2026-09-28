@@ -139,6 +139,12 @@ class DefaultDeviceRepository(
                         }
                     }
 
+                    is DeviceConnectionState.Error -> {
+                        if (ReconnectPolicy.shouldRetry(state.error)) {
+                            scheduleReconnect(lastAddress)
+                        }
+                    }
+
                     else -> Unit
                 }
             }
@@ -178,11 +184,35 @@ class DefaultDeviceRepository(
     }
 
     override fun setForeground(foreground: Boolean) {
+        val wasForeground = this.foreground
         this.foreground = foreground
+
         if (!foreground) {
             scanner.stop()
             reconnectJob?.cancel()
             reconnectJob = null
+            reconnectAttempt = 0
+            session.setReconnectAttempt(0)
+            if (mutableConnectionState.value is DeviceConnectionState.ReconnectWaiting) {
+                mutableConnectionState.value = session.state.value
+            }
+            return
+        }
+
+        if (!wasForeground) {
+            when (val current = session.state.value) {
+                is DeviceConnectionState.Disconnected -> {
+                    if (current.reason == DisconnectReason.REMOTE) {
+                        scheduleReconnect(current.address ?: lastAddress)
+                    }
+                }
+                is DeviceConnectionState.Error -> {
+                    if (ReconnectPolicy.shouldRetry(current.error)) {
+                        scheduleReconnect(lastAddress)
+                    }
+                }
+                else -> Unit
+            }
         }
     }
 
@@ -268,7 +298,16 @@ class DefaultDeviceRepository(
         if (environment !is DeviceConnectionState.Idle) return
 
         val nextAttempt = reconnectAttempt + 1
-        val waitMs = ReconnectPolicy.delayForAttempt(nextAttempt) ?: return
+        val waitMs = ReconnectPolicy.delayForAttempt(nextAttempt)
+        if (waitMs == null) {
+            reconnectJob?.cancel()
+            reconnectJob = null
+            mutableConnectionState.value = DeviceConnectionState.Disconnected(
+                target,
+                DisconnectReason.REMOTE,
+            )
+            return
+        }
         reconnectAttempt = nextAttempt
         session.setReconnectAttempt(nextAttempt)
         mutableConnectionState.value = DeviceConnectionState.ReconnectWaiting(
@@ -280,6 +319,7 @@ class DefaultDeviceRepository(
         reconnectJob?.cancel()
         reconnectJob = scope.launch {
             delay(waitMs)
+            reconnectJob = null
             if (
                 foreground &&
                 reconnectAttempt == nextAttempt &&

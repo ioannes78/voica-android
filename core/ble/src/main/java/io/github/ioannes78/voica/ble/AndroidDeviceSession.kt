@@ -452,6 +452,7 @@ class AndroidDeviceSession(
             )
             return
         }
+        updateDiagnostics { it.copy(ae22Subscribed = true) }
 
         mutableState.value =
             DeviceConnectionState.Subscribing(address, NotificationSource.AE23)
@@ -466,6 +467,7 @@ class AndroidDeviceSession(
             )
             return
         }
+        updateDiagnostics { it.copy(ae23Subscribed = true) }
 
         mutableState.value =
             DeviceConnectionState.NegotiatingMtu(address, MtuPolicy.REQUESTED_ATT_MTU)
@@ -731,6 +733,8 @@ class AndroidDeviceSession(
         }
         updateDiagnostics {
             it.copy(
+                ae22Subscribed = false,
+                ae23Subscribed = false,
                 queue = GattQueueSnapshot(closed = true),
                 notifications = router.stats(),
             )

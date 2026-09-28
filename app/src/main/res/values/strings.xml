@@ -38,6 +38,8 @@
     <string name="auth_unknown">未读取</string>
     <string name="refresh">刷新设备信息</string>
     <string name="sync_time">同步时间</string>
+    <string name="sync_sent">时间同步命令已发送</string>
+    <string name="sync_failed">时间同步发送失败</string>
     <string name="yes">支持</string>
     <string name="no">不支持</string>
 

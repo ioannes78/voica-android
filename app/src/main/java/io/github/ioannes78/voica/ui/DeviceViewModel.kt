@@ -9,6 +9,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
+enum class DeviceActionMessage {
+    SYNC_SENT,
+    SYNC_FAILED,
+}
+
 class DeviceViewModel(
     private val repository: DeviceRepository,
 ) : ViewModel() {
@@ -22,8 +27,8 @@ class DeviceViewModel(
     val missingPermissions: StateFlow<Set<String>> =
         mutableMissingPermissions.asStateFlow()
 
-    private val mutableActionMessage = MutableStateFlow<String?>(null)
-    val actionMessage: StateFlow<String?> = mutableActionMessage.asStateFlow()
+    private val mutableActionMessage = MutableStateFlow<DeviceActionMessage?>(null)
+    val actionMessage: StateFlow<DeviceActionMessage?> = mutableActionMessage.asStateFlow()
 
     fun refreshPermissions() {
         mutableMissingPermissions.value = repository.missingPermissions()
@@ -55,7 +60,11 @@ class DeviceViewModel(
     fun syncTime() {
         viewModelScope.launch {
             mutableActionMessage.value =
-                if (repository.syncTime()) "时间同步命令已发送" else "时间同步发送失败"
+                if (repository.syncTime()) {
+                    DeviceActionMessage.SYNC_SENT
+                } else {
+                    DeviceActionMessage.SYNC_FAILED
+                }
         }
     }
 

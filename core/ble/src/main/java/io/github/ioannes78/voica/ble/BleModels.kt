@@ -180,6 +180,8 @@ data class BleDiagnostics(
     val negotiatedMtu: Int? = null,
     val mtuCapability: MtuCapability = MtuPolicy.evaluate(null),
     val shape: GattShapeSnapshot = GattShapeSnapshot(),
+    val ae22Subscribed: Boolean = false,
+    val ae23Subscribed: Boolean = false,
     val queue: GattQueueSnapshot = GattQueueSnapshot(),
     val lastGattStatus: Int? = null,
     val lastError: BleError? = null,
