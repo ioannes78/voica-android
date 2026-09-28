@@ -20,9 +20,11 @@ UseCase / Repository
 +-------------------+-------------------+-------------------+
 | BLE / Device      | Audio / Library   | AI / ML           |
 |                   |                   |                   |
-| Recorder Session  | Playback          | ASR               |
-| GATT Transport    | Conversion        | Diarization       |
-| Protocol          | Room / Files      | Meeting Notes     |
+| Recorder Session  | Playback          | VAD               |
+| GATT Transport    | Conversion        | ASR               |
+| Protocol          | Room / Files      | Punctuation       |
+|                   |                   | Diarization       |
+|                   |                   | Meeting Notes     |
 +-------------------+-------------------+-------------------+
 ```
 
@@ -35,7 +37,9 @@ UseCase / Repository
 - `core-audio`：音频格式和时间轴契约
 - `core-database`：Room
 - `engine-opus`：设备 Opus 包装/解码
+- `engine-vad`：VAD 抽象与实现
 - `engine-asr`：本地 ASR 抽象与实现
+- `engine-punctuation`：标点恢复/规范化
 - `engine-speaker`：说话人分离
 - `engine-ai`：AI 会议纪要客户端
 - `feature-device`：扫描、连接、设备状态
@@ -54,7 +58,9 @@ Stage 1 可以根据实际 Gradle 复杂度合并部分物理模块，但逻辑�
 - 文件列表加载状态
 - 文件下载状态
 - 音频转换状态
+- VAD 状态
 - 转写状态
+- 标点恢复状态
 - 说话人分离状态
 - AI 纪要状态
 
@@ -81,7 +87,39 @@ Stage 1 可以根据实际 Gradle 复杂度合并部分物理模块，但逻辑�
 5. App 重启后不能依赖重新连接录音卡恢复本地音频
 6. 原始音频与派生音频生命周期要明确
 
-## 7. 转写时间轴
+## 7. 本地转写处理链
+
+本地文件转写采用能力解耦：
+
+```
+16 kHz Mono PCM
+      ↓
+VadEngine
+      ↓
+SpeechSegment
+      ↓
+长度保护 / 合并
+      ↓
+AsrEngine
+      ↓
+Raw Transcript
+      ↓
+标点能力判断
+      ├─ ASR 已有可靠标点 → 规范化
+      └─ 无/弱标点 → PunctuationEngine
+      ↓
+Final Timed Transcript
+```
+
+约束：
+
+- 不把 VAD 锁死为 WebRTC VAD；WebRTC、Silero、sherpa-onnx VAD 通过 Android 实测后选择实现。
+- `AsrEngine` 必须声明自己的标点能力，上层不得假定所有模型都自带标点。
+- `PunctuationEngine` 独立于 `AsrEngine`。
+- 文件转写在 V1 即使用 VAD；真正的 Streaming VAD/Online Punctuation 放到 Stage 16。
+- Final Transcript 必须保存最终标点结果和真实时间边界。
+
+## 8. 转写时间轴
 
 真实时间段属于核心数据，不是 UI 临时数据。
 
@@ -92,17 +130,18 @@ Stage 1 可以根据实际 Gradle 复杂度合并部分物理模块，但逻辑�
 - speaker
 - text
 - 必要的转写版本/模型元数据
+- 必要时记录 VAD/ASR/Punctuation pipeline 版本
 
 UI 的段落合并、文本排版和高亮是派生显示，不得破坏原始时间信息。
 
-## 8. 中文产品基线
+## 9. 中文产品基线
 
 - 默认 UI 为简体中文
 - 中文状态文本集中管理，禁止在业务逻辑层散落大量硬编码用户文案
 - Kotlin 技术命名继续使用英文
 - 后续国际化应通过资源系统实现，不影响领域层
 
-## 9. 安全
+## 10. 安全
 
 - API Key 不写入仓库
 - API Key 不输出到普通日志
