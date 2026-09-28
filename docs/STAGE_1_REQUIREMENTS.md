@@ -12,7 +12,7 @@ Stage 1 建立一个全新、可安装、可测试的 Android 基础工程，并
 - Android Gradle Plugin 9.4.0
 - Gradle 9.6
 - JDK 17
-- compileSdk 37
+- compileSdk 37.1（`compileSdk = 37` + `compileSdkMinor = 1`）
 - targetSdk 37
 - minSdk 26
 - Jetpack Compose BOM 2026.09.00
