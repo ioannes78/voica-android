@@ -1,0 +1,5 @@
+Stage 2 real-device APK candidate.
+
+Keep this marker while Stage 2 is in QS668/CB08 real-device acceptance.
+The Android PR CI uploads the debug APK only when this marker exists or the workflow is manually dispatched.
+Remove it when Stage 2 is frozen.

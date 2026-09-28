@@ -199,6 +199,35 @@ class DefaultDeviceRepository(
             return
         }
 
+        val environment = initialEnvironmentState()
+        when (environment) {
+            is DeviceConnectionState.PermissionRequired -> {
+                scanner.stop()
+                reconnectJob?.cancel()
+                reconnectJob = null
+                reconnectAttempt = 0
+                session.setReconnectAttempt(0)
+                session.handlePermissionRevoked()
+                mutableConnectionState.value = environment
+                return
+            }
+            DeviceConnectionState.BluetoothOff -> {
+                scanner.stop()
+                reconnectJob?.cancel()
+                reconnectJob = null
+                reconnectAttempt = 0
+                session.setReconnectAttempt(0)
+                session.handleBluetoothOff()
+                mutableConnectionState.value = environment
+                return
+            }
+            DeviceConnectionState.Unavailable -> {
+                mutableConnectionState.value = environment
+                return
+            }
+            else -> Unit
+        }
+
         if (!wasForeground) {
             when (val current = session.state.value) {
                 is DeviceConnectionState.Disconnected -> {

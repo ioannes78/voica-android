@@ -56,7 +56,7 @@ class AndroidDeviceSession(
     private val mutableNotifications = MutableSharedFlow<RoutedNotification>(extraBufferCapacity = 64)
     val notifications: SharedFlow<RoutedNotification> = mutableNotifications.asSharedFlow()
 
-    private var currentGeneration = 0L
+    private var activeGeneration: Long? = null
     private var currentGatt: BluetoothGatt? = null
     private var backend: AndroidGattBackend? = null
     private var queue: GattOperationQueue? = null
@@ -98,7 +98,8 @@ class AndroidDeviceSession(
                 return false
             }
 
-            currentGeneration = sessionCounter.incrementAndGet()
+            val generation = sessionCounter.incrementAndGet()
+            activeGeneration = generation
             requestedDisconnectReason = null
             negotiatedMtu = null
             router.reset()
@@ -106,14 +107,14 @@ class AndroidDeviceSession(
             commandClient.resetSequence()
             log.clear()
             mutableDiagnostics.value = BleDiagnostics(
-                sessionId = currentGeneration,
+                sessionId = generation,
                 gattStage = "Connecting",
                 logs = emptyList(),
             )
-            addLog("Connect requested address=" + address + " session=" + currentGeneration)
+            addLog("Connect requested address=" + address + " session=" + generation)
             mutableState.value = DeviceConnectionState.Connecting(address)
 
-            val callback = callbackFor(currentGeneration)
+            val callback = callbackFor(generation)
             val gatt = try {
                 device.connectGatt(
                     applicationContext,
@@ -122,12 +123,14 @@ class AndroidDeviceSession(
                     BluetoothDevice.TRANSPORT_LE,
                 )
             } catch (security: SecurityException) {
+                activeGeneration = null
                 recordError(BleError(BleErrorCode.PERMISSION_DENIED, security.message))
                 mutableState.value = DeviceConnectionState.PermissionRequired(
                     BlePermissionPolicy.requiredPermissions(),
                 )
                 return false
             } catch (error: RuntimeException) {
+                activeGeneration = null
                 val failure = BleError(BleErrorCode.CONNECT_FAILED, error.message)
                 recordError(failure)
                 mutableState.value = DeviceConnectionState.Error(failure)
@@ -135,13 +138,14 @@ class AndroidDeviceSession(
             }
 
             if (gatt == null) {
+                activeGeneration = null
                 val failure = BleError(BleErrorCode.CONNECT_FAILED, "connectGatt returned null")
                 recordError(failure)
                 mutableState.value = DeviceConnectionState.Error(failure)
                 return false
             }
             currentGatt = gatt
-            startConnectTimeout(currentGeneration, address)
+            startConnectTimeout(generation, address)
             return true
         }
     }
@@ -168,6 +172,17 @@ class AndroidDeviceSession(
                 DisconnectReason.PERMISSION_REVOKED,
             )
         }
+    }
+
+    fun handlePermissionRevoked() {
+        requestedDisconnectReason = DisconnectReason.PERMISSION_REVOKED
+        val gatt = synchronized(lock) { currentGatt }
+        if (gatt != null) releaseGatt(gatt)
+        commandClient.cancelPending()
+        mutableState.value = DeviceConnectionState.PermissionRequired(
+            BlePermissionPolicy.requiredPermissions(),
+        )
+        addLog("Bluetooth permission revoked")
     }
 
     fun handleBluetoothOff() {
@@ -672,7 +687,7 @@ class AndroidDeviceSession(
     }
 
     private fun isCurrent(generation: Long): Boolean =
-        synchronized(lock) { generation == currentGeneration }
+        synchronized(lock) { activeGeneration == generation }
 
     @SuppressLint("MissingPermission")
     private fun safeAddress(gatt: BluetoothGatt): String? =
@@ -728,6 +743,7 @@ class AndroidDeviceSession(
             negotiatedMtu = null
             commandClient.cancelPending()
             router.reset()
+            activeGeneration = null
             currentGatt = null
             safeClose(gatt)
         }

@@ -23,6 +23,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -91,6 +92,12 @@ private fun DeviceScreen(
     val missingPermissions by viewModel.missingPermissions.collectAsState()
     val actionMessage by viewModel.actionMessage.collectAsState()
     var diagnosticsExpanded by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(connection) {
+        if (connection is DeviceConnectionState.PermissionRequired) {
+            viewModel.refreshPermissions()
+        }
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),

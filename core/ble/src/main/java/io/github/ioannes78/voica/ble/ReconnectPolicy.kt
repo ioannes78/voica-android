@@ -7,7 +7,10 @@ object ReconnectPolicy {
         if (attempt in 1..delaysMs.size) delaysMs[attempt - 1] else null
 
     fun shouldRetry(error: BleError): Boolean =
-        error.code == BleErrorCode.CONNECT_FAILED ||
-            error.code == BleErrorCode.CONNECT_TIMEOUT ||
-            error.code == BleErrorCode.REMOTE_DISCONNECTED
+        error.recoverable &&
+            (
+                error.code == BleErrorCode.CONNECT_FAILED ||
+                    error.code == BleErrorCode.CONNECT_TIMEOUT ||
+                    error.code == BleErrorCode.REMOTE_DISCONNECTED
+            )
 }
