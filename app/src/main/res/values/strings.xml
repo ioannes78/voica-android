@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Voica</string>
+    <string name="app_subtitle">AI 录音卡</string>
+    <string name="version_label">0.1.0 Stage 1</string>
+    <string name="tab_recordings">录音</string>
+    <string name="tab_settings">设置</string>
+    <string name="device_title">设备</string>
+    <string name="device_not_connected">尚未连接</string>
+    <string name="protocol_diagnostics">协议诊断</string>
+    <string name="protocol_core_loaded">协议核心已加载</string>
+    <string name="protocol_version">QS668 / CB08 V1</string>
+    <string name="status_pass">通过</string>
+    <string name="status_fail">失败</string>
+    <string name="diagnostic_crc">CRC-16/XMODEM</string>
+    <string name="diagnostic_parser">FrameParser</string>
+    <string name="diagnostic_import_frame">2-2 导入帧</string>
+    <string name="settings_title">Stage 1 设置</string>
+    <string name="settings_language">默认语言</string>
+    <string name="settings_language_value">简体中文</string>
+    <string name="settings_scope">当前范围</string>
+    <string name="settings_scope_value">工程基础 + 协议核心</string>
+</resources>
