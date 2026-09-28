@@ -8,6 +8,7 @@ plugins {
 android {
     namespace = "io.github.ioannes78.voica"
     compileSdk = 37
+    compileSdkMinor = 1
 
     defaultConfig {
         applicationId = "io.github.ioannes78.voica"
