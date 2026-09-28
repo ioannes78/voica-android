@@ -28,7 +28,7 @@
 ## CI 记录
 
 - 初始 PR CI 在 Android SDK setup Action 阶段失败，原因是第三方 Action 默认请求已移除的旧 `tools` SDK 包。
-- 已改为直接使用 GitHub Runner 预装的 `sdkmanager`，该失败不属于应用代码或协议测试失败。
+- 第二次环境验证发现 Runner 的 Android SDK 已预装，但 `sdkmanager` 未加入 PATH；已改为显式调用 `$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager`。前两类失败均不属于应用代码或协议测试失败。
 
 ## APK 真机安装
 
