@@ -1,67 +1,110 @@
-# Voica Android Architecture — Draft V1
+# Voica Android 系统架构草案 V1
 
-## Layering
+## 1. 架构原则
+
+Voica 是全新 Android 工程。
+
+**不从 `voice-card-android` 继承任何代码、模块实现或构建脚本。**
+
+系统按“协议、传输、数据、音频、AI/ML、Feature UI”分层，避免形成一个同时处理 BLE、文件、音频、模型和界面的巨型状态对象。
+
+## 2. 总体分层
 
 ```
-Compose UI
-   |
-Feature ViewModels
-   |
-Use cases / repositories
-   |
-+----------------+----------------+----------------+
-| BLE/device     | Audio/library  | AI/ML          |
-|                |                |                |
-| recorder       | playback       | ASR            |
-| session        | conversion     | diarization    |
-| protocol       | persistence    | meeting notes  |
-| transport      | raw files      | model manager  |
-+----------------+----------------+----------------+
+Jetpack Compose UI
+        |
+Feature ViewModel
+        |
+UseCase / Repository
+        |
++-------------------+-------------------+-------------------+
+| BLE / Device      | Audio / Library   | AI / ML           |
+|                   |                   |                   |
+| Recorder Session  | Playback          | ASR               |
+| GATT Transport    | Conversion        | Diarization       |
+| Protocol          | Room / Files      | Meeting Notes     |
++-------------------+-------------------+-------------------+
 ```
 
-## Proposed modules
+## 3. 初步模块规划
 
-- `app` — application shell, navigation and dependency wiring
-- `core-model` — shared domain models/contracts
-- `core-protocol` — QS668/CB08 binary protocol only
-- `core-ble` — Android BLE transport/session primitives
-- `core-audio` — audio representations and timing contracts
-- `core-database` — Room database
-- `engine-opus` — device Opus packaging/decoding
-- `engine-asr` — local ASR abstraction and implementation
-- `engine-speaker` — diarization abstraction and implementation
-- `engine-ai` — meeting-note provider client
-- `feature-device` — scan/connect/device state
-- `feature-recordings` — device/local recording lists and transfer
-- `feature-transcript` — transcription and synchronized playback UI
-- `feature-settings` — models, provider and diagnostics
+- `app`：应用入口、导航、依赖装配
+- `core-model`：公共领域模型和接口
+- `core-protocol`：QS668/CB08 二进制协议
+- `core-ble`：Android BLE Transport / Session
+- `core-audio`：音频格式和时间轴契约
+- `core-database`：Room
+- `engine-opus`：设备 Opus 包装/解码
+- `engine-asr`：本地 ASR 抽象与实现
+- `engine-speaker`：说话人分离
+- `engine-ai`：AI 会议纪要客户端
+- `feature-device`：扫描、连接、设备状态
+- `feature-recordings`：设备文件、本地录音、传输
+- `feature-transcript`：转写、时间轴、同步播放
+- `feature-settings`：模型、AI 服务和诊断设置
 
-Modules may be collapsed during Stage 1 if Gradle/module overhead exceeds the practical benefit. Boundaries matter more than module count.
+Stage 1 可以根据实际 Gradle 复杂度合并部分物理模块，但逻辑边界必须保留。
 
-## State model
+## 4. 状态模型
 
-BLE connection state, active transfer state and active processing state are explicit state machines. A single mutable singleton is not the application architecture.
+以下状态必须显式建模：
 
-## File identity
+- BLE 连接状态
+- GATT 初始化状态
+- 文件列表加载状态
+- 文件下载状态
+- 音频转换状态
+- 转写状态
+- 说话人分离状态
+- AI 纪要状态
 
-Device identity and local recording identity must be separate:
-- a device file can exist without a local recording
-- a downloaded device file maps to one stable local recording
-- retrying the same download must not silently create duplicates
-- deleting a device copy must not implicitly delete the local copy
+不允许使用一个全局可变 Singleton 承担整个应用状态。
 
-## Audio canonicalization
+## 5. 设备文件与本地录音身份
 
-1. Persist source bytes first.
-2. Validate source format/packet structure.
-3. Create a canonical local audio representation for playback/ML.
-4. Keep conversion idempotent.
-5. Never require a connected recorder to access the local library.
+设备文件身份与本地录音身份必须分离：
 
-## Transcript timing
+- 设备上存在文件，不代表本地已经下载
+- 同一个设备文件成功下载后应映射到稳定的本地 Recording
+- 重试下载不能静默产生多个相同本地录音
+- 删除设备端文件不能自动删除本地副本
+- 删除本地副本不能自动删除设备端文件
 
-Persist timed segments as first-class data. UI paragraph formatting is derived presentation data and must not destroy original timing.
+## 6. 音频落地原则
 
-## Security
+处理顺序：
 
-API keys must not be committed or logged. Provider credentials are stored using Android-appropriate encrypted storage.
+1. 先可靠保存设备原始字节
+2. 校验原始格式/包结构
+3. 再生成播放/ML 使用的标准本地音频
+4. 转换必须幂等
+5. App 重启后不能依赖重新连接录音卡恢复本地音频
+6. 原始音频与派生音频生命周期要明确
+
+## 7. 转写时间轴
+
+真实时间段属于核心数据，不是 UI 临时数据。
+
+数据库应保存：
+
+- start
+- end
+- speaker
+- text
+- 必要的转写版本/模型元数据
+
+UI 的段落合并、文本排版和高亮是派生显示，不得破坏原始时间信息。
+
+## 8. 中文产品基线
+
+- 默认 UI 为简体中文
+- 中文状态文本集中管理，禁止在业务逻辑层散落大量硬编码用户文案
+- Kotlin 技术命名继续使用英文
+- 后续国际化应通过资源系统实现，不影响领域层
+
+## 9. 安全
+
+- API Key 不写入仓库
+- API Key 不输出到普通日志
+- 凭据使用 Android 合适的安全存储
+- 设备删除等破坏性操作必须明确确认
