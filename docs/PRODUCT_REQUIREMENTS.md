@@ -64,6 +64,13 @@ Voica 是一个全新项目，**不继承 `voice-card-android` 的任何代码�
 - Android 端本地 ASR
 - 中文优先
 - 选定模型支持时兼顾中英混说和多语言
+- 文件转写前使用独立 VAD 对长音频进行语音区间检测和分段
+- VAD 实现不得锁死为单一方案，候选包括 WebRTC、Silero、sherpa-onnx 等
+- 避免只按固定秒数硬切长录音；超长语音段仍需 maxSegmentDuration 保护
+- 不假定 ASR 模型一定自带标点
+- ASR 自带可靠标点时保留并规范化
+- ASR 无标点或标点不足时，通过独立 PunctuationEngine 自动恢复标点
+- 最终保存带标点的 Final Transcript
 - 长录音处理必须控制峰值内存
 - 显示真实处理进度
 - 支持取消和失败重试
@@ -99,6 +106,7 @@ Voica 是一个全新项目，**不继承 `voice-card-android` 的任何代码�
 
 - 设备诊断信息
 - 本地模型下载/状态/删除
+- VAD/ASR/标点模型状态（按实际实现呈现）
 - 说话人分离开关
 - AI 服务配置
 - 本地存储占用
@@ -112,6 +120,8 @@ Kardo 基线稳定之前不加入：
 - 用户账号系统
 - 团队协作
 - 云端实时转写
+- 本地实时流式转写
+- Streaming VAD / Online Punctuation
 - 跨录音自动说话人身份识别
 - 后台服务器强依赖
 - 设备端删除全部
