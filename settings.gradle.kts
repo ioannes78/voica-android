@@ -17,3 +17,4 @@ dependencyResolutionManagement {
 rootProject.name = "Voica"
 include(":app")
 include(":core:protocol")
+include(":core:ble")
