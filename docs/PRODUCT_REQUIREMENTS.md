@@ -1,84 +1,126 @@
-# Voica Android V1.0 — Product Requirements
+# Voica Android V1.0 产品需求
 
-## 1. Product definition
+## 1. 产品定义
 
-Voica is an Android companion app for QS668 / CB08 recorder-card devices. V1.0 targets a reliable offline-first recording workflow:
+Voica 是 QS668 / CB08 录音卡的 Android 原生配套应用。
 
-device -> Android -> local audio -> local transcription -> speaker-aware transcript -> optional AI meeting notes.
+V1.0 的核心链路：
 
-The first release intentionally prioritizes reliability over feature breadth.
+`录音卡 → Android → 本地音频 → 本地转写 → 说话人时间轴 → AI 会议纪要`
 
-## 2. V1.0 core capabilities
+第一版优先保证稳定性、数据正确性和真机可靠性，不以功能数量为优先目标。
 
-### Device
-- scan and connect to supported recorder cards
-- connection state and reconnect handling
-- battery, charging state, storage capacity and firmware information
-- device time synchronization
-- recording-state query and supported recording controls
+Voica 是一个全新项目，**不继承 `voice-card-android` 的任何代码或模块实现**。
 
-### Device files
-- request and render device file list
-- recover/resolve usable full filenames where the short list entry is insufficient
-- order recordings by recorded filename/date when determinable
-- download with progress, timeout, cancellation and retry behavior
-- prevent accidental duplicate local imports
-- delete one device recording with explicit confirmation
-- do not expose delete-all in V1.0
+## 2. 产品语言
 
-### Local audio library
-- preserve original downloaded device audio
-- create a stable playback/transcription representation
-- play, pause, seek and change speed
-- rename/delete local recordings
-- work without a connected recorder
+- 默认 App UI：简体中文
+- 默认错误提示、状态提示、设置项和操作确认：简体中文
+- V1.0 首先完整保证简体中文体验
+- 国际化能力可以保留技术扩展点，但不是 V1.0 的优先目标
 
-### Transcription
-- on-device ASR
-- Chinese-first, with multilingual/code-switching capability when supported by the selected model
-- long-audio processing must be bounded in memory
-- progress, cancellation and explicit failure states
-- transcript persistence independent of model lifecycle
+## 3. V1.0 核心能力
 
-### Speaker diarization
-- optional diarization
-- stable speaker IDs within one recording
-- normalize overlaps/zero-length segments before ASR presentation
-- do not claim cross-recording speaker identity in V1.0
+### 3.1 设备
 
-### Transcript playback interaction
-- tap transcript segment to seek
-- highlight the currently playing segment
-- auto-scroll without fighting manual user scroll
-- preserve real time boundaries; do not invent fake timestamps solely for prettier text wrapping
+- 扫描并连接支持的录音卡
+- 连接状态管理
+- 断连与重新连接处理
+- 电量与充电状态
+- 存储容量
+- 固件版本
+- 设备时间同步
+- 录音状态查询
+- 支持的录音控制操作
 
-### AI meeting notes
-- configurable OpenAI-compatible endpoint
-- base URL, API key and model configuration
-- send only transcript/required meeting context, never raw audio unless a later feature explicitly requires it
-- clear failure and retry states
+### 3.2 设备文件
 
-### Settings
-- device diagnostics
-- model management/status
-- speaker diarization toggle
-- AI provider configuration
-- local storage usage and cleanup
+- 请求并显示录音卡文件列表
+- 当列表中的短文件名不足以下载时，解析可用完整文件名
+- 可识别时按录音文件日期/时间排序
+- 文件下载进度
+- 下载超时
+- 取消
+- 重试
+- 防止同一设备文件重复生成本地录音
+- 单文件设备端删除
+- 删除前二次确认
+- V1.0 不提供“删除全部设备文件”
 
-## 3. V1.0 non-goals
+### 3.3 本地录音库
 
-The initial Kardo-parity line does not include:
-- cloud sync
-- account system
-- team collaboration
-- live cloud ASR
-- automatic cross-file speaker recognition
-- background server dependency
-- delete-all device command
-- feature parity with the former VoiceCard Stage 30 codebase
+- 保存设备下载的原始音频
+- 建立稳定的本地播放/转写音频表示
+- 播放
+- 暂停
+- seek 跳转
+- 倍速
+- 本地重命名
+- 本地删除
+- 不连接录音卡也可以完整使用本地录音库
 
-Those may be evaluated only after the Kardo-parity baseline is stable.
+### 3.4 本地转写
 
-## 4. Acceptance principle
+- Android 端本地 ASR
+- 中文优先
+- 选定模型支持时兼顾中英混说和多语言
+- 长录音处理必须控制峰值内存
+- 显示真实处理进度
+- 支持取消和失败重试
+- 转写结果独立持久化，不依赖模型常驻内存
 
-A feature is not complete because it compiles. Device-facing and long-audio features require real-device/manual acceptance evidence.
+### 3.5 说话人分离
+
+- 可启用/关闭
+- 单个录音内部保持稳定的 Speaker ID
+- 对重叠、零长度、异常时间段进行归一化
+- V1.0 不宣称跨录音识别同一个真实人物
+
+### 3.6 转写与播放同步
+
+- 点击转写段落跳转到对应音频位置
+- 播放时高亮当前转写段
+- 自动滚动
+- 用户手动滚动时不能被 UI 强制抢回
+- 保存真实时间边界
+- 不为了排版效果人为制造不存在的时间戳
+
+### 3.7 AI 会议纪要
+
+- 支持 OpenAI-compatible API
+- 配置 Base URL
+- 配置 API Key
+- 配置模型
+- 默认只上传必要的文字转写和会议上下文
+- 除非后续功能明确要求，否则不上传原始音频
+- 提供明确的失败、重试和连接状态
+
+### 3.8 设置
+
+- 设备诊断信息
+- 本地模型下载/状态/删除
+- 说话人分离开关
+- AI 服务配置
+- 本地存储占用
+- 缓存和模型清理
+
+## 4. V1.0 暂不包含
+
+Kardo 基线稳定之前不加入：
+
+- 云同步
+- 用户账号系统
+- 团队协作
+- 云端实时转写
+- 跨录音自动说话人身份识别
+- 后台服务器强依赖
+- 设备端删除全部
+- 对旧 `voice-card-android` Stage 30 的兼容或代码复用
+
+以上功能只能在 V1.0 Freeze 之后重新评估。
+
+## 5. 验收原则
+
+“可以编译”不等于“功能完成”。
+
+所有设备相关功能和长录音相关功能必须有真机/真实录音测试证据，才能完成对应 Stage。
