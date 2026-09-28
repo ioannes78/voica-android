@@ -1,4 +1,4 @@
-name: Stage 1 CI
+name: Android PR CI
 
 on:
   pull_request:
@@ -9,15 +9,15 @@ on:
       - "gradle.properties"
       - "settings.gradle.kts"
       - "build.gradle.kts"
-      - ".github/workflows/stage1-ci.yml"
-      - "docs/STAGE_1_TEST.md"
+      - ".github/workflows/android-ci.yml"
+      - "docs/STAGE_2_*.md"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: stage1-ci-${{ github.ref }}
+  group: android-ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -51,13 +51,18 @@ jobs:
           gradle-version: "9.6.0"
 
       - name: Unit test and debug build
-        run: gradle :core:protocol:test :app:assembleDebug --stacktrace
+        run: >
+          gradle
+          :core:protocol:test
+          :core:ble:testDebugUnitTest
+          :app:assembleDebug
+          --stacktrace
 
-      - name: Upload Stage 1 APK
-        if: success()
+      - name: Upload Stage 2 APK
+        if: success() && github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: Voica-0.1.0-stage1-debug
+          name: Voica-0.2.0-stage2-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 3
