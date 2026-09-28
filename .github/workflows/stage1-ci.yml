@@ -10,6 +10,7 @@ on:
       - "settings.gradle.kts"
       - "build.gradle.kts"
       - ".github/workflows/stage1-ci.yml"
+      - "docs/STAGE_1_TEST.md"
   workflow_dispatch:
 
 permissions:
@@ -37,8 +38,10 @@ jobs:
       - name: Install Android 37 platform
         shell: bash
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-37" "build-tools;36.0.0"
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platforms;android-37" "build-tools;36.0.0"
 
       - name: Setup Gradle 9.6
         uses: gradle/actions/setup-gradle@v4
@@ -49,10 +52,10 @@ jobs:
         run: gradle :core:protocol:test :app:assembleDebug --stacktrace
 
       - name: Upload Stage 1 APK
-        if: github.event_name == 'workflow_dispatch'
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: Voica-0.1.0-stage1-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
