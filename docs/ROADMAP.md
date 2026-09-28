@@ -1,112 +1,180 @@
-# Voica Android V1.0 Roadmap
+# Voica Android V1.0 开发路线图
 
-Status: planning. Feature coding requires explicit approval of the relevant stage plan.
+当前状态：**规划阶段**。
 
-## Stage 1 — Foundation + protocol core
+所有功能代码必须遵循“需求确认 → 开发规划确认 → 编码”的阶段门禁。
 
-Goal: create a small, testable Android foundation before touching real BLE behavior.
+整个 Voica 路线均为**全新独立实现**，不得从 `voice-card-android` 复制、迁移或继承代码。
 
-Deliverables:
-- Gradle/Kotlin/Compose app shell
-- package/application naming finalized
-- protocol constants, frame builder and independent AE22/AE23 parsers
-- CRC and golden tests
-- command encoders for device info/file operations
-- CI limited to fast build/unit checks
-- Stage 1 debug APK (shell/diagnostics only)
+## Stage 1 — 工程基础 + 协议核心
 
-Exit: protocol tests deterministic and app builds cleanly.
+目标：先建立最小、稳定、可测试的 Android 基础，再进入真实 BLE。
 
-## Stage 2 — BLE connection + device status
+内容：
 
-Deliverables:
-- scan/connect/disconnect
-- serialized GATT operation queue
-- AE20/AE21/AE22/AE23 discovery/subscription
-- time sync
-- battery/charging/capacity/firmware
-- reconnect/error states and diagnostic log
+- Kotlin / Gradle / Compose 基础工程
+- 最终确定 Application ID、minSdk、targetSdk
+- 简体中文 UI 基线
+- 协议常量
+- Frame Builder
+- AE22 / AE23 独立流式 FrameParser
+- CRC-16/XMODEM
+- 设备信息/文件相关命令编码
+- Golden tests
+- 精简 CI
+- Stage 1 Debug APK，仅用于基础壳和诊断
 
-Exit: repeated connect/disconnect and device-info operations pass real-device testing.
+退出条件：
 
-## Stage 3 — Device file synchronization
+- 协议测试稳定可重复
+- Android 工程构建通过
+- APK 可安装启动
 
-Deliverables:
-- file list
-- full/usable filename resolution strategy
-- download candidates and timeout behavior
-- progress/cancel/retry
-- duplicate-download protection
-- single-file device deletion with confirmation
-- raw source persistence
+## Stage 2 — BLE 连接 + 设备状态
 
-Exit: repeated list/download/delete tests pass without duplicate or corrupt local records.
+内容：
 
-## Stage 4 — Local library + audio pipeline
+- BLE 扫描
+- 连接/断开
+- 串行 GATT 操作队列
+- AE20/AE21/AE22/AE23 发现与订阅
+- 时间同步
+- 电量
+- 充电状态
+- 容量
+- 固件版本
+- 重连
+- 中文错误状态
+- BLE 诊断日志
 
-Deliverables:
-- source Opus validation and conversion
-- canonical 16 kHz audio representation
-- local Room metadata
-- playback/pause/seek/speed
-- rename/local delete
-- offline local-library use
+退出条件：
 
-Exit: downloaded recordings remain playable after reconnect/restart and seek is stable.
+重复连接、断开、读取设备信息的真机测试通过。
 
-## Stage 5 — Local ASR
+## Stage 3 — 设备文件同步
 
-Deliverables:
-- Android ASR engine contract
-- benchmark/select first production model
-- model download/verification/delete
-- long-audio chunking and bounded-memory execution
-- transcription progress/cancel/retry
-- persisted transcript
+内容：
 
-Exit: short and long Chinese-first recordings pass agreed accuracy/stability tests.
+- 文件列表
+- 可用完整文件名解析
+- 下载候选文件名策略
+- 下载进度
+- 下载超时
+- 取消
+- 重试
+- 重复下载保护
+- 单文件设备端删除
+- 删除二次确认
+- 原始录音可靠落盘
 
-## Stage 6 — Speaker diarization + synchronized transcript
+退出条件：
 
-Deliverables:
-- diarization engine
-- overlap/zero-length normalization
-- timed speaker segments
-- display merge behavior
-- tap-to-seek
-- playback highlight + controlled auto-scroll
+重复执行列表、下载、失败重试、再次下载、删除，不产生重复或损坏本地记录。
 
-Exit: multi-speaker real recordings show stable timing and usable speaker separation.
+## Stage 4 — 本地录音库 + 音频链路
 
-## Stage 7 — AI meeting notes
+内容：
 
-Deliverables:
-- OpenAI-compatible provider settings
-- connectivity/model validation where supported
-- meeting-summary prompts/output
-- retry/error handling
-- secrets storage
+- 原始 Opus 校验
+- Opus/容器转换
+- 16 kHz 标准音频
+- Room 本地元数据
+- 播放/暂停
+- seek
+- 倍速
+- 本地重命名
+- 本地删除
+- 设备断开时独立使用本地录音库
 
-Exit: transcript-to-summary workflow is stable and does not require uploading raw audio.
+退出条件：
 
-## Stage 8 — V1 hardening + release
+App 重启、设备断开后录音仍可稳定播放，seek 位置正确。
 
-Deliverables:
-- lifecycle/background interruption audit
-- low-storage/network/BLE-disconnect cases
-- long-recording soak tests
-- database migration/failure checks
-- accessibility/basic localization
-- release build and final handoff
+## Stage 5 — 本地 ASR
 
-Exit: V1 acceptance checklist complete.
+内容：
 
-## Post-V1 candidates
+- Android ASR Engine 抽象
+- 对候选模型进行真实 Android Benchmark
+- 确定首个生产模型
+- 模型下载
+- 完整性校验
+- 模型删除
+- 长录音分块
+- 峰值内存控制
+- 转写进度
+- 取消
+- 重试
+- 转写结果持久化
 
-Only after V1 freeze:
-- realtime transcription
-- cloud ASR
-- cloud sync
-- cross-recording speaker profiles
-- export/share enhancements
-- additional recorder models
+重点：**中文优先**。
+
+退出条件：
+
+约定的短录音和长录音中文测试集达到稳定性与可用性要求。
+
+## Stage 6 — 说话人分离 + 同步时间轴
+
+内容：
+
+- 说话人分离 Engine
+- 重叠/零长度时间段归一化
+- Speaker 时间段
+- 显示层合并
+- 点击文字跳转播放
+- 当前播放段高亮
+- 自动滚动
+- 用户手动滚动保护
+
+退出条件：
+
+真实多人录音下时间轴稳定，Speaker 分段达到可用水平。
+
+## Stage 7 — AI 会议纪要
+
+内容：
+
+- OpenAI-compatible Provider
+- Base URL / API Key / Model 设置
+- 支持时自动获取模型列表
+- 连接测试
+- 会议纪要生成
+- 中文 Prompt 与中文默认输出
+- 失败/重试
+- 凭据安全存储
+
+退出条件：
+
+“本地转写 → AI 纪要”链路稳定，并且默认不上传原始音频。
+
+## Stage 8 — V1 稳定性与发布
+
+内容：
+
+- 生命周期审计
+- 后台/锁屏/切换 App
+- BLE 中断
+- 网络中断
+- 低存储空间
+- 长录音 soak test
+- 数据库迁移/异常恢复
+- 基础无障碍
+- 简体中文文案校验
+- Release build
+- V1 Freeze / Handoff
+
+退出条件：
+
+V1 验收清单完成。
+
+## V1 之后再评估
+
+- 实时本地转写
+- 云端文件转写
+- 云端实时转写
+- 云同步
+- 跨录音 Speaker Profile
+- 更多导出/分享能力
+- 更多录音卡型号
+
+这些功能不得提前侵入 V1 基线。
