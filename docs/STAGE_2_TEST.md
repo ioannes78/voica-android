@@ -132,3 +132,22 @@ response sequence 不保证回显 request sequence。实测 request seq 与 resp
 **“测试通过”**
 
 因此 Stage 2 满足 Freeze/Handoff 条件。
+
+
+## 8. Freeze 合并前最终验证
+
+Freeze 内容提交：
+
+`e1f6f08e221f9917b28a3ff9c07f92b297867c98`
+
+Android PR CI：
+
+`36526792513` — **success**
+
+该 Run 在 Freeze/Handoff/README/ROADMAP/ARCHITECTURE/AGENTS 收口后再次执行并通过：
+
+- `:core:protocol:test`
+- `:core:ble:testDebugUnitTest`
+- `:app:assembleDebug`
+
+因此 Stage 2 在用户最终“测试通过”之后仍保持自动验证全绿。

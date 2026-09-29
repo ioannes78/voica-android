@@ -65,7 +65,23 @@ Stage 2 不冻结、不宣称实现：
 
 `app → core:ble → core:protocol`
 
-## 3. 真机代码基线
+## 3. Freeze 证据
+
+Freeze 内容提交：
+
+`e1f6f08e221f9917b28a3ff9c07f92b297867c98`
+
+Freeze 合并前最终 CI：
+
+- Workflow：Android PR CI
+- Run ID：`36526792513`
+- 结论：**success**
+- `:core:protocol:test`：通过
+- `:core:ble:testDebugUnitTest`：通过
+- `:app:assembleDebug`：通过
+- 冻结后默认不上传 APK：符合低成本 CI 策略
+
+## 4. 真机代码基线
 
 真机实际安装并验收的代码候选：
 
@@ -85,7 +101,7 @@ Candidate APK SHA-256：
 
 后续提交在 Freeze 前仅包含验收/收口文档，无 Stage 2 生产代码变化。
 
-## 4. 真机冻结事实
+## 5. 真机冻结事实
 
 QS668/CB08 实测：
 
@@ -115,7 +131,7 @@ QS668/CB08 实测：
 - AE22/AE23 parser 独立
 - 两路完整 ProtocolFrame 均可尝试完成当前 pending request
 
-## 5. 连接冻结事实
+## 6. 连接冻结事实
 
 - `BluetoothGatt STATE_CONNECTED` != Device Ready
 - Ready 需要 AE20/21/22/23 + 两路 notification + MTU 完成 + MTU >=39
@@ -126,7 +142,7 @@ QS668/CB08 实测：
 - Compose/page switch 不新建重复 GATT
 - stale callback 不改变新 session
 
-## 6. 验收
+## 7. 验收
 
 第一轮主链路：**PASS**
 
@@ -138,7 +154,7 @@ QS668/CB08 实测：
 
 **“测试通过”**
 
-## 7. 下一阶段
+## 8. 下一阶段
 
 Stage 3：**录音控制 + 设备实时状态**
 

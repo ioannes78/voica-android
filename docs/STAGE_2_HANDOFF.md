@@ -36,7 +36,21 @@ Stage 2 基线：
 
 `36524473446` — success
 
-最终 Freeze 内容提交和合并后 main SHA 以 GitHub 实际历史为准；Stage 3 开始时必须重新读取，不得猜测。
+Freeze 内容提交：
+
+`e1f6f08e221f9917b28a3ff9c07f92b297867c98`
+
+Freeze 合并前最终 CI：
+
+`36526792513` — **success**
+
+该 Run 已再次通过：
+
+- `:core:protocol:test`
+- `:core:ble:testDebugUnitTest`
+- `:app:assembleDebug`
+
+PR #2 合并后的 `main` SHA 必须在 Stage 3 接管时从 GitHub 重新读取，不得从聊天或本文件猜测。
 
 ## 版本
 
