@@ -87,6 +87,7 @@ class DefaultDeviceRepository(
     private var foreground = false
     private var lastAddress: String? = rememberedDeviceStore.readAddress()
     private var userDisconnectedThisProcess = false
+    private var pauseSemanticLatched = false
     private var reconnectAttempt = 0
     private var reconnectJob: Job? = null
     private var refreshJob: Job? = null
@@ -544,7 +545,35 @@ class DefaultDeviceRepository(
             RecordingStateEvent.CommandFinished(error, nowMs()),
         )
 
-        if (written) delay(RECORDING_ACTION_SETTLE_MS)
+        if (written) {
+            when (commandState) {
+                RecordingCommandState.PAUSING -> {
+                    pauseSemanticLatched = true
+                    reduceRecordingState(
+                        RecordingStateEvent.StateReceived(
+                            RecordingStatus.Paused,
+                            nowMs(),
+                        ),
+                        syncReason = RecordingSyncReason.APP_COMMAND,
+                    )
+                }
+                RecordingCommandState.RESUMING -> {
+                    pauseSemanticLatched = false
+                    reduceRecordingState(
+                        RecordingStateEvent.StateReceived(
+                            RecordingStatus.Recording,
+                            nowMs(),
+                        ),
+                        syncReason = RecordingSyncReason.APP_COMMAND,
+                    )
+                }
+                RecordingCommandState.STARTING,
+                RecordingCommandState.SAVING,
+                -> pauseSemanticLatched = false
+                else -> Unit
+            }
+            delay(RECORDING_ACTION_SETTLE_MS)
+        }
         syncRecordingState(
             reason = RecordingSyncReason.APP_COMMAND,
             expectedStatus = if (written) expectedStatus else null,
@@ -559,6 +588,7 @@ class DefaultDeviceRepository(
         reason: RecordingSyncReason,
         expectedStatus: RecordingStatus? = null,
     ) {
+        stopRecordingPoller()
         recordingSyncMutex.withLock {
             if (session.state.value !is DeviceConnectionState.Ready) {
                 markRecordingDisconnected()
@@ -581,7 +611,16 @@ class DefaultDeviceRepository(
             for (attempt in 1..maxAttempts) {
                 when (val stateOutcome = session.readRecordingState()) {
                     is RecordingRequestOutcome.Success -> {
-                        status = stateOutcome.value
+                        val reportedStatus = stateOutcome.value
+                        when (reportedStatus) {
+                            RecordingStatus.Idle -> pauseSemanticLatched = false
+                            RecordingStatus.Paused -> pauseSemanticLatched = true
+                            else -> Unit
+                        }
+                        status = RecordingStateEvidencePolicy.resolveReportedStatus(
+                            reported = reportedStatus,
+                            pauseSemanticLatched = pauseSemanticLatched,
+                        )
                         reduceRecordingState(
                             RecordingStateEvent.StateReceived(status, nowMs()),
                             syncReason = reason,
@@ -655,13 +694,15 @@ class DefaultDeviceRepository(
                     null
                 }
 
-            when (val time = session.readRecordingTime()) {
-                is RecordingRequestOutcome.Success ->
-                    reduceRecordingState(
-                        RecordingStateEvent.TimeReceived(time.value, nowMs()),
-                        syncReason = reason,
-                    )
-                else -> noteOptionalReadFailure(time, "GET_TIME")
+            if (RecordingSupplementaryReadPolicy.shouldReadTime(resolvedStatus)) {
+                when (val time = session.readRecordingTime()) {
+                    is RecordingRequestOutcome.Success ->
+                        reduceRecordingState(
+                            RecordingStateEvent.TimeReceived(time.value, nowMs()),
+                            syncReason = reason,
+                        )
+                    else -> noteOptionalReadFailure(time, "GET_TIME")
+                }
             }
 
             if (RecordingSupplementaryReadPolicy.shouldReadFilename(resolvedStatus)) {
@@ -701,10 +742,21 @@ class DefaultDeviceRepository(
     private fun handleRecordingFrameEvent(event: RecordingFrameEvent) {
         when (event) {
             is RecordingFrameEvent.State -> {
-                reduceRecordingState(
-                    RecordingStateEvent.StateReceived(event.value, nowMs()),
-                )
-                updateRecordingPoller()
+                if (mutableRecordingState.value.freshness != RecordingFreshness.SYNCING) {
+                    when (event.value) {
+                        RecordingStatus.Idle -> pauseSemanticLatched = false
+                        RecordingStatus.Paused -> pauseSemanticLatched = true
+                        else -> Unit
+                    }
+                    val resolved = RecordingStateEvidencePolicy.resolveReportedStatus(
+                        reported = event.value,
+                        pauseSemanticLatched = pauseSemanticLatched,
+                    )
+                    reduceRecordingState(
+                        RecordingStateEvent.StateReceived(resolved, nowMs()),
+                    )
+                    updateRecordingPoller()
+                }
             }
 
             is RecordingFrameEvent.Time ->
@@ -725,6 +777,32 @@ class DefaultDeviceRepository(
             is RecordingFrameEvent.CommandResponse -> Unit
 
             is RecordingFrameEvent.Hardware -> {
+                stopRecordingPoller()
+                when (event.event.kind) {
+                    RecordingHardwareEventKind.PAUSE -> {
+                        pauseSemanticLatched = true
+                        reduceRecordingState(
+                            RecordingStateEvent.StateReceived(
+                                RecordingStatus.Paused,
+                                nowMs(),
+                            ),
+                            syncReason = RecordingSyncReason.HARDWARE_EVENT,
+                        )
+                    }
+                    RecordingHardwareEventKind.RESUME -> {
+                        pauseSemanticLatched = false
+                        reduceRecordingState(
+                            RecordingStateEvent.StateReceived(
+                                RecordingStatus.Recording,
+                                nowMs(),
+                            ),
+                            syncReason = RecordingSyncReason.HARDWARE_EVENT,
+                        )
+                    }
+                    RecordingHardwareEventKind.START,
+                    RecordingHardwareEventKind.SAVE,
+                    -> pauseSemanticLatched = false
+                }
                 reduceRecordingState(RecordingStateEvent.HardwareReceived(event.event))
                 session.noteRecordingHardwareEvent(event.event)
                 acknowledgeHardwareEventAndResync(event.event)
@@ -829,15 +907,7 @@ class DefaultDeviceRepository(
                             RecordingStateEvent.TimeReceived(time.value, nowMs()),
                             syncReason = RecordingSyncReason.PERIODIC_REFRESH,
                         )
-                    else -> {
-                        val error = requestError(time, "GET_TIME")
-                        if (error != null) {
-                            reduceRecordingState(
-                                RecordingStateEvent.OperationError(error, nowMs()),
-                                syncReason = RecordingSyncReason.PERIODIC_REFRESH,
-                            )
-                        }
-                    }
+                    else -> noteOptionalReadFailure(time, "GET_TIME")
                 }
             }
         }

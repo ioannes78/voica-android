@@ -52,6 +52,50 @@ class RecordingPollingPolicyTest {
     }
 
     @Test
+    fun pausedSemanticEvidenceWinsOverAmbiguousReportedRecording() {
+        assertTrue(
+            RecordingStateEvidencePolicy.resolveReportedStatus(
+                reported = RecordingStatus.Recording,
+                pauseSemanticLatched = true,
+            ) == RecordingStatus.Paused,
+        )
+        assertTrue(
+            RecordingStateEvidencePolicy.resolveReportedStatus(
+                reported = RecordingStatus.Recording,
+                pauseSemanticLatched = false,
+            ) == RecordingStatus.Recording,
+        )
+        assertTrue(
+            RecordingStateEvidencePolicy.resolveReportedStatus(
+                reported = RecordingStatus.Idle,
+                pauseSemanticLatched = true,
+            ) == RecordingStatus.Idle,
+        )
+    }
+
+    @Test
+    fun currentRecordingReadsAreSkippedWhileIdle() {
+        assertFalse(
+            RecordingSupplementaryReadPolicy.shouldReadTime(RecordingStatus.Idle),
+        )
+        assertTrue(
+            RecordingSupplementaryReadPolicy.shouldReadTime(RecordingStatus.Recording),
+        )
+        assertTrue(
+            RecordingSupplementaryReadPolicy.shouldReadTime(RecordingStatus.Paused),
+        )
+        assertFalse(
+            RecordingSupplementaryReadPolicy.shouldReadFilename(RecordingStatus.Idle),
+        )
+        assertTrue(
+            RecordingSupplementaryReadPolicy.shouldReadFilename(RecordingStatus.Recording),
+        )
+        assertTrue(
+            RecordingSupplementaryReadPolicy.shouldReadFilename(RecordingStatus.Paused),
+        )
+    }
+
+    @Test
     fun filenameIsNotQueriedWhileIdle() {
         assertFalse(
             RecordingSupplementaryReadPolicy.shouldReadFilename(RecordingStatus.Idle),

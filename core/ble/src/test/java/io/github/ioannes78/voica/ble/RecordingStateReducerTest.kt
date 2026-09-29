@@ -120,6 +120,26 @@ class RecordingStateReducerTest {
     }
 
     @Test
+    fun idleStateResetsCurrentRecordingCountersButKeepsFilename() {
+        val initial = RecordingDeviceState(
+            status = RecordingStatus.Recording,
+            durationSeconds = 19,
+            currentSizeBytes = 8192,
+            filename = "note.opus",
+            freshness = RecordingFreshness.FRESH,
+        )
+        val idle = RecordingStateReducer.reduce(
+            initial,
+            RecordingStateEvent.StateReceived(RecordingStatus.Idle, 21),
+        )
+
+        assertEquals(RecordingStatus.Idle, idle.status)
+        assertEquals(0, idle.durationSeconds)
+        assertEquals(0L, idle.currentSizeBytes)
+        assertEquals("note.opus", idle.filename)
+    }
+
+    @Test
     fun successfulSyncCanRemainFreshWithoutAuxiliaryReadError() {
         var state = RecordingDeviceState(
             status = RecordingStatus.Idle,

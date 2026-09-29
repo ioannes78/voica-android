@@ -85,3 +85,24 @@ Ready 后持久化最后成功设备地址。之后：
 - CI Run: `36559318503` — success
 - 通过：`:core:protocol:test`、`:core:ble:testDebugUnitTest`、`:app:assembleDebug`
 - 下一步仅生成真机候选 APK；Stage 3 仍未 Freeze。
+
+
+## 第三轮真机修正（0.3.3-stage3）
+
+0.3.2 真机继续确认：
+
+1. 设备执行 Pause 后，实际录音已经暂停，但连续 6 次 GET_STATE 仍可返回 Recording(1)。因此当前固件的 GET_STATE=1 不能区分“正在录音”和“已暂停”。
+2. 物理 Stop/Save 后，设备已正确返回 Idle(2)，但旧的 1 秒 GET_TIME Poller 仍可能与 Hardware Event full sync 的 GET_TIME 竞争，造成 WRITE_FAILED；这不是停止录音失败。
+
+0.3.3 规则：
+
+- App 成功写入 Pause（03 06 01）后，将 Paused 作为强状态证据并锁存。
+- 收到物理 Pause CMD=5 后，同样锁存 Paused。
+- 在 Pause 锁存期间，GET_STATE 返回 Recording(1) 只作为固件歧义值记录，不允许覆盖 Paused。
+- App/物理 Resume 解除 Pause 锁存并进入 Recording。
+- Start/Save/Idle 同样解除 Pause 锁存。
+- 任何 full recording sync 开始前先停止 GET_TIME Poller。
+- 收到任何物理录音事件时立即停止 Poller，再做 acknowledgement + reconciliation。
+- Idle 不再查询 GET_TIME 或 GET_FILENAME；StateReceived(Idle) 直接把当前录音时长/大小归零并保留最后文件名。
+- 周期 GET_TIME 失败与其他辅助查询失败只写 BLE Diagnostics，不再进入用户可见的“最近录音操作”。
+- GET_STATE 请求本身失败仍属于关键同步失败。

@@ -66,10 +66,20 @@ object RecordingStateReducer {
                 lastError = null,
             )
 
-            is RecordingStateEvent.StateReceived -> state.copy(
-                status = event.status,
-                lastUpdatedTimeMs = event.timestampMs,
-            )
+            is RecordingStateEvent.StateReceived ->
+                if (event.status == RecordingStatus.Idle) {
+                    state.copy(
+                        status = event.status,
+                        durationSeconds = 0,
+                        currentSizeBytes = 0L,
+                        lastUpdatedTimeMs = event.timestampMs,
+                    )
+                } else {
+                    state.copy(
+                        status = event.status,
+                        lastUpdatedTimeMs = event.timestampMs,
+                    )
+                }
 
             is RecordingStateEvent.TimeReceived -> state.copy(
                 durationSeconds = event.time.durationSeconds,
@@ -174,7 +184,22 @@ object RecordingStateConvergencePolicy {
         }
 }
 
+object RecordingStateEvidencePolicy {
+    fun resolveReportedStatus(
+        reported: RecordingStatus,
+        pauseSemanticLatched: Boolean,
+    ): RecordingStatus =
+        if (pauseSemanticLatched && reported == RecordingStatus.Recording) {
+            RecordingStatus.Paused
+        } else {
+            reported
+        }
+}
+
 object RecordingSupplementaryReadPolicy {
+    fun shouldReadTime(status: RecordingStatus): Boolean =
+        status != RecordingStatus.Idle
+
     fun shouldReadFilename(status: RecordingStatus): Boolean =
         status != RecordingStatus.Idle
 }
