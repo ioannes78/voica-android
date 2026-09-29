@@ -267,3 +267,111 @@ Final Timed Transcript
 - 普通用户文案集中在资源系统
 - API Key 不写仓库、不输出普通日志
 - 破坏性设备操作必须明确确认
+
+
+## Stage 3 — 录音控制与设备实时状态架构
+
+Stage 3 未新增 Gradle module，继续保持：
+
+```
+:app
+  ↓
+:core:ble
+  ↓
+:core:protocol
+```
+
+### Recording 数据流
+
+```
+Compose RecordingCard
+  ↓
+DeviceViewModel
+  ↓
+DeviceRepository
+  ↓
+AndroidDeviceSession
+  ↓
+DeviceCommandClient / Serialized GATT Queue
+  ↓
+AE21 WRITE_NO_RESPONSE
+  ↓
+QS668 / CB08
+  ↓
+AE22 / AE23 独立 FrameParser
+  ↓
+RoutedNotification
+  ├─ pending matcher
+  └─ RecordingFrameRouter
+       ↓
+RecordingStateReducer
+       ↓
+StateFlow<RecordingDeviceState>
+       ↓
+Compose
+```
+
+### 当前固件卡录音控制 Contract
+
+当前 QS668/CB08 真机与官方 Android 3.0.9-u 交叉验证：
+
+- Device → App 物理开始：TYPE=3 CMD=1
+- App → Device 开始/确认：TYPE=3 CMD=2 body=`01`
+- Device → App 物理停止：TYPE=3 CMD=3
+- App → Device 停止/确认：TYPE=3 CMD=4 body=`01`
+- Device → App 物理暂停：TYPE=3 CMD=5
+- App → Device 暂停/确认：TYPE=3 CMD=6 body=`01`
+- Device → App 物理继续：TYPE=3 CMD=7
+- App → Device 继续/确认：TYPE=3 CMD=8 body=`01`
+
+App 主动控制为 fire-and-forget write，随后通过只读查询收敛状态，不等待一个虚构的 action response。
+
+### Recording 状态证据
+
+`GET_STATE` 仍是核心设备查询，但当前固件存在重要歧义：
+
+- Idle：GET_STATE=2，可作为强设备真值
+- Recording：GET_STATE=1
+- Paused：设备实际已经暂停时，GET_STATE 仍可能持续返回 1
+
+因此 Paused 使用语义证据：
+
+- App Pause 写入成功，锁存 Paused
+- 物理 Pause CMD=5，锁存 Paused
+- App/物理 Resume 解除 Pause 锁存并进入 Recording
+- Start / Save / Idle 解除 Pause 锁存
+- Pause 锁存期间 GET_STATE=1 不允许覆盖 Paused
+
+解析器仍保留 raw=3 → Paused 的兼容能力，但当前真机验收不依赖 raw=3。
+
+### Polling 与同步互斥
+
+只有同时满足以下条件才执行约 1 秒 GET_TIME：
+
+- Device Ready
+- App foreground
+- RecordingStatus == Recording
+
+Full recording sync 开始前先停止 Poller。收到任何物理录音事件也先停止 Poller，再 acknowledgement + reconciliation。
+
+因此不允许周期 GET_TIME 与 Stop/Pause 后 full sync 并发竞争。
+
+### 辅助读取
+
+- GET_STATE：关键读取，失败可导致 Recording sync Failed
+- GET_TIME：Recording/Paused 时辅助读取；Idle 跳过
+- GET_FILENAME：Recording/Paused 时辅助读取；Idle 跳过并保留最后文件名
+- GET_GAIN：辅助读取
+- 辅助读取失败仅进入 BLE Diagnostics，不作为“最近录音操作”错误
+
+### 自动连接
+
+Ready 后保存最后成功设备地址。
+
+后续 App 进入前台时，在蓝牙和权限可用、当前没有 active GATT session 的前提下自动连接该设备。
+
+- 用户主动断开：本 App 进程内抑制自动连接
+- App 重新启动：恢复自动连接资格
+- Remote disconnect：继续使用 Stage 2 的 1s → 2s → 4s、最多 3 次策略
+
+Stage 3 仍不使用 Foreground Service。

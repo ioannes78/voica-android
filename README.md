@@ -59,7 +59,8 @@ Voica 是面向 QS668 / CB08 AI 录音卡的 Android 原生客户端。
 - Stage 0：已完成
 - Stage 1：已完成 / 已真机验收 / 已冻结
 - Stage 2：已完成 / 已两轮真机验收 / 已冻结
-- 下一阶段：**Stage 3 — 录音控制 + 设备实时状态**
+- Stage 3：已完成 / 已真机验收 / 已冻结
+- 下一阶段：**Stage 4 — 设备文件列表 + 文件名解析**
 
 Stage 2 已建立：
 
@@ -79,6 +80,19 @@ Stage 2 已建立：
 
 Stage 2 真机确认 Actual MTU = **517**。
 
+Stage 3 已建立：
+
+- App 卡录音开始 / 暂停 / 继续 / 停止并保存
+- 设备物理录音按键事件同步
+- 录音状态 / 时长 / 当前大小 / 当前文件名 / 增益
+- Recording 时约 1 秒 GET_TIME Poller
+- Pause 语义锁存，兼容当前固件 GET_STATE=1 无法区分 Recording/Paused
+- 物理事件 acknowledgement + reconciliation
+- 最后成功设备记忆与 App 启动自动连接
+- 录音状态 Diagnostics 与真机协议证据
+
+Stage 3 真机确认 App 控制与设备物理按键控制均能稳定同步 UI。
+
 项目文档：
 
 - [产品需求](docs/PRODUCT_REQUIREMENTS.md)
@@ -87,6 +101,9 @@ Stage 2 真机确认 Actual MTU = **517**。
 - [Stage 2 测试](docs/STAGE_2_TEST.md)
 - [Stage 2 Freeze](docs/STAGE_2_FREEZE.md)
 - [Stage 2 Handoff](docs/STAGE_2_HANDOFF.md)
+- [Stage 3 测试](docs/STAGE_3_TEST.md)
+- [Stage 3 Freeze](docs/STAGE_3_FREEZE.md)
+- [Stage 3 Handoff](docs/STAGE_3_HANDOFF.md)
 - [开发规则](AGENTS.md)
 
 ## License
