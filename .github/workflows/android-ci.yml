@@ -10,7 +10,7 @@ on:
       - "settings.gradle.kts"
       - "build.gradle.kts"
       - ".github/workflows/android-ci.yml"
-      - "docs/STAGE_2_*.md"
+      - "docs/STAGE_*.md"
   workflow_dispatch:
 
 permissions:
@@ -58,11 +58,11 @@ jobs:
           :app:assembleDebug
           --stacktrace
 
-      - name: Upload Stage 2 APK
-        if: success() && (github.event_name == 'workflow_dispatch' || hashFiles('.github/STAGE_2_APK_CANDIDATE') != '')
+      - name: Upload debug APK
+        if: success() && github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: Voica-0.2.0-stage2-debug
+          name: Voica-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 3

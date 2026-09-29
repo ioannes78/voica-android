@@ -1,95 +1,245 @@
-# Voica Android 系统架构草案 V1
+# Voica Android 系统架构
 
 ## 1. 架构原则
 
-Voica 是全新 Android 工程。
+Voica 是全新 Android 工程，不从 `voice-card-android` 继承任何代码、模块实现或构建脚本。
 
-**不从 `voice-card-android` 继承任何代码、模块实现或构建脚本。**
+系统按协议、传输、数据、音频、AI/ML、Feature UI 分层，避免形成同时处理 BLE、文件、音频、模型和界面的巨型状态对象。
 
-系统按“协议、传输、数据、音频、AI/ML、Feature UI”分层，避免形成一个同时处理 BLE、文件、音频、模型和界面的巨型状态对象。
+## 2. Stage 2 已落地模块
 
-## 2. 总体分层
+当前物理模块：
 
 ```
-Jetpack Compose UI
-        |
-Feature ViewModel
-        |
-UseCase / Repository
-        |
-+-------------------+-------------------+-------------------+
-| BLE / Device      | Audio / Library   | AI / ML           |
-|                   |                   |                   |
-| Recorder Session  | Playback          | VAD               |
-| GATT Transport    | Conversion        | ASR               |
-| Protocol          | Room / Files      | Punctuation       |
-|                   |                   | Diarization       |
-|                   |                   | Meeting Notes     |
-+-------------------+-------------------+-------------------+
+:app
+  ↓
+:core:ble
+  ↓
+:core:protocol
 ```
 
-## 3. 初步模块规划
+### `:core:protocol`
 
-- `app`：应用入口、导航、依赖装配
-- `core-model`：公共领域模型和接口
-- `core-protocol`：QS668/CB08 二进制协议
-- `core-ble`：Android BLE Transport / Session
-- `core-audio`：音频格式和时间轴契约
-- `core-database`：Room
-- `engine-opus`：设备 Opus 包装/解码
-- `engine-vad`：VAD 抽象与实现
-- `engine-asr`：本地 ASR 抽象与实现
-- `engine-punctuation`：标点恢复/规范化
-- `engine-speaker`：说话人分离
-- `engine-ai`：AI 会议纪要客户端
-- `feature-device`：扫描、连接、设备状态
-- `feature-recordings`：设备文件、本地录音、传输
-- `feature-transcript`：转写、时间轴、同步播放
-- `feature-settings`：模型、AI 服务和诊断设置
+纯 Kotlin/JVM：
 
-Stage 1 可以根据实际 Gradle 复杂度合并部分物理模块，但逻辑边界必须保留。
+- CRC-16/XMODEM
+- ProtocolCodec
+- ProtocolFrame
+- SequenceGenerator
+- AE22/AE23 FrameParser
+- 时间同步编码
+- Battery/Capacity/Firmware/Auth 解码
+- 既有 File/Key TYPE/CMD 基础协议
 
-## 4. 状态模型
+禁止依赖 Android BLE API。
 
-以下状态必须显式建模：
+### `:core:ble`
 
-- BLE 连接状态
-- GATT 初始化状态
-- 文件列表加载状态
-- 文件下载状态
-- 音频转换状态
-- VAD 状态
-- 转写状态
-- 标点恢复状态
-- 说话人分离状态
-- AI 纪要状态
+Android BLE Transport / Device Session：
 
-不允许使用一个全局可变 Singleton 承担整个应用状态。
+- BlePermissionPolicy
+- AndroidBleScanner
+- BleScanAccumulator
+- AndroidGattBackend
+- GattOperationQueue
+- AndroidDeviceSession
+- NotificationRouter
+- DeviceCommandClient
+- DefaultDeviceRepository
+- ReconnectPolicy
+- BLE Diagnostics
 
-## 5. 设备文件与本地录音身份
+### `:app`
 
-设备文件身份与本地录音身份必须分离：
+- VoicaApplication / AppContainer
+- MainActivity
+- DeviceViewModel
+- Compose Device Screen
+- Runtime permission launcher
+- 中文设备信息与 BLE Diagnostics
 
-- 设备上存在文件，不代表本地已经下载
-- 同一个设备文件成功下载后应映射到稳定的本地 Recording
-- 重试下载不能静默产生多个相同本地录音
-- 删除设备端文件不能自动删除本地副本
-- 删除本地副本不能自动删除设备端文件
+Stage 2 暂未拆独立 `:feature:device`，但 UI/Repository/Transport 边界已保留，后续按复杂度再抽离。
 
-## 6. 音频落地原则
+## 3. Stage 2 BLE 数据流
 
-处理顺序：
+发送：
+
+```
+Compose
+  ↓
+DeviceViewModel
+  ↓
+DeviceRepository
+  ↓
+AndroidDeviceSession
+  ↓
+DeviceCommandClient
+  ↓
+:core:protocol ProtocolCodec
+  ↓
+完整 ByteArray
+  ↓
+Serialized GATT Queue
+  ↓
+AE21 WRITE_NO_RESPONSE
+```
+
+接收：
+
+```
+BluetoothGattCallback
+  ↓
+UUID Router
+  ├─ AE22 → 独立 FrameParser
+  └─ AE23 → 独立 FrameParser
+  ↓
+ProtocolFrame
+  ↓
+pending matcher / device-state observer / diagnostics
+```
+
+AE22 与 AE23 **解析状态永远独立**，但两路解析完成的 `ProtocolFrame` 都可以交给当前单路 pending request matcher。
+
+## 4. Connection State
+
+Stage 2 显式区分：
+
+- Unavailable
+- PermissionRequired
+- BluetoothOff
+- Idle
+- Scanning
+- Connecting
+- LinkConnected
+- DiscoveringServices
+- Subscribing AE22
+- Subscribing AE23
+- NegotiatingMtu
+- Ready
+- Disconnecting
+- Disconnected
+- ReconnectWaiting
+- Error
+
+`BluetoothGatt STATE_CONNECTED` 不等于 Device Ready。
+
+Ready 至少要求：
+
+`Link → AE20/21/22/23 验证 → AE22 Notify → AE23 Notify → MTU 完成 → MTU >=39`
+
+## 5. GATT 串行化
+
+所有异步 GATT operation 通过严格串行队列：
+
+- DiscoverServices
+- CCCD notification enable
+- RequestMtu
+- WriteCharacteristic
+
+同一时间最多一个 active operation。
+
+Queue 必须：
+
+- callback 类型匹配
+- descriptor/characteristic UUID 匹配
+- timeout
+- late callback 防护
+- close/cancel
+- disconnect 不继续 drain
+
+每次连接有独立 session generation；旧 GATT callback 不得污染新 session。
+
+## 6. MTU Contract
+
+Android 主动：
+
+`requestMtu(517)`
+
+Stage 2 真机确认：
+
+`Actual MTU = 517`
+
+能力分级：
+
+- MTU <39：不进入 Ready
+- MTU 39..170：基础控制 / 36B atomic capability
+- MTU >=171：当前已知 168B CB08 数据帧能力
+- 517：当前真机最佳状态
+
+后续 TYPE=2/CMD=2 36B Frame 必须一次完整 AE21 Write，禁止应用层拆成 20B+16B。
+
+## 7. Request / Response
+
+Stage 2 基础设备请求单路串行：
+
+1. 生成 sequence
+2. 注册 pending
+3. 执行 GATT write
+4. AE22/AE23 parser 输出 ProtocolFrame
+5. 按 expected TYPE/CMD 完成 pending
+
+真机确认：
+
+- response sequence **不保证**与 request sequence 相同
+- 因此 Stage 2 强匹配 TYPE/CMD
+- sequence 保留为 diagnostics，不作为强制匹配条件
+
+真机还确认 Battery Response 0/4 可以从 **AE23** 返回。
+
+## 8. 生命周期与重连
+
+- Compose recomposition 不创建 GATT
+- Repository 由 Application-scope AppContainer 持有
+- App 后台停止 active scan
+- 已建立连接不因普通页面切换断开
+- Remote disconnect：1s → 2s → 4s，最多 3 次
+- User disconnect：不自动重连
+- Bluetooth Off：停止 scan/reconnect、释放 GATT
+- Bluetooth On：恢复为可扫描状态
+- stale session callback 被忽略
+
+Stage 2 不使用 Foreground Service。
+
+## 9. 后续模块规划
+
+后续按 Stage 引入：
+
+- core-model（必要时）
+- core-audio
+- core-database
+- engine-opus
+- engine-vad
+- engine-asr
+- engine-punctuation
+- engine-speaker
+- engine-ai
+- feature-recordings
+- feature-transcript
+- feature-settings
+
+不为未来功能提前创建空模块。
+
+## 10. 设备文件与本地录音身份
+
+设备文件与本地 Recording 必须分离：
+
+- 设备文件存在不代表已下载
+- 成功下载后映射稳定本地 Recording
+- 重试不得静默制造重复本地记录
+- 删除设备文件不得自动删除本地副本
+- 删除本地副本不得自动删除设备文件
+
+## 11. 音频落地原则
+
+后续音频顺序：
 
 1. 先可靠保存设备原始字节
 2. 校验原始格式/包结构
-3. 再生成播放/ML 使用的标准本地音频
-4. 转换必须幂等
-5. App 重启后不能依赖重新连接录音卡恢复本地音频
-6. 原始音频与派生音频生命周期要明确
+3. 再生成播放/ML 标准音频
+4. 转换幂等
+5. 本地音频不依赖重新连接设备恢复
 
-## 7. 本地转写处理链
-
-本地文件转写采用能力解耦：
+## 12. 本地转写处理链
 
 ```
 16 kHz Mono PCM
@@ -111,39 +261,9 @@ Raw Transcript
 Final Timed Transcript
 ```
 
-约束：
+## 13. 中文与安全
 
-- 不把 VAD 锁死为 WebRTC VAD；WebRTC、Silero、sherpa-onnx VAD 通过 Android 实测后选择实现。
-- `AsrEngine` 必须声明自己的标点能力，上层不得假定所有模型都自带标点。
-- `PunctuationEngine` 独立于 `AsrEngine`。
-- 文件转写在 V1 即使用 VAD；真正的 Streaming VAD/Online Punctuation 放到 Stage 16。
-- Final Transcript 必须保存最终标点结果和真实时间边界。
-
-## 8. 转写时间轴
-
-真实时间段属于核心数据，不是 UI 临时数据。
-
-数据库应保存：
-
-- start
-- end
-- speaker
-- text
-- 必要的转写版本/模型元数据
-- 必要时记录 VAD/ASR/Punctuation pipeline 版本
-
-UI 的段落合并、文本排版和高亮是派生显示，不得破坏原始时间信息。
-
-## 9. 中文产品基线
-
-- 默认 UI 为简体中文
-- 中文状态文本集中管理，禁止在业务逻辑层散落大量硬编码用户文案
-- Kotlin 技术命名继续使用英文
-- 后续国际化应通过资源系统实现，不影响领域层
-
-## 10. 安全
-
-- API Key 不写入仓库
-- API Key 不输出到普通日志
-- 凭据使用 Android 合适的安全存储
-- 设备删除等破坏性操作必须明确确认
+- 默认 UI 简体中文
+- 普通用户文案集中在资源系统
+- API Key 不写仓库、不输出普通日志
+- 破坏性设备操作必须明确确认

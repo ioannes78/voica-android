@@ -4,11 +4,16 @@ Voica 是面向 QS668 / CB08 AI 录音卡的 Android 原生客户端。
 
 本项目为**全新、独立的 Android 项目**。Voica **不继承、不复制、不迁移、不翻译 `voice-card-android` 的任何代码**，包括源代码、测试代码、Gradle 配置、资源文件、数据库实现、模块实现和历史 Stage 代码。
 
-Voica 以公开项目 [laidely/kardo](https://github.com/laidely/kardo) 的可观察产品行为、公开协议事实和设备交互结果作为参考基线，固定参考提交：
+## 协议与行为参考
 
-`bcec3c5fdbcb34810a6f235e8b5873683f2ab951`
+协议事实优先级：
 
-Voica 在 Android 平台上重新设计和独立实现。
+1. QS668 / CB08 真机可重复验证结果。
+2. `nextproto1024/ai-recorder-card-open-protocol`，Stage 2 固定参考 commit：`e741ea72207f1a2aae3df4debc5c135728e0170e`。
+3. `laidely/kardo`，固定参考 commit：`bcec3c5fdbcb34810a6f235e8b5873683f2ab951`，仅用于产品行为与设备交互交叉验证。
+4. Android 官方 BLE API 行为。
+
+`voice-card-android` 不作为 Voica 的代码、架构、测试或 Gradle 来源。
 
 ## 产品目标
 
@@ -51,22 +56,38 @@ Voica 在 Android 平台上重新设计和独立实现。
 
 ## 当前状态
 
-当前处于规划基线阶段，尚未开始生产功能代码开发。
+- Stage 0：已完成
+- Stage 1：已完成 / 已真机验收 / 已冻结
+- Stage 2：已完成 / 已两轮真机验收 / 已冻结
+- 下一阶段：**Stage 3 — 录音控制 + 设备实时状态**
+
+Stage 2 已建立：
+
+- `:core:ble`
+- BLE 扫描 / 权限
+- QS668/CB08 GATT Session
+- 严格串行 GATT Operation Queue
+- AE20/AE21/AE22/AE23 发现与订阅
+- `requestMtu(517)`
+- 时间同步
+- 电量 / 充电
+- 容量
+- 固件
+- Auth
+- 有限自动重连
+- 简体中文设备页与 BLE Diagnostics
+
+Stage 2 真机确认 Actual MTU = **517**。
 
 项目文档：
 
 - [产品需求](docs/PRODUCT_REQUIREMENTS.md)
-- [Kardo 参考基线](docs/KARDO_REFERENCE_BASELINE.md)
 - [系统架构](docs/ARCHITECTURE.md)
 - [开发路线图](docs/ROADMAP.md)
+- [Stage 2 测试](docs/STAGE_2_TEST.md)
+- [Stage 2 Freeze](docs/STAGE_2_FREEZE.md)
+- [Stage 2 Handoff](docs/STAGE_2_HANDOFF.md)
 - [开发规则](AGENTS.md)
-
-## Kardo 参考项目
-
-参考仓库：`laidely/kardo`  
-固定参考提交：`bcec3c5fdbcb34810a6f235e8b5873683f2ab951`
-
-该参考仓库在固定基线中未声明项目级许可证，因此 Voica 仅把其作为产品行为、公开协议事实和设备行为参考，不直接复制或机械翻译其中的 Swift 实现。
 
 ## License
 
