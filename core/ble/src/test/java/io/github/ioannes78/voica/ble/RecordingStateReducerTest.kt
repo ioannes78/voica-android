@@ -79,6 +79,47 @@ class RecordingStateReducerTest {
     }
 
     @Test
+    fun gainReconciliationReturnsFreshAfterConfirmedReadback() {
+        var state = RecordingDeviceState(
+            status = RecordingStatus.Idle,
+            gain = RecordingGain.Medium,
+            freshness = RecordingFreshness.FRESH,
+        )
+
+        state = RecordingStateReducer.reduce(
+            state,
+            RecordingStateEvent.CommandStarted(
+                RecordingCommandState.SETTING_GAIN,
+                10,
+            ),
+        )
+        state = RecordingStateReducer.reduce(
+            state,
+            RecordingStateEvent.CommandFinished(
+                error = null,
+                timestampMs = 11,
+            ),
+        )
+        assertEquals(RecordingFreshness.STALE, state.freshness)
+
+        state = RecordingStateReducer.reduce(
+            state,
+            RecordingStateEvent.GainReceived(
+                gain = RecordingGain.High,
+                timestampMs = 12,
+            ),
+        )
+        state = RecordingStateReducer.reduce(
+            state,
+            RecordingStateEvent.SyncCompleted(13),
+        )
+
+        assertEquals(RecordingGain.High, state.gain)
+        assertEquals(RecordingFreshness.FRESH, state.freshness)
+        assertEquals(RecordingCommandState.IDLE, state.commandState)
+    }
+
+    @Test
     fun disconnectKeepsLastKnownValuesButMarksThemStale() {
         val initial = RecordingDeviceState(
             status = RecordingStatus.Recording,

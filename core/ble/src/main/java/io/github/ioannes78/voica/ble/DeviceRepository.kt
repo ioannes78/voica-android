@@ -439,7 +439,12 @@ class DefaultDeviceRepository(
     }
 
     override suspend fun setRecordingGain(gain: RecordingGain) {
-        if (session.state.value !is DeviceConnectionState.Ready) return
+        if (
+            session.state.value !is DeviceConnectionState.Ready ||
+            mutableRecordingState.value.freshness != RecordingFreshness.FRESH
+        ) {
+            return
+        }
         val raw = when (gain) {
             RecordingGain.Low -> ProtocolConstants.RecordingGainValue.LOW
             RecordingGain.Medium -> ProtocolConstants.RecordingGainValue.MEDIUM
@@ -466,13 +471,18 @@ class DefaultDeviceRepository(
 
         val gainOutcome = session.readRecordingGain()
         when (gainOutcome) {
-            is RecordingRequestOutcome.Success ->
+            is RecordingRequestOutcome.Success -> {
                 reduceRecordingState(
                     RecordingStateEvent.GainReceived(
                         gainOutcome.value,
                         nowMs(),
                     ),
                 )
+                reduceRecordingState(
+                    RecordingStateEvent.SyncCompleted(nowMs()),
+                    syncReason = RecordingSyncReason.APP_COMMAND,
+                )
+            }
             else -> {
                 val gainError = requestError(gainOutcome, "GET_GAIN")
                 if (gainError != null) {
