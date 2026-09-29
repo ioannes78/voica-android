@@ -287,5 +287,6 @@ data class BleDiagnostics(
     val lastTxCommand: Int? = null,
     val lastTxSequence: Int? = null,
     val recording: RecordingDiagnostics = RecordingDiagnostics(),
+    val fileList: FileListDiagnostics = FileListDiagnostics(),
     val logs: List<String> = emptyList(),
 )

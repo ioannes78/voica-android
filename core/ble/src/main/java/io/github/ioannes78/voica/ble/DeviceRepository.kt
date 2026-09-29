@@ -33,6 +33,7 @@ interface DeviceRepository {
     val connectionState: StateFlow<DeviceConnectionState>
     val deviceInfo: StateFlow<DeviceInfo>
     val recordingState: StateFlow<RecordingDeviceState>
+    val deviceFileListState: StateFlow<DeviceFileListState>
     val diagnostics: StateFlow<BleDiagnostics>
 
     fun missingPermissions(): Set<String>
@@ -51,6 +52,7 @@ interface DeviceRepository {
     suspend fun saveRecording()
     suspend fun syncRecordingState()
     suspend fun setRecordingGain(gain: RecordingGain)
+    suspend fun refreshDeviceFiles()
 }
 
 class DefaultDeviceRepository(
@@ -65,6 +67,8 @@ class DefaultDeviceRepository(
     private val scanner = AndroidBleScanner(applicationContext, scope)
     private val session = AndroidDeviceSession(applicationContext, scope)
     private val recordingFrameRouter = RecordingFrameRouter()
+    private val fileListFrameRouter = FileListFrameRouter()
+    private val fileListSessionCoordinator = FileListSessionCoordinator()
     private val recordingSyncMutex = Mutex()
     private val rememberedDeviceStore = RememberedDeviceStore(applicationContext)
 
@@ -82,6 +86,10 @@ class DefaultDeviceRepository(
     override val recordingState: StateFlow<RecordingDeviceState> =
         mutableRecordingState.asStateFlow()
 
+    private val mutableDeviceFileListState = MutableStateFlow(DeviceFileListState())
+    override val deviceFileListState: StateFlow<DeviceFileListState> =
+        mutableDeviceFileListState.asStateFlow()
+
     override val diagnostics: StateFlow<BleDiagnostics> = session.diagnostics
 
     private var foreground = false
@@ -93,6 +101,8 @@ class DefaultDeviceRepository(
     private var refreshJob: Job? = null
     private var recordingPollJob: Job? = null
     private var recordingReconcileJob: Job? = null
+    private var fileListFirstResponseJob: Job? = null
+    private var fileListTotalTimeoutJob: Job? = null
     private var lastReadySessionId: Long? = null
     private var receiverRegistered = false
 
@@ -164,6 +174,7 @@ class DefaultDeviceRepository(
                 }
 
                 recordingFrameRouter.route(event)?.let(::handleRecordingFrameEvent)
+                fileListFrameRouter.route(event)?.let(::handleFileListFrameEvent)
             }
         }
 
@@ -203,6 +214,7 @@ class DefaultDeviceRepository(
 
                     is DeviceConnectionState.Disconnected -> {
                         stopRecordingPoller()
+                        markDeviceFilesDisconnected()
                         recordingReconcileJob?.cancel()
                         recordingReconcileJob = null
                         markRecordingDisconnected()
@@ -216,11 +228,13 @@ class DefaultDeviceRepository(
                     -> {
                         stopRecordingPoller()
                         markRecordingDisconnected()
+                        markDeviceFilesDisconnected()
                     }
 
                     is DeviceConnectionState.Error -> {
                         stopRecordingPoller()
                         markRecordingDisconnected()
+                        markDeviceFilesDisconnected()
                         if (ReconnectPolicy.shouldRetry(state.error)) {
                             scheduleReconnect(lastAddress)
                         }
@@ -264,6 +278,14 @@ class DefaultDeviceRepository(
         recordingReconcileJob?.cancel()
         recordingReconcileJob = null
         lastReadySessionId = null
+        cancelFileListTimeouts()
+        fileListSessionCoordinator.cancel(nowMs())
+        if (mutableDeviceFileListState.value.deviceAddress != address) {
+            mutableDeviceFileListState.value = DeviceFileListState()
+            session.updateFileListDiagnostics(FileListDiagnostics())
+        } else {
+            markDeviceFilesStale()
+        }
         lastAddress = address
         connectInternal(address)
     }
@@ -278,6 +300,7 @@ class DefaultDeviceRepository(
         recordingReconcileJob?.cancel()
         recordingReconcileJob = null
         markRecordingDisconnected()
+        markDeviceFilesDisconnected()
         session.disconnect()
     }
 
@@ -401,6 +424,74 @@ class DefaultDeviceRepository(
     }
 
     override suspend fun syncTime(): Boolean = session.syncTime()
+
+    override suspend fun refreshDeviceFiles() {
+        if (mutableDeviceFileListState.value.freshness == FileListFreshness.LOADING) return
+
+        val ready = session.state.value as? DeviceConnectionState.Ready
+        if (ready == null) {
+            noteFileListGuardFailure(
+                FileListError(FileListErrorCode.NOT_READY, "device is not Ready"),
+            )
+            return
+        }
+
+        val recording = mutableRecordingState.value
+        if (
+            recording.status != RecordingStatus.Idle ||
+            recording.freshness != RecordingFreshness.FRESH ||
+            recording.commandState != RecordingCommandState.IDLE
+        ) {
+            noteFileListGuardFailure(
+                FileListError(
+                    FileListErrorCode.RECORDING_ACTIVE,
+                    "recording status=" + recording.status +
+                        " freshness=" + recording.freshness +
+                        " command=" + recording.commandState,
+                ),
+            )
+            return
+        }
+
+        val transportSessionId = session.diagnostics.value.sessionId
+        val fileSessionId = fileListSessionCoordinator.start(
+            transportSessionId = transportSessionId,
+            deviceAddress = ready.address,
+            startedAtMs = nowMs(),
+        )
+
+        mutableDeviceFileListState.value = mutableDeviceFileListState.value.copy(
+            deviceAddress = ready.address,
+            freshness = FileListFreshness.LOADING,
+            activeSessionId = fileSessionId,
+            lastError = null,
+        )
+        publishFileListDiagnostics(
+            fileListSessionCoordinator.snapshot(fileSessionId),
+            completionReason = null,
+            error = null,
+        )
+
+        val request = session.requestFileList()
+        if (!request.written) {
+            failActiveFileList(
+                FileListError(FileListErrorCode.WRITE_FAILED, "TYPE=2 CMD=0 write failed"),
+                FileListCompletionReason.WRITE_FAILED,
+            )
+            return
+        }
+
+        fileListSessionCoordinator.noteRequestSequence(
+            fileSessionId,
+            request.requestSequence,
+        )
+        publishFileListDiagnostics(
+            fileListSessionCoordinator.snapshot(fileSessionId),
+            completionReason = null,
+            error = null,
+        )
+        scheduleFileListTimeouts(fileSessionId)
+    }
 
     override suspend fun startRecording() {
         if (
@@ -823,6 +914,200 @@ class DefaultDeviceRepository(
         }
     }
 
+    private fun handleFileListFrameEvent(event: FileListFrameEvent) {
+        val result = fileListSessionCoordinator.accept(
+            event = event,
+            transportSessionId = session.diagnostics.value.sessionId,
+            nowMs = nowMs(),
+        )
+
+        when (result) {
+            is FileListSessionResult.DataAccepted -> {
+                if (result.snapshot.dataFrameCount == 1) {
+                    fileListFirstResponseJob?.cancel()
+                    fileListFirstResponseJob = null
+                }
+                publishFileListDiagnostics(
+                    result.snapshot,
+                    completionReason = null,
+                    error = null,
+                )
+            }
+
+            is FileListSessionResult.Completed -> {
+                cancelFileListTimeouts()
+                val files = RemoteDeviceFileMapper.map(
+                    deviceAddress = result.snapshot.deviceAddress,
+                    entries = result.snapshot.entries,
+                )
+                mutableDeviceFileListState.value = DeviceFileListState(
+                    deviceAddress = result.snapshot.deviceAddress,
+                    files = files,
+                    freshness =
+                        if (files.isEmpty()) FileListFreshness.EMPTY
+                        else FileListFreshness.FRESH,
+                    lastUpdatedTimeMs = result.snapshot.endedAtMs ?: nowMs(),
+                    activeSessionId = null,
+                    lastError = null,
+                )
+                publishFileListDiagnostics(
+                    result.snapshot,
+                    completionReason = FileListCompletionReason.LIST_DONE,
+                    error = null,
+                )
+            }
+
+            is FileListSessionResult.Failed -> {
+                cancelFileListTimeouts()
+                applyFileListFailure(
+                    snapshot = result.snapshot,
+                    error = result.error,
+                    completionReason = result.completionReason,
+                )
+            }
+
+            is FileListSessionResult.Ignored -> Unit
+        }
+    }
+
+    private fun scheduleFileListTimeouts(fileSessionId: Long) {
+        cancelFileListTimeouts()
+
+        val current = fileListSessionCoordinator.snapshot(fileSessionId) ?: return
+        if (current.dataFrameCount == 0) {
+            fileListFirstResponseJob = scope.launch {
+                delay(FILE_LIST_FIRST_RESPONSE_TIMEOUT_MS)
+                val snapshot = fileListSessionCoordinator.snapshot(fileSessionId)
+                if (snapshot != null && snapshot.dataFrameCount == 0) {
+                    failActiveFileList(
+                        FileListError(
+                            FileListErrorCode.FIRST_RESPONSE_TIMEOUT,
+                            "no TYPE=2 list frame before timeout",
+                        ),
+                        FileListCompletionReason.FIRST_RESPONSE_TIMEOUT,
+                    )
+                }
+            }
+        }
+
+        fileListTotalTimeoutJob = scope.launch {
+            delay(FILE_LIST_TOTAL_SESSION_TIMEOUT_MS)
+            if (fileListSessionCoordinator.snapshot(fileSessionId) != null) {
+                failActiveFileList(
+                    FileListError(
+                        FileListErrorCode.SESSION_TIMEOUT,
+                        "TYPE=2 CMD=18 was not received",
+                    ),
+                    FileListCompletionReason.SESSION_TIMEOUT,
+                )
+            }
+        }
+    }
+
+    private fun failActiveFileList(
+        error: FileListError,
+        completionReason: FileListCompletionReason,
+    ) {
+        val snapshot = fileListSessionCoordinator.cancel(nowMs()) ?: return
+        cancelFileListTimeouts()
+        applyFileListFailure(snapshot, error, completionReason)
+    }
+
+    private fun applyFileListFailure(
+        snapshot: FileListSessionSnapshot,
+        error: FileListError,
+        completionReason: FileListCompletionReason,
+    ) {
+        val previous = mutableDeviceFileListState.value
+        mutableDeviceFileListState.value = previous.copy(
+            deviceAddress = snapshot.deviceAddress,
+            freshness =
+                if (previous.lastUpdatedTimeMs != null) FileListFreshness.STALE
+                else FileListFreshness.FAILED,
+            activeSessionId = null,
+            lastError = error,
+        )
+        publishFileListDiagnostics(snapshot, completionReason, error)
+    }
+
+    private fun noteFileListGuardFailure(error: FileListError) {
+        val previous = mutableDeviceFileListState.value
+        mutableDeviceFileListState.value = previous.copy(lastError = error)
+        val diagnostics = session.diagnostics.value.fileList
+        session.updateFileListDiagnostics(
+            diagnostics.copy(lastOperationError = error.code.name + ": " + error.detail.orEmpty()),
+        )
+    }
+
+    private fun publishFileListDiagnostics(
+        snapshot: FileListSessionSnapshot?,
+        completionReason: FileListCompletionReason?,
+        error: FileListError?,
+    ) {
+        if (snapshot == null) return
+        val lastEntry = snapshot.entries.lastOrNull()
+        val resolution = lastEntry?.let { DeviceFileNameProjection.project(it) }
+        session.updateFileListDiagnostics(
+            FileListDiagnostics(
+                sessionId = snapshot.fileSessionId,
+                transportSessionId = snapshot.transportSessionId,
+                requestSequence = snapshot.requestSequence,
+                dataFrameCount = snapshot.dataFrameCount,
+                declaredEntryCount = snapshot.declaredEntryCount,
+                parsedEntryCount = snapshot.entries.size,
+                lastNotificationSource = snapshot.lastNotificationSource,
+                lastBodySize = snapshot.lastBodySize,
+                lastFilenameFieldLength = snapshot.lastFilenameFieldLength,
+                receivedListDone = snapshot.receivedListDone,
+                lastRawFilename = lastEntry?.rawFilename,
+                lastResolvedFilename = resolution?.resolvedFilename,
+                lastFilenameResolution = resolution?.resolution?.name,
+                lastMalformedReason =
+                    if (error?.code == FileListErrorCode.MALFORMED_PAYLOAD) error.detail else null,
+                startedAtMs = snapshot.startedAtMs,
+                durationMs = (snapshot.endedAtMs ?: nowMs()) - snapshot.startedAtMs,
+                completionReason = completionReason,
+                lastOperationError = error?.let {
+                    it.code.name + (it.detail?.let { detail -> ": " + detail } ?: "")
+                },
+            ),
+        )
+    }
+
+    private fun markDeviceFilesDisconnected() {
+        val active = fileListSessionCoordinator.cancel(nowMs())
+        cancelFileListTimeouts()
+        if (active != null) {
+            applyFileListFailure(
+                snapshot = active,
+                error = FileListError(
+                    FileListErrorCode.DISCONNECTED,
+                    "device disconnected during file-list session",
+                ),
+                completionReason = FileListCompletionReason.DISCONNECTED,
+            )
+            return
+        }
+        markDeviceFilesStale()
+    }
+
+    private fun markDeviceFilesStale() {
+        val previous = mutableDeviceFileListState.value
+        if (previous.lastUpdatedTimeMs != null) {
+            mutableDeviceFileListState.value = previous.copy(
+                freshness = FileListFreshness.STALE,
+                activeSessionId = null,
+            )
+        }
+    }
+
+    private fun cancelFileListTimeouts() {
+        fileListFirstResponseJob?.cancel()
+        fileListFirstResponseJob = null
+        fileListTotalTimeoutJob?.cancel()
+        fileListTotalTimeoutJob = null
+    }
+
     private fun acknowledgeHardwareEventAndResync(event: RecordingHardwareEvent) {
         scope.launch {
             val acknowledged = session.acknowledgeHardwareRecordingEvent(event.kind)
@@ -1186,6 +1471,8 @@ class DefaultDeviceRepository(
         reconnectJob?.cancel()
         refreshJob?.cancel()
         recordingReconcileJob?.cancel()
+        cancelFileListTimeouts()
+        fileListSessionCoordinator.cancel(nowMs())
         stopRecordingPoller()
         scanner.stop()
         session.close()
@@ -1207,5 +1494,7 @@ class DefaultDeviceRepository(
         const val RECORDING_ACTION_SETTLE_MS = 120L
         const val HARDWARE_EVENT_RECONCILE_DELAY_MS = 120L
         const val AUTO_CONNECT_AFTER_BLUETOOTH_ON_MS = 300L
+        const val FILE_LIST_FIRST_RESPONSE_TIMEOUT_MS = 8_000L
+        const val FILE_LIST_TOTAL_SESSION_TIMEOUT_MS = 20_000L
     }
 }

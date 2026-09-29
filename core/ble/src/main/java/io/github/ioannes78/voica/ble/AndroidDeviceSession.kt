@@ -224,6 +224,19 @@ class AndroidDeviceSession(
             )
         }
 
+    suspend fun requestFileList(): DeviceSendOnlyResult {
+        val result = commandClient.sendOnlyWithSequence(ProtocolCodec::buildFileListRequest)
+        if (!result.written) {
+            recordError(
+                BleError(
+                    BleErrorCode.WRITE_FAILED,
+                    "file-list request cmd=" + ProtocolConstants.File.LIST_REQUEST,
+                ),
+            )
+        }
+        return result
+    }
+
     suspend fun readBattery(): BatteryState? =
         requestControl(
             requestBuilder = ProtocolCodec::buildGetBattery,
@@ -930,6 +943,10 @@ class AndroidDeviceSession(
                 ),
             )
         }
+    }
+
+    fun updateFileListDiagnostics(fileList: FileListDiagnostics) {
+        updateDiagnostics { it.copy(fileList = fileList) }
     }
 
     fun noteRecordingHardwareEvent(event: RecordingHardwareEvent) {
