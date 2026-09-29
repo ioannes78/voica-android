@@ -152,3 +152,22 @@ Stage 4 不实现：
 - AI / Cloud
 
 以上从 Stage 5 及后续阶段继续。
+
+
+## 9. Freeze 收口验证
+
+Freeze/Handoff 内容提交：
+
+`3802dcfa1e77b11ab3981b2df76bbe6854438852`
+
+Android PR CI：
+
+`36590518755` — **success**
+
+该 Run 在用户最终“测试通过”后再次通过：
+
+- `:core:protocol:test`
+- `:core:ble:testDebugUnitTest`
+- `:app:assembleDebug`
+
+因此 Stage 4 Freeze 内容与最终代码基线保持自动验证全绿。

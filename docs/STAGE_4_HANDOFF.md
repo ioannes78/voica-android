@@ -48,7 +48,21 @@ APK SHA-256：
 
 `b7d48c12a7346cc2f391645ddffe13f0edbb3f1c7cdf70183c76e3430cd000bc`
 
-Freeze/Handoff 内容提交和最终 Freeze CI 将由 seal 提交记录。
+Freeze/Handoff 内容提交：
+
+`3802dcfa1e77b11ab3981b2df76bbe6854438852`
+
+Freeze 内容 CI：
+
+`36590518755` — **success**
+
+该 Run 再次通过：
+
+- `:core:protocol:test`
+- `:core:ble:testDebugUnitTest`
+- `:app:assembleDebug`
+
+本 Handoff 的 seal 提交仅记录最终验证证据，不改变 Stage 4 生产代码。
 
 PR #4 合并后的最终 `main` SHA，Stage 5 接管时必须从 GitHub 重新读取，不能从聊天或本文件猜测。
 

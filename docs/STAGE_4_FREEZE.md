@@ -78,7 +78,20 @@ APK SHA-256：
 
 `b7d48c12a7346cc2f391645ddffe13f0edbb3f1c7cdf70183c76e3430cd000bc`
 
-Freeze/Handoff 内容提交与最终 Freeze CI 由后续 seal 提交记录；seal 不改变 Stage 4 生产代码。
+Freeze/Handoff 内容提交：
+
+`3802dcfa1e77b11ab3981b2df76bbe6854438852`
+
+Freeze 内容 CI：
+
+- Workflow：Android PR CI
+- Run ID：`36590518755`
+- 结论：**success**
+- `:core:protocol:test`：通过
+- `:core:ble:testDebugUnitTest`：通过
+- `:app:assembleDebug`：通过
+
+本 seal 提交仅记录最终验证证据，不改变 Stage 4 生产代码。
 
 ## 4. 冻结 TYPE=2 文件列表事实
 
