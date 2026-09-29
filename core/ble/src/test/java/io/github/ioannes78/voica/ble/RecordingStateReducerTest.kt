@@ -120,6 +120,21 @@ class RecordingStateReducerTest {
     }
 
     @Test
+    fun successfulSyncCanRemainFreshWithoutAuxiliaryReadError() {
+        var state = RecordingDeviceState(
+            status = RecordingStatus.Idle,
+            freshness = RecordingFreshness.SYNCING,
+        )
+        state = RecordingStateReducer.reduce(
+            state,
+            RecordingStateEvent.SyncCompleted(20),
+        )
+
+        assertEquals(RecordingFreshness.FRESH, state.freshness)
+        assertNull(state.lastError)
+    }
+
+    @Test
     fun disconnectKeepsLastKnownValuesButMarksThemStale() {
         val initial = RecordingDeviceState(
             status = RecordingStatus.Recording,

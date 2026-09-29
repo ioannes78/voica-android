@@ -410,6 +410,7 @@ class DefaultDeviceRepository(
         }
         performRecordingCommand(
             commandState = RecordingCommandState.STARTING,
+            expectedStatus = RecordingStatus.Recording,
             action = session::startRecording,
         )
     }
@@ -423,6 +424,7 @@ class DefaultDeviceRepository(
         }
         performRecordingCommand(
             commandState = RecordingCommandState.PAUSING,
+            expectedStatus = RecordingStatus.Paused,
             action = session::pauseRecording,
         )
     }
@@ -436,6 +438,7 @@ class DefaultDeviceRepository(
         }
         performRecordingCommand(
             commandState = RecordingCommandState.RESUMING,
+            expectedStatus = RecordingStatus.Recording,
             action = session::resumeRecording,
         )
     }
@@ -450,6 +453,7 @@ class DefaultDeviceRepository(
         }
         performRecordingCommand(
             commandState = RecordingCommandState.SAVING,
+            expectedStatus = RecordingStatus.Idle,
             action = session::saveRecording,
         )
     }
@@ -521,6 +525,7 @@ class DefaultDeviceRepository(
 
     private suspend fun performRecordingCommand(
         commandState: RecordingCommandState,
+        expectedStatus: RecordingStatus,
         action: suspend () -> Boolean,
     ) {
         stopRecordingPoller()
@@ -540,14 +545,20 @@ class DefaultDeviceRepository(
         )
 
         if (written) delay(RECORDING_ACTION_SETTLE_MS)
-        syncRecordingState(RecordingSyncReason.APP_COMMAND)
+        syncRecordingState(
+            reason = RecordingSyncReason.APP_COMMAND,
+            expectedStatus = if (written) expectedStatus else null,
+        )
 
         if (error != null) {
             reduceRecordingState(RecordingStateEvent.OperationError(error, nowMs()))
         }
     }
 
-    private suspend fun syncRecordingState(reason: RecordingSyncReason) {
+    private suspend fun syncRecordingState(
+        reason: RecordingSyncReason,
+        expectedStatus: RecordingStatus? = null,
+    ) {
         recordingSyncMutex.withLock {
             if (session.state.value !is DeviceConnectionState.Ready) {
                 markRecordingDisconnected()
@@ -559,28 +570,90 @@ class DefaultDeviceRepository(
                 syncReason = reason,
             )
 
-            val stateOutcome = session.readRecordingState()
-            val status = when (stateOutcome) {
-                is RecordingRequestOutcome.Success -> stateOutcome.value
-                else -> {
-                    val error = requestError(stateOutcome, "GET_STATE")
-                        ?: RecordingError(
-                            RecordingErrorCode.SYNC_FAILED,
-                            "GET_STATE failed",
+            var status: RecordingStatus? = null
+            val maxAttempts =
+                if (expectedStatus == null) {
+                    1
+                } else {
+                    RecordingStateConvergencePolicy.MAX_ATTEMPTS
+                }
+
+            for (attempt in 1..maxAttempts) {
+                when (val stateOutcome = session.readRecordingState()) {
+                    is RecordingRequestOutcome.Success -> {
+                        status = stateOutcome.value
+                        reduceRecordingState(
+                            RecordingStateEvent.StateReceived(status, nowMs()),
+                            syncReason = reason,
                         )
-                    reduceRecordingState(
-                        RecordingStateEvent.SyncFailed(error, nowMs()),
-                        syncReason = reason,
+                        if (
+                            expectedStatus == null ||
+                            RecordingStateConvergencePolicy.isSatisfied(
+                                actual = status,
+                                expected = expectedStatus,
+                            )
+                        ) {
+                            break
+                        }
+                    }
+
+                    else -> {
+                        val error = requestError(stateOutcome, "GET_STATE")
+                            ?: RecordingError(
+                                RecordingErrorCode.SYNC_FAILED,
+                                "GET_STATE failed",
+                            )
+                        reduceRecordingState(
+                            RecordingStateEvent.SyncFailed(error, nowMs()),
+                            syncReason = reason,
+                        )
+                        stopRecordingPoller()
+                        return
+                    }
+                }
+
+                if (
+                    expectedStatus != null &&
+                    RecordingStateConvergencePolicy.shouldRetry(
+                        attempt = attempt,
+                        actual = status,
+                        expected = expectedStatus,
                     )
-                    stopRecordingPoller()
-                    return
+                ) {
+                    delay(RecordingStateConvergencePolicy.RETRY_DELAY_MS)
                 }
             }
 
-            reduceRecordingState(
-                RecordingStateEvent.StateReceived(status, nowMs()),
-                syncReason = reason,
-            )
+            val resolvedStatus = status ?: run {
+                val error = RecordingError(
+                    RecordingErrorCode.SYNC_FAILED,
+                    "GET_STATE produced no state",
+                )
+                reduceRecordingState(
+                    RecordingStateEvent.SyncFailed(error, nowMs()),
+                    syncReason = reason,
+                )
+                stopRecordingPoller()
+                return
+            }
+
+            val convergenceError =
+                if (
+                    expectedStatus != null &&
+                    !RecordingStateConvergencePolicy.isSatisfied(
+                        actual = resolvedStatus,
+                        expected = expectedStatus,
+                    )
+                ) {
+                    RecordingError(
+                        RecordingErrorCode.SYNC_FAILED,
+                        "expected=" + expectedStatus +
+                            " actual=" + resolvedStatus +
+                            " after=" + maxAttempts + " reads",
+                    )
+                } else {
+                    null
+                }
 
             when (val time = session.readRecordingTime()) {
                 is RecordingRequestOutcome.Success ->
@@ -591,13 +664,15 @@ class DefaultDeviceRepository(
                 else -> noteOptionalReadFailure(time, "GET_TIME")
             }
 
-            when (val filename = session.readRecordingFilename()) {
-                is RecordingRequestOutcome.Success ->
-                    reduceRecordingState(
-                        RecordingStateEvent.FilenameReceived(filename.value, nowMs()),
-                        syncReason = reason,
-                    )
-                else -> noteOptionalReadFailure(filename, "GET_FILENAME")
+            if (RecordingSupplementaryReadPolicy.shouldReadFilename(resolvedStatus)) {
+                when (val filename = session.readRecordingFilename()) {
+                    is RecordingRequestOutcome.Success ->
+                        reduceRecordingState(
+                            RecordingStateEvent.FilenameReceived(filename.value, nowMs()),
+                            syncReason = reason,
+                        )
+                    else -> noteOptionalReadFailure(filename, "GET_FILENAME")
+                }
             }
 
             when (val gain = session.readRecordingGain()) {
@@ -613,6 +688,12 @@ class DefaultDeviceRepository(
                 RecordingStateEvent.SyncCompleted(nowMs()),
                 syncReason = reason,
             )
+            if (convergenceError != null) {
+                reduceRecordingState(
+                    RecordingStateEvent.OperationError(convergenceError, nowMs()),
+                    syncReason = reason,
+                )
+            }
             updateRecordingPoller()
         }
     }
@@ -680,8 +761,11 @@ class DefaultDeviceRepository(
                 )
             }
             scheduleRecordingSync(
-                RecordingSyncReason.HARDWARE_EVENT,
+                reason = RecordingSyncReason.HARDWARE_EVENT,
                 delayMs = HARDWARE_EVENT_RECONCILE_DELAY_MS,
+                expectedStatus = RecordingStateConvergencePolicy.expectedForHardwareEvent(
+                    event.kind,
+                ),
             )
         }
     }
@@ -689,11 +773,15 @@ class DefaultDeviceRepository(
     private fun scheduleRecordingSync(
         reason: RecordingSyncReason,
         delayMs: Long,
+        expectedStatus: RecordingStatus? = null,
     ) {
         recordingReconcileJob?.cancel()
         recordingReconcileJob = scope.launch {
             if (delayMs > 0) delay(delayMs)
-            syncRecordingState(reason)
+            syncRecordingState(
+                reason = reason,
+                expectedStatus = expectedStatus,
+            )
         }
     }
 
@@ -797,8 +885,10 @@ class DefaultDeviceRepository(
         operation: String,
     ) {
         val error = requestError(outcome, operation) ?: return
-        reduceRecordingState(
-            RecordingStateEvent.OperationError(error, nowMs()),
+        session.noteRecordingAuxiliaryReadFailure(
+            operation = operation,
+            detail = error.code.name +
+                (error.detail?.let { ": " + it } ?: ""),
         )
     }
 

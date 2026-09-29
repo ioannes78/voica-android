@@ -145,3 +145,36 @@ object RecordingPollingPolicy {
     ): Boolean =
         ready && foreground && status == RecordingStatus.Recording
 }
+
+
+object RecordingStateConvergencePolicy {
+    const val MAX_ATTEMPTS = 6
+    const val RETRY_DELAY_MS = 250L
+
+    fun isSatisfied(
+        actual: RecordingStatus?,
+        expected: RecordingStatus,
+    ): Boolean = actual == expected
+
+    fun shouldRetry(
+        attempt: Int,
+        actual: RecordingStatus?,
+        expected: RecordingStatus,
+    ): Boolean =
+        attempt < MAX_ATTEMPTS && !isSatisfied(actual, expected)
+
+    fun expectedForHardwareEvent(
+        kind: RecordingHardwareEventKind,
+    ): RecordingStatus =
+        when (kind) {
+            RecordingHardwareEventKind.START -> RecordingStatus.Recording
+            RecordingHardwareEventKind.SAVE -> RecordingStatus.Idle
+            RecordingHardwareEventKind.PAUSE -> RecordingStatus.Paused
+            RecordingHardwareEventKind.RESUME -> RecordingStatus.Recording
+        }
+}
+
+object RecordingSupplementaryReadPolicy {
+    fun shouldReadFilename(status: RecordingStatus): Boolean =
+        status != RecordingStatus.Idle
+}

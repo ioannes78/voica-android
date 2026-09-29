@@ -952,6 +952,20 @@ class AndroidDeviceSession(
         }
     }
 
+    fun noteRecordingAuxiliaryReadFailure(
+        operation: String,
+        detail: String,
+    ) {
+        addLog("Recording auxiliary read failed operation=" + operation + " " + detail)
+        updateDiagnostics {
+            it.copy(
+                recording = it.recording.copy(
+                    lastOperationError = operation + ": " + detail,
+                ),
+            )
+        }
+    }
+
     private fun recordingStatusRaw(status: RecordingStatus?): Int? =
         when (status) {
             RecordingStatus.Recording -> ProtocolConstants.RecordingStateValue.RECORDING

@@ -59,3 +59,21 @@ Ready 后持久化最后成功设备地址。之后：
 - 用户主动断开时，本进程停止自动连接。
 - App 重新启动后恢复自动连接。
 - 远端断线继续沿用 Stage 2 1s→2s→4s、最多 3 次的重连策略。
+
+
+## 第二轮真机修正（0.3.2-stage3）
+
+0.3.1 真机确认卡录音控制已正常。新增观察：
+
+- Idle/停止保存后，固件可能不响应 GET_FILENAME；该超时不能解释为录音操作失败。
+- Pause 写入后立即读取 GET_STATE 可能短暂返回旧的 Recording 状态，导致 UI 仍显示“暂停”而不是“继续录音”。
+
+修正：
+
+1. Start/Pause/Resume/Save 控制命令仍只发送一次。
+2. 控制后仅重复只读 GET_STATE，最多 6 次、间隔 250ms；目标分别为 Recording/Paused/Recording/Idle。
+3. 不重复发送任何有副作用的录音控制命令。
+4. 达到 Paused 后 UI 使用既有 Paused 分支自动显示“继续录音 + 停止并保存”。
+5. Idle 状态跳过 GET_FILENAME，保留最后已知文件名；避免固件不响应导致约 5 秒超时。
+6. GET_TIME/GET_FILENAME/GET_GAIN 等辅助读取失败只记入 BLE Diagnostics，不再写入用户可见的“最近录音操作”。
+7. GET_STATE 仍是关键真值；其失败继续使同步失败并禁用不安全控制。
