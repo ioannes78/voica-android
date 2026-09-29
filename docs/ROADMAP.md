@@ -1,12 +1,13 @@
 # Voica Android 全项目 Stage 开发路线图
 
-当前状态：**Stage 3 已完成、真机验收通过并冻结；下一阶段为 Stage 4。**
+当前状态：**Stage 4 已完成、真机验收通过并冻结；下一阶段为 Stage 5。**
 
 整个 Voica 路线均为全新独立实现，不得从 `voice-card-android` 复制、迁移、继承、cherry-pick 或机械改写任何代码。
 
 协议与行为参考：
 
 - QS668 / CB08 真机可重复验证结果：最高优先级
+- 官方 Android App `声云语音转写 3.0.9-u` 静态实现：协议/行为主参考，冲突时真机优先
 - `nextproto1024/ai-recorder-card-open-protocol@e741ea72207f1a2aae3df4debc5c135728e0170e`
 - `laidely/kardo@bcec3c5fdbcb34810a6f235e8b5873683f2ab951`：仅产品行为参考
 
@@ -127,23 +128,47 @@
 
 ## Stage 4 — 设备文件列表 + 文件名解析
 
-内容：
+完成内容：
 
-- 文件列表请求与解析
-- 时长/大小/名称
-- 排序和刷新
-- 短/截断文件名处理
-- 2-12 分段探测可用完整文件名
-- 已下载状态映射
+- TYPE=2/CMD=0 文件列表请求
+- TYPE=2/CMD=1 多帧数据块聚合
+- TYPE=2/CMD=18 正常完成信号
+- 列表 COUNT / time / size 按 BE32 严格解析
+- 官方 App 兼容的动态 filename field 解析
+- 当前真机 filename field = 20B
+- 标准截断名 `noteYYYYMMDD-HHMMSS.` 安全恢复为 `.opus`
+- 文件录制时间解析、时长、大小、排序
+- 真机确认 entry 第一个 BE32 = duration seconds
+- RemoteDeviceFile 稳定/临时 identity 契约
+- 手动刷新、Fresh/Empty/Stale/Failed 状态
+- Disconnect/session generation 防旧列表污染
+- Recording/Paused 时禁止文件刷新，保护 Stage 3 Poller
+- 文件列表 Diagnostics
+- 2/12 已重新定位为区间文件传输，不用于 Stage 4 文件名探测
+
+状态：**已完成 / 已真机验收 / 已冻结**
+
+冻结文档：
+
+- `docs/STAGE_4_TEST.md`
+- `docs/STAGE_4_FREEZE.md`
+- `docs/STAGE_4_HANDOFF.md`
+- `docs/STAGE_4_PROTOCOL_FINDINGS.md`
+- `docs/STAGE_4_REAL_DEVICE_FINDINGS.md`
 
 ## Stage 5 — 文件下载 + 删除 + 原始音频落盘
 
 内容：
 
-- 候选文件名 fallback
+- 重新验证 TYPE=2/CMD=2 与 CMD=12 的 filename 参数：官方 App 使用实际 UTF-8 bytes，当前旧 builder 的 fixed-24 假设不得直接视为冻结协议
+- TYPE=2/CMD=3 文件开始/实际文件名
+- TYPE=2/CMD=4 文件数据
+- TYPE=2/CMD=5 文件结束
+- TYPE=2/CMD=7 取消/中止语义
+- TYPE=2/CMD=12 区间文件传输
 - 下载进度/取消/重试/超时
 - 断连恢复策略
-- TYPE=2/CMD=2 36B 一次完整 GATT Write
+- 完整 ProtocolFrame 必须单次 GATT Write，不得应用层拆包
 - 重复下载保护
 - 原始音频可靠落盘
 - 单文件设备删除

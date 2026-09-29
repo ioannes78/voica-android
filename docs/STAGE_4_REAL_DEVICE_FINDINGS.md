@@ -1,8 +1,10 @@
 # Voica Stage 4 Real Device Findings
 
-状态：**Stage 4 真机验证进行中 / 非 Freeze**
+状态：**ACCEPTED / 用户最终确认测试通过**
 
-本文记录 QS668 / CB08 真机事实。未收到用户明确“测试通过”前，不代表 Stage 4 Freeze。
+最终用户确认日期：2026-09-29
+
+本文记录 Stage 4 QS668 / CB08 真机事实，并作为 Freeze 证据。
 
 ## 当前候选
 
@@ -11,7 +13,9 @@
 - versionCode: `10`
 - Diagnostic enhancement commit: `3f1d740a7f88f02f7619aa2de75e2fb2402974bf`
 - Core CI: `36587944561` — success
-- Draft PR: #4
+- Draft PR: #4（Freeze 前保持 Draft）
+- 最终候选 APK CI：`36588581441` — success
+- 最终候选 APK SHA-256：`b7d48c12a7346cc2f391645ddffe13f0edbb3f1c7cdf70183c76e3430cd000bc`
 
 ## 已确认的真机事实
 
@@ -154,14 +158,26 @@ Stage 4 不要求 CMD=18 body 为空，这与真机行为兼容。
 
 文件列表 UI 因此可以正式显示 mm:ss / hh:mm:ss 时长。
 
-### 尚未完成的真机项
+### 最终验收
 
-- Empty 设备文件列表真实响应
-- 刷新过程中 Disconnect / Reconnect
-- App 开始 → 暂停 → 继续 → 停止保存完整 Stage 3 回归
-- 设备物理键开始 / 停止完整回归
-- 自动连接回归
-- size 的最终语义/单位验证
+用户在 0.4.2-stage4 最终候选后明确回复：
+
+**“测试通过”**
+
+因此 Stage 4 真机验收门禁满足。
+
+已保留的直接截图/日志证据重点覆盖：
+
+- 多帧文件列表
+- 20B filename field
+- CMD=18 稳定完成
+- AE22 数据/完成来源
+- DONE 1B body
+- 5/5、6/6、8/8、9/9 declared/parsed
+- 新录音保存后刷新进入列表
+- 11 秒 / 24 秒 rawTimeValue 精确对应录音时长
+
+最终“测试通过”同时作为 Stage 4 回归清单的用户验收结论。没有额外原始截图归档的分项，不在本文伪造更细粒度设备日志。
 
 ## Stage 4 边界
 
@@ -174,4 +190,4 @@ Stage 4 不要求 CMD=18 body 为空，这与真机行为兼容。
 
 ## 当前下一步
 
-- 0.4.2-stage4：验证文件列表时长显示，并继续 Empty、Disconnect/Reconnect 与 Stage 3 完整回归。
+Stage 4 Freeze/Handoff 后进入 Stage 5：文件下载 + 删除 + 原始音频落盘。

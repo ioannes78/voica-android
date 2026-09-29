@@ -9,9 +9,10 @@ Voica 是面向 QS668 / CB08 AI 录音卡的 Android 原生客户端。
 协议事实优先级：
 
 1. QS668 / CB08 真机可重复验证结果。
-2. `nextproto1024/ai-recorder-card-open-protocol`，Stage 2 固定参考 commit：`e741ea72207f1a2aae3df4debc5c135728e0170e`。
-3. `laidely/kardo`，固定参考 commit：`bcec3c5fdbcb34810a6f235e8b5873683f2ab951`，仅用于产品行为与设备交互交叉验证。
-4. Android 官方 BLE API 行为。
+2. 官方 Android App `声云语音转写 3.0.9-u` 静态实现，用于协议/行为主参考；与真机冲突时以真机为准。
+3. `nextproto1024/ai-recorder-card-open-protocol`，固定参考 commit：`e741ea72207f1a2aae3df4debc5c135728e0170e`。
+4. `laidely/kardo`，固定参考 commit：`bcec3c5fdbcb34810a6f235e8b5873683f2ab951`，仅用于产品行为与设备交互交叉验证。
+5. Android 官方 BLE API 行为。
 
 `voice-card-android` 不作为 Voica 的代码、架构、测试或 Gradle 来源。
 
@@ -60,7 +61,8 @@ Voica 是面向 QS668 / CB08 AI 录音卡的 Android 原生客户端。
 - Stage 1：已完成 / 已真机验收 / 已冻结
 - Stage 2：已完成 / 已两轮真机验收 / 已冻结
 - Stage 3：已完成 / 已真机验收 / 已冻结
-- 下一阶段：**Stage 4 — 设备文件列表 + 文件名解析**
+- Stage 4：已完成 / 已真机验收 / 已冻结
+- 下一阶段：**Stage 5 — 文件下载 + 删除 + 原始音频落盘**
 
 Stage 2 已建立：
 
@@ -93,6 +95,20 @@ Stage 3 已建立：
 
 Stage 3 真机确认 App 控制与设备物理按键控制均能稳定同步 UI。
 
+Stage 4 已建立：
+
+- TYPE=2/CMD=0 文件列表请求
+- TYPE=2/CMD=1 多帧文件列表聚合
+- TYPE=2/CMD=18 明确列表完成
+- 官方 App 兼容的动态 filename field 严格解析
+- 当前 QS668/CB08 真机确认 filename field = **20B**
+- 标准 `noteYYYYMMDD-HHMMSS.` 安全恢复为 `.opus`
+- 文件录制时间、时长、大小显示
+- 真机确认列表第一个 BE32 = **录音时长秒数**
+- 最新录制优先排序、手动刷新、Stale/Failed 状态
+- 文件列表 Diagnostics
+- Stage 4 不使用 2/12 做文件名探测；2/12 区间文件传输留给 Stage 5
+
 项目文档：
 
 - [产品需求](docs/PRODUCT_REQUIREMENTS.md)
@@ -104,6 +120,11 @@ Stage 3 真机确认 App 控制与设备物理按键控制均能稳定同步 UI�
 - [Stage 3 测试](docs/STAGE_3_TEST.md)
 - [Stage 3 Freeze](docs/STAGE_3_FREEZE.md)
 - [Stage 3 Handoff](docs/STAGE_3_HANDOFF.md)
+- [Stage 4 测试](docs/STAGE_4_TEST.md)
+- [Stage 4 Freeze](docs/STAGE_4_FREEZE.md)
+- [Stage 4 Handoff](docs/STAGE_4_HANDOFF.md)
+- [Stage 4 协议发现](docs/STAGE_4_PROTOCOL_FINDINGS.md)
+- [Stage 4 真机发现](docs/STAGE_4_REAL_DEVICE_FINDINGS.md)
 - [开发规则](AGENTS.md)
 
 ## License

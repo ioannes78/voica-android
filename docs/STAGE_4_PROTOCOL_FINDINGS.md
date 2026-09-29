@@ -1,6 +1,6 @@
 # Voica Stage 4 Protocol Findings
 
-状态：**Stage 4 开发中 / 非 Freeze**
+状态：**FROZEN / ACCEPTED — Stage 4 协议发现基线**
 
 ## 1. 参考基线
 
@@ -151,3 +151,12 @@ Stage 4 不执行 2/2 或 2/12，因此本阶段不修改这些 builder。Stage 
 - 重复刷新、断线、重连行为
 
 真机结果若与官方 App 静态分析冲突，以真机为准。
+
+
+## 10. Stage 4 Freeze 结论
+
+用户于 2026-09-29 明确回复“测试通过”。
+
+因此本文中的 Stage 4 文件列表事实作为后续 Stage 的协议基线冻结。任何后续修改必须以新的可重复 QS668/CB08 真机证据为依据。
+
+特别注意：2/2、2/12 的 filename 参数长度尚未被 Stage 4 下载业务真机冻结；Stage 5 必须重新验证，不能把旧 fixed-24 builder 直接提升为生产下载 contract。
