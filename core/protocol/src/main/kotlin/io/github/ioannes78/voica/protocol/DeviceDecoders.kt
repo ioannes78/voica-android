@@ -135,7 +135,7 @@ object DeviceDecoders {
     }
 
     fun decodeRecordTime(body: ByteArray): Pair<Int, Long> {
-        if (body.size < 6) return 0 to 0L
+        require(body.size >= 6) { "录音时间响应至少需要 6 字节" }
         return ByteCodec.readU16Le(body, 0) to ByteCodec.readU32Le(body, 2)
     }
 

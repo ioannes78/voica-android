@@ -136,6 +136,40 @@ object ProtocolCodec {
     fun buildFileListRequest(sequence: Int): ByteArray =
         buildCommand(sequence, ProtocolConstants.Type.FILE, ProtocolConstants.File.LIST_REQUEST)
 
+    fun buildRecordStart(sequence: Int): ByteArray =
+        buildCommand(sequence, ProtocolConstants.Type.KEY, ProtocolConstants.Key.RECORD_START)
+
+    fun buildRecordSave(sequence: Int): ByteArray =
+        buildCommand(sequence, ProtocolConstants.Type.KEY, ProtocolConstants.Key.RECORD_SAVE)
+
+    fun buildRecordPause(sequence: Int): ByteArray =
+        buildCommand(sequence, ProtocolConstants.Type.KEY, ProtocolConstants.Key.RECORD_PAUSE)
+
+    fun buildRecordResume(sequence: Int): ByteArray =
+        buildCommand(sequence, ProtocolConstants.Type.KEY, ProtocolConstants.Key.RECORD_RESUME)
+
     fun buildGetRecordState(sequence: Int): ByteArray =
         buildCommand(sequence, ProtocolConstants.Type.KEY, ProtocolConstants.Key.GET_STATE)
+
+    fun buildGetRecordTime(sequence: Int): ByteArray =
+        buildCommand(sequence, ProtocolConstants.Type.KEY, ProtocolConstants.Key.GET_TIME)
+
+    fun buildGetRecordFilename(sequence: Int): ByteArray =
+        buildCommand(sequence, ProtocolConstants.Type.KEY, ProtocolConstants.Key.GET_FILENAME)
+
+    fun buildGetRecordingGain(sequence: Int): ByteArray =
+        buildCommand(sequence, ProtocolConstants.Type.KEY, ProtocolConstants.Key.GET_GAIN)
+
+    fun buildSetRecordingGain(sequence: Int, gainValue: Int): ByteArray {
+        require(
+            gainValue in ProtocolConstants.RecordingGainValue.LOW..
+                ProtocolConstants.RecordingGainValue.HIGH,
+        ) { "录音增益必须位于 1..3" }
+        return buildCommand(
+            sequence,
+            ProtocolConstants.Type.KEY,
+            ProtocolConstants.Key.SET_GAIN,
+            byteArrayOf(gainValue.toByte()),
+        )
+    }
 }

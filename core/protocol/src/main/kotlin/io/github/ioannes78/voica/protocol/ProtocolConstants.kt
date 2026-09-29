@@ -76,4 +76,16 @@ object ProtocolConstants {
         const val SET_GAIN = 27
         const val SET_GAIN_RESPONSE = 28
     }
+
+    object RecordingStateValue {
+        const val RECORDING = 1
+        const val IDLE = 2
+        const val PAUSED = 3
+    }
+
+    object RecordingGainValue {
+        const val LOW = 1
+        const val MEDIUM = 2
+        const val HIGH = 3
+    }
 }
