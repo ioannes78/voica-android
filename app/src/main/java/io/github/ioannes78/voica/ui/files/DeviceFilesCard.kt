@@ -93,14 +93,12 @@ private fun FileListStatus(state: DeviceFileListState) {
         val errorText = when (error.code) {
             FileListErrorCode.RECORDING_ACTIVE ->
                 stringResource(R.string.device_files_recording_blocked)
-            FileListErrorCode.DISCONNECTED ->
+            FileListErrorCode.NOT_READY,
+            FileListErrorCode.DISCONNECTED,
+            ->
                 stringResource(R.string.device_files_disconnected)
             else ->
-                if (state.freshness == FileListFreshness.FAILED) {
-                    stringResource(R.string.device_files_failed)
-                } else {
-                    error.detail ?: error.code.name
-                }
+                stringResource(R.string.device_files_failed)
         }
         Text(errorText, style = MaterialTheme.typography.bodySmall)
     }

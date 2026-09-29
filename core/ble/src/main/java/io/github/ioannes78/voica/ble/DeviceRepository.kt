@@ -128,6 +128,7 @@ class DefaultDeviceRepository(
                     recordingReconcileJob?.cancel()
                     recordingReconcileJob = null
                     markRecordingDisconnected()
+                    markDeviceFilesDisconnected()
                     session.handleBluetoothOff()
                     mutableConnectionState.value = DeviceConnectionState.BluetoothOff
                 }
@@ -331,6 +332,7 @@ class DefaultDeviceRepository(
                 session.setReconnectAttempt(0)
                 stopRecordingPoller()
                 markRecordingDisconnected()
+                markDeviceFilesDisconnected()
                 session.handlePermissionRevoked()
                 mutableConnectionState.value = environment
                 return
@@ -343,6 +345,7 @@ class DefaultDeviceRepository(
                 session.setReconnectAttempt(0)
                 stopRecordingPoller()
                 markRecordingDisconnected()
+                markDeviceFilesDisconnected()
                 session.handleBluetoothOff()
                 mutableConnectionState.value = environment
                 return
