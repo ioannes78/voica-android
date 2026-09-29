@@ -42,6 +42,10 @@ sealed interface RecordingStateEvent {
         val error: RecordingError,
         val timestampMs: Long,
     ) : RecordingStateEvent
+    data class OperationError(
+        val error: RecordingError,
+        val timestampMs: Long,
+    ) : RecordingStateEvent
     data class Disconnected(val timestampMs: Long) : RecordingStateEvent
 }
 
@@ -116,6 +120,11 @@ object RecordingStateReducer {
             )
 
             is RecordingStateEvent.DecodeFailed -> state.copy(
+                lastUpdatedTimeMs = event.timestampMs,
+                lastError = event.error,
+            )
+
+            is RecordingStateEvent.OperationError -> state.copy(
                 lastUpdatedTimeMs = event.timestampMs,
                 lastError = event.error,
             )

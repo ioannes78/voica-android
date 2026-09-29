@@ -2,6 +2,7 @@ package io.github.ioannes78.voica.ble
 
 import io.github.ioannes78.voica.protocol.ProtocolFrame
 import io.github.ioannes78.voica.protocol.SequenceGenerator
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withTimeoutOrNull
@@ -72,8 +73,16 @@ class DeviceCommandClient(
                 return DeviceCommandResult.WriteFailed
             }
 
-            val response = withTimeoutOrNull(responseTimeoutMs) {
-                deferred.await()
+            val response = try {
+                withTimeoutOrNull(responseTimeoutMs) {
+                    deferred.await()
+                }
+            } catch (cancelled: CancellationException) {
+                clearPending(request)
+                if (deferred.isCancelled) {
+                    return DeviceCommandResult.Cancelled
+                }
+                throw cancelled
             }
             clearPending(request)
             return if (response == null) {
