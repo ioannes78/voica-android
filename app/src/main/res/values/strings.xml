@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">Voica</string>
     <string name="stage2_subtitle">BLE 设备连接与基础信息</string>
-    <string name="version_label">0.2.0 Stage 2</string>
+    <string name="version_label">0.2.1 Stage 2</string>
     <string name="tab_device">设备</string>
     <string name="tab_settings">设置</string>
 

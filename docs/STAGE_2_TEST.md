@@ -2,6 +2,15 @@
 
 状态：开发中
 
+## 2026-09-29 第一轮真机观察
+
+- CB08 已成功进入 Ready；AE20/AE21/AE22/AE23 均发现，AE22/AE23 均成功订阅。
+- Actual MTU = 517；36B 原子写与 168B 数据通道能力均满足。
+- 容量、固件版本、Auth 已正常读取。
+- 电量查询发现设备实际把 CONTROL `0/4` Battery Response 发到 **AE23**；首个候选仅把 AE22 提交给 pending request，导致 `RESPONSE_TIMEOUT cmd=4`。
+- 真机响应 sequence 不回显 request sequence；例如 request seq=14 时 battery response seq=20。因此 Stage 2 保持 TYPE/CMD 为强匹配，sequence 仅用于诊断。
+- 修复要求：AE22/AE23 两路独立解析不变，但两路完整 ProtocolFrame 都可提交给单路 pending matcher；matcher 仍只接受期望 TYPE/CMD。Battery Response 同时作为设备状态通知更新 UI。
+
 ## 自动验证
 
 - [ ] Stage 1 `:core:protocol` 回归测试
@@ -25,19 +34,19 @@
 - [ ] 扫描发现 QS668/CB08
 - [ ] Scan 去重 / RSSI 更新
 - [ ] 连接
-- [ ] AE20 discovered
-- [ ] AE21 WRITE_NO_RESPONSE
-- [ ] AE22 Notify
-- [ ] AE23 Notify
-- [ ] requestMtu(517)
-- [ ] 记录 actual negotiated MTU
-- [ ] MTU >=39
-- [ ] 记录是否 >=171
+- [x] AE20 discovered
+- [x] AE21 WRITE_NO_RESPONSE
+- [x] AE22 Notify
+- [x] AE23 Notify
+- [x] requestMtu(517)
+- [x] 记录 actual negotiated MTU：517
+- [x] MTU >=39
+- [x] >=171
 - [ ] 电量
 - [ ] 充电时 body[0] == 110 / UI“充电中”
-- [ ] 容量
-- [ ] 固件
-- [ ] Auth
+- [x] 容量
+- [x] 固件
+- [x] Auth
 - [ ] 时间同步命令
 - [ ] 主动断开
 

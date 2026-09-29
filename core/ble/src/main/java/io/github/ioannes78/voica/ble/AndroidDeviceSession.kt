@@ -632,16 +632,15 @@ class AndroidDeviceSession(
         val routed = router.accept(characteristicUuid, value.copyOf())
         updateDiagnostics { it.copy(notifications = router.stats()) }
         routed.forEach { event ->
-            if (event.source == NotificationSource.AE22) {
-                commandClient.accept(event.frame)
-            }
+            val matchedPending = commandClient.accept(event.frame)
             mutableNotifications.tryEmit(event)
             addLog(
                 "RX " + event.source +
                     " type=" + event.frame.type +
                     " cmd=" + event.frame.command +
                     " seq=" + event.frame.sequence +
-                    " bytes=" + event.frame.data.size,
+                    " bytes=" + event.frame.data.size +
+                    " pendingMatch=" + matchedPending,
             )
         }
     }

@@ -9,6 +9,8 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
+import io.github.ioannes78.voica.protocol.DeviceDecoders
+import io.github.ioannes78.voica.protocol.ProtocolConstants
 import java.io.Closeable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -110,6 +112,20 @@ class DefaultDeviceRepository(
                     }
                 } else if (mutableConnectionState.value is DeviceConnectionState.Scanning) {
                     mutableConnectionState.value = initialEnvironmentState()
+                }
+            }
+        }
+
+        scope.launch {
+            session.notifications.collect { event ->
+                val frame = event.frame
+                if (
+                    frame.type == ProtocolConstants.Type.CONTROL &&
+                    frame.command == ProtocolConstants.Control.BATTERY_RESPONSE
+                ) {
+                    mutableDeviceInfo.value = mutableDeviceInfo.value.copy(
+                        battery = DeviceDecoders.decodeBatteryState(frame.body),
+                    )
                 }
             }
         }
