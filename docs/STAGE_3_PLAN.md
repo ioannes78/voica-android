@@ -207,3 +207,16 @@ record hardware event
 - 不创建 `STAGE_3_HANDOFF.md`。
 - 不 merge main。
 - 不标记 Stage 3 完成。
+
+
+## 第一轮真机修正实施（2026-09-29）
+
+根据 QS668/CB08 真机、官方 Android 3.0.9-u、VoiceCard Stage 22.2 静态/真机记录交叉验证：
+
+1. 将卡录音 App 控制改为 CMD 2/4/6/8 + `01`。
+2. 奇数 CMD 1/3/5/7 仅作为设备物理按键事件。
+3. App 卡录音动作改为 fire-and-forget GATT 写入 + 约 120ms settle + GET_STATE reconciliation，不等待虚构 action response。
+4. 物理按键事件先发送对应偶数 CMD+`01` acknowledgement，再触发 full recording resync。
+5. 保留 NextProto/Kardo 偶数帧解析作为兼容诊断，但不把它作为当前固件动作完成条件。
+6. 版本升级为 `0.3.1-stage3` / versionCode 5。
+7. 新增 remembered-device auto-connect：Ready 后持久化最后成功地址；以后 App 进入前台自动连接；Bluetooth ON / 权限恢复也可触发；用户主动断开后本进程抑制自动连接；远端异常断开仍使用 Stage 2 的 1s/2s/4s 重连策略。
