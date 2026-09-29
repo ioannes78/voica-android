@@ -58,8 +58,10 @@ jobs:
           :app:assembleDebug
           --stacktrace
 
+      # Low-cost default: PR builds do not upload artifacts.
+      # Add [APK] to the PR title only when an explicit real-device candidate is needed.
       - name: Upload debug APK
-        if: success() && github.event_name == 'workflow_dispatch'
+        if: ${{ success() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[APK]'))) }}
         uses: actions/upload-artifact@v4
         with:
           name: Voica-debug-apk
