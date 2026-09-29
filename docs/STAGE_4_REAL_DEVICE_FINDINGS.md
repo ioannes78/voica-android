@@ -1,168 +1,168 @@
 # Voica Stage 4 Real Device Findings
 
-状态：**等待 QS668 / CB08 真机验证**
+状态：**Stage 4 真机验证进行中 / 非 Freeze**
 
-本文件用于记录 Stage 4 真机候选的协议事实。未完成真机验收前，不代表 Freeze 结论。
+本文记录 QS668 / CB08 真机事实。未收到用户明确“测试通过”前，不代表 Stage 4 Freeze。
 
 ## 当前候选
 
 - Branch: `stage4-development`
-- Version: `0.4.0-stage4`
-- versionCode: `8`
-- Candidate base commit: `bd37d0f5f533989113c06732221dfab416d54dee`
-- Core CI: `36580106183` — success
+- Version: `0.4.1-stage4`
+- versionCode: `9`
+- Diagnostic enhancement commit: `3f1d740a7f88f02f7619aa2de75e2fb2402974bf`
+- Core CI: `36585115551` — success
 - Draft PR: #4
 
-## 第一轮重点验证
+## 已确认的真机事实
 
-### 1. 文件列表正常读取
+### 文件列表主链路
 
-设备处于 Ready + Idle 后点击“刷新文件列表”。
+0.4.0 Stage 4 真机已连续观察到：
 
-记录 Diagnostics：
+```text
+TYPE=2 / CMD=0  request
+TYPE=2 / CMD=1  data chunk
+TYPE=2 / CMD=1  data chunk
+TYPE=2 / CMD=18 done
+```
 
-- File session
-- Transport session
-- File request seq
-- File frames
-- Declared/parsed
-- File RX source
-- Body/name field
-- List done
-- Raw filename
-- Resolved filename
-- Resolution
-- Completion
+CMD=18 在多次手动刷新中稳定出现，当前继续作为正常成功的唯一完成信号；不引入 idle timeout 作为正常完成。
 
-验收：
+### 多帧列表
 
-- 能显示设备现有录音
-- 不重复
-- 不漏文件
-- 收到 LIST_DONE 后一次性更新
-- 重复刷新结果稳定
+5 个文件时：
 
-### 2. filename field 实际长度
+- 第一帧 CMD=1：日志 frame bytes=118
+- 第二帧 CMD=1：日志 frame bytes=34
+- 最终 declared/parsed=5/5
 
-重点确认：
+按 ProtocolFrame 去除 TYPE/CMD 后，对应 body：
 
-- 20 bytes
-- 24 bytes
-- 或其他长度
+- 116B = 4B count + 4 × 28B entry
+- 32B = 4B count + 1 × 28B entry
 
-同时记录 raw filename 与 resolved filename。
+6 个文件时：
 
-若为标准：
+- 第一帧 CMD=1：frame bytes=118
+- 第二帧 CMD=1：frame bytes=62
+- declared/parsed=6/6
 
-`noteYYYYMMDD-HHMMSS.`
+对应第二个 body：
 
-应仅恢复为：
+- 60B = 4B count + 2 × 28B entry
 
-`noteYYYYMMDD-HHMMSS.opus`
+因此当前固件确实会把一个列表拆成多个 CMD=1 数据块。
 
-不得生成虚拟 `.wav` 文件。
+### filename field
 
-### 3. LIST_DONE
+当前 QS668 / CB08 固件实际 filename field 已确认是：
 
-确认 TYPE=2 / CMD=18 是否每次稳定出现。
+`20 bytes`
 
-如果没有 CMD=18：
+真实 raw filename 形态例如：
 
-- 当前候选应最终超时失败
-- 不得把 partial list 标记 Fresh
+`note20260908-231420.`
 
-不要在真机结论明确前引入 idle fallback。
+Voica 恢复为：
 
-### 4. 通知来源
+`note20260908-231420.opus`
 
-记录 TYPE=2 / CMD=1 和 CMD=18 实际来自：
+真机页面显示完整 `.opus` 文件名正常，未观察到虚拟 WAV 条目。
 
-- AE22
-- AE23
-- 或两者
+### 通知来源
 
-代码仍按 TYPE/CMD 路由，不绑定通知来源。
+本轮观察到：
 
-### 5. rawTimeValue
+- CMD=1：AE22
+- CMD=18：AE22
 
-建议新录制约：
+实现仍保持按 TYPE/CMD 路由，不将文件协议永久硬编码到 AE22。
 
-- 10 秒
-- 30 秒
-- 60 秒
+### CMD=18 body
 
-分别记录：
+真机日志 CMD=18 显示 frame bytes=3。
 
-- Stage 3 录制显示时长
-- Stage 4 rawTimeValue
-- 文件名
-- sizeBytes
+ProtocolFrame 中 TYPE/CMD 占 2B，因此当前设备的 CMD=18：
 
-确认 rawTimeValue 是否确实等于 duration seconds。
+`body length = 1 byte`
 
-在确认前，Stage 4 UI 时长显示“未知”。
+Stage 4 不要求 CMD=18 body 为空，这与真机行为兼容。
 
-### 6. Empty
+### Sequence
 
-清空设备文件后刷新，确认真实响应：
+真机中 CMD=1 / CMD=18 使用设备侧递增 sequence，且不要求回显 TYPE=2/CMD=0 的 request sequence。
 
-- 是否直接 CMD=18
-- 是否先 CMD=1 count=0
-- 或其他行为
+因此继续遵守 Stage 2 冻结原则：
 
-只有得到正常完成证据才显示“设备中暂无录音”。
+业务匹配依据 TYPE/CMD，sequence 仅用于诊断。
 
-### 7. Disconnect / Reconnect
+### 重复刷新
 
-刷新过程中断开设备：
+5 文件状态下连续多次手动刷新均得到完整列表并正常 LIST_DONE，未观察到：
 
-- App 不崩溃
-- partial list 不得变 Fresh
-- 已有成功列表应变 Stale
+- 重复文件
+- 漏文件
+- partial list 被发布 Fresh
+- CRC 错误
 
-重连后：
+### 停止保存后刷新
 
-- 旧结果仍可见但标记过期
-- 手动刷新可得到新 Fresh 列表
+新录音停止并保存后：
 
-### 8. Stage 3 回归
+- Recording GET_STATE 返回 raw=2 / Idle
+- 随后手动 TYPE=2/CMD=0
+- 文件数从 5 增加为 6
+- declared/parsed=6/6
+- LIST_DONE 正常
 
-必须重新验证：
+因此“停止保存 → Idle → 手动刷新 → 新文件进入列表”已通过一次真机验证。
 
-- App 开始录音
-- 暂停
-- 继续
-- 停止并保存
-- 设备物理键开始
-- 设备物理键停止
-- 自动连接
+## 0.4.1 诊断增强
 
-不得重新出现：
+0.4.1 不改变文件列表业务协议，仅将 Diagnostics 拆分并补充：
 
-- `RESPONSE_TIMEOUT GET_FILENAME` 被显示成录音操作失败
-- Pause 被 GET_STATE=1 错误覆盖为 Recording
-- Recording Poller 与文件刷新竞争
+- Data RX source
+- Done RX source
+- Last data body
+- Filename field
+- Done body
+- Newest raw filename
+- Newest resolved filename
+- Newest rawTimeValue
+- Newest size bytes
+- Newest resolution
+- Session duration
 
-## Stage 4 明确不验证
+这样下一轮可直接确认列表 entry 第一个 BE32 的真实语义。
+
+## 仍待确认
+
+### rawTimeValue
+
+需新录制一段已知时长，例如约 10 秒或 20 秒：
+
+1. 记录 Stage 3 停止保存前显示的录音时长。
+2. 保存后刷新文件列表。
+3. 查看 `Newest rawTimeValue`。
+4. 比较两者。
+
+只有真机确认一致后，才能将该字段正式提升为 `durationSeconds` 并在文件列表 UI 显示时长。
+
+### 尚未完成的真机项
+
+- Empty 设备文件列表真实响应
+- 刷新过程中 Disconnect / Reconnect
+- App 开始 → 暂停 → 继续 → 停止保存完整 Stage 3 回归
+- 设备物理键开始 / 停止完整回归
+- 自动连接回归
+- rawTimeValue 语义
+- size 的最终语义/单位验证
+
+## Stage 4 边界
 
 当前阶段不主动发送：
 
 - TYPE=2 / CMD=2
 - TYPE=2 / CMD=12
 
-文件下载、分段下载、取消、断点续传、删除均属于 Stage 5。
-
-## 待填写真机结论
-
-- 实际 filename field length：
-- CMD=1 是否多帧：
-- CMD=18 是否稳定：
-- CMD=1 来源：
-- CMD=18 来源：
-- rawTimeValue 语义：
-- size 语义：
-- Empty 响应：
-- 重复刷新：
-- Disconnect / Reconnect：
-- Stage 3 regression：
-- 用户最终结论：
+下载、分段下载、取消、断点续传、删除均属于 Stage 5。
