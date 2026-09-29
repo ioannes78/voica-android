@@ -10,7 +10,7 @@
 - Version: `0.4.2-stage4`
 - versionCode: `10`
 - Diagnostic enhancement commit: `3f1d740a7f88f02f7619aa2de75e2fb2402974bf`
-- Core CI: `36585115551` — success
+- Core CI: `36587944561` — success
 - Draft PR: #4
 
 ## 已确认的真机事实
