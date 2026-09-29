@@ -1,6 +1,6 @@
 # Voica Stage 2 测试清单
 
-状态：第一轮真机主链路已通过，第二轮稳定性 / 异常链路待验收
+状态：第一轮主链路与第二轮稳定性 / 异常链路均已通过；待用户最终确认“测试通过”
 
 ## 2026-09-29 第一轮真机验收
 
@@ -20,6 +20,14 @@ GitHub Actions：`36503703348` — success
 - 电量查询发现设备实际把 CONTROL `0/4` Battery Response 发到 **AE23**；首个候选仅把 AE22 提交给 pending request，导致 `RESPONSE_TIMEOUT cmd=4`。
 - 真机响应 sequence 不回显 request sequence；例如 request seq=14 时 battery response seq=20。因此 Stage 2 保持 TYPE/CMD 为强匹配，sequence 仅用于诊断。
 - 修复后 AE22/AE23 两路独立解析保持不变，两路完整 ProtocolFrame 都可提交给单路 pending matcher；matcher 仍只接受期望 TYPE/CMD。Battery Response 同时作为设备状态通知更新 UI。`0.2.1-stage2` 真机复测通过。
+
+## 2026-09-29 第二轮真机验收
+
+用户结论：**第二轮真机测试通过**
+
+本轮覆盖连续连接/断开、设备关机、远距离断开、有限自动重连、用户主动断开不重连、Bluetooth Off/On、App 前后台切换、页面切换/重组，以及 Crash/ANR 观察。用户确认第二轮全部通过。
+
+代码候选仍为 `0c09609385ed1b0c07d957bd6c37f3371ceb807c`。该候选之后截至本记录前仅有测试文档变更，无源码、Gradle 或 Workflow 漂移。
 
 ## 自动验证
 
@@ -62,17 +70,17 @@ GitHub Actions：`36503703348` — success
 
 ## 第二轮稳定性 / 异常链路
 
-- [ ] 连续连接/断开 >=10 次
-- [ ] 设备关机
-- [ ] 远距离断开
-- [ ] 自动重连 1s / 2s / 4s，最多三次
-- [ ] 用户主动断开不重连
-- [ ] Bluetooth Off
-- [ ] Bluetooth On 后重新扫描/连接
-- [ ] App 前后台 >=5 次
-- [ ] 页面重组/切换不产生重复 GATT
-- [ ] 无 Crash
-- [ ] 无 ANR
+- [x] 连续连接/断开 >=10 次
+- [x] 设备关机
+- [x] 远距离断开
+- [x] 自动重连 1s / 2s / 4s，最多三次
+- [x] 用户主动断开不重连
+- [x] Bluetooth Off
+- [x] Bluetooth On 后重新扫描/连接
+- [x] App 前后台 >=5 次
+- [x] 页面重组/切换不产生重复 GATT
+- [x] 无 Crash
+- [x] 无 ANR
 
 ## Freeze 门禁
 
