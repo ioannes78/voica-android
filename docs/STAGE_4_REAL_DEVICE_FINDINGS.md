@@ -7,8 +7,8 @@
 ## 当前候选
 
 - Branch: `stage4-development`
-- Version: `0.4.1-stage4`
-- versionCode: `9`
+- Version: `0.4.2-stage4`
+- versionCode: `10`
 - Diagnostic enhancement commit: `3f1d740a7f88f02f7619aa2de75e2fb2402974bf`
 - Core CI: `36585115551` — success
 - Draft PR: #4
@@ -135,18 +135,24 @@ Stage 4 不要求 CMD=18 body 为空，这与真机行为兼容。
 
 这样下一轮可直接确认列表 entry 第一个 BE32 的真实语义。
 
-## 仍待确认
+## rawTimeValue 真机确认
 
-### rawTimeValue
+0.4.1-stage4 使用两段新录音完成专项验证：
 
-需新录制一段已知时长，例如约 10 秒或 20 秒：
+| 实际录音时长 | Newest rawTimeValue | Newest size bytes |
+| ---: | ---: | ---: |
+| 11 秒 | 11 | 23600 |
+| 24 秒 | 24 | 48240 |
 
-1. 记录 Stage 3 停止保存前显示的录音时长。
-2. 保存后刷新文件列表。
-3. 查看 `Newest rawTimeValue`。
-4. 比较两者。
+两组均精确一致，因此 Stage 4 正式确认：
 
-只有真机确认一致后，才能将该字段正式提升为 `durationSeconds` 并在文件列表 UI 显示时长。
+> 文件列表 entry 第一个 BE32 字段表示录音时长，单位为秒。
+
+0.4.2-stage4 开始保留 `rawTimeValue` 作为协议原始值，同时映射：
+
+`durationSeconds = rawTimeValue`
+
+文件列表 UI 因此可以正式显示 mm:ss / hh:mm:ss 时长。
 
 ### 尚未完成的真机项
 
@@ -155,7 +161,6 @@ Stage 4 不要求 CMD=18 body 为空，这与真机行为兼容。
 - App 开始 → 暂停 → 继续 → 停止保存完整 Stage 3 回归
 - 设备物理键开始 / 停止完整回归
 - 自动连接回归
-- rawTimeValue 语义
 - size 的最终语义/单位验证
 
 ## Stage 4 边界
@@ -169,4 +174,4 @@ Stage 4 不要求 CMD=18 body 为空，这与真机行为兼容。
 
 ## 当前下一步
 
-- 0.4.1-stage4：等待 rawTimeValue 专项真机验证。
+- 0.4.2-stage4：验证文件列表时长显示，并继续 Empty、Disconnect/Reconnect 与 Stage 3 完整回归。

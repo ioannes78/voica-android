@@ -4,7 +4,7 @@
     <string name="stage2_subtitle">BLE 设备连接与基础信息</string>
     <string name="stage3_subtitle">录音控制与设备实时状态</string>
     <string name="stage4_subtitle">设备文件列表与文件名解析</string>
-    <string name="version_label">0.4.1 Stage 4</string>
+    <string name="version_label">0.4.2 Stage 4</string>
     <string name="tab_device">设备</string>
     <string name="tab_settings">设置</string>
 

@@ -28,7 +28,7 @@ object RemoteDeviceFileMapper {
                 identityProvisional = resolution.resolvedFilename == null,
                 deviceAddress = deviceAddress,
                 rawTimeValue = entry.rawTimeValue,
-                durationSeconds = null,
+                durationSeconds = entry.rawTimeValue,
                 sizeBytes = entry.sizeBytes,
                 rawFilename = entry.rawFilename,
                 resolvedFilename = resolution.resolvedFilename,

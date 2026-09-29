@@ -111,17 +111,22 @@ Stage 4 不执行 2/2 或 2/12，因此本阶段不修改这些 builder。Stage 
 
 验证后再冻结下载请求格式。
 
-## 7. rawTimeValue
+## 7. rawTimeValue / durationSeconds
 
-官方底层模型把列表 entry 第一个 BE32 字段命名为 time，但静态分析不足以证明其永久语义就是 duration seconds。
+官方底层模型把列表 entry 第一个 BE32 字段命名为 time。Stage 4 先以 `rawTimeValue` 保留协议原始值，并通过 QS668 / CB08 真机验证语义。
 
-Stage 4 首轮 APK 保留名称：
+0.4.1-stage4 两组真机样本：
 
-`rawTimeValue`
+- 实际 11 秒 → rawTimeValue=11
+- 实际 24 秒 → rawTimeValue=24
 
-并将 `durationSeconds` 保持 null。
+两组精确一致，因此 Stage 4 确认该字段表示录音时长，单位为秒。
 
-真机使用已知约 10 秒、30 秒、60 秒录音与 Stage 3 录音时长对照后，才能决定是否冻结为 duration seconds。
+业务层从 0.4.2-stage4 起映射：
+
+`durationSeconds = rawTimeValue`
+
+协议层仍保留 `rawTimeValue` 名称，避免丢失原始协议字段。
 
 ## 8. 录制时间
 

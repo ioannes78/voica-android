@@ -23,7 +23,19 @@ class RemoteDeviceFileMapperTest {
             FilenameResolution.RecoveredStandardOpusName,
             files[1].filenameResolution,
         )
-        assertTrue(files.all { it.durationSeconds == null })
+        assertEquals(2L, files[0].durationSeconds)
+        assertEquals(1L, files[1].durationSeconds)
+    }
+
+    @Test
+    fun mapsConfirmedRawTimeValueToDurationSeconds() {
+        val file = RemoteDeviceFileMapper.map(
+            deviceAddress = "AA",
+            entries = listOf(entry("note20260929-230347.", 11, 23_600)),
+        ).single()
+
+        assertEquals(11L, file.rawTimeValue)
+        assertEquals(11L, file.durationSeconds)
     }
 
     @Test
