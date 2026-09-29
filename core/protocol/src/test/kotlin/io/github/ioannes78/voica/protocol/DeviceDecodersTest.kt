@@ -6,37 +6,33 @@ import org.junit.Test
 
 class DeviceDecodersTest {
     @Test
-    fun decodesBigEndianFileList() {
-        val body = ByteArray(4 + ProtocolConstants.LIST_ENTRY_LENGTH)
+    fun legacyFileListAdapterUsesStrictDecoder() {
+        val body = ByteArray(4 + ProtocolConstants.LIST_BASE_ENTRY_LENGTH)
         putU32Be(body, 0, 1)
         putU32Be(body, 4, 120)
         putU32Be(body, 8, 4096)
-        "20260929-120000.".encodeToByteArray().copyInto(body, destinationOffset = 12)
+        "note20260929-120000.".encodeToByteArray().copyInto(body, destinationOffset = 12)
 
         val entry = DeviceDecoders.decodeFileList(body).single()
 
         assertEquals(120L, entry.durationSeconds)
         assertEquals(4096L, entry.sizeBytes)
-        assertEquals("20260929-120000.", entry.name)
+        assertEquals("note20260929-120000.", entry.name)
         assertEquals(
-            listOf(
-                "20260929-120000.opus",
-                "20260929-120000.wav",
-                "20260929-120000.",
-            ),
+            listOf("note20260929-120000.opus", "note20260929-120000."),
             entry.candidateNames,
         )
     }
 
     @Test
-    fun ignoresIncompleteTrailingFileEntry() {
-        val body = ByteArray(4 + ProtocolConstants.LIST_ENTRY_LENGTH + 10)
+    fun legacyFileListAdapterRejectsIncompletePayloadInsteadOfReturningPartialData() {
+        val body = ByteArray(4 + ProtocolConstants.LIST_BASE_ENTRY_LENGTH + 10)
         putU32Be(body, 0, 2)
         putU32Be(body, 4, 10)
         putU32Be(body, 8, 100)
         "a.opus".encodeToByteArray().copyInto(body, destinationOffset = 12)
 
-        assertEquals(1, DeviceDecoders.decodeFileList(body).size)
+        assertTrue(DeviceDecoders.decodeFileList(body).isEmpty())
     }
 
     @Test

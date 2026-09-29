@@ -1,5 +1,6 @@
 package io.github.ioannes78.voica.protocol
 
+@Deprecated("Stage 4 uses RawDeviceFileEntry/FileListDecoder for strict file-list decoding.")
 data class FileEntry(
     val durationSeconds: Long,
     val sizeBytes: Long,
@@ -8,18 +9,8 @@ data class FileEntry(
 ) {
     val candidateNames: List<String>
         get() {
-            val normalized = name.trimEnd('.')
-            if (normalized.isBlank()) return emptyList()
-
-            val lower = normalized.lowercase()
-            val base = when {
-                lower.endsWith(".opus") -> normalized.dropLast(5)
-                lower.endsWith(".wav") -> normalized.dropLast(4)
-                lower.endsWith(".mp3") -> normalized.dropLast(4)
-                else -> normalized
-            }
-
-            return listOf("$base.opus", "$base.wav", name)
+            val resolved = DeviceFilenameResolver.resolve(name)
+            return listOfNotNull(resolved.resolvedFilename, name)
                 .filter { it.isNotBlank() }
                 .distinct()
         }
@@ -56,35 +47,19 @@ data class StorageCapacity(
 object DeviceDecoders {
     private const val MAX_PLAUSIBLE_CAPACITY_KB = 0x0400_0000L
 
-    fun decodeFileList(body: ByteArray): List<FileEntry> {
-        if (body.size < 4) return emptyList()
-
-        val declaredCount = ByteCodec.readU32Be(body, 0)
-        val availableCount = (body.size - 4) / ProtocolConstants.LIST_ENTRY_LENGTH
-        val parseCount = minOf(declaredCount, availableCount.toLong()).toInt()
-
-        val entries = ArrayList<FileEntry>(parseCount)
-        var offset = 4
-
-        repeat(parseCount) {
-            val duration = ByteCodec.readU32Be(body, offset)
-            val size = ByteCodec.readU32Be(body, offset + 4)
-            val nameBytes = body.copyOfRange(
-                offset + 8,
-                offset + 8 + ProtocolConstants.LIST_NAME_LENGTH,
-            )
-            val nulIndex = nameBytes.indexOf(0).let { if (it < 0) nameBytes.size else it }
-            val name = nameBytes.copyOfRange(0, nulIndex).toString(Charsets.UTF_8)
-            val raw = body.copyOfRange(
-                offset,
-                offset + ProtocolConstants.LIST_ENTRY_LENGTH,
-            )
-            entries += FileEntry(duration, size, name, raw)
-            offset += ProtocolConstants.LIST_ENTRY_LENGTH
+    @Deprecated("Stage 4 uses FileListDecoder.decode and handles malformed payloads explicitly.")
+    fun decodeFileList(body: ByteArray): List<FileEntry> =
+        when (val result = FileListDecoder.decode(body)) {
+            is FileListDecodeResult.Success -> result.chunk.entries.map { entry ->
+                FileEntry(
+                    durationSeconds = entry.rawTimeValue,
+                    sizeBytes = entry.sizeBytes,
+                    name = entry.rawFilename,
+                    raw = entry.rawEntryBytes,
+                )
+            }
+            is FileListDecodeResult.Malformed -> emptyList()
         }
-
-        return entries
-    }
 
     fun decodeCapacity(body: ByteArray): StorageCapacity {
         if (body.size < 8) {
