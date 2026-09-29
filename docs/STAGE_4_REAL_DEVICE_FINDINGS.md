@@ -166,3 +166,7 @@ Stage 4 不要求 CMD=18 body 为空，这与真机行为兼容。
 - TYPE=2 / CMD=12
 
 下载、分段下载、取消、断点续传、删除均属于 Stage 5。
+
+## 当前下一步
+
+- 0.4.1-stage4：等待 rawTimeValue 专项真机验证。
