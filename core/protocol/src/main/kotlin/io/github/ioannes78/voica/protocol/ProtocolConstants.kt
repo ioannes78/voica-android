@@ -5,8 +5,13 @@ object ProtocolConstants {
     const val HEADER_LENGTH = 6
     const val MAX_DATA_LENGTH = 8192
     const val FILENAME_FIELD_LENGTH = 24
-    const val LIST_NAME_LENGTH = 20
-    const val LIST_ENTRY_LENGTH = 28
+    const val LIST_BASE_NAME_LENGTH = 20
+    const val LIST_BASE_ENTRY_LENGTH = 28
+
+    @Deprecated("Stage 4 supports dynamic list filename fields; use LIST_BASE_NAME_LENGTH.")
+    const val LIST_NAME_LENGTH = LIST_BASE_NAME_LENGTH
+    @Deprecated("Stage 4 supports dynamic list filename fields; use LIST_BASE_ENTRY_LENGTH.")
+    const val LIST_ENTRY_LENGTH = LIST_BASE_ENTRY_LENGTH
 
     object Type {
         const val CONTROL = 0

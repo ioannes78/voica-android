@@ -22,6 +22,7 @@ class DeviceViewModel(
     val connectionState = repository.connectionState
     val deviceInfo = repository.deviceInfo
     val recordingState = repository.recordingState
+    val deviceFileListState = repository.deviceFileListState
     val diagnostics = repository.diagnostics
 
     private val mutableMissingPermissions =
@@ -93,6 +94,10 @@ class DeviceViewModel(
 
     fun setRecordingGain(gain: RecordingGain) {
         viewModelScope.launch { repository.setRecordingGain(gain) }
+    }
+
+    fun refreshDeviceFiles() {
+        viewModelScope.launch { repository.refreshDeviceFiles() }
     }
 
     class Factory(

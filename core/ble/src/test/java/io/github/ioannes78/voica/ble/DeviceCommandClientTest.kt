@@ -44,6 +44,22 @@ class DeviceCommandClientTest {
     }
 
     @Test
+    fun sendOnlyWithSequenceReturnsAllocatedSequence() = runTest {
+        var transmittedSequence: Int? = null
+        val client = DeviceCommandClient(
+            writer = { requestBytes ->
+                transmittedSequence = FrameParser("tx").feed(requestBytes).single().sequence
+                true
+            },
+        )
+
+        val result = client.sendOnlyWithSequence(ProtocolCodec::buildFileListRequest)
+
+        assertTrue(result.written)
+        assertEquals(transmittedSequence, result.requestSequence)
+    }
+
+    @Test
     fun unrelatedFrameDoesNotCompletePendingRequest() = runTest {
         lateinit var client: DeviceCommandClient
         var unrelatedAccepted = true

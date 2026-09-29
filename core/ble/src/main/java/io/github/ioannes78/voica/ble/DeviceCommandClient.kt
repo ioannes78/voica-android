@@ -20,6 +20,11 @@ sealed interface DeviceCommandResult {
     data object Cancelled : DeviceCommandResult
 }
 
+data class DeviceSendOnlyResult(
+    val requestSequence: Int,
+    val written: Boolean,
+)
+
 class DeviceCommandClient(
     private val writer: suspend (ByteArray) -> Boolean,
     private val responseTimeoutMs: Long = 5_000L,
@@ -102,11 +107,18 @@ class DeviceCommandClient(
 
     suspend fun sendOnly(
         buildRequest: (sequence: Int) -> ByteArray,
-    ): Boolean {
+    ): Boolean = sendOnlyWithSequence(buildRequest).written
+
+    suspend fun sendOnlyWithSequence(
+        buildRequest: (sequence: Int) -> ByteArray,
+    ): DeviceSendOnlyResult {
         requestMutex.lock()
         return try {
             val sequence = sequenceGenerator.next()
-            writer(buildRequest(sequence))
+            DeviceSendOnlyResult(
+                requestSequence = sequence,
+                written = writer(buildRequest(sequence)),
+            )
         } finally {
             requestMutex.unlock()
         }

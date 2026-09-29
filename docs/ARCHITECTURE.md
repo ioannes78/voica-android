@@ -375,3 +375,121 @@ Ready 后保存最后成功设备地址。
 - Remote disconnect：继续使用 Stage 2 的 1s → 2s → 4s、最多 3 次策略
 
 Stage 3 仍不使用 Foreground Service。
+
+
+## Stage 4 — 设备文件列表与文件名解析架构
+
+Stage 4 未新增 Gradle module，继续保持：
+
+```
+:app
+  ↓
+:core:ble
+  ↓
+:core:protocol
+```
+
+### Protocol 层
+
+`:core:protocol` 新增并冻结以下职责：
+
+- `FileListDecoder`：严格解析 TYPE=2/CMD=1 body
+- `RawDeviceFileEntry` / `FileListChunk`
+- 动态 filename field 长度推导
+- 严格 UTF-8 / NUL padding 校验
+- `DeviceFilenameResolver`
+- `RecordingFilenameParser`
+
+当前列表 entry 基础布局：
+
+```text
+COUNT_BE32
+repeat COUNT:
+    durationSeconds_BE32
+    sizeBytes_BE32
+    filename field
+```
+
+当前 QS668/CB08 真机 filename field = 20B，但解析器保留官方 App 已证明的动态长度兼容能力。
+
+### BLE 层
+
+Stage 4 文件列表不是单 request/response，而是独立 session：
+
+```
+DeviceRepository.refreshDeviceFiles()
+  ↓
+FileListSessionCoordinator.start()
+  ↓
+AndroidDeviceSession.requestFileList()
+  ↓
+TYPE=2/CMD=0
+  ↓
+AE22 / AE23 独立 FrameParser
+  ↓
+FileListFrameRouter
+  ├─ 2/1 Data → strict decode → accumulator
+  └─ 2/18 Done → atomic finalize
+  ↓
+RemoteDeviceFileMapper
+  ↓
+StateFlow<DeviceFileListState>
+```
+
+正常成功必须收到 CMD=18。Timeout 是失败保护，不是正常列表结束条件。
+
+同一时刻只允许一个 file-list session；disconnect、transport session generation 变化或 malformed payload 会取消本轮结果，partial entries 不得发布为 Fresh。
+
+### 文件身份与文件名
+
+`RemoteDeviceFile` 同时保留：
+
+- raw filename
+- resolved filename
+- filename resolution type
+- filename field length
+- rawTimeValue
+- durationSeconds
+- sizeBytes
+- recordedAt
+- identity / identityProvisional
+
+当前标准 20B raw filename：
+
+`noteYYYYMMDD-HHMMSS.`
+
+仅在严格匹配该格式时恢复为：
+
+`noteYYYYMMDD-HHMMSS.opus`
+
+不自动生成 WAV variant，也不把未知 trailing-dot 名称猜成 Opus。
+
+### 时长语义
+
+0.4.1 真机专项：
+
+- 实际 11 秒 → rawTimeValue=11
+- 实际 24 秒 → rawTimeValue=24
+
+因此 Stage 4 冻结：
+
+`durationSeconds = rawTimeValue`
+
+协议层仍保留 rawTimeValue，以保留原始字段证据。
+
+### 与 Stage 3 的隔离
+
+只有 Ready + Recording Idle/FRESH + command IDLE 时允许文件列表刷新。
+
+Recording / Paused / command transition 时禁止刷新，Stage 4 不通过停止/重启 Poller 的方式抢占 BLE 队列，因此 Stage 3 Polling/Reconciliation 规则保持不变。
+
+### Stage 5 边界
+
+Stage 4 不实现 2/2、2/12 文件传输。
+
+官方 Android App 已确认：
+
+- 2/12 是 ranged file transfer
+- 文件传输后续使用 2/3、2/4、2/5
+
+Stage 5 必须重新验证 filename 参数长度。当前旧 builder 的 fixed-24 实现不能因为 Stage 1 存在就直接视为冻结协议。

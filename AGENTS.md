@@ -4,19 +4,22 @@
 
 当前 `ioannes78/voica-android` 仓库是 Voica 项目实现状态的唯一事实来源。
 
-当前已冻结基线：**Stage 3**
+当前已冻结基线：**Stage 4**
 
-Stage 3 Freeze/Handoff：
+Stage 4 Freeze/Handoff：
 
-- `docs/STAGE_3_FREEZE.md`
-- `docs/STAGE_3_HANDOFF.md`
-- `docs/STAGE_3_TEST.md`
+- `docs/STAGE_4_FREEZE.md`
+- `docs/STAGE_4_HANDOFF.md`
+- `docs/STAGE_4_TEST.md`
+- `docs/STAGE_4_PROTOCOL_FINDINGS.md`
+- `docs/STAGE_4_REAL_DEVICE_FINDINGS.md`
 
-下一阶段：**Stage 4 — 设备文件列表 + 文件名解析**
+下一阶段：**Stage 5 — 文件下载 + 删除 + 原始音频落盘**
 
 协议与行为参考：
 
 - QS668 / CB08 真机可重复验证结果：最高优先级
+- 官方 Android App `声云语音转写 3.0.9-u` 静态实现：协议/行为主参考，冲突时真机优先
 - `nextproto1024/ai-recorder-card-open-protocol@e741ea72207f1a2aae3df4debc5c135728e0170e`
 - `laidely/kardo@bcec3c5fdbcb34810a6f235e8b5873683f2ab951`：仅产品行为交叉验证
 
@@ -81,8 +84,8 @@ Stage 3 冻结：
 - minSdk：26
 - Compose BOM：2026.09.00
 - Application ID：`io.github.ioannes78.voica`
-- versionCode：7
-- versionName：`0.3.3-stage3`
+- versionCode：10
+- versionName：`0.4.2-stage4`
 - 默认产品语言：简体中文
 
 当前物理模块：
@@ -142,7 +145,32 @@ Stage 3 冻结：
 - 用户主动断开在本 App 进程内抑制自动连接
 - Remote disconnect 继续沿用 Stage 2 的 1s → 2s → 4s 重连
 
-## 八、架构规则
+## 八、Stage 4 已冻结文件列表事实
+
+后续 Stage 不得无真机证据改变：
+
+- 文件列表请求：TYPE=2/CMD=0
+- 文件列表数据：TYPE=2/CMD=1，可多帧
+- 文件列表正常完成：TYPE=2/CMD=18
+- 正常成功必须收到 CMD=18；timeout 不得伪装成 Empty/Fresh
+- 当前 QS668/CB08 真机 CMD=1 / CMD=18 均观察到从 AE22 到达，但业务代码仍按 TYPE/CMD 路由，不硬绑定来源
+- 当前真机 CMD=18 body length = 1B；不得要求 DONE body 必须为空
+- CMD=1 sequence / CMD=18 sequence 为设备侧序列，不要求回显 CMD=0 request sequence
+- 列表 COUNT、duration、size 按 BE32
+- 当前真机 filename field = 20B
+- 官方 App 证明 filename field 可扩展；解析器必须继续支持动态长度并严格校验
+- 标准 raw filename `noteYYYYMMDD-HHMMSS.` 可安全恢复为 `.opus`
+- 不得为未知名称盲目补 `.opus`，不得自动生成 WAV variant
+- 真机确认第一个 BE32 = duration seconds：11秒→11、24秒→24
+- RemoteDeviceFile 必须保留 raw/resolved filename、size、duration、recordedAt 和稳定/临时 identity
+- 多个 CMD=1 只能进入本轮 accumulator；CMD=18 到达后一次性发布 Fresh/Empty
+- malformed/断线/session generation 变化不得发布 partial Fresh
+- Recording/Paused/command transition 时禁止主动刷新文件列表，保护 Stage 3 Poller
+- Stage 4 不发送 CMD=2/CMD=12 做文件业务
+- 官方 App 已确认 CMD=12 是区间文件传输；Stage 5 才实现
+- Stage 5 必须重新验证 2/2、2/12 filename 参数长度；当前旧 fixed-24 builder 不得直接视为冻结下载协议
+
+## 九、架构规则
 
 - `:core:protocol` 保持纯 Kotlin，不依赖 Android BLE API。
 - UI 不得直接解析二进制协议。
@@ -154,7 +182,7 @@ Stage 3 冻结：
 - 下载、解码、转写、说话人分离等耗时任务必须支持取消与生命周期处理。
 - 本地录音在设备断开后仍应可独立使用。
 
-## 九、测试规则
+## 十、测试规则
 
 协议层至少覆盖 deterministic/golden tests：
 
@@ -173,10 +201,10 @@ Stage 3 冻结：
 
 BLE、文件、音频、ASR、Speaker 必须继续做真实设备或真实录音验收。
 
-## 十、CI 原则
+## 十一、CI 原则
 
 - PR 默认快速 Unit Test + assembleDebug
 - 默认不运行 Emulator / Instrumentation
 - 使用 concurrency / cancel-in-progress
 - 真机 APK 仅在阶段验收需要时上传
-- Stage 4 开始前不得为了方便扩大 Stage 3 的范围
+- Stage 5 开始前不得为了方便扩大 Stage 4 的范围

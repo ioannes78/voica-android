@@ -1,0 +1,193 @@
+# Voica Stage 4 Real Device Findings
+
+状态：**ACCEPTED / 用户最终确认测试通过**
+
+最终用户确认日期：2026-09-29
+
+本文记录 Stage 4 QS668 / CB08 真机事实，并作为 Freeze 证据。
+
+## 当前候选
+
+- Branch: `stage4-development`
+- Version: `0.4.2-stage4`
+- versionCode: `10`
+- Diagnostic enhancement commit: `3f1d740a7f88f02f7619aa2de75e2fb2402974bf`
+- Core CI: `36587944561` — success
+- Draft PR: #4（Freeze 前保持 Draft）
+- 最终候选 APK CI：`36588581441` — success
+- 最终候选 APK SHA-256：`b7d48c12a7346cc2f391645ddffe13f0edbb3f1c7cdf70183c76e3430cd000bc`
+
+## 已确认的真机事实
+
+### 文件列表主链路
+
+0.4.0 Stage 4 真机已连续观察到：
+
+```text
+TYPE=2 / CMD=0  request
+TYPE=2 / CMD=1  data chunk
+TYPE=2 / CMD=1  data chunk
+TYPE=2 / CMD=18 done
+```
+
+CMD=18 在多次手动刷新中稳定出现，当前继续作为正常成功的唯一完成信号；不引入 idle timeout 作为正常完成。
+
+### 多帧列表
+
+5 个文件时：
+
+- 第一帧 CMD=1：日志 frame bytes=118
+- 第二帧 CMD=1：日志 frame bytes=34
+- 最终 declared/parsed=5/5
+
+按 ProtocolFrame 去除 TYPE/CMD 后，对应 body：
+
+- 116B = 4B count + 4 × 28B entry
+- 32B = 4B count + 1 × 28B entry
+
+6 个文件时：
+
+- 第一帧 CMD=1：frame bytes=118
+- 第二帧 CMD=1：frame bytes=62
+- declared/parsed=6/6
+
+对应第二个 body：
+
+- 60B = 4B count + 2 × 28B entry
+
+因此当前固件确实会把一个列表拆成多个 CMD=1 数据块。
+
+### filename field
+
+当前 QS668 / CB08 固件实际 filename field 已确认是：
+
+`20 bytes`
+
+真实 raw filename 形态例如：
+
+`note20260908-231420.`
+
+Voica 恢复为：
+
+`note20260908-231420.opus`
+
+真机页面显示完整 `.opus` 文件名正常，未观察到虚拟 WAV 条目。
+
+### 通知来源
+
+本轮观察到：
+
+- CMD=1：AE22
+- CMD=18：AE22
+
+实现仍保持按 TYPE/CMD 路由，不将文件协议永久硬编码到 AE22。
+
+### CMD=18 body
+
+真机日志 CMD=18 显示 frame bytes=3。
+
+ProtocolFrame 中 TYPE/CMD 占 2B，因此当前设备的 CMD=18：
+
+`body length = 1 byte`
+
+Stage 4 不要求 CMD=18 body 为空，这与真机行为兼容。
+
+### Sequence
+
+真机中 CMD=1 / CMD=18 使用设备侧递增 sequence，且不要求回显 TYPE=2/CMD=0 的 request sequence。
+
+因此继续遵守 Stage 2 冻结原则：
+
+业务匹配依据 TYPE/CMD，sequence 仅用于诊断。
+
+### 重复刷新
+
+5 文件状态下连续多次手动刷新均得到完整列表并正常 LIST_DONE，未观察到：
+
+- 重复文件
+- 漏文件
+- partial list 被发布 Fresh
+- CRC 错误
+
+### 停止保存后刷新
+
+新录音停止并保存后：
+
+- Recording GET_STATE 返回 raw=2 / Idle
+- 随后手动 TYPE=2/CMD=0
+- 文件数从 5 增加为 6
+- declared/parsed=6/6
+- LIST_DONE 正常
+
+因此“停止保存 → Idle → 手动刷新 → 新文件进入列表”已通过一次真机验证。
+
+## 0.4.1 诊断增强
+
+0.4.1 不改变文件列表业务协议，仅将 Diagnostics 拆分并补充：
+
+- Data RX source
+- Done RX source
+- Last data body
+- Filename field
+- Done body
+- Newest raw filename
+- Newest resolved filename
+- Newest rawTimeValue
+- Newest size bytes
+- Newest resolution
+- Session duration
+
+这样下一轮可直接确认列表 entry 第一个 BE32 的真实语义。
+
+## rawTimeValue 真机确认
+
+0.4.1-stage4 使用两段新录音完成专项验证：
+
+| 实际录音时长 | Newest rawTimeValue | Newest size bytes |
+| ---: | ---: | ---: |
+| 11 秒 | 11 | 23600 |
+| 24 秒 | 24 | 48240 |
+
+两组均精确一致，因此 Stage 4 正式确认：
+
+> 文件列表 entry 第一个 BE32 字段表示录音时长，单位为秒。
+
+0.4.2-stage4 开始保留 `rawTimeValue` 作为协议原始值，同时映射：
+
+`durationSeconds = rawTimeValue`
+
+文件列表 UI 因此可以正式显示 mm:ss / hh:mm:ss 时长。
+
+### 最终验收
+
+用户在 0.4.2-stage4 最终候选后明确回复：
+
+**“测试通过”**
+
+因此 Stage 4 真机验收门禁满足。
+
+已保留的直接截图/日志证据重点覆盖：
+
+- 多帧文件列表
+- 20B filename field
+- CMD=18 稳定完成
+- AE22 数据/完成来源
+- DONE 1B body
+- 5/5、6/6、8/8、9/9 declared/parsed
+- 新录音保存后刷新进入列表
+- 11 秒 / 24 秒 rawTimeValue 精确对应录音时长
+
+最终“测试通过”同时作为 Stage 4 回归清单的用户验收结论。没有额外原始截图归档的分项，不在本文伪造更细粒度设备日志。
+
+## Stage 4 边界
+
+当前阶段不主动发送：
+
+- TYPE=2 / CMD=2
+- TYPE=2 / CMD=12
+
+下载、分段下载、取消、断点续传、删除均属于 Stage 5。
+
+## 当前下一步
+
+Stage 4 Freeze/Handoff 后进入 Stage 5：文件下载 + 删除 + 原始音频落盘。

@@ -3,7 +3,8 @@
     <string name="app_name">Voica</string>
     <string name="stage2_subtitle">BLE 设备连接与基础信息</string>
     <string name="stage3_subtitle">录音控制与设备实时状态</string>
-    <string name="version_label">0.3.3 Stage 3</string>
+    <string name="stage4_subtitle">设备文件列表与文件名解析</string>
+    <string name="version_label">0.4.2 Stage 4</string>
     <string name="tab_device">设备</string>
     <string name="tab_settings">设置</string>
 
@@ -76,6 +77,21 @@
     <string name="recording_setting_gain">正在设置录音增益…</string>
     <string name="recording_last_error">最近录音操作</string>
 
+    <string name="device_files_title">设备录音文件</string>
+    <string name="device_files_count">共 %1$d 个文件</string>
+    <string name="device_files_refresh">刷新文件列表</string>
+    <string name="device_files_not_loaded">尚未读取设备文件列表。</string>
+    <string name="device_files_loading">正在读取设备录音…</string>
+    <string name="device_files_empty">设备中暂无录音。</string>
+    <string name="device_files_stale">当前显示上次读取结果。</string>
+    <string name="device_files_failed">读取失败，请重试。</string>
+    <string name="device_files_recording_blocked">当前正在录音或录音状态未稳定，暂不能刷新。</string>
+    <string name="device_files_disconnected">设备已断开，当前结果可能已过期。</string>
+    <string name="device_file_time">录制时间</string>
+    <string name="device_file_duration">时长</string>
+    <string name="device_file_size">大小</string>
+    <string name="device_file_unknown">未知</string>
+
     <string name="state_unavailable">当前设备不支持蓝牙低功耗。</string>
     <string name="state_permission_required">等待蓝牙权限</string>
     <string name="state_bluetooth_off">蓝牙已关闭</string>
@@ -103,9 +119,9 @@
     <string name="diagnostics_title">BLE Diagnostics</string>
     <string name="diagnostics_recent_log">最近通信日志</string>
 
-    <string name="settings_title">Stage 3 设置</string>
+    <string name="settings_title">Stage 4 设置</string>
     <string name="settings_language">默认语言</string>
     <string name="settings_language_value">简体中文</string>
     <string name="settings_scope">当前范围</string>
-    <string name="settings_scope_value">BLE 连接 + 录音控制 + 设备实时状态</string>
+    <string name="settings_scope_value">BLE 连接 + 录音控制 + 设备文件列表</string>
 </resources>
