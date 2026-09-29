@@ -57,14 +57,14 @@ object ProtocolConstants {
     }
 
     object Key {
-        const val RECORD_START = 1
-        const val RECORD_START_RESPONSE = 2
-        const val RECORD_SAVE = 3
-        const val RECORD_SAVE_RESPONSE = 4
-        const val RECORD_PAUSE = 5
-        const val RECORD_PAUSE_RESPONSE = 6
-        const val RECORD_RESUME = 7
-        const val RECORD_RESUME_RESPONSE = 8
+        const val HARDWARE_RECORD_START = 1
+        const val APP_RECORD_START = 2
+        const val HARDWARE_RECORD_SAVE = 3
+        const val APP_RECORD_SAVE = 4
+        const val HARDWARE_RECORD_PAUSE = 5
+        const val APP_RECORD_PAUSE = 6
+        const val HARDWARE_RECORD_RESUME = 7
+        const val APP_RECORD_RESUME = 8
         const val GET_STATE = 19
         const val STATE_RESPONSE = 20
         const val GET_TIME = 21
@@ -75,6 +75,23 @@ object ProtocolConstants {
         const val GAIN_RESPONSE = 26
         const val SET_GAIN = 27
         const val SET_GAIN_RESPONSE = 28
+
+        @Deprecated("Use HARDWARE_RECORD_START")
+        const val RECORD_START = HARDWARE_RECORD_START
+        @Deprecated("Use APP_RECORD_START")
+        const val RECORD_START_RESPONSE = APP_RECORD_START
+        @Deprecated("Use HARDWARE_RECORD_SAVE")
+        const val RECORD_SAVE = HARDWARE_RECORD_SAVE
+        @Deprecated("Use APP_RECORD_SAVE")
+        const val RECORD_SAVE_RESPONSE = APP_RECORD_SAVE
+        @Deprecated("Use HARDWARE_RECORD_PAUSE")
+        const val RECORD_PAUSE = HARDWARE_RECORD_PAUSE
+        @Deprecated("Use APP_RECORD_PAUSE")
+        const val RECORD_PAUSE_RESPONSE = APP_RECORD_PAUSE
+        @Deprecated("Use HARDWARE_RECORD_RESUME")
+        const val RECORD_RESUME = HARDWARE_RECORD_RESUME
+        @Deprecated("Use APP_RECORD_RESUME")
+        const val RECORD_RESUME_RESPONSE = APP_RECORD_RESUME
     }
 
     object RecordingStateValue {

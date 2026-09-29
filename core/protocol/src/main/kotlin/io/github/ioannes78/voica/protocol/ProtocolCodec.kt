@@ -137,16 +137,16 @@ object ProtocolCodec {
         buildCommand(sequence, ProtocolConstants.Type.FILE, ProtocolConstants.File.LIST_REQUEST)
 
     fun buildRecordStart(sequence: Int): ByteArray =
-        buildCommand(sequence, ProtocolConstants.Type.KEY, ProtocolConstants.Key.RECORD_START)
+        buildCommand(sequence, ProtocolConstants.Type.KEY, ProtocolConstants.Key.APP_RECORD_START, byteArrayOf(1))
 
     fun buildRecordSave(sequence: Int): ByteArray =
-        buildCommand(sequence, ProtocolConstants.Type.KEY, ProtocolConstants.Key.RECORD_SAVE)
+        buildCommand(sequence, ProtocolConstants.Type.KEY, ProtocolConstants.Key.APP_RECORD_SAVE, byteArrayOf(1))
 
     fun buildRecordPause(sequence: Int): ByteArray =
-        buildCommand(sequence, ProtocolConstants.Type.KEY, ProtocolConstants.Key.RECORD_PAUSE)
+        buildCommand(sequence, ProtocolConstants.Type.KEY, ProtocolConstants.Key.APP_RECORD_PAUSE, byteArrayOf(1))
 
     fun buildRecordResume(sequence: Int): ByteArray =
-        buildCommand(sequence, ProtocolConstants.Type.KEY, ProtocolConstants.Key.RECORD_RESUME)
+        buildCommand(sequence, ProtocolConstants.Type.KEY, ProtocolConstants.Key.APP_RECORD_RESUME, byteArrayOf(1))
 
     fun buildGetRecordState(sequence: Int): ByteArray =
         buildCommand(sequence, ProtocolConstants.Type.KEY, ProtocolConstants.Key.GET_STATE)

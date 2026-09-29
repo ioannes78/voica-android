@@ -118,29 +118,38 @@ class RecordingFrameRouter(
                     RecordingFrameEvent.Gain(value, source, command, sequence)
                 }
 
-            ProtocolConstants.Key.RECORD_START_RESPONSE,
-            ProtocolConstants.Key.RECORD_SAVE_RESPONSE,
-            ProtocolConstants.Key.RECORD_PAUSE_RESPONSE,
-            ProtocolConstants.Key.RECORD_RESUME_RESPONSE,
+            ProtocolConstants.Key.APP_RECORD_START,
+            ProtocolConstants.Key.APP_RECORD_SAVE,
+            ProtocolConstants.Key.APP_RECORD_PAUSE,
+            ProtocolConstants.Key.APP_RECORD_RESUME,
             ProtocolConstants.Key.SET_GAIN_RESPONSE,
-            ->
-                decode(
-                    RecordingDecoders.decodeCommandResult(frame.body),
-                    notification,
-                    command,
-                ) { value, source, sequence ->
-                    RecordingFrameEvent.CommandResponse(value, source, command, sequence)
+            -> {
+                if (frame.body.isEmpty()) {
+                    RecordingFrameEvent.Unknown(
+                        source = notification.source,
+                        command = command,
+                        sequence = frame.sequence,
+                    )
+                } else {
+                    decode(
+                        RecordingDecoders.decodeCommandResult(frame.body),
+                        notification,
+                        command,
+                    ) { value, source, sequence ->
+                        RecordingFrameEvent.CommandResponse(value, source, command, sequence)
+                    }
                 }
+            }
 
-            ProtocolConstants.Key.RECORD_START,
-            ProtocolConstants.Key.RECORD_SAVE,
-            ProtocolConstants.Key.RECORD_PAUSE,
-            ProtocolConstants.Key.RECORD_RESUME,
+            ProtocolConstants.Key.HARDWARE_RECORD_START,
+            ProtocolConstants.Key.HARDWARE_RECORD_SAVE,
+            ProtocolConstants.Key.HARDWARE_RECORD_PAUSE,
+            ProtocolConstants.Key.HARDWARE_RECORD_RESUME,
             -> {
                 val kind = when (command) {
-                    ProtocolConstants.Key.RECORD_START -> RecordingHardwareEventKind.START
-                    ProtocolConstants.Key.RECORD_SAVE -> RecordingHardwareEventKind.SAVE
-                    ProtocolConstants.Key.RECORD_PAUSE -> RecordingHardwareEventKind.PAUSE
+                    ProtocolConstants.Key.HARDWARE_RECORD_START -> RecordingHardwareEventKind.START
+                    ProtocolConstants.Key.HARDWARE_RECORD_SAVE -> RecordingHardwareEventKind.SAVE
+                    ProtocolConstants.Key.HARDWARE_RECORD_PAUSE -> RecordingHardwareEventKind.PAUSE
                     else -> RecordingHardwareEventKind.RESUME
                 }
                 val hardware = RecordingHardwareEvent(

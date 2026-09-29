@@ -36,6 +36,7 @@ interface DeviceRepository {
     val diagnostics: StateFlow<BleDiagnostics>
 
     fun missingPermissions(): Set<String>
+    fun onPermissionsChanged()
     fun startScan()
     fun stopScan()
     fun connect(address: String)
@@ -65,6 +66,7 @@ class DefaultDeviceRepository(
     private val session = AndroidDeviceSession(applicationContext, scope)
     private val recordingFrameRouter = RecordingFrameRouter()
     private val recordingSyncMutex = Mutex()
+    private val rememberedDeviceStore = RememberedDeviceStore(applicationContext)
 
     override val scanState: StateFlow<BleScanState> = scanner.state
 
@@ -82,8 +84,9 @@ class DefaultDeviceRepository(
 
     override val diagnostics: StateFlow<BleDiagnostics> = session.diagnostics
 
-    private var foreground = true
-    private var lastAddress: String? = null
+    private var foreground = false
+    private var lastAddress: String? = rememberedDeviceStore.readAddress()
+    private var userDisconnectedThisProcess = false
     private var reconnectAttempt = 0
     private var reconnectJob: Job? = null
     private var refreshJob: Job? = null
@@ -122,6 +125,10 @@ class DefaultDeviceRepository(
                     session.markIdleIfTransportAvailable()
                     if (mutableConnectionState.value is DeviceConnectionState.BluetoothOff) {
                         mutableConnectionState.value = initialEnvironmentState()
+                    }
+                    scope.launch {
+                        delay(AUTO_CONNECT_AFTER_BLUETOOTH_ON_MS)
+                        maybeAutoConnectRememberedDevice()
                     }
                 }
             }
@@ -164,6 +171,9 @@ class DefaultDeviceRepository(
                 mutableConnectionState.value = state
                 when (state) {
                     is DeviceConnectionState.Ready -> {
+                        lastAddress = state.address
+                        rememberedDeviceStore.remember(state.address)
+                        userDisconnectedThisProcess = false
                         reconnectJob?.cancel()
                         reconnectJob = null
                         reconnectAttempt = 0
@@ -224,6 +234,13 @@ class DefaultDeviceRepository(
     override fun missingPermissions(): Set<String> =
         BlePermissionPolicy.missingPermissions(applicationContext)
 
+    override fun onPermissionsChanged() {
+        refreshEnvironment()
+        if (foreground && missingPermissions().isEmpty()) {
+            maybeAutoConnectRememberedDevice()
+        }
+    }
+
     override fun startScan() {
         refreshEnvironment()
         if (missingPermissions().isNotEmpty()) return
@@ -236,6 +253,7 @@ class DefaultDeviceRepository(
     }
 
     override fun connect(address: String) {
+        userDisconnectedThisProcess = false
         scanner.stop()
         reconnectJob?.cancel()
         reconnectJob = null
@@ -250,6 +268,7 @@ class DefaultDeviceRepository(
     }
 
     override fun disconnect() {
+        userDisconnectedThisProcess = true
         reconnectJob?.cancel()
         reconnectJob = null
         reconnectAttempt = 0
@@ -311,26 +330,31 @@ class DefaultDeviceRepository(
             else -> Unit
         }
 
-        if (!wasForeground) {
-            when (val current = session.state.value) {
-                is DeviceConnectionState.Ready -> {
+        when (val current = session.state.value) {
+            is DeviceConnectionState.Ready -> {
+                if (!wasForeground) {
                     scheduleRecordingSync(
                         RecordingSyncReason.FOREGROUND_RETURN,
                         delayMs = 0,
                     )
                 }
-                is DeviceConnectionState.Disconnected -> {
-                    if (current.reason == DisconnectReason.REMOTE) {
-                        scheduleReconnect(current.address ?: lastAddress)
-                    }
-                }
-                is DeviceConnectionState.Error -> {
-                    if (ReconnectPolicy.shouldRetry(current.error)) {
-                        scheduleReconnect(lastAddress)
-                    }
-                }
-                else -> Unit
             }
+            is DeviceConnectionState.Disconnected -> {
+                if (current.reason == DisconnectReason.REMOTE) {
+                    scheduleReconnect(current.address ?: lastAddress)
+                } else {
+                    maybeAutoConnectRememberedDevice()
+                }
+            }
+            is DeviceConnectionState.Error -> {
+                if (ReconnectPolicy.shouldRetry(current.error)) {
+                    scheduleReconnect(lastAddress)
+                } else {
+                    maybeAutoConnectRememberedDevice()
+                }
+            }
+            DeviceConnectionState.Idle -> maybeAutoConnectRememberedDevice()
+            else -> Unit
         }
     }
 
@@ -386,7 +410,6 @@ class DefaultDeviceRepository(
         }
         performRecordingCommand(
             commandState = RecordingCommandState.STARTING,
-            expectedSuccessCode = 1,
             action = session::startRecording,
         )
     }
@@ -400,7 +423,6 @@ class DefaultDeviceRepository(
         }
         performRecordingCommand(
             commandState = RecordingCommandState.PAUSING,
-            expectedSuccessCode = 1,
             action = session::pauseRecording,
         )
     }
@@ -414,7 +436,6 @@ class DefaultDeviceRepository(
         }
         performRecordingCommand(
             commandState = RecordingCommandState.RESUMING,
-            expectedSuccessCode = 1,
             action = session::resumeRecording,
         )
     }
@@ -429,7 +450,6 @@ class DefaultDeviceRepository(
         }
         performRecordingCommand(
             commandState = RecordingCommandState.SAVING,
-            expectedSuccessCode = 1,
             action = session::saveRecording,
         )
     }
@@ -501,20 +521,25 @@ class DefaultDeviceRepository(
 
     private suspend fun performRecordingCommand(
         commandState: RecordingCommandState,
-        expectedSuccessCode: Int,
-        action: suspend () -> RecordingRequestOutcome<RecordingCommandResult>,
+        action: suspend () -> Boolean,
     ) {
         stopRecordingPoller()
         reduceRecordingState(
             RecordingStateEvent.CommandStarted(commandState, nowMs()),
         )
 
-        val outcome = action()
-        val error = commandError(outcome, expectedSuccessCode)
+        val written = action()
+        val error =
+            if (written) null
+            else RecordingError(
+                RecordingErrorCode.WRITE_FAILED,
+                "card recording action write failed",
+            )
         reduceRecordingState(
             RecordingStateEvent.CommandFinished(error, nowMs()),
         )
 
+        if (written) delay(RECORDING_ACTION_SETTLE_MS)
         syncRecordingState(RecordingSyncReason.APP_COMMAND)
 
         if (error != null) {
@@ -621,10 +646,7 @@ class DefaultDeviceRepository(
             is RecordingFrameEvent.Hardware -> {
                 reduceRecordingState(RecordingStateEvent.HardwareReceived(event.event))
                 session.noteRecordingHardwareEvent(event.event)
-                scheduleRecordingSync(
-                    RecordingSyncReason.HARDWARE_EVENT,
-                    delayMs = HARDWARE_EVENT_RECONCILE_DELAY_MS,
-                )
+                acknowledgeHardwareEventAndResync(event.event)
             }
 
             is RecordingFrameEvent.Malformed -> {
@@ -639,6 +661,28 @@ class DefaultDeviceRepository(
             }
 
             is RecordingFrameEvent.Unknown -> Unit
+        }
+    }
+
+    private fun acknowledgeHardwareEventAndResync(event: RecordingHardwareEvent) {
+        scope.launch {
+            val acknowledged = session.acknowledgeHardwareRecordingEvent(event.kind)
+            if (!acknowledged) {
+                reduceRecordingState(
+                    RecordingStateEvent.OperationError(
+                        RecordingError(
+                            RecordingErrorCode.WRITE_FAILED,
+                            "hardware " + event.kind.name + " acknowledgement failed",
+                        ),
+                        nowMs(),
+                    ),
+                    syncReason = RecordingSyncReason.HARDWARE_EVENT,
+                )
+            }
+            scheduleRecordingSync(
+                RecordingSyncReason.HARDWARE_EVENT,
+                delayMs = HARDWARE_EVENT_RECONCILE_DELAY_MS,
+            )
         }
     }
 
@@ -818,6 +862,27 @@ class DefaultDeviceRepository(
                 )
         }
 
+    private fun maybeAutoConnectRememberedDevice() {
+        val target = lastAddress
+        if (
+            !RememberedDeviceAutoConnectPolicy.shouldAttempt(
+                foreground = foreground,
+                userDisconnectedThisProcess = userDisconnectedThisProcess,
+                rememberedAddress = target,
+                currentState = session.state.value,
+            )
+        ) return
+        if (initialEnvironmentState() !is DeviceConnectionState.Idle) return
+
+        scanner.stop()
+        reconnectJob?.cancel()
+        reconnectJob = null
+        reconnectAttempt = 0
+        session.setReconnectAttempt(0)
+        target ?: return
+        connectInternal(target)
+    }
+
     @SuppressLint("MissingPermission")
     private fun connectInternal(address: String) {
         val environment = initialEnvironmentState()
@@ -851,7 +916,7 @@ class DefaultDeviceRepository(
 
     private fun scheduleReconnect(address: String?) {
         val target = address ?: return
-        if (!foreground) return
+        if (!foreground || userDisconnectedThisProcess) return
 
         val environment = initialEnvironmentState()
         if (environment !is DeviceConnectionState.Idle) return
@@ -979,6 +1044,8 @@ class DefaultDeviceRepository(
 
     private companion object {
         const val RECORDING_TIME_POLL_MS = 1_000L
+        const val RECORDING_ACTION_SETTLE_MS = 120L
         const val HARDWARE_EVENT_RECONCILE_DELAY_MS = 120L
+        const val AUTO_CONNECT_AFTER_BLUETOOTH_ON_MS = 300L
     }
 }

@@ -248,33 +248,31 @@ class AndroidDeviceSession(
             responseCommand = ProtocolConstants.Control.AUTH_RESPONSE,
         )?.let { DeviceDecoders.decodeAuthCode(it.body) }
 
-    suspend fun startRecording(): RecordingRequestOutcome<RecordingCommandResult> =
-        requestKey(
-            requestBuilder = ProtocolCodec::buildRecordStart,
-            responseCommand = ProtocolConstants.Key.RECORD_START_RESPONSE,
-            decoder = RecordingDecoders::decodeCommandResult,
-        )
+    suspend fun startRecording(): Boolean =
+        sendRecordingAction("start", ProtocolCodec::buildRecordStart)
 
-    suspend fun saveRecording(): RecordingRequestOutcome<RecordingCommandResult> =
-        requestKey(
-            requestBuilder = ProtocolCodec::buildRecordSave,
-            responseCommand = ProtocolConstants.Key.RECORD_SAVE_RESPONSE,
-            decoder = RecordingDecoders::decodeCommandResult,
-        )
+    suspend fun saveRecording(): Boolean =
+        sendRecordingAction("save", ProtocolCodec::buildRecordSave)
 
-    suspend fun pauseRecording(): RecordingRequestOutcome<RecordingCommandResult> =
-        requestKey(
-            requestBuilder = ProtocolCodec::buildRecordPause,
-            responseCommand = ProtocolConstants.Key.RECORD_PAUSE_RESPONSE,
-            decoder = RecordingDecoders::decodeCommandResult,
-        )
+    suspend fun pauseRecording(): Boolean =
+        sendRecordingAction("pause", ProtocolCodec::buildRecordPause)
 
-    suspend fun resumeRecording(): RecordingRequestOutcome<RecordingCommandResult> =
-        requestKey(
-            requestBuilder = ProtocolCodec::buildRecordResume,
-            responseCommand = ProtocolConstants.Key.RECORD_RESUME_RESPONSE,
-            decoder = RecordingDecoders::decodeCommandResult,
-        )
+    suspend fun resumeRecording(): Boolean =
+        sendRecordingAction("resume", ProtocolCodec::buildRecordResume)
+
+    suspend fun acknowledgeHardwareRecordingEvent(
+        kind: RecordingHardwareEventKind,
+    ): Boolean =
+        when (kind) {
+            RecordingHardwareEventKind.START ->
+                sendRecordingAction("hardware-start-ack", ProtocolCodec::buildRecordStart)
+            RecordingHardwareEventKind.SAVE ->
+                sendRecordingAction("hardware-save-ack", ProtocolCodec::buildRecordSave)
+            RecordingHardwareEventKind.PAUSE ->
+                sendRecordingAction("hardware-pause-ack", ProtocolCodec::buildRecordPause)
+            RecordingHardwareEventKind.RESUME ->
+                sendRecordingAction("hardware-resume-ack", ProtocolCodec::buildRecordResume)
+        }
 
     suspend fun readRecordingState(): RecordingRequestOutcome<RecordingStatus> =
         requestKey(
@@ -314,6 +312,27 @@ class AndroidDeviceSession(
             responseCommand = ProtocolConstants.Key.SET_GAIN_RESPONSE,
             decoder = RecordingDecoders::decodeCommandResult,
         )
+
+    private suspend fun sendRecordingAction(
+        label: String,
+        requestBuilder: (Int) -> ByteArray,
+    ): Boolean {
+        val written = commandClient.sendOnly(requestBuilder)
+        if (written) {
+            addLog("Recording action sent label=" + label)
+        } else {
+            val detail = "recording action=" + label
+            recordError(BleError(BleErrorCode.WRITE_FAILED, detail))
+            updateDiagnostics {
+                it.copy(
+                    recording = it.recording.copy(
+                        lastOperationError = "WRITE_FAILED " + detail,
+                    ),
+                )
+            }
+        }
+        return written
+    }
 
     private suspend fun <T> requestKey(
         requestBuilder: (Int) -> ByteArray,
