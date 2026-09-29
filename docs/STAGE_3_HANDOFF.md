@@ -42,7 +42,21 @@ Candidate APK CI：
 
 `36568209124` — success
 
-最终 Freeze 收口 CI 必须在本 Handoff 提交后再次执行并通过。
+Freeze/Handoff 内容提交：
+
+`575912ce85338bf35feebac818c066c875c8c78f`
+
+Freeze 内容 CI：
+
+`36570496710` — **success**
+
+该 Run 再次通过：
+
+- `:core:protocol:test`
+- `:core:ble:testDebugUnitTest`
+- `:app:assembleDebug`
+
+本 Handoff 的 seal 提交仅记录最终验证证据，不改变 Stage 3 生产代码。
 
 PR #3 合并后的最终 `main` SHA，Stage 4 接管时必须从 GitHub 重新读取，不得从聊天或本文件猜测。
 

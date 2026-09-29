@@ -80,7 +80,20 @@ APK SHA-256：
 
 `426addc3a0da5ae68a60bf13bcff9ff7e2a43cca7417d22b68168384c5511ded`
 
-Freeze/Handoff 收口后还必须再次执行最终 CI；最终 Run ID 由合并前 seal 记录。
+Freeze/Handoff 内容提交：
+
+`575912ce85338bf35feebac818c066c875c8c78f`
+
+Freeze 内容 CI：
+
+- Workflow：Android PR CI
+- Run ID：`36570496710`
+- 结论：**success**
+- `:core:protocol:test`：通过
+- `:core:ble:testDebugUnitTest`：通过
+- `:app:assembleDebug`：通过
+
+本 seal 提交仅记录最终验证证据，不改变 Stage 3 生产代码。
 
 ## 4. 冻结 TYPE=3 卡录音事实
 

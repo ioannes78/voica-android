@@ -148,3 +148,22 @@ Stage 3 不包含：
 - Foreground BLE Service
 
 以上从 Stage 4 及后续阶段继续。
+
+
+## 8. Freeze 收口验证
+
+Freeze/Handoff 内容提交：
+
+`575912ce85338bf35feebac818c066c875c8c78f`
+
+Android PR CI：
+
+`36570496710` — **success**
+
+该 Run 在用户最终“真机测试通过”后，再次通过：
+
+- `:core:protocol:test`
+- `:core:ble:testDebugUnitTest`
+- `:app:assembleDebug`
+
+因此 Stage 3 Freeze 内容与最终代码基线保持自动验证全绿。
