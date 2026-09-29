@@ -2,6 +2,8 @@ package io.github.ioannes78.voica.ble
 
 import io.github.ioannes78.voica.protocol.BatteryState
 import io.github.ioannes78.voica.protocol.DeviceByteOrder
+import io.github.ioannes78.voica.protocol.RecordingGain
+import io.github.ioannes78.voica.protocol.RecordingStatus
 
 data class BleScanDevice(
     val address: String,
@@ -145,6 +147,100 @@ data class DeviceInfo(
     val negotiatedMtu: Int? = null,
 )
 
+enum class RecordingFreshness {
+    NOT_SYNCED,
+    SYNCING,
+    FRESH,
+    STALE,
+    FAILED,
+}
+
+enum class RecordingCommandState {
+    IDLE,
+    STARTING,
+    PAUSING,
+    RESUMING,
+    SAVING,
+    SETTING_GAIN,
+    RECONCILING,
+}
+
+enum class RecordingSyncReason {
+    INITIAL_READY,
+    APP_COMMAND,
+    HARDWARE_EVENT,
+    RECONNECT,
+    FOREGROUND_RETURN,
+    MANUAL_REFRESH,
+    PERIODIC_REFRESH,
+}
+
+enum class RecordingHardwareEventKind {
+    START,
+    SAVE,
+    PAUSE,
+    RESUME,
+}
+
+data class RecordingHardwareEvent(
+    val kind: RecordingHardwareEventKind,
+    val source: NotificationSource,
+    val command: Int,
+    val sequence: Int,
+    val timestampMs: Long,
+)
+
+enum class RecordingErrorCode {
+    WRITE_FAILED,
+    RESPONSE_TIMEOUT,
+    REQUEST_CANCELLED,
+    MALFORMED_PAYLOAD,
+    UNKNOWN_RESULT_CODE,
+    DISCONNECTED_DURING_OPERATION,
+    RECONNECTED_DURING_OPERATION,
+    SYNC_FAILED,
+}
+
+data class RecordingError(
+    val code: RecordingErrorCode,
+    val detail: String? = null,
+)
+
+data class RecordingDeviceState(
+    val status: RecordingStatus? = null,
+    val durationSeconds: Int? = null,
+    val currentSizeBytes: Long? = null,
+    val filename: String? = null,
+    val gain: RecordingGain? = null,
+    val freshness: RecordingFreshness = RecordingFreshness.NOT_SYNCED,
+    val commandState: RecordingCommandState = RecordingCommandState.IDLE,
+    val lastHardwareEvent: RecordingHardwareEvent? = null,
+    val lastUpdatedTimeMs: Long? = null,
+    val lastError: RecordingError? = null,
+)
+
+data class RecordingDiagnostics(
+    val statusRaw: Int? = null,
+    val statusDecoded: String? = null,
+    val freshness: RecordingFreshness = RecordingFreshness.NOT_SYNCED,
+    val durationSeconds: Int? = null,
+    val currentSizeBytes: Long? = null,
+    val filename: String? = null,
+    val gainRaw: Int? = null,
+    val gainDecoded: String? = null,
+    val lastResponseSource: NotificationSource? = null,
+    val lastResponseCommand: Int? = null,
+    val lastRequestSequence: Int? = null,
+    val lastResponseSequence: Int? = null,
+    val lastResponseLatencyMs: Long? = null,
+    val lastHardwareEvent: RecordingHardwareEvent? = null,
+    val lastSyncReason: RecordingSyncReason? = null,
+    val lastCommandResultCode: Int? = null,
+    val lastDecodeError: String? = null,
+    val lastOperationError: String? = null,
+    val pollingActive: Boolean = false,
+)
+
 data class GattShapeSnapshot(
     val ae20Found: Boolean = false,
     val ae21Found: Boolean = false,
@@ -190,5 +286,6 @@ data class BleDiagnostics(
     val lastTxType: Int? = null,
     val lastTxCommand: Int? = null,
     val lastTxSequence: Int? = null,
+    val recording: RecordingDiagnostics = RecordingDiagnostics(),
     val logs: List<String> = emptyList(),
 )

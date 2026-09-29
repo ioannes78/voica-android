@@ -10,6 +10,8 @@ sealed interface DeviceCommandResult {
     data class Success(
         val requestSequence: Int,
         val response: ProtocolFrame,
+        val source: NotificationSource? = null,
+        val latencyMs: Long? = null,
     ) : DeviceCommandResult
 
     data object WriteFailed : DeviceCommandResult
@@ -22,11 +24,17 @@ class DeviceCommandClient(
     private val responseTimeoutMs: Long = 5_000L,
     private val sequenceGenerator: SequenceGenerator = SequenceGenerator(),
 ) {
+    private data class MatchedResponse(
+        val frame: ProtocolFrame,
+        val source: NotificationSource?,
+    )
+
     private data class Pending(
         val expectedType: Int,
         val expectedCommand: Int,
         val requestSequence: Int,
-        val deferred: CompletableDeferred<ProtocolFrame>,
+        val startedAtNanos: Long,
+        val deferred: CompletableDeferred<MatchedResponse>,
     )
 
     private val requestMutex = Mutex()
@@ -41,11 +49,12 @@ class DeviceCommandClient(
         requestMutex.lock()
         try {
             val sequence = sequenceGenerator.next()
-            val deferred = CompletableDeferred<ProtocolFrame>()
+            val deferred = CompletableDeferred<MatchedResponse>()
             val request = Pending(
                 expectedType = expectedType,
                 expectedCommand = expectedCommand,
                 requestSequence = sequence,
+                startedAtNanos = System.nanoTime(),
                 deferred = deferred,
             )
             synchronized(pendingLock) {
@@ -70,7 +79,12 @@ class DeviceCommandClient(
             return if (response == null) {
                 DeviceCommandResult.ResponseTimedOut
             } else {
-                DeviceCommandResult.Success(sequence, response)
+                DeviceCommandResult.Success(
+                    requestSequence = sequence,
+                    response = response.frame,
+                    source = response.source,
+                    latencyMs = (System.nanoTime() - request.startedAtNanos) / 1_000_000L,
+                )
             }
         } finally {
             requestMutex.unlock()
@@ -89,12 +103,21 @@ class DeviceCommandClient(
         }
     }
 
-    fun accept(frame: ProtocolFrame): Boolean {
+    fun accept(frame: ProtocolFrame): Boolean =
+        accept(frame = frame, source = null)
+
+    fun accept(notification: RoutedNotification): Boolean =
+        accept(frame = notification.frame, source = notification.source)
+
+    private fun accept(
+        frame: ProtocolFrame,
+        source: NotificationSource?,
+    ): Boolean {
         val current = synchronized(pendingLock) { pending } ?: return false
         if (frame.type != current.expectedType || frame.command != current.expectedCommand) {
             return false
         }
-        return current.deferred.complete(frame)
+        return current.deferred.complete(MatchedResponse(frame, source))
     }
 
     fun cancelPending() {
