@@ -112,9 +112,36 @@ object DeviceDecoders {
     fun decodeBattery(body: ByteArray): Int =
         body.firstOrNull()?.toInt()?.and(0xFF) ?: 0
 
+    fun decodeBatteryState(body: ByteArray): BatteryState {
+        val value = body.firstOrNull()?.toInt()?.and(0xFF)
+        return when {
+            value == null -> BatteryState.Unknown(null)
+            value in 0..100 -> BatteryState.Level(value)
+            value == ProtocolConstants.Control.BATTERY_VALUE_CHARGING -> BatteryState.Charging
+            else -> BatteryState.Unknown(value)
+        }
+    }
+
+    fun decodeFirmwareVersion(body: ByteArray): String? =
+        decodeNullTerminatedText(body).ifBlank { null }
+
+    fun decodeAuthCode(body: ByteArray): AuthCode {
+        val text = decodeNullTerminatedText(body)
+            .takeIf { value -> value.isNotBlank() && value.all { it.code in 0x20..0x7E } }
+        val hex = body.joinToString(separator = "") { byte ->
+            (byte.toInt() and 0xFF).toString(16).padStart(2, '0')
+        }
+        return AuthCode(text = text, hex = hex)
+    }
+
     fun decodeRecordTime(body: ByteArray): Pair<Int, Long> {
         if (body.size < 6) return 0 to 0L
         return ByteCodec.readU16Le(body, 0) to ByteCodec.readU32Le(body, 2)
+    }
+
+    private fun decodeNullTerminatedText(body: ByteArray): String {
+        val end = body.indexOf(0).let { if (it < 0) body.size else it }
+        return body.copyOfRange(0, end).toString(Charsets.UTF_8).trim()
     }
 
     private fun isPlausible(capacity: StorageCapacity): Boolean =

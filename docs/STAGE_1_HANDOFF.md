@@ -9,8 +9,8 @@ Stage 1 已完成自动测试、Debug 构建和用户真机验收，可以作为
 - Repository：`ioannes78/voica-android`
 - Stage 1 开发分支：`stage1-development`
 - PR：`#1`
-- 已验证实现 SHA：`3ac16dff92f10058c225392f1f693808a6396c28`
-- 最终成功 CI Run：`36468839882`
+- 已验证实现 SHA：`cc0d4aa19fe02d8bddcf6fa4d4a2d5d08403110e`
+- 最终成功 CI Run：`36470063093`
 
 合并后应以 `main` 的实际 HEAD 为下一阶段起点，不得只依赖本文件记录的开发分支 SHA。
 

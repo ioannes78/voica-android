@@ -57,7 +57,7 @@ Stage 1 **不冻结、也不宣称实现**：
 
 验证实现提交：
 
-`3ac16dff92f10058c225392f1f693808a6396c28`
+`cc0d4aa19fe02d8bddcf6fa4d4a2d5d08403110e`
 
 开发分支：
 
@@ -72,7 +72,7 @@ Pull Request：
 最终成功 CI：
 
 - Workflow：`Stage 1 CI`
-- Run ID：`36468839882`
+- Run ID：`36470063093`
 - `:core:protocol:test`：通过
 - `:app:assembleDebug`：通过
 - APK artifact 上传：通过
@@ -80,8 +80,8 @@ Pull Request：
 Artifact：
 
 - 名称：`Voica-0.1.0-stage1-debug`
-- ID：`10990273111`
-- digest：`sha256:8b604ef81c4e01fa9b74b4c7c735705d815a7c8e19b904d4fe2a08bbd6361c2e`
+- ID：`10991173612`
+- digest：`sha256:5d4e9acb616dd836c3573fb66e7a97f8ce40e5d4728d80e034c752e41edd1519`
 
 ## 5. 真机验收
 

@@ -4,27 +4,28 @@
 
 当前 `ioannes78/voica-android` 仓库是 Voica 项目实现状态的唯一事实来源。
 
-当前已冻结基线：**Stage 1**
+当前已冻结基线：**Stage 2**
 
-Stage 1 Freeze/Handoff：
+Stage 2 Freeze/Handoff：
 
-- `docs/STAGE_1_FREEZE.md`
-- `docs/STAGE_1_HANDOFF.md`
+- `docs/STAGE_2_FREEZE.md`
+- `docs/STAGE_2_HANDOFF.md`
 
-下一阶段：**Stage 2 — BLE 连接 + 设备基础信息**
+下一阶段：**Stage 3 — 录音控制 + 设备实时状态**
 
-Kardo 参考基线固定为：
+协议与行为参考：
 
-- 仓库：`laidely/kardo`
-- 提交：`bcec3c5fdbcb34810a6f235e8b5873683f2ab951`
+- QS668 / CB08 真机可重复验证结果：最高优先级
+- `nextproto1024/ai-recorder-card-open-protocol@e741ea72207f1a2aae3df4debc5c135728e0170e`
+- `laidely/kardo@bcec3c5fdbcb34810a6f235e8b5873683f2ab951`：仅产品行为交叉验证
 
 ## 二、与 voice-card-android 完全隔离
 
-这是硬性规则：
+硬性规则：
 
 **Voica 不继承、不复制、不迁移、不 cherry-pick、不机械翻译 `voice-card-android` 的任何代码。**
 
-禁止从 `voice-card-android` 复制或改写：
+禁止复制或改写其：
 
 - Kotlin/Java/C/C++ 源代码
 - 单元测试、Instrumentation 测试
@@ -35,17 +36,15 @@ Kardo 参考基线固定为：
 - Stage 1–30 的功能代码
 - 可执行实现型配置或脚本
 
-如需验证设备行为，应基于 Kardo 公开行为、公开协议事实、真实设备抓包/测试结果以及 Voica 自己重新编写的测试进行独立实现。
-
-不得为了“节省开发时间”从旧 VoiceCard 工程搬运实现。
+允许把过去已经发生的真机观察事实作为交叉验证线索，但 Voica 必须独立实现并重新测试。
 
 ## 三、语言规范
 
-- App 默认界面语言：**简体中文**
-- README、需求、架构、路线图、测试说明、Freeze/Handoff：**简体中文**
+- App 默认界面语言：简体中文
+- README、需求、架构、路线图、测试说明、Freeze/Handoff：简体中文
 - 用户可见错误信息和状态信息：默认简体中文
-- Kotlin 标识符、模块名、协议常量、API 字段：保持英文技术命名
-- 必要英文术语可在中文文档中直接使用，例如 BLE、ASR、Room、Flow
+- Kotlin 标识符、模块名、协议常量、API 字段：英文技术命名
+- 必要英文术语可直接使用，例如 BLE、ASR、Room、Flow
 
 ## 四、阶段开发门禁
 
@@ -58,73 +57,105 @@ Kardo 参考基线固定为：
 5. 等待用户明确确认。
 6. 输出“修订开发规划”。
 7. 再次等待用户明确确认。
-8. 只有确认后才允许开始编码。
+8. 只有确认后才允许创建开发分支和编码。
 
 每个 Stage 结束前必须：
 
 1. 执行适用的 build、unit test、lint/static check。
-2. 有用户界面的阶段应提供可真机测试 APK。
+2. 有用户界面的阶段提供可真机测试 APK。
 3. 记录准确 commit SHA、CI/build 证据、已知风险和真机测试清单。
-4. 创建该阶段 Freeze/Handoff 文档。
-5. 真机未确认通过，不得标记该阶段最终完成。
+4. 用户明确“测试通过”后才创建 Freeze/Handoff 并合并。
+5. CI 成功不能替代真机验收。
 
 ## 五、Android 技术基线
 
-Stage 1 已确定：
+Stage 2 冻结：
 
-- 开发语言：Kotlin
-- UI：Jetpack Compose
-- 并发：Kotlin Coroutines / Flow
-- 构建：Gradle Kotlin DSL
-- Application ID：`io.github.ioannes78.voica`
-- minSdk：26
-- targetSdk：37
-- compileSdk：37.1
+- Kotlin：2.4.20
+- Android Gradle Plugin：9.4.0
+- Gradle：9.6
 - JDK：17
+- compileSdk：37.1
+- targetSdk：37
+- minSdk：26
+- Compose BOM：2026.09.00
+- Application ID：`io.github.ioannes78.voica`
+- versionCode：3
+- versionName：`0.2.1-stage2`
 - 默认产品语言：简体中文
 
-ABI 策略在引入 Native/ML 组件的后续 Stage 再冻结；优先考虑 `arm64-v8a`。
+当前物理模块：
 
-## 六、架构规则
+- `:app`
+- `:core:protocol`
+- `:core:ble`
 
-- BLE transport、二进制协议、音频、数据库、ASR、说话人分离、AI 和 UI 必须保持清晰边界。
+依赖方向：
+
+`app → core:ble → core:protocol`
+
+## 六、Stage 2 已冻结 BLE 事实
+
+后续 Stage 不得无证据改变：
+
+- AE20：Service
+- AE21：WRITE_NO_RESPONSE
+- AE22：Notify
+- AE23：Notify
+- AE22 与 AE23 使用**独立 FrameParser**
+- 两路完整 `ProtocolFrame` 均可提交给单路 pending matcher
+- pending matcher 强匹配 TYPE/CMD；sequence 当前仅用于诊断
+- 真机观察到设备响应 sequence 不保证回显 request sequence
+- Battery Request：0/3
+- Battery Response：0/4
+- Battery Response 可以从 **AE23** 到达
+- Battery body[0] 0..100 为电量百分比，110 为充电中
+- Android 主动 `requestMtu(517)`
+- 真机 Actual MTU = 517
+- MTU <39 不得进入 Ready
+- MTU 39..170 仅基础控制能力
+- MTU >=171 标记当前已知 168B 数据通道能力
+- TYPE=2/CMD=2 的 36B Frame 后续必须一次完整 GATT Write，不得应用层拆分
+- GATT 异步操作必须严格串行
+- `BluetoothGatt STATE_CONNECTED` 不等于 Voica Ready
+- Remote disconnect 有限重连：1s → 2s → 4s，最多 3 次
+- 用户主动断开不得自动重连
+
+## 七、架构规则
+
 - `:core:protocol` 保持纯 Kotlin，不依赖 Android BLE API。
-- AE22 与 AE23 通知必须使用独立的流式帧解析器。
-- GATT 操作必须串行化。
-- TYPE=2/CMD=2 文件导入请求按完整 36B 协议帧处理。
-- 原始设备音频必须先可靠落盘，再进行转换。
-- 删除等破坏性操作必须有明确二次确认。
-- UI 层不得直接解析二进制协议帧。
-- ASR/LLM 的供应商或模型具体类型不得污染上层 Feature UI 契约。
-- 下载、解码、转写、说话人分离等耗时操作必须支持取消并正确处理生命周期。
-- 本地录音必须在设备断开后仍可独立使用。
+- UI 不得直接解析二进制协议。
+- BLE transport、协议、文件、音频、数据库、ASR、说话人、AI 保持边界。
+- Session callback 必须具备 generation/stale callback 防护。
+- 原始设备音频后续必须先可靠落盘，再转换。
+- 删除等破坏性操作必须二次确认。
+- ASR/LLM Provider 不得污染 Feature UI 契约。
+- 下载、解码、转写、说话人分离等耗时任务必须支持取消与生命周期处理。
+- 本地录音在设备断开后仍应可独立使用。
 
-## 七、测试规则
+## 八、测试规则
 
-协议层必须具有 deterministic/golden tests，至少覆盖：
+协议层至少覆盖 deterministic/golden tests：
 
 - CRC-16/XMODEM：`123456789 -> 0x31C3`
 - 帧构造与解析
 - 通知拆包、粘包
-- AE22/AE23 独立解析状态
+- AE22/AE23 独立解析
 - 文件列表字节序
 - 36B 文件导入请求
-- 单文件删除请求布局
-- 文件名候选回退
-- 后续加入音频后覆盖 Opus 包/容器转换关键约束
-- 后续加入转写后覆盖时间段归一化和合并规则
+- 时间同步
+- Battery 0..100 / 110
+- MTU 39 / 171 / 517 边界
+- Serialized GATT Queue
+- pending-before-write fast response
+- AE23 Battery Response 回归
 
-**CI 成功不等于真机验收成功。**
+BLE、文件、音频、ASR、Speaker 必须继续做真实设备或真实录音验收。
 
-BLE、文件下载、音频转换、长录音、ASR、说话人分离必须按阶段执行真实设备或真实录音验收。
+## 九、CI 原则
 
-## 八、CI 原则
-
-CI 默认保持精简：
-
-- PR 运行快速 build/unit test
-- 当前阶段不需要时，不运行模拟器或 Instrumentation
-- 同一提交避免重复 Workflow
-- 使用 concurrency / cancel-in-progress 避免无效重复运行
-- 实验分支不自动触发昂贵构建
-- APK 构建按阶段验收需要触发
+- PR 默认快速 Unit Test + assembleDebug
+- 默认不运行 Emulator / Instrumentation
+- 使用 concurrency / cancel-in-progress
+- 真机 APK 仅在阶段验收需要时上传
+- Stage 3 开始前不得为了方便扩大 Stage 2 的范围
