@@ -46,7 +46,7 @@ class Ae23RecordingResponseRegressionTest {
     }
 
     @Test
-    fun hardwareStartDoesNotCompletePendingStartResponse() = runTest {
+    fun hardwareStartDoesNotCompletePendingStateQuery() = runTest {
         val client = DeviceCommandClient(
             writer = { true },
             responseTimeoutMs = 1_000,
@@ -56,8 +56,8 @@ class Ae23RecordingResponseRegressionTest {
         val pending = async {
             client.request(
                 expectedType = ProtocolConstants.Type.KEY,
-                expectedCommand = ProtocolConstants.Key.RECORD_START_RESPONSE,
-                buildRequest = ProtocolCodec::buildRecordStart,
+                expectedCommand = ProtocolConstants.Key.STATE_RESPONSE,
+                buildRequest = ProtocolCodec::buildGetRecordState,
             )
         }
         runCurrent()
@@ -67,7 +67,7 @@ class Ae23RecordingResponseRegressionTest {
             ProtocolCodec.buildCommand(
                 sequence = 80,
                 type = ProtocolConstants.Type.KEY,
-                command = ProtocolConstants.Key.RECORD_START,
+                command = ProtocolConstants.Key.HARDWARE_RECORD_START,
             ),
         ).single()
         assertFalse(client.accept(hardwareEvent))
@@ -77,13 +77,13 @@ class Ae23RecordingResponseRegressionTest {
             ProtocolCodec.buildCommand(
                 sequence = 81,
                 type = ProtocolConstants.Type.KEY,
-                command = ProtocolConstants.Key.RECORD_START_RESPONSE,
+                command = ProtocolConstants.Key.STATE_RESPONSE,
                 params = byteArrayOf(1),
             ),
         ).single()
         assertTrue(client.accept(response))
 
         val result = pending.await() as DeviceCommandResult.Success
-        assertEquals(ProtocolConstants.Key.RECORD_START_RESPONSE, result.response.command)
+        assertEquals(ProtocolConstants.Key.STATE_RESPONSE, result.response.command)
     }
 }

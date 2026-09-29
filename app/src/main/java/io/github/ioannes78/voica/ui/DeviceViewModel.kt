@@ -34,6 +34,7 @@ class DeviceViewModel(
 
     fun refreshPermissions() {
         mutableMissingPermissions.value = repository.missingPermissions()
+        repository.onPermissionsChanged()
     }
 
     fun startScan() {

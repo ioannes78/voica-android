@@ -69,7 +69,7 @@ class RecordingFrameRouterTest {
         val event = router.route(
             RoutedNotification(
                 NotificationSource.AE23,
-                frame(command = ProtocolConstants.Key.RECORD_START),
+                frame(command = ProtocolConstants.Key.HARDWARE_RECORD_START),
             ),
         )
 

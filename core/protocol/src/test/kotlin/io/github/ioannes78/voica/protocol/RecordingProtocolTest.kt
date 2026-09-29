@@ -9,10 +9,10 @@ class RecordingProtocolTest {
     fun recordingCommandBuildersMatchGoldenFrames() {
         val sequence = 0x2A
         val cases = listOf(
-            ProtocolCodec.buildRecordStart(sequence) to "5A 2A 1A A8 02 00 03 01",
-            ProtocolCodec.buildRecordSave(sequence) to "5A 2A 58 88 02 00 03 03",
-            ProtocolCodec.buildRecordPause(sequence) to "5A 2A 9E E8 02 00 03 05",
-            ProtocolCodec.buildRecordResume(sequence) to "5A 2A DC C8 02 00 03 07",
+            ProtocolCodec.buildRecordStart(sequence) to "5A 2A C1 C1 03 00 03 02 01",
+            ProtocolCodec.buildRecordSave(sequence) to "5A 2A 67 6B 03 00 03 04 01",
+            ProtocolCodec.buildRecordPause(sequence) to "5A 2A 05 0D 03 00 03 06 01",
+            ProtocolCodec.buildRecordResume(sequence) to "5A 2A 0A 2E 03 00 03 08 01",
             ProtocolCodec.buildGetRecordState(sequence) to "5A 2A 69 9A 02 00 03 13",
             ProtocolCodec.buildGetRecordTime(sequence) to "5A 2A AF FA 02 00 03 15",
             ProtocolCodec.buildGetRecordFilename(sequence) to "5A 2A ED DA 02 00 03 17",
