@@ -106,3 +106,11 @@ Ready 后持久化最后成功设备地址。之后：
 - Idle 不再查询 GET_TIME 或 GET_FILENAME；StateReceived(Idle) 直接把当前录音时长/大小归零并保留最后文件名。
 - 周期 GET_TIME 失败与其他辅助查询失败只写 BLE Diagnostics，不再进入用户可见的“最近录音操作”。
 - GET_STATE 请求本身失败仍属于关键同步失败。
+
+
+### 0.3.3 自动验证候选
+
+- Core fix commit: `70b416ba2c20bdd4bd1b9201f337251a756af818`
+- Core CI Run: `36567838517` — success
+- 通过：`:core:protocol:test`、`:core:ble:testDebugUnitTest`、`:app:assembleDebug`
+- 下一步仅生成 0.3.3 真机候选 APK；Stage 3 仍未 Freeze。
