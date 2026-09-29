@@ -77,3 +77,11 @@ Ready 后持久化最后成功设备地址。之后：
 5. Idle 状态跳过 GET_FILENAME，保留最后已知文件名；避免固件不响应导致约 5 秒超时。
 6. GET_TIME/GET_FILENAME/GET_GAIN 等辅助读取失败只记入 BLE Diagnostics，不再写入用户可见的“最近录音操作”。
 7. GET_STATE 仍是关键真值；其失败继续使同步失败并禁用不安全控制。
+
+
+### 0.3.2 自动验证候选
+
+- Core validation commit: `68082af9c1b0fcdf0ab1d2d123a601e6cf437c1e`
+- CI Run: `36559318503` — success
+- 通过：`:core:protocol:test`、`:core:ble:testDebugUnitTest`、`:app:assembleDebug`
+- 下一步仅生成真机候选 APK；Stage 3 仍未 Freeze。
