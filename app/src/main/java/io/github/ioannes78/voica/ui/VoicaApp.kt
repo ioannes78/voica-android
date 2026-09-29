@@ -44,6 +44,7 @@ import io.github.ioannes78.voica.ble.DeviceInfo
 import io.github.ioannes78.voica.ble.DeviceRepository
 import io.github.ioannes78.voica.ble.NotificationSource
 import io.github.ioannes78.voica.protocol.BatteryState
+import io.github.ioannes78.voica.ui.recording.RecordingCard
 
 @Composable
 fun VoicaApp(repository: DeviceRepository) {
@@ -88,6 +89,7 @@ private fun DeviceScreen(
     val scan by viewModel.scanState.collectAsState()
     val connection by viewModel.connectionState.collectAsState()
     val info by viewModel.deviceInfo.collectAsState()
+    val recording by viewModel.recordingState.collectAsState()
     val diagnostics by viewModel.diagnostics.collectAsState()
     val missingPermissions by viewModel.missingPermissions.collectAsState()
     val actionMessage by viewModel.actionMessage.collectAsState()
@@ -118,7 +120,7 @@ private fun DeviceScreen(
                 style = MaterialTheme.typography.headlineLarge,
             )
             Text(
-                stringResource(R.string.stage2_subtitle),
+                stringResource(R.string.stage3_subtitle),
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
@@ -189,6 +191,17 @@ private fun DeviceScreen(
                     onRefresh = viewModel::refreshDeviceInfo,
                     onSyncTime = viewModel::syncTime,
                     onDisconnect = viewModel::disconnect,
+                )
+            }
+            item {
+                RecordingCard(
+                    state = recording,
+                    onStart = viewModel::startRecording,
+                    onPause = viewModel::pauseRecording,
+                    onResume = viewModel::resumeRecording,
+                    onSave = viewModel::saveRecording,
+                    onRefresh = viewModel::refreshRecordingState,
+                    onSetGain = viewModel::setRecordingGain,
                 )
             }
         } else if (connection !is DeviceConnectionState.Idle &&
@@ -441,6 +454,83 @@ private fun DiagnosticsCard(diagnostics: BleDiagnostics) {
                     diagnostics.lastTxSequence,
                 ).joinToString("/"),
             )
+            HorizontalDivider()
+            Text("Recording", style = MaterialTheme.typography.titleSmall)
+            DiagnosticLine(
+                "Recording state",
+                diagnostics.recording.statusDecoded ?: "--",
+            )
+            DiagnosticLine(
+                "Recording raw",
+                diagnostics.recording.statusRaw?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "Recording freshness",
+                diagnostics.recording.freshness.name,
+            )
+            DiagnosticLine(
+                "Duration",
+                diagnostics.recording.durationSeconds?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "Current bytes",
+                diagnostics.recording.currentSizeBytes?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "Filename",
+                diagnostics.recording.filename ?: "--",
+            )
+            DiagnosticLine(
+                "Gain",
+                diagnostics.recording.gainDecoded ?: "--",
+            )
+            DiagnosticLine(
+                "Gain raw",
+                diagnostics.recording.gainRaw?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "RX source/cmd",
+                listOf(
+                    diagnostics.recording.lastResponseSource,
+                    diagnostics.recording.lastResponseCommand,
+                ).joinToString("/"),
+            )
+            DiagnosticLine(
+                "REQ/RSP seq",
+                listOf(
+                    diagnostics.recording.lastRequestSequence,
+                    diagnostics.recording.lastResponseSequence,
+                ).joinToString("/"),
+            )
+            DiagnosticLine(
+                "RX latency",
+                diagnostics.recording.lastResponseLatencyMs?.let { it.toString() + " ms" } ?: "--",
+            )
+            DiagnosticLine(
+                "Last sync",
+                diagnostics.recording.lastSyncReason?.name ?: "--",
+            )
+            DiagnosticLine(
+                "Command result",
+                diagnostics.recording.lastCommandResultCode?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "Polling",
+                diagnostics.recording.pollingActive.toString(),
+            )
+            diagnostics.recording.lastHardwareEvent?.let { event ->
+                DiagnosticLine(
+                    "Hardware event",
+                    event.kind.name + "/" + event.source +
+                        "/cmd=" + event.command + "/seq=" + event.sequence,
+                )
+            }
+            diagnostics.recording.lastDecodeError?.let {
+                DiagnosticLine("Decode error", it)
+            }
+            diagnostics.recording.lastOperationError?.let {
+                DiagnosticLine("Recording error", it)
+            }
             diagnostics.lastError?.let {
                 DiagnosticLine("Last error", errorText(it))
             }

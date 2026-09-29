@@ -2,7 +2,8 @@
 <resources>
     <string name="app_name">Voica</string>
     <string name="stage2_subtitle">BLE 设备连接与基础信息</string>
-    <string name="version_label">0.2.1 Stage 2</string>
+    <string name="stage3_subtitle">录音控制与设备实时状态</string>
+    <string name="version_label">0.3.0 Stage 3</string>
     <string name="tab_device">设备</string>
     <string name="tab_settings">设置</string>
 
@@ -43,6 +44,38 @@
     <string name="yes">支持</string>
     <string name="no">不支持</string>
 
+    <string name="recording_title">设备录音</string>
+    <string name="recording_status">录音状态</string>
+    <string name="recording_freshness">同步状态</string>
+    <string name="recording_duration">录音时长</string>
+    <string name="recording_size">当前大小</string>
+    <string name="recording_filename">当前文件名</string>
+    <string name="recording_gain">录音增益</string>
+    <string name="recording_start">开始录音</string>
+    <string name="recording_pause">暂停</string>
+    <string name="recording_resume">继续录音</string>
+    <string name="recording_save">停止并保存</string>
+    <string name="recording_refresh">重新同步</string>
+    <string name="recording_idle">未录音</string>
+    <string name="recording_recording">录音中</string>
+    <string name="recording_paused">已暂停</string>
+    <string name="recording_unknown">状态未知</string>
+    <string name="recording_unknown_raw">未知状态（raw=%1$d）</string>
+    <string name="recording_not_synced">未同步</string>
+    <string name="recording_syncing">正在同步</string>
+    <string name="recording_synced">已同步</string>
+    <string name="recording_stale">状态已失效，等待重新同步</string>
+    <string name="recording_sync_failed">同步失败</string>
+    <string name="recording_gain_low">低</string>
+    <string name="recording_gain_medium">中</string>
+    <string name="recording_gain_high">高</string>
+    <string name="recording_starting">正在开始录音…</string>
+    <string name="recording_pausing">正在暂停…</string>
+    <string name="recording_resuming">正在继续录音…</string>
+    <string name="recording_saving">正在停止并保存…</string>
+    <string name="recording_setting_gain">正在设置录音增益…</string>
+    <string name="recording_last_error">最近录音操作</string>
+
     <string name="state_unavailable">当前设备不支持蓝牙低功耗。</string>
     <string name="state_permission_required">等待蓝牙权限</string>
     <string name="state_bluetooth_off">蓝牙已关闭</string>
@@ -70,9 +103,9 @@
     <string name="diagnostics_title">BLE Diagnostics</string>
     <string name="diagnostics_recent_log">最近通信日志</string>
 
-    <string name="settings_title">Stage 2 设置</string>
+    <string name="settings_title">Stage 3 设置</string>
     <string name="settings_language">默认语言</string>
     <string name="settings_language_value">简体中文</string>
     <string name="settings_scope">当前范围</string>
-    <string name="settings_scope_value">BLE 连接 + 设备基础信息</string>
+    <string name="settings_scope_value">BLE 连接 + 录音控制 + 设备实时状态</string>
 </resources>
