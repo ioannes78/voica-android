@@ -42,8 +42,13 @@ import io.github.ioannes78.voica.ble.BleScanDevice
 import io.github.ioannes78.voica.ble.DeviceConnectionState
 import io.github.ioannes78.voica.ble.DeviceInfo
 import io.github.ioannes78.voica.ble.DeviceRepository
+import io.github.ioannes78.voica.ble.FileListFreshness
 import io.github.ioannes78.voica.ble.NotificationSource
+import io.github.ioannes78.voica.ble.RecordingCommandState
+import io.github.ioannes78.voica.ble.RecordingFreshness
 import io.github.ioannes78.voica.protocol.BatteryState
+import io.github.ioannes78.voica.protocol.RecordingStatus
+import io.github.ioannes78.voica.ui.files.DeviceFilesCard
 import io.github.ioannes78.voica.ui.recording.RecordingCard
 
 @Composable
@@ -90,6 +95,7 @@ private fun DeviceScreen(
     val connection by viewModel.connectionState.collectAsState()
     val info by viewModel.deviceInfo.collectAsState()
     val recording by viewModel.recordingState.collectAsState()
+    val deviceFiles by viewModel.deviceFileListState.collectAsState()
     val diagnostics by viewModel.diagnostics.collectAsState()
     val missingPermissions by viewModel.missingPermissions.collectAsState()
     val actionMessage by viewModel.actionMessage.collectAsState()
@@ -120,7 +126,7 @@ private fun DeviceScreen(
                 style = MaterialTheme.typography.headlineLarge,
             )
             Text(
-                stringResource(R.string.stage3_subtitle),
+                stringResource(R.string.stage4_subtitle),
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
@@ -202,6 +208,18 @@ private fun DeviceScreen(
                     onSave = viewModel::saveRecording,
                     onRefresh = viewModel::refreshRecordingState,
                     onSetGain = viewModel::setRecordingGain,
+                )
+            }
+            item {
+                val canRefreshFiles =
+                    recording.status == RecordingStatus.Idle &&
+                        recording.freshness == RecordingFreshness.FRESH &&
+                        recording.commandState == RecordingCommandState.IDLE &&
+                        deviceFiles.freshness != FileListFreshness.LOADING
+                DeviceFilesCard(
+                    state = deviceFiles,
+                    canRefresh = canRefreshFiles,
+                    onRefresh = viewModel::refreshDeviceFiles,
                 )
             }
         } else if (connection !is DeviceConnectionState.Idle &&
@@ -530,6 +548,68 @@ private fun DiagnosticsCard(diagnostics: BleDiagnostics) {
             }
             diagnostics.recording.lastOperationError?.let {
                 DiagnosticLine("Recording error", it)
+            }
+            HorizontalDivider()
+            Text("File list", style = MaterialTheme.typography.titleSmall)
+            DiagnosticLine(
+                "File session",
+                diagnostics.fileList.sessionId?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "Transport session",
+                diagnostics.fileList.transportSessionId?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "File request seq",
+                diagnostics.fileList.requestSequence?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "File frames",
+                diagnostics.fileList.dataFrameCount.toString(),
+            )
+            DiagnosticLine(
+                "Declared/parsed",
+                diagnostics.fileList.declaredEntryCount.toString() + "/" +
+                    diagnostics.fileList.parsedEntryCount,
+            )
+            DiagnosticLine(
+                "File RX source",
+                diagnostics.fileList.lastNotificationSource?.name ?: "--",
+            )
+            DiagnosticLine(
+                "Body/name field",
+                (diagnostics.fileList.lastBodySize?.toString() ?: "--") + "/" +
+                    (diagnostics.fileList.lastFilenameFieldLength?.toString() ?: "--"),
+            )
+            DiagnosticLine(
+                "List done",
+                diagnostics.fileList.receivedListDone.toString(),
+            )
+            DiagnosticLine(
+                "Raw filename",
+                diagnostics.fileList.lastRawFilename ?: "--",
+            )
+            DiagnosticLine(
+                "Resolved filename",
+                diagnostics.fileList.lastResolvedFilename ?: "--",
+            )
+            DiagnosticLine(
+                "Resolution",
+                diagnostics.fileList.lastFilenameResolution ?: "--",
+            )
+            DiagnosticLine(
+                "Completion",
+                diagnostics.fileList.completionReason?.name ?: "--",
+            )
+            DiagnosticLine(
+                "File duration",
+                diagnostics.fileList.durationMs?.let { it.toString() + " ms" } ?: "--",
+            )
+            diagnostics.fileList.lastMalformedReason?.let {
+                DiagnosticLine("File malformed", it)
+            }
+            diagnostics.fileList.lastOperationError?.let {
+                DiagnosticLine("File error", it)
             }
             diagnostics.lastError?.let {
                 DiagnosticLine("Last error", errorText(it))
