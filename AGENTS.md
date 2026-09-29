@@ -4,14 +4,15 @@
 
 当前 `ioannes78/voica-android` 仓库是 Voica 项目实现状态的唯一事实来源。
 
-当前已冻结基线：**Stage 2**
+当前已冻结基线：**Stage 3**
 
-Stage 2 Freeze/Handoff：
+Stage 3 Freeze/Handoff：
 
-- `docs/STAGE_2_FREEZE.md`
-- `docs/STAGE_2_HANDOFF.md`
+- `docs/STAGE_3_FREEZE.md`
+- `docs/STAGE_3_HANDOFF.md`
+- `docs/STAGE_3_TEST.md`
 
-下一阶段：**Stage 3 — 录音控制 + 设备实时状态**
+下一阶段：**Stage 4 — 设备文件列表 + 文件名解析**
 
 协议与行为参考：
 
@@ -69,7 +70,7 @@ Stage 2 Freeze/Handoff：
 
 ## 五、Android 技术基线
 
-Stage 2 冻结：
+Stage 3 冻结：
 
 - Kotlin：2.4.20
 - Android Gradle Plugin：9.4.0
@@ -80,8 +81,8 @@ Stage 2 冻结：
 - minSdk：26
 - Compose BOM：2026.09.00
 - Application ID：`io.github.ioannes78.voica`
-- versionCode：3
-- versionName：`0.2.1-stage2`
+- versionCode：7
+- versionName：`0.3.3-stage3`
 - 默认产品语言：简体中文
 
 当前物理模块：
@@ -121,7 +122,27 @@ Stage 2 冻结：
 - Remote disconnect 有限重连：1s → 2s → 4s，最多 3 次
 - 用户主动断开不得自动重连
 
-## 七、架构规则
+## 七、Stage 3 已冻结录音事实
+
+后续 Stage 不得无真机证据改变：
+
+- App 卡录音控制：TYPE=3 CMD=2/4/6/8 + body `01`
+- 设备物理按键事件：TYPE=3 CMD=1/3/5/7
+- 物理事件需发送对应偶数 CMD+`01` acknowledgement，再 reconciliation
+- App 主动录音控制写入后不等待 action response，以设备查询/语义证据收敛
+- 当前固件 Pause 后 GET_STATE 可持续返回 1，因此 GET_STATE=1 不足以区分 Recording 与 Paused
+- App Pause 写成功或物理 CMD=5 为 Paused 强语义证据
+- App/物理 Resume 解除 Pause 锁存
+- GET_STATE=2 可确认 Idle
+- Recording 前台约 1 秒 GET_TIME Poller
+- Full sync / 物理事件开始前必须停止 Poller
+- Idle 不查询当前 GET_TIME / GET_FILENAME
+- 辅助查询失败只进入 Diagnostics，不得伪装成录音操作失败
+- Ready 后持久化最后成功设备地址并支持后续 App 自动连接
+- 用户主动断开在本 App 进程内抑制自动连接
+- Remote disconnect 继续沿用 Stage 2 的 1s → 2s → 4s 重连
+
+## 八、架构规则
 
 - `:core:protocol` 保持纯 Kotlin，不依赖 Android BLE API。
 - UI 不得直接解析二进制协议。
@@ -133,7 +154,7 @@ Stage 2 冻结：
 - 下载、解码、转写、说话人分离等耗时任务必须支持取消与生命周期处理。
 - 本地录音在设备断开后仍应可独立使用。
 
-## 八、测试规则
+## 九、测试规则
 
 协议层至少覆盖 deterministic/golden tests：
 
@@ -152,10 +173,10 @@ Stage 2 冻结：
 
 BLE、文件、音频、ASR、Speaker 必须继续做真实设备或真实录音验收。
 
-## 九、CI 原则
+## 十、CI 原则
 
 - PR 默认快速 Unit Test + assembleDebug
 - 默认不运行 Emulator / Instrumentation
 - 使用 concurrency / cancel-in-progress
 - 真机 APK 仅在阶段验收需要时上传
-- Stage 3 开始前不得为了方便扩大 Stage 2 的范围
+- Stage 4 开始前不得为了方便扩大 Stage 3 的范围

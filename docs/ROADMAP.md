@@ -1,6 +1,6 @@
 # Voica Android 全项目 Stage 开发路线图
 
-当前状态：**Stage 2 已完成、两轮真机验收通过并冻结；下一阶段为 Stage 3。**
+当前状态：**Stage 3 已完成、真机验收通过并冻结；下一阶段为 Stage 4。**
 
 整个 Voica 路线均为全新独立实现，不得从 `voice-card-android` 复制、迁移、继承、cherry-pick 或机械改写任何代码。
 
@@ -90,20 +90,40 @@
 
 ## Stage 3 — 录音控制 + 设备实时状态
 
-目标：
+完成内容：
 
-- 获取录音状态
-- 开始录音
-- 暂停/恢复
-- 停止保存
-- 当前录音时长
-- 当前录音文件名
-- AE23 设备按键事件
-- App 发起与物理按键发起状态统一
+- App 卡录音开始 / 暂停 / 继续 / 停止并保存
+- 当前录音状态、时长、大小、文件名、增益
+- TYPE=3 设备物理按键事件
+- App 主动控制与物理按键状态统一
+- App 控制：CMD=2/4/6/8 + `01`
+- 物理事件：CMD=1/3/5/7
+- 物理事件 acknowledgement 后 reconciliation
+- Pause 语义锁存，兼容当前固件 GET_STATE=1 无法区分 Recording/Paused
+- Recording 前台约 1 秒 GET_TIME Poller
+- Full sync / 物理事件优先停止 Poller，避免 GET_TIME 竞争
+- Idle 不再查询当前 GET_TIME / GET_FILENAME
+- 辅助读取失败仅进入 Diagnostics
+- 最后成功设备地址持久化与自动连接
+- Stage 1/2 回归测试持续通过
 
-Stage 3 开始前必须先读取 Stage 2 Freeze/Handoff 并重新检查 `main` 当前真实状态。
+真机关键事实：
 
-退出条件：App 控制与设备物理按键操作均能稳定同步 UI。
+- App 卡录音控制不是奇数 CMD request 模型，而是偶数 CMD=2/4/6/8 + `01`
+- 设备物理按键上报为奇数 CMD=1/3/5/7
+- 当前固件 Pause 后 GET_STATE 可持续返回 1，因此不能仅靠 GET_STATE 判断 Paused
+- GET_STATE=2 可确认 Idle
+- GET_TIME 使用 LE duration + size，真机显示与设备录音一致
+- 当前文件名示例为 `noteYYYYMMDD-HHMMSS.opus`
+- 物理事件与 App 控制均可稳定驱动 UI 收敛
+
+状态：**已完成 / 已真机验收 / 已冻结**
+
+冻结文档：
+
+- `docs/STAGE_3_TEST.md`
+- `docs/STAGE_3_FREEZE.md`
+- `docs/STAGE_3_HANDOFF.md`
 
 ## Stage 4 — 设备文件列表 + 文件名解析
 

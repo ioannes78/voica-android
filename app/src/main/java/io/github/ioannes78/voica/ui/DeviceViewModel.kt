@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import io.github.ioannes78.voica.ble.DeviceRepository
+import io.github.ioannes78.voica.protocol.RecordingGain
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,6 +21,7 @@ class DeviceViewModel(
     val scanState = repository.scanState
     val connectionState = repository.connectionState
     val deviceInfo = repository.deviceInfo
+    val recordingState = repository.recordingState
     val diagnostics = repository.diagnostics
 
     private val mutableMissingPermissions =
@@ -32,6 +34,7 @@ class DeviceViewModel(
 
     fun refreshPermissions() {
         mutableMissingPermissions.value = repository.missingPermissions()
+        repository.onPermissionsChanged()
     }
 
     fun startScan() {
@@ -66,6 +69,30 @@ class DeviceViewModel(
                     DeviceActionMessage.SYNC_FAILED
                 }
         }
+    }
+
+    fun startRecording() {
+        viewModelScope.launch { repository.startRecording() }
+    }
+
+    fun pauseRecording() {
+        viewModelScope.launch { repository.pauseRecording() }
+    }
+
+    fun resumeRecording() {
+        viewModelScope.launch { repository.resumeRecording() }
+    }
+
+    fun saveRecording() {
+        viewModelScope.launch { repository.saveRecording() }
+    }
+
+    fun refreshRecordingState() {
+        viewModelScope.launch { repository.syncRecordingState() }
+    }
+
+    fun setRecordingGain(gain: RecordingGain) {
+        viewModelScope.launch { repository.setRecordingGain(gain) }
     }
 
     class Factory(

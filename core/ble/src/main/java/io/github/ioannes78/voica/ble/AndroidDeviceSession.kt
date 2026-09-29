@@ -14,7 +14,13 @@ import io.github.ioannes78.voica.protocol.DeviceDecoders
 import io.github.ioannes78.voica.protocol.DeviceTime
 import io.github.ioannes78.voica.protocol.ProtocolCodec
 import io.github.ioannes78.voica.protocol.ProtocolConstants
+import io.github.ioannes78.voica.protocol.ProtocolDecodeResult
 import io.github.ioannes78.voica.protocol.ProtocolFrame
+import io.github.ioannes78.voica.protocol.RecordingCommandResult
+import io.github.ioannes78.voica.protocol.RecordingDecoders
+import io.github.ioannes78.voica.protocol.RecordingGain
+import io.github.ioannes78.voica.protocol.RecordingStatus
+import io.github.ioannes78.voica.protocol.RecordingTimeInfo
 import io.github.ioannes78.voica.protocol.StorageCapacity
 import java.io.Closeable
 import java.time.LocalDateTime
@@ -241,6 +247,196 @@ class AndroidDeviceSession(
             requestBuilder = ProtocolCodec::buildGetAuth,
             responseCommand = ProtocolConstants.Control.AUTH_RESPONSE,
         )?.let { DeviceDecoders.decodeAuthCode(it.body) }
+
+    suspend fun startRecording(): Boolean =
+        sendRecordingAction("start", ProtocolCodec::buildRecordStart)
+
+    suspend fun saveRecording(): Boolean =
+        sendRecordingAction("save", ProtocolCodec::buildRecordSave)
+
+    suspend fun pauseRecording(): Boolean =
+        sendRecordingAction("pause", ProtocolCodec::buildRecordPause)
+
+    suspend fun resumeRecording(): Boolean =
+        sendRecordingAction("resume", ProtocolCodec::buildRecordResume)
+
+    suspend fun acknowledgeHardwareRecordingEvent(
+        kind: RecordingHardwareEventKind,
+    ): Boolean =
+        when (kind) {
+            RecordingHardwareEventKind.START ->
+                sendRecordingAction("hardware-start-ack", ProtocolCodec::buildRecordStart)
+            RecordingHardwareEventKind.SAVE ->
+                sendRecordingAction("hardware-save-ack", ProtocolCodec::buildRecordSave)
+            RecordingHardwareEventKind.PAUSE ->
+                sendRecordingAction("hardware-pause-ack", ProtocolCodec::buildRecordPause)
+            RecordingHardwareEventKind.RESUME ->
+                sendRecordingAction("hardware-resume-ack", ProtocolCodec::buildRecordResume)
+        }
+
+    suspend fun readRecordingState(): RecordingRequestOutcome<RecordingStatus> =
+        requestKey(
+            requestBuilder = ProtocolCodec::buildGetRecordState,
+            responseCommand = ProtocolConstants.Key.STATE_RESPONSE,
+            decoder = RecordingDecoders::decodeStatus,
+        )
+
+    suspend fun readRecordingTime(): RecordingRequestOutcome<RecordingTimeInfo> =
+        requestKey(
+            requestBuilder = ProtocolCodec::buildGetRecordTime,
+            responseCommand = ProtocolConstants.Key.TIME_RESPONSE,
+            decoder = RecordingDecoders::decodeTime,
+        )
+
+    suspend fun readRecordingFilename(): RecordingRequestOutcome<String> =
+        requestKey(
+            requestBuilder = ProtocolCodec::buildGetRecordFilename,
+            responseCommand = ProtocolConstants.Key.FILENAME_RESPONSE,
+            decoder = RecordingDecoders::decodeFilename,
+        )
+
+    suspend fun readRecordingGain(): RecordingRequestOutcome<RecordingGain> =
+        requestKey(
+            requestBuilder = ProtocolCodec::buildGetRecordingGain,
+            responseCommand = ProtocolConstants.Key.GAIN_RESPONSE,
+            decoder = RecordingDecoders::decodeGain,
+        )
+
+    suspend fun setRecordingGain(
+        gainValue: Int,
+    ): RecordingRequestOutcome<RecordingCommandResult> =
+        requestKey(
+            requestBuilder = { sequence ->
+                ProtocolCodec.buildSetRecordingGain(sequence, gainValue)
+            },
+            responseCommand = ProtocolConstants.Key.SET_GAIN_RESPONSE,
+            decoder = RecordingDecoders::decodeCommandResult,
+        )
+
+    private suspend fun sendRecordingAction(
+        label: String,
+        requestBuilder: (Int) -> ByteArray,
+    ): Boolean {
+        val written = commandClient.sendOnly(requestBuilder)
+        if (written) {
+            addLog("Recording action sent label=" + label)
+        } else {
+            val detail = "recording action=" + label
+            recordError(BleError(BleErrorCode.WRITE_FAILED, detail))
+            updateDiagnostics {
+                it.copy(
+                    recording = it.recording.copy(
+                        lastOperationError = "WRITE_FAILED " + detail,
+                    ),
+                )
+            }
+        }
+        return written
+    }
+
+    private suspend fun <T> requestKey(
+        requestBuilder: (Int) -> ByteArray,
+        responseCommand: Int,
+        decoder: (ByteArray) -> ProtocolDecodeResult<T>,
+    ): RecordingRequestOutcome<T> {
+        val result = commandClient.request(
+            expectedType = ProtocolConstants.Type.KEY,
+            expectedCommand = responseCommand,
+            buildRequest = requestBuilder,
+        )
+        return when (result) {
+            is DeviceCommandResult.Success -> {
+                val rawBody = result.response.body.joinToString("") { byte ->
+                    (byte.toInt() and 0xFF).toString(16).padStart(2, '0')
+                }
+                addLog(
+                    "RX recording response source=" + result.source +
+                        " cmd=" + result.response.command +
+                        " requestSeq=" + result.requestSequence +
+                        " responseSeq=" + result.response.sequence +
+                        " body=" + rawBody,
+                )
+                updateDiagnostics {
+                    it.copy(
+                        recording = it.recording.copy(
+                            lastResponseSource = result.source,
+                            lastResponseCommand = result.response.command,
+                            lastRequestSequence = result.requestSequence,
+                            lastResponseSequence = result.response.sequence,
+                            lastResponseLatencyMs = result.latencyMs,
+                        ),
+                    )
+                }
+                when (val decoded = decoder(result.response.body)) {
+                    is ProtocolDecodeResult.Success -> {
+                        val rawCommandResult = (decoded.value as? RecordingCommandResult)?.rawCode
+                        if (rawCommandResult != null) {
+                            updateDiagnostics {
+                                it.copy(
+                                    recording = it.recording.copy(
+                                        lastCommandResultCode = rawCommandResult,
+                                        lastDecodeError = null,
+                                    ),
+                                )
+                            }
+                        }
+                        RecordingRequestOutcome.Success(
+                            value = decoded.value,
+                            requestSequence = result.requestSequence,
+                            responseSequence = result.response.sequence,
+                            source = result.source,
+                            latencyMs = result.latencyMs,
+                        )
+                    }
+
+                    is ProtocolDecodeResult.Malformed -> {
+                        recordError(
+                            BleError(
+                                BleErrorCode.PROTOCOL_DECODE_ERROR,
+                                decoded.reason,
+                            ),
+                        )
+                        updateDiagnostics {
+                            it.copy(
+                                recording = it.recording.copy(
+                                    lastDecodeError = decoded.reason,
+                                ),
+                            )
+                        }
+                        RecordingRequestOutcome.Malformed(decoded.reason)
+                    }
+                }
+            }
+
+            DeviceCommandResult.ResponseTimedOut -> {
+                val detail = "recording cmd=" + responseCommand
+                recordError(BleError(BleErrorCode.RESPONSE_TIMEOUT, detail))
+                updateDiagnostics {
+                    it.copy(
+                        recording = it.recording.copy(
+                            lastOperationError = "RESPONSE_TIMEOUT " + detail,
+                        ),
+                    )
+                }
+                RecordingRequestOutcome.ResponseTimedOut
+            }
+
+            DeviceCommandResult.WriteFailed -> {
+                val detail = "recording cmd=" + responseCommand
+                recordError(BleError(BleErrorCode.WRITE_FAILED, detail))
+                updateDiagnostics {
+                    it.copy(
+                        recording = it.recording.copy(
+                            lastOperationError = "WRITE_FAILED " + detail,
+                        ),
+                    )
+                }
+                RecordingRequestOutcome.WriteFailed
+            }
+
+            DeviceCommandResult.Cancelled -> RecordingRequestOutcome.Cancelled
+        }
+    }
 
     private suspend fun requestControl(
         requestBuilder: (Int) -> ByteArray,
@@ -632,7 +828,7 @@ class AndroidDeviceSession(
         val routed = router.accept(characteristicUuid, value.copyOf())
         updateDiagnostics { it.copy(notifications = router.stats()) }
         routed.forEach { event ->
-            val matchedPending = commandClient.accept(event.frame)
+            val matchedPending = commandClient.accept(event)
             mutableNotifications.tryEmit(event)
             addLog(
                 "RX " + event.source +
@@ -707,6 +903,104 @@ class AndroidDeviceSession(
     private fun updateStage(stage: String) {
         updateDiagnostics { it.copy(gattStage = stage) }
     }
+
+    fun updateRecordingDiagnostics(
+        state: RecordingDeviceState,
+        reason: RecordingSyncReason? = null,
+        pollingActive: Boolean? = null,
+    ) {
+        updateDiagnostics { diagnostics ->
+            val previous = diagnostics.recording
+            diagnostics.copy(
+                recording = previous.copy(
+                    statusRaw = recordingStatusRaw(state.status),
+                    statusDecoded = recordingStatusName(state.status),
+                    freshness = state.freshness,
+                    durationSeconds = state.durationSeconds,
+                    currentSizeBytes = state.currentSizeBytes,
+                    filename = state.filename,
+                    gainRaw = recordingGainRaw(state.gain),
+                    gainDecoded = recordingGainName(state.gain),
+                    lastHardwareEvent = state.lastHardwareEvent,
+                    lastSyncReason = reason ?: previous.lastSyncReason,
+                    lastOperationError = state.lastError?.let {
+                        it.code.name + (it.detail?.let { detail -> ": " + detail } ?: "")
+                    } ?: previous.lastOperationError,
+                    pollingActive = pollingActive ?: previous.pollingActive,
+                ),
+            )
+        }
+    }
+
+    fun noteRecordingHardwareEvent(event: RecordingHardwareEvent) {
+        updateDiagnostics {
+            it.copy(
+                recording = it.recording.copy(
+                    lastHardwareEvent = event,
+                ),
+            )
+        }
+    }
+
+    fun noteRecordingDecodeError(reason: String) {
+        updateDiagnostics {
+            it.copy(
+                recording = it.recording.copy(
+                    lastDecodeError = reason,
+                ),
+            )
+        }
+    }
+
+    fun noteRecordingAuxiliaryReadFailure(
+        operation: String,
+        detail: String,
+    ) {
+        addLog("Recording auxiliary read failed operation=" + operation + " " + detail)
+        updateDiagnostics {
+            it.copy(
+                recording = it.recording.copy(
+                    lastOperationError = operation + ": " + detail,
+                ),
+            )
+        }
+    }
+
+    private fun recordingStatusRaw(status: RecordingStatus?): Int? =
+        when (status) {
+            RecordingStatus.Recording -> ProtocolConstants.RecordingStateValue.RECORDING
+            RecordingStatus.Idle -> ProtocolConstants.RecordingStateValue.IDLE
+            RecordingStatus.Paused -> ProtocolConstants.RecordingStateValue.PAUSED
+            is RecordingStatus.UnknownRaw -> status.rawValue
+            null -> null
+        }
+
+    private fun recordingStatusName(status: RecordingStatus?): String? =
+        when (status) {
+            RecordingStatus.Recording -> "Recording"
+            RecordingStatus.Idle -> "Idle"
+            RecordingStatus.Paused -> "Paused"
+            is RecordingStatus.UnknownRaw -> "Unknown(" + status.rawValue + ")"
+            null -> null
+        }
+
+    private fun recordingGainRaw(gain: RecordingGain?): Int? =
+        when (gain) {
+            RecordingGain.Low -> ProtocolConstants.RecordingGainValue.LOW
+            RecordingGain.Medium -> ProtocolConstants.RecordingGainValue.MEDIUM
+            RecordingGain.High -> ProtocolConstants.RecordingGainValue.HIGH
+            is RecordingGain.UnknownRaw -> gain.rawValue
+            null -> null
+        }
+
+    private fun recordingGainName(gain: RecordingGain?): String? =
+        when (gain) {
+            RecordingGain.Low -> "Low"
+            RecordingGain.Medium -> "Medium"
+            RecordingGain.High -> "High"
+            is RecordingGain.UnknownRaw -> "Unknown(" + gain.rawValue + ")"
+            null -> null
+        }
 
     private fun recordError(error: BleError) {
         updateDiagnostics { it.copy(lastError = error) }

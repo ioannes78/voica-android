@@ -69,7 +69,12 @@ class DeviceDecodersTest {
     fun shortBodiesAreSafe() {
         assertTrue(DeviceDecoders.decodeFileList(byteArrayOf()).isEmpty())
         assertEquals(0, DeviceDecoders.decodeBattery(byteArrayOf()))
-        assertEquals(0 to 0L, DeviceDecoders.decodeRecordTime(byteArrayOf(1, 2)))
+        try {
+            DeviceDecoders.decodeRecordTime(byteArrayOf(1, 2))
+            throw AssertionError("短录音时间响应必须拒绝，不能伪装成 0/0")
+        } catch (_: IllegalArgumentException) {
+            // Stage 3: malformed TIME_RESPONSE is explicit decode failure.
+        }
     }
 
     private fun putU32Be(target: ByteArray, offset: Int, value: Long) {
