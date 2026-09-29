@@ -29,7 +29,7 @@ class FileListSessionCoordinatorTest {
         assertEquals(2, second.snapshot.entries.size)
 
         val completed = coordinator.accept(
-            FileListFrameEvent.Done(NotificationSource.AE23, 3, 0),
+            FileListFrameEvent.Done(NotificationSource.AE23, 3, 1),
             transportSessionId = 4,
             nowMs = 40,
         ) as FileListSessionResult.Completed
@@ -37,6 +37,11 @@ class FileListSessionCoordinatorTest {
         assertEquals(2, completed.snapshot.dataFrameCount)
         assertEquals(2, completed.snapshot.declaredEntryCount)
         assertTrue(completed.snapshot.receivedListDone)
+        assertEquals(NotificationSource.AE23, completed.snapshot.listDoneNotificationSource)
+        assertEquals(1, completed.snapshot.listDoneBodySize)
+        assertEquals(NotificationSource.AE23, completed.snapshot.lastDataNotificationSource)
+        assertEquals(32, completed.snapshot.lastDataBodySize)
+        assertEquals(20, completed.snapshot.lastFilenameFieldLength)
         assertEquals(9, completed.snapshot.requestSequence)
         assertNull(coordinator.snapshot(sessionId))
     }

@@ -10,8 +10,10 @@ data class FileListSessionSnapshot(
     val dataFrameCount: Int,
     val declaredEntryCount: Int,
     val entries: List<RawDeviceFileEntry>,
-    val lastNotificationSource: NotificationSource?,
-    val lastBodySize: Int?,
+    val lastDataNotificationSource: NotificationSource?,
+    val listDoneNotificationSource: NotificationSource?,
+    val lastDataBodySize: Int?,
+    val listDoneBodySize: Int?,
     val lastFilenameFieldLength: Int?,
     val receivedListDone: Boolean,
     val startedAtMs: Long,
@@ -47,8 +49,10 @@ class FileListSessionCoordinator {
         var dataFrameCount: Int = 0,
         var declaredEntryCount: Int = 0,
         val entries: MutableList<RawDeviceFileEntry> = mutableListOf(),
-        var lastNotificationSource: NotificationSource? = null,
-        var lastBodySize: Int? = null,
+        var lastDataNotificationSource: NotificationSource? = null,
+        var listDoneNotificationSource: NotificationSource? = null,
+        var lastDataBodySize: Int? = null,
+        var listDoneBodySize: Int? = null,
         var lastFilenameFieldLength: Int? = null,
         var receivedListDone: Boolean = false,
         val startedAtMs: Long,
@@ -104,24 +108,24 @@ class FileListSessionCoordinator {
                 current.dataFrameCount += 1
                 current.declaredEntryCount += event.chunk.declaredCount
                 current.entries += event.chunk.entries
-                current.lastNotificationSource = event.source
-                current.lastBodySize = event.chunk.bodySize
+                current.lastDataNotificationSource = event.source
+                current.lastDataBodySize = event.chunk.bodySize
                 current.lastFilenameFieldLength = event.chunk.filenameFieldLength
                 FileListSessionResult.DataAccepted(current.snapshot(endedAtMs = null))
             }
 
             is FileListFrameEvent.Done -> {
                 current.receivedListDone = true
-                current.lastNotificationSource = event.source
-                current.lastBodySize = event.bodySize
+                current.listDoneNotificationSource = event.source
+                current.listDoneBodySize = event.bodySize
                 val snapshot = current.snapshot(endedAtMs = nowMs)
                 active = null
                 FileListSessionResult.Completed(snapshot)
             }
 
             is FileListFrameEvent.Malformed -> {
-                current.lastNotificationSource = event.source
-                current.lastBodySize = event.bodySize
+                current.lastDataNotificationSource = event.source
+                current.lastDataBodySize = event.bodySize
                 val snapshot = current.snapshot(endedAtMs = nowMs)
                 active = null
                 FileListSessionResult.Failed(
@@ -152,8 +156,10 @@ class FileListSessionCoordinator {
             dataFrameCount = dataFrameCount,
             declaredEntryCount = declaredEntryCount,
             entries = entries.toList(),
-            lastNotificationSource = lastNotificationSource,
-            lastBodySize = lastBodySize,
+            lastDataNotificationSource = lastDataNotificationSource,
+            listDoneNotificationSource = listDoneNotificationSource,
+            lastDataBodySize = lastDataBodySize,
+            listDoneBodySize = listDoneBodySize,
             lastFilenameFieldLength = lastFilenameFieldLength,
             receivedListDone = receivedListDone,
             startedAtMs = startedAtMs,

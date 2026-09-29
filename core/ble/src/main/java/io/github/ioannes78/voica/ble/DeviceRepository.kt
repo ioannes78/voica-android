@@ -1048,8 +1048,9 @@ class DefaultDeviceRepository(
         error: FileListError?,
     ) {
         if (snapshot == null) return
-        val lastEntry = snapshot.entries.lastOrNull()
-        val resolution = lastEntry?.let { DeviceFileNameProjection.project(it) }
+        val newestFile = RemoteDeviceFileMapper
+            .map(snapshot.deviceAddress, snapshot.entries)
+            .firstOrNull()
         session.updateFileListDiagnostics(
             FileListDiagnostics(
                 sessionId = snapshot.fileSessionId,
@@ -1058,13 +1059,17 @@ class DefaultDeviceRepository(
                 dataFrameCount = snapshot.dataFrameCount,
                 declaredEntryCount = snapshot.declaredEntryCount,
                 parsedEntryCount = snapshot.entries.size,
-                lastNotificationSource = snapshot.lastNotificationSource,
-                lastBodySize = snapshot.lastBodySize,
+                lastDataNotificationSource = snapshot.lastDataNotificationSource,
+                listDoneNotificationSource = snapshot.listDoneNotificationSource,
+                lastDataBodySize = snapshot.lastDataBodySize,
+                listDoneBodySize = snapshot.listDoneBodySize,
                 lastFilenameFieldLength = snapshot.lastFilenameFieldLength,
                 receivedListDone = snapshot.receivedListDone,
-                lastRawFilename = lastEntry?.rawFilename,
-                lastResolvedFilename = resolution?.resolvedFilename,
-                lastFilenameResolution = resolution?.resolution?.name,
+                newestRawFilename = newestFile?.rawFilename,
+                newestResolvedFilename = newestFile?.resolvedFilename,
+                newestFilenameResolution = newestFile?.filenameResolution?.name,
+                newestRawTimeValue = newestFile?.rawTimeValue,
+                newestSizeBytes = newestFile?.sizeBytes,
                 lastMalformedReason =
                     if (error?.code == FileListErrorCode.MALFORMED_PAYLOAD) error.detail else null,
                 startedAtMs = snapshot.startedAtMs,

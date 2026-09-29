@@ -573,36 +573,55 @@ private fun DiagnosticsCard(diagnostics: BleDiagnostics) {
                     diagnostics.fileList.parsedEntryCount,
             )
             DiagnosticLine(
-                "File RX source",
-                diagnostics.fileList.lastNotificationSource?.name ?: "--",
+                "Data RX source",
+                diagnostics.fileList.lastDataNotificationSource?.name ?: "--",
             )
             DiagnosticLine(
-                "Body/name field",
-                (diagnostics.fileList.lastBodySize?.toString() ?: "--") + "/" +
-                    (diagnostics.fileList.lastFilenameFieldLength?.toString() ?: "--"),
+                "Done RX source",
+                diagnostics.fileList.listDoneNotificationSource?.name ?: "--",
+            )
+            DiagnosticLine(
+                "Last data body",
+                diagnostics.fileList.lastDataBodySize?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "Filename field",
+                diagnostics.fileList.lastFilenameFieldLength?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "Done body",
+                diagnostics.fileList.listDoneBodySize?.toString() ?: "--",
             )
             DiagnosticLine(
                 "List done",
                 diagnostics.fileList.receivedListDone.toString(),
             )
             DiagnosticLine(
-                "Raw filename",
-                diagnostics.fileList.lastRawFilename ?: "--",
+                "Newest raw filename",
+                diagnostics.fileList.newestRawFilename ?: "--",
             )
             DiagnosticLine(
-                "Resolved filename",
-                diagnostics.fileList.lastResolvedFilename ?: "--",
+                "Newest resolved filename",
+                diagnostics.fileList.newestResolvedFilename ?: "--",
             )
             DiagnosticLine(
-                "Resolution",
-                diagnostics.fileList.lastFilenameResolution ?: "--",
+                "Newest rawTimeValue",
+                diagnostics.fileList.newestRawTimeValue?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "Newest size bytes",
+                diagnostics.fileList.newestSizeBytes?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "Newest resolution",
+                diagnostics.fileList.newestFilenameResolution ?: "--",
             )
             DiagnosticLine(
                 "Completion",
                 diagnostics.fileList.completionReason?.name ?: "--",
             )
             DiagnosticLine(
-                "File duration",
+                "Session duration",
                 diagnostics.fileList.durationMs?.let { it.toString() + " ms" } ?: "--",
             )
             diagnostics.fileList.lastMalformedReason?.let {
