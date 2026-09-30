@@ -71,6 +71,8 @@ class AndroidDeviceSession(
     private var queueSnapshotJob: Job? = null
     private var requestedDisconnectReason: DisconnectReason? = null
     private var negotiatedMtu: Int? = null
+    private val fileTransferConsumerLock = Any()
+    private var fileTransferConsumer: ReliableFileTransferConsumer? = null
 
     private val commandClient = DeviceCommandClient(
         writer = { frame -> writeFrame(frame) },
@@ -236,6 +238,33 @@ class AndroidDeviceSession(
         }
         return result
     }
+
+    fun registerFileTransferConsumer(consumer: ReliableFileTransferConsumer): Boolean =
+        synchronized(fileTransferConsumerLock) {
+            if (fileTransferConsumer != null) {
+                false
+            } else {
+                fileTransferConsumer = consumer
+                true
+            }
+        }
+
+    fun unregisterFileTransferConsumer(consumer: ReliableFileTransferConsumer) {
+        synchronized(fileTransferConsumerLock) {
+            if (fileTransferConsumer === consumer) {
+                fileTransferConsumer = null
+            }
+        }
+    }
+
+    suspend fun sendFileTransferRequest(
+        buildRequest: (sequence: Int) -> ByteArray,
+    ): DeviceSendOnlyResult = commandClient.sendOnlyWithSequence(buildRequest)
+
+    suspend fun sendFileTransferAbort(): DeviceSendOnlyResult =
+        commandClient.sendOnlyWithSequence { sequence ->
+            io.github.ioannes78.voica.protocol.FileTransferProtocol.buildAbortRequest(sequence)
+        }
 
     suspend fun readBattery(): BatteryState? =
         requestControl(
@@ -842,14 +871,35 @@ class AndroidDeviceSession(
         updateDiagnostics { it.copy(notifications = router.stats()) }
         routed.forEach { event ->
             val matchedPending = commandClient.accept(event)
-            mutableNotifications.tryEmit(event)
+            var transferAccepted: Boolean? = null
+            if (event.isFileTransferFrame()) {
+                val consumer = synchronized(fileTransferConsumerLock) { fileTransferConsumer }
+                if (consumer != null) {
+                    transferAccepted = consumer.offer(event)
+                    if (transferAccepted == false) {
+                        addLog(
+                            "File transfer delivery failed type=" + event.frame.type +
+                                " cmd=" + event.frame.command +
+                                " source=" + event.source,
+                        )
+                    }
+                }
+            }
+            val observerAccepted = mutableNotifications.tryEmit(event)
+            if (!observerAccepted) {
+                addLog(
+                    "Notification observer overflow type=" + event.frame.type +
+                        " cmd=" + event.frame.command,
+                )
+            }
             addLog(
                 "RX " + event.source +
                     " type=" + event.frame.type +
                     " cmd=" + event.frame.command +
                     " seq=" + event.frame.sequence +
                     " bytes=" + event.frame.data.size +
-                    " pendingMatch=" + matchedPending,
+                    " pendingMatch=" + matchedPending +
+                    " transferAccepted=" + transferAccepted,
             )
         }
     }
@@ -1052,6 +1102,9 @@ class AndroidDeviceSession(
             backend = null
             negotiatedMtu = null
             commandClient.cancelPending()
+            synchronized(fileTransferConsumerLock) {
+                fileTransferConsumer = null
+            }
             router.reset()
             activeGeneration = null
             currentGatt = null
