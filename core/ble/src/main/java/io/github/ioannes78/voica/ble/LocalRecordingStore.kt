@@ -28,6 +28,7 @@ data class LocalRecordingArtifact(
     val displayFilename: String,
     val physicalFileName: String,
     val recordedAt: LocalDateTime?,
+    val deviceReportedDurationMs: Long?,
     val downloadedAtMs: Long,
     val sizeBytes: Long,
     val sha256: String,
@@ -370,6 +371,7 @@ class LocalRecordingStore(
             displayFilename = displayFilename,
             physicalFileName = actualFinalFile.name,
             recordedAt = prepared.remote.recordedAt,
+            deviceReportedDurationMs = prepared.remote.durationSeconds?.times(1_000L),
             downloadedAtMs = nowMs(),
             sizeBytes = writerResult.sizeBytes,
             sha256 = writerResult.sha256,
@@ -501,6 +503,7 @@ class LocalRecordingStore(
             setProperty("displayFilename", artifact.displayFilename)
             setProperty("physicalFileName", artifact.physicalFileName)
             setProperty("recordedAt", artifact.recordedAt?.toString().orEmpty())
+            setProperty("deviceReportedDurationMs", artifact.deviceReportedDurationMs?.toString().orEmpty())
             setProperty("downloadedAtMs", artifact.downloadedAtMs.toString())
             setProperty("sizeBytes", artifact.sizeBytes.toString())
             setProperty("sha256", artifact.sha256)
