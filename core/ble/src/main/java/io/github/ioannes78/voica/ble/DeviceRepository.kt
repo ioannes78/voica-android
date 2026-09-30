@@ -941,17 +941,33 @@ class DefaultDeviceRepository(
         }
         if (
             listState.deviceAddress != ready.address ||
-            listState.files.none { it.identity == remoteIdentity } ||
-            file.rawListEntryBytes.isEmpty()
+            listState.files.none { it.identity == remoteIdentity }
         ) {
             fail(FileOperationError(FileOperationErrorCode.INVALID_REMOTE_RECORDING))
+            return
+        }
+
+        val deleteFilename = file.displayFilename
+        val deleteFilenameBytes = deleteFilename.encodeToByteArray()
+        if (
+            deleteFilenameBytes.isEmpty() ||
+            deleteFilenameBytes.size > ProtocolConstants.FILENAME_FIELD_LENGTH ||
+            deleteFilenameBytes.any { it.toInt() == 0 }
+        ) {
+            fail(
+                FileOperationError(
+                    FileOperationErrorCode.INVALID_FILENAME,
+                    "delete filename bytes=" + deleteFilenameBytes.size,
+                ),
+            )
             return
         }
 
         mutableRemoteDeleteDiagnostics.value = RemoteDeleteDiagnostics(
             operationId = operationId,
             remoteIdentity = remoteIdentity,
-            requestBodyLength = file.rawListEntryBytes.size,
+            payloadStrategy = "ZERO4_PLUS_FILENAME24",
+            requestBodyLength = 4 + ProtocolConstants.FILENAME_FIELD_LENGTH,
         )
         mutableFileOperationState.value = FileOperationState.Active(
             operationId = operationId,
@@ -962,7 +978,7 @@ class DefaultDeviceRepository(
 
         when (
             val outcome = RemoteDeletePolicy.classify(
-                session.deleteRemoteRecording(file.rawListEntryBytes),
+                session.deleteRemoteRecording(deleteFilename),
             )
         ) {
             is RemoteDeleteCommandOutcome.WriteFailed -> {
@@ -997,6 +1013,7 @@ class DefaultDeviceRepository(
                         responseSource = outcome.source,
                         responseStatusCode = outcome.statusCode,
                         responseLatencyMs = outcome.latencyMs,
+                        responseBodyHex = outcome.responseBody?.toDiagnosticHex(),
                     )
                 fail(outcome.error)
                 return
@@ -1008,6 +1025,7 @@ class DefaultDeviceRepository(
                         responseSource = outcome.source,
                         responseStatusCode = outcome.statusCode,
                         responseLatencyMs = outcome.latencyMs,
+                        responseBodyHex = outcome.responseBody.toDiagnosticHex(),
                         outcomeUnknown = false,
                         lastError = null,
                     )

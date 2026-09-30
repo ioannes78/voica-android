@@ -5,7 +5,7 @@
     <string name="stage3_subtitle">录音控制与设备实时状态</string>
     <string name="stage4_subtitle">设备文件列表与文件名解析</string>
     <string name="stage5_subtitle">设备录音下载与可靠落盘</string>
-    <string name="version_label">0.5.2 Stage 5 Alpha 3</string>
+    <string name="version_label">0.5.3 Stage 5 Alpha 4</string>
     <string name="tab_device">设备</string>
     <string name="tab_local_files">本地</string>
     <string name="tab_settings">设置</string>
@@ -118,7 +118,10 @@
     <string name="local_file_recorded_at">录制时间</string>
     <string name="local_file_downloaded_at">下载时间</string>
     <string name="local_file_size">大小</string>
-    <string name="local_file_format">容器识别</string>
+    <string name="local_file_format">音频格式</string>
+    <string name="local_file_format_wav">WAV</string>
+    <string name="local_file_format_raw_opus">OPUS 原始流</string>
+    <string name="local_file_format_unknown">未知</string>
     <string name="local_file_delete">删除本地文件</string>
     <string name="local_file_delete_title">删除本地文件？</string>
     <string name="local_file_delete_message">此操作仅删除手机中的文件，不会删除录音设备中的录音。</string>

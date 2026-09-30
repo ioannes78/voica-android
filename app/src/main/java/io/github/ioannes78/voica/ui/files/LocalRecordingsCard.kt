@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.R
+import io.github.ioannes78.voica.ble.AudioContainer
 import io.github.ioannes78.voica.ble.LocalRecordingArtifact
 import java.time.Instant
 import java.time.ZoneId
@@ -78,7 +79,7 @@ fun LocalRecordingsCard(
                         )
                         LocalInfoLine(
                             stringResource(R.string.local_file_format),
-                            item.container.name,
+                            containerLabel(item.container),
                         )
                         OutlinedButton(onClick = { pendingDelete = item }) {
                             Text(stringResource(R.string.local_file_delete))
@@ -144,3 +145,12 @@ private fun formatBytes(bytes: Long): String {
 
 private val DISPLAY_TIME: DateTimeFormatter =
     DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+
+
+@Composable
+private fun containerLabel(container: AudioContainer): String =
+    when (container) {
+        AudioContainer.WAV -> stringResource(R.string.local_file_format_wav)
+        AudioContainer.RAW_OPUS -> stringResource(R.string.local_file_format_raw_opus)
+        AudioContainer.UNKNOWN -> stringResource(R.string.local_file_format_unknown)
+    }

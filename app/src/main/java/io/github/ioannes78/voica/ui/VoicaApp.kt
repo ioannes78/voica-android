@@ -772,6 +772,10 @@ private fun DiagnosticsCard(
             HorizontalDivider()
             Text("Remote delete", style = MaterialTheme.typography.titleSmall)
             DiagnosticLine(
+                "Delete payload",
+                remoteDelete.payloadStrategy ?: "--",
+            )
+            DiagnosticLine(
                 "Delete body bytes",
                 remoteDelete.requestBodyLength?.toString() ?: "--",
             )
@@ -782,6 +786,10 @@ private fun DiagnosticsCard(
             DiagnosticLine(
                 "Delete status",
                 remoteDelete.responseStatusCode?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "Delete response body",
+                remoteDelete.responseBodyHex ?: "--",
             )
             DiagnosticLine(
                 "Delete latency",
