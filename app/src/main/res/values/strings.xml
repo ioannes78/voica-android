@@ -6,7 +6,7 @@
     <string name="stage4_subtitle">设备文件列表与文件名解析</string>
     <string name="stage5_subtitle">设备录音下载与可靠落盘</string>
     <string name="stage6_subtitle">本地录音库与 Opus/WAV 音频链路</string>
-    <string name="version_label">0.6.0 Stage 6 Alpha 2</string>
+    <string name="version_label">0.6.0 Stage 6 Alpha 3</string>
     <string name="tab_device">设备</string>
     <string name="tab_local_files">本地</string>
     <string name="tab_settings">设置</string>
