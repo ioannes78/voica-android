@@ -49,6 +49,7 @@ class AppContainer(
     init {
         applicationScope.launch(Dispatchers.IO) {
             recordingLibraryRepository.importLegacyStage5IfNeeded()
+            recordingLibraryRepository.reconcilePendingDeletes()
         }
     }
 }
