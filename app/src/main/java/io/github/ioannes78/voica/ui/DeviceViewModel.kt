@@ -3,6 +3,7 @@ package io.github.ioannes78.voica.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import io.github.ioannes78.voica.ble.DeviceAudioFormat
 import io.github.ioannes78.voica.ble.DeviceRepository
 import io.github.ioannes78.voica.ble.RemoteDeviceFile
 import io.github.ioannes78.voica.protocol.RecordingGain
@@ -106,8 +107,8 @@ class DeviceViewModel(
         viewModelScope.launch { repository.refreshDeviceFiles() }
     }
 
-    fun downloadDeviceFile(file: RemoteDeviceFile) {
-        viewModelScope.launch { repository.downloadDeviceFile(file) }
+    fun downloadDeviceFile(file: RemoteDeviceFile, format: DeviceAudioFormat) {
+        viewModelScope.launch { repository.downloadDeviceFile(file, format) }
     }
 
     fun cancelDeviceFileDownload() {
