@@ -2,6 +2,8 @@ package io.github.ioannes78.voica.ble
 
 import io.github.ioannes78.voica.protocol.ProtocolCodec
 import io.github.ioannes78.voica.protocol.ProtocolConstants
+import io.github.ioannes78.voica.protocol.WavHeaderProbeParser
+import io.github.ioannes78.voica.protocol.WavHeaderProbeResult
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
@@ -44,6 +46,55 @@ class FileTransferSessionTest {
         assertEquals(NotificationSource.AE22, completed.value.endSource)
         assertArrayEquals(byteArrayOf(1,2,3,4,5,6,7,8), sink.bytes.toByteArray())
         assertEquals(2, progressCount.get())
+    }
+
+    @Test
+    fun resolvesExpectedBytesFromWavHeader() = runTest {
+        val sink = FakeSink()
+        val session = FileTransferSession(
+            startTimeoutMs = 2_000,
+            idleTimeoutMs = 2_000,
+            absoluteTimeoutMs = 10_000,
+        )
+        val observedExpected = mutableListOf<Long>()
+        val totalBytes = 1_024L
+        val header = ByteArray(12).also { bytes ->
+            "RIFF".encodeToByteArray().copyInto(bytes, 0)
+            val chunkSize = totalBytes - 8L
+            repeat(4) { shift ->
+                bytes[4 + shift] =
+                    ((chunkSize ushr (shift * 8)) and 0xFF).toByte()
+            }
+            "WAVE".encodeToByteArray().copyInto(bytes, 8)
+        }
+
+        val result = async {
+            session.execute(
+                sink = sink,
+                sendRequest = { DeviceSendOnlyResult(9, true) },
+                sendAbort = { DeviceSendOnlyResult(10, true) },
+                expectedBytes = 0L,
+                resolveExpectedBytes = { prefix ->
+                    when (val parsed = WavHeaderProbeParser.parse(prefix)) {
+                        is WavHeaderProbeResult.Success ->
+                            parsed.value.totalSizeBytes
+                        else -> null
+                    }
+                },
+                onProgress = { progress ->
+                    observedExpected += progress.expectedBytes
+                },
+            )
+        }
+
+        yield()
+        session.offer(start(NotificationSource.AE23))
+        session.offer(data(NotificationSource.AE22, header))
+        session.offer(end(NotificationSource.AE22, 0))
+
+        val completed = result.await() as FileTransferExecutionResult.Completed
+        assertEquals(totalBytes, completed.value.expectedBytes)
+        assertEquals(listOf(totalBytes), observedExpected)
     }
 
     @Test
