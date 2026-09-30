@@ -36,6 +36,7 @@ object RemoteDeviceFileMapper {
                 filenameFieldLength = entry.filenameFieldLength,
                 recordedAt = RecordingFilenameParser.parse(effectiveName),
                 deviceOrder = index,
+                rawListEntryBytes = entry.rawEntryBytes.copyOf(),
             )
         }.distinctBy { it.identity }
 

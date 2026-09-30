@@ -41,6 +41,7 @@ data class RemoteDeviceFile(
     val filenameFieldLength: Int,
     val recordedAt: LocalDateTime?,
     val deviceOrder: Int,
+    val rawListEntryBytes: ByteArray = byteArrayOf(),
 ) {
     val displayFilename: String
         get() = resolvedFilename ?: rawFilename
