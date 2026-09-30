@@ -187,6 +187,7 @@ class RawOpusToCanonicalWavConverter(
     fun convert(
         sourceFile: File,
         targetFile: File,
+        expectedSourceSha256: String? = null,
         isCancelled: () -> Boolean = { false },
     ): RawOpusConversionResult {
         val validation = when (val result = RawOpusValidator(inspector).validate(sourceFile)) {
@@ -201,6 +202,16 @@ class RawOpusToCanonicalWavConverter(
         }
 
         val sourceSha = sha256(sourceFile)
+        if (
+            expectedSourceSha256 != null &&
+            !sourceSha.equals(expectedSourceSha256, ignoreCase = true)
+        ) {
+            throw AudioPipelineException(
+                code = "RAW_SHA_MISMATCH",
+                recoverable = false,
+                message = "source SHA-256 changed before decode",
+            )
+        }
         val normalizer = StreamingPcm16Normalizer(
             sourceSampleRateHz = CanonicalPcmProfile.SAMPLE_RATE_HZ,
             sourceChannelCount = validation.channelCount,

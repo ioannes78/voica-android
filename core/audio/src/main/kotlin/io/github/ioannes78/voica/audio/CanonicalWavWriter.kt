@@ -2,6 +2,7 @@ package io.github.ioannes78.voica.audio
 
 import java.io.File
 import java.io.RandomAccessFile
+import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
@@ -60,12 +61,20 @@ class CanonicalWavWriter(
             "WAV length mismatch expected=$expectedLength actual=${partFile.length()}"
         }
 
-        Files.move(
-            partFile.toPath(),
-            finalFile.toPath(),
-            StandardCopyOption.REPLACE_EXISTING,
-            StandardCopyOption.ATOMIC_MOVE,
-        )
+        try {
+            Files.move(
+                partFile.toPath(),
+                finalFile.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.ATOMIC_MOVE,
+            )
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(
+                partFile.toPath(),
+                finalFile.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+        }
         committed = true
 
         val digest = sha256(finalFile)
