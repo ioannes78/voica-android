@@ -111,6 +111,13 @@ sealed interface FileOperationState {
         val error: FileOperationError,
     ) : FileOperationState
 
+    data class Cancelled(
+        val operationId: Long,
+        val operation: DeviceFileOperationType,
+        val remoteIdentity: String? = null,
+        val reason: FileOperationError,
+    ) : FileOperationState
+
     data class OutcomeUnknown(
         val operationId: Long,
         val operation: DeviceFileOperationType,
@@ -118,3 +125,26 @@ sealed interface FileOperationState {
         val error: FileOperationError,
     ) : FileOperationState
 }
+
+
+data class FileTransferDiagnostics(
+    val operationId: Long? = null,
+    val transportSessionId: Long? = null,
+    val remoteIdentity: String? = null,
+    val listFilename: String? = null,
+    val requestFilename: String? = null,
+    val requestFilenameByteLength: Int? = null,
+    val requestFrameLength: Int? = null,
+    val requestSequence: Int? = null,
+    val actualTransferFilename: String? = null,
+    val startSource: NotificationSource? = null,
+    val lastDataSource: NotificationSource? = null,
+    val endSource: NotificationSource? = null,
+    val dataFrameCount: Int = 0,
+    val expectedBytes: Long? = null,
+    val receivedBytes: Long = 0L,
+    val firstDataPrefixHex: String? = null,
+    val detectedContainer: AudioContainer? = null,
+    val remoteStatusCode: Int? = null,
+    val lastError: FileOperationError? = null,
+)
