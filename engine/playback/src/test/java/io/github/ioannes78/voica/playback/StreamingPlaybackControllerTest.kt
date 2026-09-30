@@ -8,6 +8,7 @@ import io.github.ioannes78.voica.audio.PlaybackState
 import io.github.ioannes78.voica.audio.SeekableAudioHandle
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -90,6 +91,52 @@ class StreamingPlaybackControllerTest {
 
         controller.release()
         runCurrent()
+    }
+
+
+    @Test
+    fun completedWaitsForPresentedFramesAndReplayRestartsAtZero() = runTest {
+        val dataOffset = 98L
+        val sampleCount = 200L
+        val bytes = ByteArray(dataOffset.toInt() + sampleCount.toInt() * 2)
+        val sink = FakeSink()
+        val controller = StreamingPlaybackController(
+            sourceResolver = FakeResolver(
+                bytes = bytes,
+                sampleCount = sampleCount,
+                dataOffset = dataOffset,
+            ),
+            sinkFactory = PlaybackAudioSinkFactory { sink },
+            scope = this,
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+        )
+
+        controller.load("recording-eof")
+        controller.play()
+        runCurrent()
+
+        assertEquals(PlaybackState.PLAYING, controller.snapshot.value.state)
+
+        sink.framePosition = sampleCount
+        advanceTimeBy(50L)
+        runCurrent()
+
+        assertEquals(PlaybackState.COMPLETED, controller.snapshot.value.state)
+        assertEquals(sampleCount, controller.snapshot.value.positionSampleIndex)
+
+        val discontinuity = controller.snapshot.value.discontinuityGeneration
+        controller.play()
+        runCurrent()
+
+        assertEquals(PlaybackState.PLAYING, controller.snapshot.value.state)
+        assertEquals(0L, controller.snapshot.value.positionSampleIndex)
+        assertTrue(
+            controller.snapshot.value.discontinuityGeneration > discontinuity,
+        )
+
+        controller.release()
+        runCurrent()
+        assertEquals(PlaybackState.RELEASED, controller.snapshot.value.state)
     }
 
     private class FakeResolver(

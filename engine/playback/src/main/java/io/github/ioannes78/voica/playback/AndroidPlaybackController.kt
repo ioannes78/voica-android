@@ -38,7 +38,7 @@ class AndroidPlaybackController(
         scope = scope,
     )
     private var appForeground = true
-    private var resumeEligibleAfterTransientLoss = false
+    private val focusPolicy = PlaybackFocusPolicy()
     private var released = false
 
     private val audioFocus = PlaybackAudioFocusManager(appContext) { change ->
@@ -88,6 +88,16 @@ class AndroidPlaybackController(
         environmentMutex.withLock {
             if (released) return
             if (!appForeground) return
+            if (
+                core.snapshot.value.state !in
+                    setOf(
+                        PlaybackState.READY,
+                        PlaybackState.PAUSED,
+                        PlaybackState.COMPLETED,
+                    )
+            ) {
+                return
+            }
             if (!audioFocus.request()) {
                 core.reportRecoverableError(
                     PlaybackError(
@@ -99,7 +109,7 @@ class AndroidPlaybackController(
                 )
                 return
             }
-            resumeEligibleAfterTransientLoss = false
+            focusPolicy.cancelResume()
             core.play()
         }
     }
@@ -107,7 +117,7 @@ class AndroidPlaybackController(
     override suspend fun pause() {
         environmentMutex.withLock {
             if (released) return
-            resumeEligibleAfterTransientLoss = false
+            focusPolicy.cancelResume()
             core.pause()
             audioFocus.abandon()
         }
@@ -124,7 +134,7 @@ class AndroidPlaybackController(
     override suspend fun unload() {
         environmentMutex.withLock {
             if (released) return
-            resumeEligibleAfterTransientLoss = false
+            focusPolicy.cancelResume()
             audioFocus.abandon()
             core.unload()
         }
@@ -134,7 +144,7 @@ class AndroidPlaybackController(
         environmentMutex.withLock {
             if (released) return
             released = true
-            resumeEligibleAfterTransientLoss = false
+            focusPolicy.cancelResume()
             audioFocus.abandon()
             runCatching { appContext.unregisterReceiver(noisyReceiver) }
             audioFocus.audioManager.unregisterAudioDeviceCallback(routeCallback)
@@ -147,7 +157,7 @@ class AndroidPlaybackController(
             if (released) return
             appForeground = foreground
             if (!foreground) {
-                resumeEligibleAfterTransientLoss = false
+                focusPolicy.cancelResume()
                 core.pause()
                 audioFocus.abandon()
             }
@@ -157,7 +167,7 @@ class AndroidPlaybackController(
     private suspend fun handleNoisyOutput() {
         environmentMutex.withLock {
             if (released) return
-            resumeEligibleAfterTransientLoss = false
+            focusPolicy.cancelResume()
             core.pause()
             audioFocus.abandon()
         }
@@ -168,23 +178,21 @@ class AndroidPlaybackController(
             if (released) return
             when (change) {
                 FocusChange.GAIN -> {
-                    if (
-                        resumeEligibleAfterTransientLoss &&
-                        appForeground
-                    ) {
-                        resumeEligibleAfterTransientLoss = false
+                    if (focusPolicy.consumeResumeOnGain(appForeground)) {
                         core.play()
                     }
                 }
                 FocusChange.LOSS_TRANSIENT,
                 FocusChange.DUCK,
                 -> {
-                    resumeEligibleAfterTransientLoss =
-                        core.snapshot.value.state == PlaybackState.PLAYING
+                    focusPolicy.onTransientLoss(
+                        wasPlaying =
+                            core.snapshot.value.state == PlaybackState.PLAYING,
+                    )
                     core.pause()
                 }
                 FocusChange.LOSS -> {
-                    resumeEligibleAfterTransientLoss = false
+                    focusPolicy.cancelResume()
                     core.pause()
                     audioFocus.abandon()
                 }
