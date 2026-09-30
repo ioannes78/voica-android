@@ -95,6 +95,7 @@ sealed interface FileOperationState {
         val operation: DeviceFileOperationType,
         val stage: FileOperationStage,
         val remoteIdentity: String? = null,
+        val audioFormat: DeviceAudioFormat? = null,
         val progress: DownloadProgress? = null,
     ) : FileOperationState
 
@@ -102,12 +103,14 @@ sealed interface FileOperationState {
         val operationId: Long,
         val operation: DeviceFileOperationType,
         val remoteIdentity: String? = null,
+        val audioFormat: DeviceAudioFormat? = null,
     ) : FileOperationState
 
     data class Failed(
         val operationId: Long,
         val operation: DeviceFileOperationType,
         val remoteIdentity: String? = null,
+        val audioFormat: DeviceAudioFormat? = null,
         val error: FileOperationError,
     ) : FileOperationState
 
@@ -115,6 +118,7 @@ sealed interface FileOperationState {
         val operationId: Long,
         val operation: DeviceFileOperationType,
         val remoteIdentity: String? = null,
+        val audioFormat: DeviceAudioFormat? = null,
         val reason: FileOperationError,
     ) : FileOperationState
 
@@ -133,6 +137,7 @@ data class FileTransferDiagnostics(
     val remoteIdentity: String? = null,
     val listFilename: String? = null,
     val requestFilename: String? = null,
+    val requestedFormat: DeviceAudioFormat? = null,
     val requestFilenameByteLength: Int? = null,
     val requestFrameLength: Int? = null,
     val requestSequence: Int? = null,
