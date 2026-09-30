@@ -90,6 +90,7 @@ private data class PendingUnknownDelete(
 class DefaultDeviceRepository(
     context: Context,
     parentScope: CoroutineScope,
+    private val downloadedAssetRegistry: DownloadedAssetRegistry = NoOpDownloadedAssetRegistry,
 ) : DeviceRepository, Closeable {
     private val applicationContext = context.applicationContext
     private val job = SupervisorJob(parentScope.coroutineContext[Job])
@@ -669,7 +670,10 @@ class DefaultDeviceRepository(
                 return
             }
 
-            if (localRecordingStore.isDownloaded(remoteIdentity, format)) {
+            if (
+                downloadedAssetRegistry.isAvailable(remoteIdentity, format) ||
+                localRecordingStore.isDownloaded(remoteIdentity, format)
+            ) {
                 mutableFileOperationState.value = FileOperationState.Completed(
                     operationId = operationId,
                     operation = DeviceFileOperationType.DOWNLOAD,
@@ -800,12 +804,31 @@ class DefaultDeviceRepository(
                                 detectedContainer = commit.artifact.container,
                                 lastError = null,
                             )
-                        mutableFileOperationState.value = FileOperationState.Completed(
-                            operationId = operationId,
-                            operation = DeviceFileOperationType.DOWNLOAD,
-                            remoteIdentity = remoteIdentity,
-                            audioFormat = format,
-                        )
+                        val registration = downloadedAssetRegistry.register(commit.artifact)
+                        if (registration.isSuccess) {
+                            mutableFileOperationState.value = FileOperationState.Completed(
+                                operationId = operationId,
+                                operation = DeviceFileOperationType.DOWNLOAD,
+                                remoteIdentity = remoteIdentity,
+                                audioFormat = format,
+                            )
+                        } else {
+                            val registrationError = FileOperationError(
+                                FileOperationErrorCode.LOCAL_ASSET_REGISTRATION_FAILED,
+                                registration.exceptionOrNull()?.message,
+                            )
+                            mutableFileTransferDiagnostics.value =
+                                mutableFileTransferDiagnostics.value.copy(
+                                    lastError = registrationError,
+                                )
+                            mutableFileOperationState.value = FileOperationState.Failed(
+                                operationId = operationId,
+                                operation = DeviceFileOperationType.DOWNLOAD,
+                                remoteIdentity = remoteIdentity,
+                                audioFormat = format,
+                                error = registrationError,
+                            )
+                        }
                     } catch (error: FileTransferSinkException) {
                         localRecordingStore.abort(preparedDownload)
                         mutableFileTransferDiagnostics.value =
