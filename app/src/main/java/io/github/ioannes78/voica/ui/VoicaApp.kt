@@ -43,17 +43,27 @@ import io.github.ioannes78.voica.ble.DeviceConnectionState
 import io.github.ioannes78.voica.ble.DeviceInfo
 import io.github.ioannes78.voica.ble.DeviceRepository
 import io.github.ioannes78.voica.ble.FileListFreshness
+import io.github.ioannes78.voica.ble.FileOperationState
+import io.github.ioannes78.voica.ble.FileTransferDiagnostics
 import io.github.ioannes78.voica.ble.NotificationSource
 import io.github.ioannes78.voica.ble.RecordingCommandState
 import io.github.ioannes78.voica.ble.RecordingFreshness
+import io.github.ioannes78.voica.ble.RemoteDeleteDiagnostics
+import io.github.ioannes78.voica.ble.RangeProbeDiagnostics
 import io.github.ioannes78.voica.protocol.BatteryState
 import io.github.ioannes78.voica.protocol.RecordingStatus
 import io.github.ioannes78.voica.ui.files.DeviceFilesCard
+import io.github.ioannes78.voica.ui.files.LocalRecordingsCard
 import io.github.ioannes78.voica.ui.recording.RecordingCard
 
 @Composable
 fun VoicaApp(repository: DeviceRepository) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    val deviceViewModel: DeviceViewModel = viewModel(
+        factory = remember(repository) {
+            DeviceViewModel.Factory(repository)
+        },
+    )
 
     Scaffold(
         bottomBar = {
@@ -67,21 +77,22 @@ fun VoicaApp(repository: DeviceRepository) {
                 NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
+                    icon = { Text("文") },
+                    label = { Text(stringResource(R.string.tab_local_files)) },
+                )
+                NavigationBarItem(
+                    selected = selectedTab == 2,
+                    onClick = { selectedTab = 2 },
                     icon = { Text("设") },
                     label = { Text(stringResource(R.string.tab_settings)) },
                 )
             }
         },
     ) { padding ->
-        if (selectedTab == 0) {
-            val deviceViewModel: DeviceViewModel = viewModel(
-                factory = remember(repository) {
-                    DeviceViewModel.Factory(repository)
-                },
-            )
-            DeviceScreen(padding, deviceViewModel)
-        } else {
-            SettingsScreen(padding)
+        when (selectedTab) {
+            0 -> DeviceScreen(padding, deviceViewModel)
+            1 -> LocalFilesScreen(padding, deviceViewModel)
+            else -> SettingsScreen(padding)
         }
     }
 }
@@ -96,6 +107,11 @@ private fun DeviceScreen(
     val info by viewModel.deviceInfo.collectAsState()
     val recording by viewModel.recordingState.collectAsState()
     val deviceFiles by viewModel.deviceFileListState.collectAsState()
+    val fileOperation by viewModel.fileOperationState.collectAsState()
+    val fileTransferDiagnostics by viewModel.fileTransferDiagnostics.collectAsState()
+    val remoteDeleteDiagnostics by viewModel.remoteDeleteDiagnostics.collectAsState()
+    val rangeProbeDiagnostics by viewModel.rangeProbeDiagnostics.collectAsState()
+    val localRecordings by viewModel.localRecordings.collectAsState()
     val diagnostics by viewModel.diagnostics.collectAsState()
     val missingPermissions by viewModel.missingPermissions.collectAsState()
     val actionMessage by viewModel.actionMessage.collectAsState()
@@ -126,7 +142,7 @@ private fun DeviceScreen(
                 style = MaterialTheme.typography.headlineLarge,
             )
             Text(
-                stringResource(R.string.stage4_subtitle),
+                stringResource(R.string.stage5_subtitle),
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
@@ -215,11 +231,18 @@ private fun DeviceScreen(
                     recording.status == RecordingStatus.Idle &&
                         recording.freshness == RecordingFreshness.FRESH &&
                         recording.commandState == RecordingCommandState.IDLE &&
-                        deviceFiles.freshness != FileListFreshness.LOADING
+                        deviceFiles.freshness != FileListFreshness.LOADING &&
+                        fileOperation !is FileOperationState.Active
                 DeviceFilesCard(
                     state = deviceFiles,
+                    operationState = fileOperation,
+                    localRecordings = localRecordings,
                     canRefresh = canRefreshFiles,
                     onRefresh = viewModel::refreshDeviceFiles,
+                    onDownload = viewModel::downloadDeviceFile,
+                    onCancelDownload = viewModel::cancelDeviceFileDownload,
+                    onDeleteRemote = viewModel::deleteRemoteRecording,
+                    onRangeProbe = viewModel::runRangeProbe,
                 )
             }
         } else if (connection !is DeviceConnectionState.Idle &&
@@ -266,12 +289,50 @@ private fun DeviceScreen(
 
         if (diagnosticsExpanded) {
             item {
-                DiagnosticsCard(diagnostics)
+                DiagnosticsCard(
+                    diagnostics,
+                    fileTransferDiagnostics,
+                    remoteDeleteDiagnostics,
+                    rangeProbeDiagnostics,
+                )
             }
         }
 
         item {
             Spacer(modifier = Modifier.height(8.dp))
+        }
+    }
+}
+
+@Composable
+private fun LocalFilesScreen(
+    padding: PaddingValues,
+    viewModel: DeviceViewModel,
+) {
+    val localRecordings by viewModel.localRecordings.collectAsState()
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(padding),
+        contentPadding = PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item {
+            Text(
+                stringResource(R.string.local_files_screen_title),
+                style = MaterialTheme.typography.headlineLarge,
+            )
+            Text(
+                stringResource(R.string.local_files_screen_subtitle),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        item {
+            LocalRecordingsCard(
+                recordings = localRecordings,
+                onDeleteLocal = { viewModel.deleteLocalRecording(it.id) },
+            )
         }
     }
 }
@@ -402,7 +463,12 @@ private fun DeviceInfoCard(
 }
 
 @Composable
-private fun DiagnosticsCard(diagnostics: BleDiagnostics) {
+private fun DiagnosticsCard(
+    diagnostics: BleDiagnostics,
+    fileTransfer: FileTransferDiagnostics,
+    remoteDelete: RemoteDeleteDiagnostics,
+    rangeProbe: RangeProbeDiagnostics,
+) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -629,6 +695,156 @@ private fun DiagnosticsCard(diagnostics: BleDiagnostics) {
             }
             diagnostics.fileList.lastOperationError?.let {
                 DiagnosticLine("File error", it)
+            }
+            HorizontalDivider()
+            Text("File transfer", style = MaterialTheme.typography.titleSmall)
+            DiagnosticLine(
+                "Transfer operation",
+                fileTransfer.operationId?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "Transfer session",
+                fileTransfer.transportSessionId?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "List filename",
+                fileTransfer.listFilename ?: "--",
+            )
+            DiagnosticLine(
+                "Request filename",
+                fileTransfer.requestFilename ?: "--",
+            )
+            DiagnosticLine(
+                "Request filename bytes",
+                fileTransfer.requestFilenameByteLength?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "Request frame bytes",
+                fileTransfer.requestFrameLength?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "Request seq",
+                fileTransfer.requestSequence?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "Actual filename",
+                fileTransfer.actualTransferFilename ?: "--",
+            )
+            DiagnosticLine(
+                "START source",
+                fileTransfer.startSource?.name ?: "--",
+            )
+            DiagnosticLine(
+                "DATA source",
+                fileTransfer.lastDataSource?.name ?: "--",
+            )
+            DiagnosticLine(
+                "END source",
+                fileTransfer.endSource?.name ?: "--",
+            )
+            DiagnosticLine(
+                "DATA frames",
+                fileTransfer.dataFrameCount.toString(),
+            )
+            DiagnosticLine(
+                "Expected/received",
+                (fileTransfer.expectedBytes?.toString() ?: "--") + "/" +
+                    fileTransfer.receivedBytes,
+            )
+            DiagnosticLine(
+                "First data",
+                fileTransfer.firstDataPrefixHex ?: "--",
+            )
+            DiagnosticLine(
+                "Container",
+                fileTransfer.detectedContainer?.name ?: "--",
+            )
+            DiagnosticLine(
+                "Remote status",
+                fileTransfer.remoteStatusCode?.toString() ?: "--",
+            )
+            fileTransfer.lastError?.let {
+                DiagnosticLine(
+                    "Transfer error",
+                    it.code.name + (it.detail?.let { detail -> ": " + detail } ?: ""),
+                )
+            }
+            HorizontalDivider()
+            Text("Remote delete", style = MaterialTheme.typography.titleSmall)
+            DiagnosticLine(
+                "Delete payload",
+                remoteDelete.payloadStrategy ?: "--",
+            )
+            DiagnosticLine(
+                "Delete body bytes",
+                remoteDelete.requestBodyLength?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "Delete response source",
+                remoteDelete.responseSource?.name ?: "--",
+            )
+            DiagnosticLine(
+                "Delete status",
+                remoteDelete.responseStatusCode?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "Delete response body",
+                remoteDelete.responseBodyHex ?: "--",
+            )
+            DiagnosticLine(
+                "Delete latency",
+                remoteDelete.responseLatencyMs?.let { "$it ms" } ?: "--",
+            )
+            DiagnosticLine(
+                "Delete verification",
+                remoteDelete.verificationResult ?: "--",
+            )
+            DiagnosticLine(
+                "Delete outcome unknown",
+                remoteDelete.outcomeUnknown.toString(),
+            )
+            remoteDelete.lastError?.let {
+                DiagnosticLine(
+                    "Delete error",
+                    it.code.name + (it.detail?.let { detail -> ": " + detail } ?: ""),
+                )
+            }
+            HorizontalDivider()
+            Text("Range probe", style = MaterialTheme.typography.titleSmall)
+            DiagnosticLine(
+                "Range",
+                if (rangeProbe.startOffset != null && rangeProbe.requestedEnd != null) {
+                    rangeProbe.startOffset.toString() + ".." + rangeProbe.requestedEnd
+                } else {
+                    "--"
+                },
+            )
+            DiagnosticLine("Range received", rangeProbe.receivedBytes.toString())
+            DiagnosticLine(
+                "Range actual filename",
+                rangeProbe.actualTransferFilename ?: "--",
+            )
+            DiagnosticLine(
+                "Range first data",
+                rangeProbe.firstDataPrefixHex ?: "--",
+            )
+            DiagnosticLine(
+                "Range matches local",
+                rangeProbe.matchesLocalBytes?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "Range end semantics",
+                rangeProbe.inferredEndSemantics ?: "--",
+            )
+            DiagnosticLine(
+                "Range remote status",
+                rangeProbe.remoteStatusCode?.toString() ?: "--",
+            )
+            rangeProbe.lastError?.let {
+                DiagnosticLine(
+                    "Range error",
+                    it.code.name + (it.detail?.let { detail -> ": " + detail } ?: ""),
+                )
             }
             diagnostics.lastError?.let {
                 DiagnosticLine("Last error", errorText(it))

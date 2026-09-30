@@ -57,11 +57,30 @@ class RemoteDeviceFileMapperTest {
         assertEquals(1, files.size)
     }
 
+    @Test
+    fun preservesRawListEntryAsOpaqueDeleteEvidence() {
+        val rawEntry = ByteArray(28) { index -> (index + 1).toByte() }
+        val source = entry(
+            name = "note20260930-083059.",
+            time = 16,
+            size = 519_724,
+            fieldLength = 20,
+            rawEntryBytes = rawEntry,
+        )
+
+        val file = RemoteDeviceFileMapper.map("AA", listOf(source)).single()
+
+        assertTrue(rawEntry.contentEquals(file.rawListEntryBytes))
+        rawEntry[0] = 0
+        assertTrue(file.rawListEntryBytes[0] != 0.toByte())
+    }
+
     private fun entry(
         name: String,
         time: Long,
         size: Long,
         fieldLength: Int = 20,
+        rawEntryBytes: ByteArray = ByteArray(8 + fieldLength),
     ): RawDeviceFileEntry {
         val bytes = ByteArray(fieldLength)
         name.encodeToByteArray().copyInto(bytes)
@@ -71,7 +90,7 @@ class RemoteDeviceFileMapperTest {
             rawFilename = name,
             rawFilenameBytes = bytes,
             filenameFieldLength = fieldLength,
-            rawEntryBytes = ByteArray(8 + fieldLength),
+            rawEntryBytes = rawEntryBytes,
         )
     }
 }

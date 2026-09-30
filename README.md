@@ -62,7 +62,8 @@ Voica 是面向 QS668 / CB08 AI 录音卡的 Android 原生客户端。
 - Stage 2：已完成 / 已两轮真机验收 / 已冻结
 - Stage 3：已完成 / 已真机验收 / 已冻结
 - Stage 4：已完成 / 已真机验收 / 已冻结
-- 下一阶段：**Stage 5 — 文件下载 + 删除 + 原始音频落盘**
+- Stage 5：已完成 / 已真机验收 / 已冻结
+- 下一阶段：**Stage 6 — 本地录音库 + Opus/WAV 音频链路**
 
 Stage 2 已建立：
 
@@ -107,7 +108,20 @@ Stage 4 已建立：
 - 真机确认列表第一个 BE32 = **录音时长秒数**
 - 最新录制优先排序、手动刷新、Stale/Failed 状态
 - 文件列表 Diagnostics
-- Stage 4 不使用 2/12 做文件名探测；2/12 区间文件传输留给 Stage 5
+
+Stage 5 已建立：
+
+- 首次连接 / 重连 / 新录音完成后自动刷新设备文件列表
+- TYPE=2/CMD=2/3/4/5 文件下载主链
+- 专用可靠文件数据通道
+- 下载进度、取消、超时、断线处理
+- 原始音频流式 `.part` 落盘、SHA-256、fsync、原子提交
+- 真机确认下载内容为原始 `.opus` 字节流
+- CMD=12 范围下载真机确认语义为 `[start, end)`
+- 单条设备录音删除与二次确认
+- 真机确认删除设备录音会同时删除物理同名 `.opus + .wav`
+- 本地文件与设备文件独立管理，不提供联合删除
+- 不提供 Delete All
 
 项目文档：
 
@@ -125,6 +139,11 @@ Stage 4 已建立：
 - [Stage 4 Handoff](docs/STAGE_4_HANDOFF.md)
 - [Stage 4 协议发现](docs/STAGE_4_PROTOCOL_FINDINGS.md)
 - [Stage 4 真机发现](docs/STAGE_4_REAL_DEVICE_FINDINGS.md)
+- [Stage 5 测试](docs/STAGE_5_TEST.md)
+- [Stage 5 Freeze](docs/STAGE_5_FREEZE.md)
+- [Stage 5 Handoff](docs/STAGE_5_HANDOFF.md)
+- [Stage 5 协议发现](docs/STAGE_5_PROTOCOL_FINDINGS.md)
+- [Stage 5 真机发现](docs/STAGE_5_REAL_DEVICE_FINDINGS.md)
 - [开发规则](AGENTS.md)
 
 ## License

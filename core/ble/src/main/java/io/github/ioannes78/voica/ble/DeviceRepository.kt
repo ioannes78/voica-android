@@ -10,11 +10,14 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import io.github.ioannes78.voica.protocol.DeviceDecoders
+import io.github.ioannes78.voica.protocol.FileTransferProtocol
 import io.github.ioannes78.voica.protocol.ProtocolConstants
 import io.github.ioannes78.voica.protocol.RecordingCommandResult
 import io.github.ioannes78.voica.protocol.RecordingGain
 import io.github.ioannes78.voica.protocol.RecordingStatus
 import java.io.Closeable
+import java.io.File
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -27,6 +30,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 
 interface DeviceRepository {
     val scanState: StateFlow<BleScanState>
@@ -34,6 +38,11 @@ interface DeviceRepository {
     val deviceInfo: StateFlow<DeviceInfo>
     val recordingState: StateFlow<RecordingDeviceState>
     val deviceFileListState: StateFlow<DeviceFileListState>
+    val fileOperationState: StateFlow<FileOperationState>
+    val fileTransferDiagnostics: StateFlow<FileTransferDiagnostics>
+    val remoteDeleteDiagnostics: StateFlow<RemoteDeleteDiagnostics>
+    val rangeProbeDiagnostics: StateFlow<RangeProbeDiagnostics>
+    val localRecordings: StateFlow<List<LocalRecordingArtifact>>
     val diagnostics: StateFlow<BleDiagnostics>
 
     fun missingPermissions(): Set<String>
@@ -53,7 +62,30 @@ interface DeviceRepository {
     suspend fun syncRecordingState()
     suspend fun setRecordingGain(gain: RecordingGain)
     suspend fun refreshDeviceFiles()
+    suspend fun downloadDeviceFile(file: RemoteDeviceFile)
+    suspend fun cancelDeviceFileDownload()
+    suspend fun deleteRemoteRecording(file: RemoteDeviceFile)
+    suspend fun runRangeProbe(file: RemoteDeviceFile)
+    suspend fun deleteLocalRecording(localId: String): LocalDeleteResult
 }
+
+private sealed interface DeleteVerificationResult {
+    data object Absent : DeleteVerificationResult
+    data object StillPresent : DeleteVerificationResult
+    data class RefreshFailed(val error: FileOperationError) : DeleteVerificationResult
+}
+
+private data class PendingDeleteVerification(
+    val operationId: Long,
+    val remoteIdentity: String,
+    val completion: CompletableDeferred<DeleteVerificationResult>,
+)
+
+private data class PendingUnknownDelete(
+    val operationId: Long,
+    val remoteIdentity: String,
+    val deviceAddress: String,
+)
 
 class DefaultDeviceRepository(
     context: Context,
@@ -69,6 +101,10 @@ class DefaultDeviceRepository(
     private val recordingFrameRouter = RecordingFrameRouter()
     private val fileListFrameRouter = FileListFrameRouter()
     private val fileListSessionCoordinator = FileListSessionCoordinator()
+    private val fileOperationCoordinator = DeviceFileOperationCoordinator()
+    private val localRecordingStore = LocalRecordingStore(
+        File(applicationContext.noBackupFilesDir, "recordings"),
+    )
     private val recordingSyncMutex = Mutex()
     private val rememberedDeviceStore = RememberedDeviceStore(applicationContext)
 
@@ -90,6 +126,29 @@ class DefaultDeviceRepository(
     override val deviceFileListState: StateFlow<DeviceFileListState> =
         mutableDeviceFileListState.asStateFlow()
 
+    private val mutableFileOperationState =
+        MutableStateFlow<FileOperationState>(FileOperationState.Idle)
+    override val fileOperationState: StateFlow<FileOperationState> =
+        mutableFileOperationState.asStateFlow()
+
+    private val mutableFileTransferDiagnostics =
+        MutableStateFlow(FileTransferDiagnostics())
+    override val fileTransferDiagnostics: StateFlow<FileTransferDiagnostics> =
+        mutableFileTransferDiagnostics.asStateFlow()
+
+    private val mutableRemoteDeleteDiagnostics =
+        MutableStateFlow(RemoteDeleteDiagnostics())
+    override val remoteDeleteDiagnostics: StateFlow<RemoteDeleteDiagnostics> =
+        mutableRemoteDeleteDiagnostics.asStateFlow()
+
+    private val mutableRangeProbeDiagnostics =
+        MutableStateFlow(RangeProbeDiagnostics())
+    override val rangeProbeDiagnostics: StateFlow<RangeProbeDiagnostics> =
+        mutableRangeProbeDiagnostics.asStateFlow()
+
+    override val localRecordings: StateFlow<List<LocalRecordingArtifact>> =
+        localRecordingStore.recordings
+
     override val diagnostics: StateFlow<BleDiagnostics> = session.diagnostics
 
     private var foreground = false
@@ -103,6 +162,12 @@ class DefaultDeviceRepository(
     private var recordingReconcileJob: Job? = null
     private var fileListFirstResponseJob: Job? = null
     private var fileListTotalTimeoutJob: Job? = null
+    private var activeFileListOperationId: Long? = null
+    private var recordingFinalizedRefreshJob: Job? = null
+    private var activeFileTransferSession: FileTransferSession? = null
+    private var activeFileTransferOperationId: Long? = null
+    private var pendingDeleteVerification: PendingDeleteVerification? = null
+    private var pendingUnknownDelete: PendingUnknownDelete? = null
     private var lastReadySessionId: Long? = null
     private var receiverRegistered = false
 
@@ -124,6 +189,7 @@ class DefaultDeviceRepository(
                     reconnectJob = null
                     reconnectAttempt = 0
                     session.setReconnectAttempt(0)
+                    activeFileTransferSession?.notifyTransportDisconnected()
                     stopRecordingPoller()
                     recordingReconcileJob?.cancel()
                     recordingReconcileJob = null
@@ -214,6 +280,7 @@ class DefaultDeviceRepository(
                     }
 
                     is DeviceConnectionState.Disconnected -> {
+                        activeFileTransferSession?.notifyTransportDisconnected()
                         stopRecordingPoller()
                         markDeviceFilesDisconnected()
                         recordingReconcileJob?.cancel()
@@ -227,12 +294,14 @@ class DefaultDeviceRepository(
                     DeviceConnectionState.BluetoothOff,
                     is DeviceConnectionState.PermissionRequired,
                     -> {
+                        activeFileTransferSession?.notifyTransportDisconnected()
                         stopRecordingPoller()
                         markRecordingDisconnected()
                         markDeviceFilesDisconnected()
                     }
 
                     is DeviceConnectionState.Error -> {
+                        activeFileTransferSession?.notifyTransportDisconnected()
                         stopRecordingPoller()
                         markRecordingDisconnected()
                         markDeviceFilesDisconnected()
@@ -297,6 +366,7 @@ class DefaultDeviceRepository(
         reconnectJob = null
         reconnectAttempt = 0
         session.setReconnectAttempt(0)
+        activeFileTransferSession?.notifyTransportDisconnected()
         stopRecordingPoller()
         recordingReconcileJob?.cancel()
         recordingReconcileJob = null
@@ -310,6 +380,7 @@ class DefaultDeviceRepository(
         this.foreground = foreground
 
         if (!foreground) {
+            activeFileTransferSession?.requestCancel(TransferCancelReason.BACKGROUND)
             scanner.stop()
             reconnectJob?.cancel()
             reconnectJob = null
@@ -429,12 +500,47 @@ class DefaultDeviceRepository(
     override suspend fun syncTime(): Boolean = session.syncTime()
 
     override suspend fun refreshDeviceFiles() {
-        if (mutableDeviceFileListState.value.freshness == FileListFreshness.LOADING) return
+        requestDeviceFileRefresh(RefreshReason.USER_REQUESTED)
+    }
+
+    private suspend fun requestDeviceFileRefresh(reason: RefreshReason) {
+        when (val decision = fileOperationCoordinator.requestRefresh(reason)) {
+            is RefreshRequestDecision.Started ->
+                startDeviceFileListRefresh(decision.operation, decision.reason)
+            is RefreshRequestDecision.Queued,
+            is RefreshRequestDecision.Coalesced,
+            -> Unit
+        }
+    }
+
+    private suspend fun startDeviceFileListRefresh(
+        operation: ActiveDeviceFileOperation,
+        reason: RefreshReason,
+    ) {
+        val operationId = operation.operationId
+        activeFileListOperationId = operationId
+        mutableFileOperationState.value = FileOperationState.Active(
+            operationId = operationId,
+            operation = DeviceFileOperationType.REFRESH,
+            stage = FileOperationStage.PREPARING,
+        )
+
+        if (mutableDeviceFileListState.value.freshness == FileListFreshness.LOADING) {
+            finishFileListOperation(
+                FileOperationError(
+                    FileOperationErrorCode.FILE_OPERATION_BUSY,
+                    "file list is already loading",
+                ),
+            )
+            return
+        }
 
         val ready = session.state.value as? DeviceConnectionState.Ready
         if (ready == null) {
-            noteFileListGuardFailure(
-                FileListError(FileListErrorCode.NOT_READY, "device is not Ready"),
+            val error = FileListError(FileListErrorCode.NOT_READY, "device is not Ready")
+            noteFileListGuardFailure(error)
+            finishFileListOperation(
+                FileOperationError(FileOperationErrorCode.NOT_READY, error.detail),
             )
             return
         }
@@ -445,13 +551,15 @@ class DefaultDeviceRepository(
             recording.freshness != RecordingFreshness.FRESH ||
             recording.commandState != RecordingCommandState.IDLE
         ) {
-            noteFileListGuardFailure(
-                FileListError(
-                    FileListErrorCode.RECORDING_ACTIVE,
-                    "recording status=" + recording.status +
-                        " freshness=" + recording.freshness +
-                        " command=" + recording.commandState,
-                ),
+            val error = FileListError(
+                FileListErrorCode.RECORDING_ACTIVE,
+                "recording status=" + recording.status +
+                    " freshness=" + recording.freshness +
+                    " command=" + recording.commandState,
+            )
+            noteFileListGuardFailure(error)
+            finishFileListOperation(
+                FileOperationError(FileOperationErrorCode.RECORDING_ACTIVE, error.detail),
             )
             return
         }
@@ -475,6 +583,11 @@ class DefaultDeviceRepository(
             error = null,
         )
 
+        mutableFileOperationState.value = FileOperationState.Active(
+            operationId = operationId,
+            operation = DeviceFileOperationType.REFRESH,
+            stage = FileOperationStage.REQUESTING,
+        )
         val request = session.requestFileList()
         if (!request.written) {
             failActiveFileList(
@@ -496,10 +609,789 @@ class DefaultDeviceRepository(
         scheduleFileListTimeouts(fileSessionId)
     }
 
+    override suspend fun downloadDeviceFile(file: RemoteDeviceFile) {
+        val operation = fileOperationCoordinator.tryStart(DeviceFileOperationType.DOWNLOAD)
+            ?: return
+
+        val operationId = operation.operationId
+        val remoteIdentity = file.identity
+        mutableFileOperationState.value = FileOperationState.Active(
+            operationId = operationId,
+            operation = DeviceFileOperationType.DOWNLOAD,
+            stage = FileOperationStage.PREPARING,
+            remoteIdentity = remoteIdentity,
+        )
+
+        var prepared: LocalRecordingStore.PreparedLocalDownload? = null
+        var transfer: FileTransferSession? = null
+        try {
+            val ready = session.state.value as? DeviceConnectionState.Ready
+            if (ready == null) {
+                failDownloadPrecondition(
+                    operationId,
+                    remoteIdentity,
+                    FileOperationError(FileOperationErrorCode.NOT_READY),
+                )
+                return
+            }
+
+            val recording = mutableRecordingState.value
+            if (
+                recording.status != RecordingStatus.Idle ||
+                recording.freshness != RecordingFreshness.FRESH ||
+                recording.commandState != RecordingCommandState.IDLE
+            ) {
+                failDownloadPrecondition(
+                    operationId,
+                    remoteIdentity,
+                    FileOperationError(FileOperationErrorCode.RECORDING_ACTIVE),
+                )
+                return
+            }
+
+            val listState = mutableDeviceFileListState.value
+            if (listState.freshness != FileListFreshness.FRESH) {
+                failDownloadPrecondition(
+                    operationId,
+                    remoteIdentity,
+                    FileOperationError(FileOperationErrorCode.FILE_LIST_NOT_FRESH),
+                )
+                return
+            }
+            if (
+                listState.deviceAddress != ready.address ||
+                listState.files.none { it.identity == remoteIdentity }
+            ) {
+                failDownloadPrecondition(
+                    operationId,
+                    remoteIdentity,
+                    FileOperationError(FileOperationErrorCode.INVALID_REMOTE_RECORDING),
+                )
+                return
+            }
+
+            if (localRecordingStore.isDownloaded(remoteIdentity)) {
+                mutableFileOperationState.value = FileOperationState.Completed(
+                    operationId = operationId,
+                    operation = DeviceFileOperationType.DOWNLOAD,
+                    remoteIdentity = remoteIdentity,
+                )
+                return
+            }
+
+            if (!localRecordingStore.hasCapacity(file.sizeBytes)) {
+                failDownloadPrecondition(
+                    operationId,
+                    remoteIdentity,
+                    FileOperationError(FileOperationErrorCode.INSUFFICIENT_STORAGE),
+                )
+                return
+            }
+
+            val requestFilename = file.displayFilename
+            val filenameBytes = requestFilename.encodeToByteArray()
+            if (filenameBytes.isEmpty() || filenameBytes.any { it.toInt() == 0 }) {
+                failDownloadPrecondition(
+                    operationId,
+                    remoteIdentity,
+                    FileOperationError(FileOperationErrorCode.INVALID_FILENAME),
+                )
+                return
+            }
+
+            val preparedDownload = try {
+                localRecordingStore.prepare(file)
+            } catch (error: FileTransferSinkException) {
+                failDownloadPrecondition(operationId, remoteIdentity, error.operationError)
+                return
+            } catch (error: Throwable) {
+                failDownloadPrecondition(
+                    operationId,
+                    remoteIdentity,
+                    FileOperationError(
+                        FileOperationErrorCode.TEMP_FILE_CREATE_FAILED,
+                        error.message,
+                    ),
+                )
+                return
+            }
+
+            prepared = preparedDownload
+            val transferSession = FileTransferSession()
+            transfer = transferSession
+            if (!session.registerFileTransferConsumer(transferSession)) {
+                localRecordingStore.abort(preparedDownload)
+                failDownloadPrecondition(
+                    operationId,
+                    remoteIdentity,
+                    FileOperationError(FileOperationErrorCode.FILE_OPERATION_BUSY),
+                )
+                return
+            }
+            activeFileTransferSession = transferSession
+            activeFileTransferOperationId = operationId
+
+            mutableFileTransferDiagnostics.value = FileTransferDiagnostics(
+                operationId = operationId,
+                transportSessionId = session.diagnostics.value.sessionId,
+                remoteIdentity = remoteIdentity,
+                listFilename = file.displayFilename,
+                requestFilename = requestFilename,
+                requestFilenameByteLength = filenameBytes.size,
+                requestFrameLength = FILE_DOWNLOAD_FRAME_FIXED_BYTES + filenameBytes.size,
+                expectedBytes = file.sizeBytes,
+            )
+            mutableFileOperationState.value = FileOperationState.Active(
+                operationId = operationId,
+                operation = DeviceFileOperationType.DOWNLOAD,
+                stage = FileOperationStage.REQUESTING,
+                remoteIdentity = remoteIdentity,
+                progress = DownloadProgress(0L, file.sizeBytes),
+            )
+
+            val result = transferSession.execute(
+                sink = preparedDownload.writer,
+                sendRequest = {
+                    session.sendFileTransferRequest { sequence ->
+                        FileTransferProtocol.buildDownloadRequest(
+                            sequence = sequence,
+                            offset = 0L,
+                            filenameBytes = filenameBytes,
+                        )
+                    }
+                },
+                sendAbort = session::sendFileTransferAbort,
+                expectedBytes = file.sizeBytes,
+                onProgress = { progress ->
+                    mutableFileOperationState.value = FileOperationState.Active(
+                        operationId = operationId,
+                        operation = DeviceFileOperationType.DOWNLOAD,
+                        stage = FileOperationStage.TRANSFERRING,
+                        remoteIdentity = remoteIdentity,
+                        progress = progress,
+                    )
+                    mutableFileTransferDiagnostics.value =
+                        mutableFileTransferDiagnostics.value.copy(
+                            receivedBytes = progress.receivedBytes,
+                        )
+                },
+            )
+
+            when (result) {
+                is FileTransferExecutionResult.Completed -> {
+                    mutableFileOperationState.value = FileOperationState.Active(
+                        operationId = operationId,
+                        operation = DeviceFileOperationType.DOWNLOAD,
+                        stage = FileOperationStage.VERIFYING,
+                        remoteIdentity = remoteIdentity,
+                        progress = DownloadProgress(
+                            result.value.receivedBytes,
+                            file.sizeBytes,
+                        ),
+                    )
+                    mutableFileTransferDiagnostics.value =
+                        mutableFileTransferDiagnostics.value.copy(
+                            requestSequence = result.value.requestSequence,
+                            actualTransferFilename = result.value.actualFilename,
+                            startSource = result.value.startSource,
+                            lastDataSource = result.value.lastDataSource,
+                            endSource = result.value.endSource,
+                            dataFrameCount = result.value.dataFrameCount,
+                            receivedBytes = result.value.receivedBytes,
+                            firstDataPrefixHex = result.value.firstDataPrefix.toDiagnosticHex(),
+                            remoteStatusCode = result.value.remoteStatusCode,
+                        )
+
+                    mutableFileOperationState.value = FileOperationState.Active(
+                        operationId = operationId,
+                        operation = DeviceFileOperationType.DOWNLOAD,
+                        stage = FileOperationStage.COMMITTING,
+                        remoteIdentity = remoteIdentity,
+                        progress = DownloadProgress(
+                            result.value.receivedBytes,
+                            file.sizeBytes,
+                        ),
+                    )
+                    try {
+                        val commit = localRecordingStore.commit(
+                            prepared = preparedDownload,
+                            actualTransferFilename = result.value.actualFilename,
+                        )
+                        mutableFileTransferDiagnostics.value =
+                            mutableFileTransferDiagnostics.value.copy(
+                                firstDataPrefixHex = commit.firstDataPrefix.toDiagnosticHex(),
+                                detectedContainer = commit.artifact.container,
+                                lastError = null,
+                            )
+                        mutableFileOperationState.value = FileOperationState.Completed(
+                            operationId = operationId,
+                            operation = DeviceFileOperationType.DOWNLOAD,
+                            remoteIdentity = remoteIdentity,
+                        )
+                    } catch (error: FileTransferSinkException) {
+                        localRecordingStore.abort(preparedDownload)
+                        val operationError = error.operationError
+                        mutableFileTransferDiagnostics.value =
+                            mutableFileTransferDiagnostics.value.copy(lastError = operationError)
+                        mutableFileOperationState.value = FileOperationState.Failed(
+                            operationId = operationId,
+                            operation = DeviceFileOperationType.DOWNLOAD,
+                            remoteIdentity = remoteIdentity,
+                            error = operationError,
+                        )
+                    }
+                }
+
+                is FileTransferExecutionResult.Failed -> {
+                    localRecordingStore.abort(prepared)
+                    mutableFileTransferDiagnostics.value =
+                        mutableFileTransferDiagnostics.value.copy(lastError = result.error)
+                    mutableFileOperationState.value = FileOperationState.Failed(
+                        operationId = operationId,
+                        operation = DeviceFileOperationType.DOWNLOAD,
+                        remoteIdentity = remoteIdentity,
+                        error = result.error,
+                    )
+                }
+
+                is FileTransferExecutionResult.Cancelled -> {
+                    localRecordingStore.abort(prepared)
+                    mutableFileTransferDiagnostics.value =
+                        mutableFileTransferDiagnostics.value.copy(lastError = result.error)
+                    mutableFileOperationState.value = FileOperationState.Cancelled(
+                        operationId = operationId,
+                        operation = DeviceFileOperationType.DOWNLOAD,
+                        remoteIdentity = remoteIdentity,
+                        reason = result.error,
+                    )
+                }
+            }
+        } finally {
+            transfer?.let { session.unregisterFileTransferConsumer(it) }
+            transfer?.close()
+            if (activeFileTransferSession === transfer) {
+                activeFileTransferSession = null
+                activeFileTransferOperationId = null
+            }
+            finishCoordinatorOperation(operationId)
+        }
+    }
+
+    override suspend fun cancelDeviceFileDownload() {
+        activeFileTransferSession?.requestCancel(TransferCancelReason.USER)
+    }
+
+    override suspend fun deleteRemoteRecording(file: RemoteDeviceFile) {
+        val operation = fileOperationCoordinator.tryStart(DeviceFileOperationType.DELETE_REMOTE)
+            ?: return
+        val operationId = operation.operationId
+        val remoteIdentity = file.identity
+        var coordinatorReleased = false
+
+        fun releaseCoordinator() {
+            if (!coordinatorReleased) {
+                coordinatorReleased = true
+                finishCoordinatorOperation(operationId)
+            }
+        }
+
+        fun fail(error: FileOperationError) {
+            mutableRemoteDeleteDiagnostics.value =
+                mutableRemoteDeleteDiagnostics.value.copy(
+                    operationId = operationId,
+                    remoteIdentity = remoteIdentity,
+                    lastError = error,
+                )
+            mutableFileOperationState.value = FileOperationState.Failed(
+                operationId = operationId,
+                operation = DeviceFileOperationType.DELETE_REMOTE,
+                remoteIdentity = remoteIdentity,
+                error = error,
+            )
+            releaseCoordinator()
+        }
+
+        mutableFileOperationState.value = FileOperationState.Active(
+            operationId = operationId,
+            operation = DeviceFileOperationType.DELETE_REMOTE,
+            stage = FileOperationStage.PREPARING,
+            remoteIdentity = remoteIdentity,
+        )
+
+        val ready = session.state.value as? DeviceConnectionState.Ready
+        if (ready == null) {
+            fail(FileOperationError(FileOperationErrorCode.NOT_READY))
+            return
+        }
+
+        val recording = mutableRecordingState.value
+        if (
+            recording.status != RecordingStatus.Idle ||
+            recording.freshness != RecordingFreshness.FRESH ||
+            recording.commandState != RecordingCommandState.IDLE
+        ) {
+            fail(FileOperationError(FileOperationErrorCode.RECORDING_ACTIVE))
+            return
+        }
+
+        val listState = mutableDeviceFileListState.value
+        if (listState.freshness != FileListFreshness.FRESH) {
+            fail(FileOperationError(FileOperationErrorCode.FILE_LIST_NOT_FRESH))
+            return
+        }
+        if (
+            listState.deviceAddress != ready.address ||
+            listState.files.none { it.identity == remoteIdentity }
+        ) {
+            fail(FileOperationError(FileOperationErrorCode.INVALID_REMOTE_RECORDING))
+            return
+        }
+
+        val deleteFilename = file.displayFilename
+        val deleteFilenameBytes = deleteFilename.encodeToByteArray()
+        if (
+            deleteFilenameBytes.isEmpty() ||
+            deleteFilenameBytes.size > ProtocolConstants.FILENAME_FIELD_LENGTH ||
+            deleteFilenameBytes.any { it.toInt() == 0 }
+        ) {
+            fail(
+                FileOperationError(
+                    FileOperationErrorCode.INVALID_FILENAME,
+                    "delete filename bytes=" + deleteFilenameBytes.size,
+                ),
+            )
+            return
+        }
+
+        mutableRemoteDeleteDiagnostics.value = RemoteDeleteDiagnostics(
+            operationId = operationId,
+            remoteIdentity = remoteIdentity,
+            payloadStrategy = "ZERO4_PLUS_FILENAME24",
+            requestBodyLength = 4 + ProtocolConstants.FILENAME_FIELD_LENGTH,
+        )
+        mutableFileOperationState.value = FileOperationState.Active(
+            operationId = operationId,
+            operation = DeviceFileOperationType.DELETE_REMOTE,
+            stage = FileOperationStage.REQUESTING,
+            remoteIdentity = remoteIdentity,
+        )
+
+        when (
+            val outcome = RemoteDeletePolicy.classify(
+                session.deleteRemoteRecording(deleteFilename),
+            )
+        ) {
+            is RemoteDeleteCommandOutcome.WriteFailed -> {
+                fail(outcome.error)
+                return
+            }
+
+            is RemoteDeleteCommandOutcome.OutcomeUnknown -> {
+                pendingUnknownDelete = PendingUnknownDelete(
+                    operationId = operationId,
+                    remoteIdentity = remoteIdentity,
+                    deviceAddress = ready.address,
+                )
+                mutableRemoteDeleteDiagnostics.value =
+                    mutableRemoteDeleteDiagnostics.value.copy(
+                        outcomeUnknown = true,
+                        lastError = outcome.error,
+                    )
+                mutableFileOperationState.value = FileOperationState.OutcomeUnknown(
+                    operationId = operationId,
+                    operation = DeviceFileOperationType.DELETE_REMOTE,
+                    remoteIdentity = remoteIdentity,
+                    error = outcome.error,
+                )
+                releaseCoordinator()
+                return
+            }
+
+            is RemoteDeleteCommandOutcome.Rejected -> {
+                mutableRemoteDeleteDiagnostics.value =
+                    mutableRemoteDeleteDiagnostics.value.copy(
+                        responseSource = outcome.source,
+                        responseStatusCode = outcome.statusCode,
+                        responseLatencyMs = outcome.latencyMs,
+                        responseBodyHex = outcome.responseBody?.toDiagnosticHex(),
+                    )
+                fail(outcome.error)
+                return
+            }
+
+            is RemoteDeleteCommandOutcome.Accepted -> {
+                mutableRemoteDeleteDiagnostics.value =
+                    mutableRemoteDeleteDiagnostics.value.copy(
+                        responseSource = outcome.source,
+                        responseStatusCode = outcome.statusCode,
+                        responseLatencyMs = outcome.latencyMs,
+                        responseBodyHex = outcome.responseBody.toDiagnosticHex(),
+                        outcomeUnknown = false,
+                        lastError = null,
+                    )
+            }
+        }
+
+        mutableFileOperationState.value = FileOperationState.Active(
+            operationId = operationId,
+            operation = DeviceFileOperationType.DELETE_REMOTE,
+            stage = FileOperationStage.VERIFYING,
+            remoteIdentity = remoteIdentity,
+        )
+
+        val completion = CompletableDeferred<DeleteVerificationResult>()
+        pendingDeleteVerification = PendingDeleteVerification(
+            operationId = operationId,
+            remoteIdentity = remoteIdentity,
+            completion = completion,
+        )
+        fileOperationCoordinator.requestRefresh(RefreshReason.REMOTE_DELETE_COMPLETED)
+        releaseCoordinator()
+
+        val verification = withTimeoutOrNull(DELETE_VERIFICATION_TIMEOUT_MS) {
+            completion.await()
+        } ?: DeleteVerificationResult.RefreshFailed(
+            FileOperationError(
+                FileOperationErrorCode.DELETE_VERIFICATION_FAILED,
+                "verification refresh timed out",
+            ),
+        )
+
+        if (pendingDeleteVerification?.operationId == operationId) {
+            pendingDeleteVerification = null
+        }
+
+        when (verification) {
+            DeleteVerificationResult.Absent -> {
+                mutableRemoteDeleteDiagnostics.value =
+                    mutableRemoteDeleteDiagnostics.value.copy(
+                        verificationResult = "ABSENT",
+                        lastError = null,
+                    )
+                mutableFileOperationState.value = FileOperationState.Completed(
+                    operationId = operationId,
+                    operation = DeviceFileOperationType.DELETE_REMOTE,
+                    remoteIdentity = remoteIdentity,
+                )
+            }
+
+            DeleteVerificationResult.StillPresent -> {
+                val error = FileOperationError(
+                    FileOperationErrorCode.DELETE_VERIFICATION_FAILED,
+                    "target still present after successful delete response",
+                )
+                mutableRemoteDeleteDiagnostics.value =
+                    mutableRemoteDeleteDiagnostics.value.copy(
+                        verificationResult = "STILL_PRESENT",
+                        lastError = error,
+                    )
+                mutableFileOperationState.value = FileOperationState.Failed(
+                    operationId = operationId,
+                    operation = DeviceFileOperationType.DELETE_REMOTE,
+                    remoteIdentity = remoteIdentity,
+                    error = error,
+                )
+            }
+
+            is DeleteVerificationResult.RefreshFailed -> {
+                val error = FileOperationError(
+                    FileOperationErrorCode.DELETE_VERIFICATION_FAILED,
+                    verification.error.detail,
+                )
+                mutableRemoteDeleteDiagnostics.value =
+                    mutableRemoteDeleteDiagnostics.value.copy(
+                        verificationResult = "REFRESH_FAILED",
+                        lastError = error,
+                    )
+                mutableFileOperationState.value = FileOperationState.Failed(
+                    operationId = operationId,
+                    operation = DeviceFileOperationType.DELETE_REMOTE,
+                    remoteIdentity = remoteIdentity,
+                    error = error,
+                )
+            }
+        }
+    }
+
+    override suspend fun runRangeProbe(file: RemoteDeviceFile) {
+        val operation = fileOperationCoordinator.tryStart(DeviceFileOperationType.RANGE_PROBE)
+            ?: return
+        val operationId = operation.operationId
+        val remoteIdentity = file.identity
+        var transfer: FileTransferSession? = null
+
+        fun finishWithError(error: FileOperationError) {
+            mutableRangeProbeDiagnostics.value =
+                mutableRangeProbeDiagnostics.value.copy(
+                    operationId = operationId,
+                    remoteIdentity = remoteIdentity,
+                    lastError = error,
+                )
+            mutableFileOperationState.value = FileOperationState.Failed(
+                operationId = operationId,
+                operation = DeviceFileOperationType.RANGE_PROBE,
+                remoteIdentity = remoteIdentity,
+                error = error,
+            )
+        }
+
+        try {
+            mutableFileOperationState.value = FileOperationState.Active(
+                operationId = operationId,
+                operation = DeviceFileOperationType.RANGE_PROBE,
+                stage = FileOperationStage.PREPARING,
+                remoteIdentity = remoteIdentity,
+            )
+
+            val ready = session.state.value as? DeviceConnectionState.Ready
+            if (ready == null) {
+                finishWithError(FileOperationError(FileOperationErrorCode.NOT_READY))
+                return
+            }
+            val recording = mutableRecordingState.value
+            if (
+                recording.status != RecordingStatus.Idle ||
+                recording.freshness != RecordingFreshness.FRESH ||
+                recording.commandState != RecordingCommandState.IDLE
+            ) {
+                finishWithError(FileOperationError(FileOperationErrorCode.RECORDING_ACTIVE))
+                return
+            }
+            val listState = mutableDeviceFileListState.value
+            if (
+                listState.freshness != FileListFreshness.FRESH ||
+                listState.deviceAddress != ready.address ||
+                listState.files.none { it.identity == remoteIdentity }
+            ) {
+                finishWithError(
+                    FileOperationError(FileOperationErrorCode.FILE_LIST_NOT_FRESH),
+                )
+                return
+            }
+
+            val artifact = localRecordingStore.artifactForRemote(remoteIdentity)
+            if (artifact == null) {
+                finishWithError(
+                    FileOperationError(
+                        FileOperationErrorCode.LOCAL_ARTIFACT_CONFLICT,
+                        "download the recording before running range probe",
+                    ),
+                )
+                return
+            }
+            val localFile = localRecordingStore.resolveAudioFile(artifact)
+            if (!localFile.isFile || localFile.length() < RANGE_PROBE_REFERENCE_BYTES) {
+                finishWithError(
+                    FileOperationError(
+                        FileOperationErrorCode.LOCAL_ARTIFACT_CONFLICT,
+                        "local reference file is unavailable or too short",
+                    ),
+                )
+                return
+            }
+
+            val filenameBytes = file.displayFilename.encodeToByteArray()
+            if (filenameBytes.isEmpty() || filenameBytes.any { it.toInt() == 0 }) {
+                finishWithError(FileOperationError(FileOperationErrorCode.INVALID_FILENAME))
+                return
+            }
+
+            val sink = RangeProbeDataSink()
+            val transferSession = FileTransferSession(
+                absoluteTimeoutMs = RANGE_PROBE_ABSOLUTE_TIMEOUT_MS,
+            )
+            transfer = transferSession
+            if (!session.registerFileTransferConsumer(transferSession)) {
+                finishWithError(FileOperationError(FileOperationErrorCode.FILE_OPERATION_BUSY))
+                return
+            }
+            activeFileTransferSession = transferSession
+            activeFileTransferOperationId = operationId
+
+            mutableRangeProbeDiagnostics.value = RangeProbeDiagnostics(
+                operationId = operationId,
+                remoteIdentity = remoteIdentity,
+                startOffset = RANGE_PROBE_START,
+                requestedEnd = RANGE_PROBE_END,
+            )
+            mutableFileOperationState.value = FileOperationState.Active(
+                operationId = operationId,
+                operation = DeviceFileOperationType.RANGE_PROBE,
+                stage = FileOperationStage.REQUESTING,
+                remoteIdentity = remoteIdentity,
+            )
+
+            when (
+                val result = transferSession.execute(
+                    sink = sink,
+                    sendRequest = {
+                        session.sendFileTransferRequest { sequence ->
+                            FileTransferProtocol.buildRangeRequest(
+                                sequence = sequence,
+                                start = RANGE_PROBE_START,
+                                end = RANGE_PROBE_END,
+                                filenameBytes = filenameBytes,
+                            )
+                        }
+                    },
+                    sendAbort = session::sendFileTransferAbort,
+                    expectedBytes = 0L,
+                )
+            ) {
+                is FileTransferExecutionResult.Completed -> {
+                    val received = sink.bytes()
+                    val localPrefix = localFile.inputStream().use { input ->
+                        val wanted = received.size
+                        val buffer = ByteArray(wanted)
+                        var offset = 0
+                        while (offset < wanted) {
+                            val read = input.read(buffer, offset, wanted - offset)
+                            if (read < 0) break
+                            offset += read
+                        }
+                        buffer.copyOf(offset)
+                    }
+                    val matches = received.contentEquals(localPrefix)
+                    val semantics = when (received.size) {
+                        RANGE_PROBE_END.toInt() - RANGE_PROBE_START.toInt() + 1 ->
+                            "END_INCLUSIVE"
+                        RANGE_PROBE_END.toInt() - RANGE_PROBE_START.toInt() ->
+                            "END_EXCLUSIVE"
+                        else -> "UNRESOLVED"
+                    }
+                    mutableRangeProbeDiagnostics.value = RangeProbeDiagnostics(
+                        operationId = operationId,
+                        remoteIdentity = remoteIdentity,
+                        startOffset = RANGE_PROBE_START,
+                        requestedEnd = RANGE_PROBE_END,
+                        receivedBytes = received.size.toLong(),
+                        actualTransferFilename = result.value.actualFilename,
+                        firstDataPrefixHex = result.value.firstDataPrefix.toDiagnosticHex(),
+                        matchesLocalBytes = matches,
+                        inferredEndSemantics = if (matches) semantics else "MISMATCH",
+                        remoteStatusCode = result.value.remoteStatusCode,
+                        lastError = null,
+                    )
+                    mutableFileOperationState.value = FileOperationState.Completed(
+                        operationId = operationId,
+                        operation = DeviceFileOperationType.RANGE_PROBE,
+                        remoteIdentity = remoteIdentity,
+                    )
+                }
+
+                is FileTransferExecutionResult.Failed -> {
+                    finishWithError(result.error)
+                }
+
+                is FileTransferExecutionResult.Cancelled -> {
+                    mutableRangeProbeDiagnostics.value =
+                        mutableRangeProbeDiagnostics.value.copy(lastError = result.error)
+                    mutableFileOperationState.value = FileOperationState.Cancelled(
+                        operationId = operationId,
+                        operation = DeviceFileOperationType.RANGE_PROBE,
+                        remoteIdentity = remoteIdentity,
+                        reason = result.error,
+                    )
+                }
+            }
+        } finally {
+            transfer?.let { session.unregisterFileTransferConsumer(it) }
+            transfer?.close()
+            if (activeFileTransferSession === transfer) {
+                activeFileTransferSession = null
+                activeFileTransferOperationId = null
+            }
+            finishCoordinatorOperation(operationId)
+        }
+    }
+
+    override suspend fun deleteLocalRecording(localId: String): LocalDeleteResult =
+        localRecordingStore.delete(localId)
+
+    private fun completePendingDeleteVerification(files: List<RemoteDeviceFile>) {
+        val pending = pendingDeleteVerification ?: return
+        if (!pending.completion.isCompleted) {
+            pending.completion.complete(
+                if (files.none { it.identity == pending.remoteIdentity }) {
+                    DeleteVerificationResult.Absent
+                } else {
+                    DeleteVerificationResult.StillPresent
+                },
+            )
+        }
+        pendingDeleteVerification = null
+    }
+
+    private fun reconcileUnknownDeleteFromFreshList(
+        deviceAddress: String,
+        files: List<RemoteDeviceFile>,
+    ): FileOperationState? {
+        val pending = pendingUnknownDelete ?: return null
+        if (pending.deviceAddress != deviceAddress) return null
+
+        pendingUnknownDelete = null
+        val absent = files.none { it.identity == pending.remoteIdentity }
+        return if (absent) {
+            mutableRemoteDeleteDiagnostics.value =
+                mutableRemoteDeleteDiagnostics.value.copy(
+                    verificationResult = "ABSENT_AFTER_RECOVERY",
+                    outcomeUnknown = false,
+                    lastError = null,
+                )
+            FileOperationState.Completed(
+                operationId = pending.operationId,
+                operation = DeviceFileOperationType.DELETE_REMOTE,
+                remoteIdentity = pending.remoteIdentity,
+            )
+        } else {
+            val error = FileOperationError(
+                FileOperationErrorCode.DELETE_OUTCOME_UNKNOWN,
+                "target is still present after recovery refresh; user may retry",
+            )
+            mutableRemoteDeleteDiagnostics.value =
+                mutableRemoteDeleteDiagnostics.value.copy(
+                    verificationResult = "STILL_PRESENT_AFTER_RECOVERY",
+                    outcomeUnknown = false,
+                    lastError = error,
+                )
+            FileOperationState.Failed(
+                operationId = pending.operationId,
+                operation = DeviceFileOperationType.DELETE_REMOTE,
+                remoteIdentity = pending.remoteIdentity,
+                error = error,
+            )
+        }
+    }
+
+    private fun failDownloadPrecondition(
+        operationId: Long,
+        remoteIdentity: String,
+        error: FileOperationError,
+    ) {
+        mutableFileTransferDiagnostics.value =
+            mutableFileTransferDiagnostics.value.copy(
+                operationId = operationId,
+                remoteIdentity = remoteIdentity,
+                lastError = error,
+            )
+        mutableFileOperationState.value = FileOperationState.Failed(
+            operationId = operationId,
+            operation = DeviceFileOperationType.DOWNLOAD,
+            remoteIdentity = remoteIdentity,
+            error = error,
+        )
+    }
+
+    private fun ByteArray.toDiagnosticHex(): String =
+        take(FILE_DIAGNOSTIC_PREFIX_BYTES).joinToString(" ") { byte ->
+            (byte.toInt() and 0xFF).toString(16).padStart(2, '0').uppercase()
+        }
+
     override suspend fun startRecording() {
         if (
             session.state.value !is DeviceConnectionState.Ready ||
-            mutableRecordingState.value.status != RecordingStatus.Idle
+            mutableRecordingState.value.status != RecordingStatus.Idle ||
+            fileOperationCoordinator.activeOperation() != null
         ) {
             return
         }
@@ -830,6 +1722,11 @@ class DefaultDeviceRepository(
                 )
             }
             updateRecordingPoller()
+            scheduleFileRefreshAfterRecordingSync(
+                reason = reason,
+                expectedStatus = expectedStatus,
+                resolvedStatus = resolvedStatus,
+            )
         }
     }
 
@@ -872,6 +1769,11 @@ class DefaultDeviceRepository(
 
             is RecordingFrameEvent.Hardware -> {
                 stopRecordingPoller()
+                if (event.event.kind == RecordingHardwareEventKind.START) {
+                    activeFileTransferSession?.requestCancel(
+                        TransferCancelReason.RECORDING_PRIORITY,
+                    )
+                }
                 when (event.event.kind) {
                     RecordingHardwareEventKind.PAUSE -> {
                         pauseSemanticLatched = true
@@ -958,6 +1860,15 @@ class DefaultDeviceRepository(
                     completionReason = FileListCompletionReason.LIST_DONE,
                     error = null,
                 )
+                completePendingDeleteVerification(files)
+                val unknownDelete = reconcileUnknownDeleteFromFreshList(
+                    deviceAddress = result.snapshot.deviceAddress,
+                    files = files,
+                )
+                finishFileListOperation(error = null)
+                unknownDelete?.let { state ->
+                    mutableFileOperationState.value = state
+                }
             }
 
             is FileListSessionResult.Failed -> {
@@ -970,6 +1881,65 @@ class DefaultDeviceRepository(
             }
 
             is FileListSessionResult.Ignored -> Unit
+        }
+    }
+
+    private fun finishFileListOperation(error: FileOperationError?) {
+        val operationId = activeFileListOperationId ?: return
+        activeFileListOperationId = null
+        mutableFileOperationState.value =
+            if (error == null) {
+                FileOperationState.Completed(
+                    operationId = operationId,
+                    operation = DeviceFileOperationType.REFRESH,
+                )
+            } else {
+                FileOperationState.Failed(
+                    operationId = operationId,
+                    operation = DeviceFileOperationType.REFRESH,
+                    error = error,
+                )
+            }
+        finishCoordinatorOperation(operationId)
+    }
+
+    private fun finishCoordinatorOperation(operationId: Long) {
+        val next = fileOperationCoordinator.finish(operationId) ?: return
+        scope.launch {
+            startDeviceFileListRefresh(next.operation, next.reason)
+        }
+    }
+
+    private fun scheduleFileRefreshAfterRecordingSync(
+        reason: RecordingSyncReason,
+        expectedStatus: RecordingStatus?,
+        resolvedStatus: RecordingStatus,
+    ) {
+        if (resolvedStatus != RecordingStatus.Idle) return
+
+        val refresh = when {
+            reason == RecordingSyncReason.INITIAL_READY ->
+                RefreshReason.INITIAL_CONNECTION to 0L
+            reason == RecordingSyncReason.RECONNECT ->
+                RefreshReason.RECONNECTED to 0L
+            reason == RecordingSyncReason.APP_COMMAND &&
+                expectedStatus == RecordingStatus.Idle ->
+                RefreshReason.RECORDING_FINALIZED to RECORDING_FINALIZED_REFRESH_DELAY_MS
+            reason == RecordingSyncReason.HARDWARE_EVENT &&
+                expectedStatus == RecordingStatus.Idle ->
+                RefreshReason.RECORDING_FINALIZED to RECORDING_FINALIZED_REFRESH_DELAY_MS
+            else -> null
+        } ?: return
+
+        if (refresh.first == RefreshReason.RECORDING_FINALIZED) {
+            recordingFinalizedRefreshJob?.cancel()
+        }
+        val job = scope.launch {
+            if (refresh.second > 0L) delay(refresh.second)
+            requestDeviceFileRefresh(refresh.first)
+        }
+        if (refresh.first == RefreshReason.RECORDING_FINALIZED) {
+            recordingFinalizedRefreshJob = job
         }
     }
 
@@ -1031,7 +2001,34 @@ class DefaultDeviceRepository(
             lastError = error,
         )
         publishFileListDiagnostics(snapshot, completionReason, error)
+        pendingDeleteVerification?.let { pending ->
+            if (!pending.completion.isCompleted) {
+                pending.completion.complete(
+                    DeleteVerificationResult.RefreshFailed(
+                        fileListOperationError(error),
+                    ),
+                )
+            }
+        }
+        pendingDeleteVerification = null
+        finishFileListOperation(fileListOperationError(error))
     }
+
+    private fun fileListOperationError(error: FileListError): FileOperationError =
+        FileOperationError(
+            code = when (error.code) {
+                FileListErrorCode.NOT_READY -> FileOperationErrorCode.NOT_READY
+                FileListErrorCode.RECORDING_ACTIVE -> FileOperationErrorCode.RECORDING_ACTIVE
+                FileListErrorCode.WRITE_FAILED -> FileOperationErrorCode.GATT_WRITE_FAILED
+                FileListErrorCode.DISCONNECTED -> FileOperationErrorCode.BLE_DISCONNECTED
+                FileListErrorCode.SESSION_REPLACED -> FileOperationErrorCode.SESSION_REPLACED
+                FileListErrorCode.MALFORMED_PAYLOAD -> FileOperationErrorCode.UNEXPECTED_FRAME
+                FileListErrorCode.FIRST_RESPONSE_TIMEOUT,
+                FileListErrorCode.SESSION_TIMEOUT,
+                -> FileOperationErrorCode.TRANSFER_TIMEOUT
+            },
+            detail = error.detail,
+        )
 
     private fun noteFileListGuardFailure(error: FileListError) {
         val previous = mutableDeviceFileListState.value
@@ -1479,8 +2476,10 @@ class DefaultDeviceRepository(
         reconnectJob?.cancel()
         refreshJob?.cancel()
         recordingReconcileJob?.cancel()
+        recordingFinalizedRefreshJob?.cancel()
         cancelFileListTimeouts()
         fileListSessionCoordinator.cancel(nowMs())
+        activeFileTransferSession?.requestCancel(TransferCancelReason.BACKGROUND)
         stopRecordingPoller()
         scanner.stop()
         session.close()
@@ -1504,5 +2503,13 @@ class DefaultDeviceRepository(
         const val AUTO_CONNECT_AFTER_BLUETOOTH_ON_MS = 300L
         const val FILE_LIST_FIRST_RESPONSE_TIMEOUT_MS = 8_000L
         const val FILE_LIST_TOTAL_SESSION_TIMEOUT_MS = 20_000L
+        const val RECORDING_FINALIZED_REFRESH_DELAY_MS = 1_000L
+        const val FILE_DOWNLOAD_FRAME_FIXED_BYTES = 12
+        const val FILE_DIAGNOSTIC_PREFIX_BYTES = 32
+        const val DELETE_VERIFICATION_TIMEOUT_MS = 25_000L
+        const val RANGE_PROBE_START = 0L
+        const val RANGE_PROBE_END = 255L
+        const val RANGE_PROBE_REFERENCE_BYTES = 256L
+        const val RANGE_PROBE_ABSOLUTE_TIMEOUT_MS = 20_000L
     }
 }

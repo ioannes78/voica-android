@@ -5,19 +5,29 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.ble.DeviceFileListState
+import io.github.ioannes78.voica.ble.DeviceFileOperationType
 import io.github.ioannes78.voica.ble.FileListErrorCode
 import io.github.ioannes78.voica.ble.FileListFreshness
+import io.github.ioannes78.voica.ble.FileOperationState
+import io.github.ioannes78.voica.ble.LocalRecordingArtifact
 import io.github.ioannes78.voica.ble.RemoteDeviceFile
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -25,9 +35,19 @@ import java.util.Locale
 @Composable
 fun DeviceFilesCard(
     state: DeviceFileListState,
+    operationState: FileOperationState,
+    localRecordings: List<LocalRecordingArtifact>,
     canRefresh: Boolean,
     onRefresh: () -> Unit,
+    onDownload: (RemoteDeviceFile) -> Unit,
+    onCancelDownload: () -> Unit,
+    onDeleteRemote: (RemoteDeviceFile) -> Unit,
+    onRangeProbe: (RemoteDeviceFile) -> Unit,
 ) {
+    val downloadedIds = localRecordings.mapTo(mutableSetOf()) { it.sourceRemoteIdentity }
+    val active = operationState as? FileOperationState.Active
+    var pendingDelete by remember { mutableStateOf<RemoteDeviceFile?>(null) }
+
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -61,13 +81,54 @@ fun DeviceFilesCard(
             if (state.files.isNotEmpty()) {
                 HorizontalDivider()
                 state.files.forEachIndexed { index, file ->
-                    DeviceFileRow(file)
+                    DeviceFileRow(
+                        file = file,
+                        isDownloaded = file.identity in downloadedIds,
+                        activeOperation = active,
+                        operationState = operationState,
+                        onDownload = { onDownload(file) },
+                        onCancelDownload = onCancelDownload,
+                        onDeleteRemote = { pendingDelete = file },
+                        onRangeProbe = { onRangeProbe(file) },
+                    )
                     if (index != state.files.lastIndex) {
                         HorizontalDivider()
                     }
                 }
             }
         }
+    }
+
+    pendingDelete?.let { file ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text(stringResource(R.string.device_file_delete_remote_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(file.displayFilename)
+                    Text(
+                        stringResource(
+                            R.string.device_file_delete_remote_message,
+                        ),
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        pendingDelete = null
+                        onDeleteRemote(file)
+                    },
+                ) {
+                    Text(stringResource(R.string.device_file_delete_remote_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
     }
 }
 
@@ -105,12 +166,28 @@ private fun FileListStatus(state: DeviceFileListState) {
 }
 
 @Composable
-private fun DeviceFileRow(file: RemoteDeviceFile) {
+private fun DeviceFileRow(
+    file: RemoteDeviceFile,
+    isDownloaded: Boolean,
+    activeOperation: FileOperationState.Active?,
+    operationState: FileOperationState,
+    onDownload: () -> Unit,
+    onCancelDownload: () -> Unit,
+    onDeleteRemote: () -> Unit,
+    onRangeProbe: () -> Unit,
+) {
+    val activeDownload =
+        activeOperation?.operation == DeviceFileOperationType.DOWNLOAD &&
+            activeOperation.remoteIdentity == file.identity
+    val activeDelete =
+        activeOperation?.operation == DeviceFileOperationType.DELETE_REMOTE &&
+            activeOperation.remoteIdentity == file.identity
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
+            .padding(vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(file.displayFilename, style = MaterialTheme.typography.titleSmall)
         FileInfoLine(
@@ -127,6 +204,99 @@ private fun DeviceFileRow(file: RemoteDeviceFile) {
             stringResource(R.string.device_file_size),
             formatBytes(file.sizeBytes),
         )
+
+        when {
+            activeDownload -> {
+                val progress = activeOperation.progress
+                val percent = progress?.fraction?.let { (it * 100).toInt() }
+                Text(
+                    if (percent != null && progress != null) {
+                        stringResource(
+                            R.string.device_file_downloading_progress,
+                            percent,
+                            formatBytes(progress.receivedBytes),
+                            formatBytes(progress.expectedBytes),
+                        )
+                    } else {
+                        stringResource(R.string.device_file_downloading)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedButton(onClick = onCancelDownload) {
+                    Text(stringResource(R.string.device_file_cancel_download))
+                }
+            }
+
+            activeDelete -> {
+                Text(
+                    stringResource(R.string.device_file_deleting_remote),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+
+            else -> {
+                if (isDownloaded) {
+                    Text(
+                        stringResource(R.string.device_file_downloaded),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!isDownloaded) {
+                        Button(
+                            onClick = onDownload,
+                            enabled = activeOperation == null,
+                        ) {
+                            Text(stringResource(R.string.device_file_download))
+                        }
+                    } else {
+                        OutlinedButton(
+                            onClick = onRangeProbe,
+                            enabled = activeOperation == null,
+                        ) {
+                            Text(stringResource(R.string.device_file_range_probe))
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = onDeleteRemote,
+                        enabled = activeOperation == null,
+                    ) {
+                        Text(stringResource(R.string.device_file_delete_remote))
+                    }
+                }
+            }
+        }
+
+        val failure = operationState as? FileOperationState.Failed
+        if (failure?.remoteIdentity == file.identity) {
+            Text(
+                stringResource(
+                    if (failure.operation == DeviceFileOperationType.DELETE_REMOTE) {
+                        R.string.device_file_delete_remote_failed
+                    } else {
+                        R.string.device_file_download_failed
+                    },
+                    failure.error.code.name,
+                ),
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+
+        val unknown = operationState as? FileOperationState.OutcomeUnknown
+        if (unknown?.remoteIdentity == file.identity) {
+            Text(
+                stringResource(R.string.device_file_delete_remote_unknown),
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+
+        val cancelled = operationState as? FileOperationState.Cancelled
+        if (cancelled?.remoteIdentity == file.identity) {
+            Text(
+                stringResource(R.string.device_file_download_cancelled),
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
     }
 }
 

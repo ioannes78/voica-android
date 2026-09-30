@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import io.github.ioannes78.voica.ble.DeviceRepository
+import io.github.ioannes78.voica.ble.RemoteDeviceFile
 import io.github.ioannes78.voica.protocol.RecordingGain
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,6 +24,11 @@ class DeviceViewModel(
     val deviceInfo = repository.deviceInfo
     val recordingState = repository.recordingState
     val deviceFileListState = repository.deviceFileListState
+    val fileOperationState = repository.fileOperationState
+    val fileTransferDiagnostics = repository.fileTransferDiagnostics
+    val remoteDeleteDiagnostics = repository.remoteDeleteDiagnostics
+    val rangeProbeDiagnostics = repository.rangeProbeDiagnostics
+    val localRecordings = repository.localRecordings
     val diagnostics = repository.diagnostics
 
     private val mutableMissingPermissions =
@@ -98,6 +104,26 @@ class DeviceViewModel(
 
     fun refreshDeviceFiles() {
         viewModelScope.launch { repository.refreshDeviceFiles() }
+    }
+
+    fun downloadDeviceFile(file: RemoteDeviceFile) {
+        viewModelScope.launch { repository.downloadDeviceFile(file) }
+    }
+
+    fun cancelDeviceFileDownload() {
+        viewModelScope.launch { repository.cancelDeviceFileDownload() }
+    }
+
+    fun deleteRemoteRecording(file: RemoteDeviceFile) {
+        viewModelScope.launch { repository.deleteRemoteRecording(file) }
+    }
+
+    fun runRangeProbe(file: RemoteDeviceFile) {
+        viewModelScope.launch { repository.runRangeProbe(file) }
+    }
+
+    fun deleteLocalRecording(localId: String) {
+        viewModelScope.launch { repository.deleteLocalRecording(localId) }
     }
 
     class Factory(

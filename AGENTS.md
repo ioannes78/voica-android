@@ -4,17 +4,17 @@
 
 当前 `ioannes78/voica-android` 仓库是 Voica 项目实现状态的唯一事实来源。
 
-当前已冻结基线：**Stage 4**
+当前已冻结基线：**Stage 5**
 
-Stage 4 Freeze/Handoff：
+Stage 5 Freeze/Handoff：
 
-- `docs/STAGE_4_FREEZE.md`
-- `docs/STAGE_4_HANDOFF.md`
-- `docs/STAGE_4_TEST.md`
-- `docs/STAGE_4_PROTOCOL_FINDINGS.md`
-- `docs/STAGE_4_REAL_DEVICE_FINDINGS.md`
+- `docs/STAGE_5_FREEZE.md`
+- `docs/STAGE_5_HANDOFF.md`
+- `docs/STAGE_5_TEST.md`
+- `docs/STAGE_5_PROTOCOL_FINDINGS.md`
+- `docs/STAGE_5_REAL_DEVICE_FINDINGS.md`
 
-下一阶段：**Stage 5 — 文件下载 + 删除 + 原始音频落盘**
+下一阶段：**Stage 6 — 本地录音库 + Opus/WAV 音频链路**
 
 协议与行为参考：
 
@@ -84,8 +84,8 @@ Stage 3 冻结：
 - minSdk：26
 - Compose BOM：2026.09.00
 - Application ID：`io.github.ioannes78.voica`
-- versionCode：10
-- versionName：`0.4.2-stage4`
+- versionCode：14
+- versionName：`0.5.3-stage5-alpha4`
 - 默认产品语言：简体中文
 
 当前物理模块：
@@ -170,7 +170,28 @@ Stage 3 冻结：
 - 官方 App 已确认 CMD=12 是区间文件传输；Stage 5 才实现
 - Stage 5 必须重新验证 2/2、2/12 filename 参数长度；当前旧 fixed-24 builder 不得直接视为冻结下载协议
 
-## 九、架构规则
+## 九、Stage 5 已冻结文件传输与删除事实
+
+后续 Stage 不得无真机证据改变：
+
+- Ready 后自动请求设备文件列表；重连与录音完成后自动刷新，重复刷新合并
+- 文件下载主链：TYPE=2/CMD=2 → CMD=3 → CMD=4×N → CMD=5
+- 下载数据必须走专用可靠传输通道，不能依赖可丢包 SharedFlow
+- DATA 必须流式写入 .part，完成后做 size 校验、SHA-256、fsync、原子提交
+- 当前 QS668/CB08 下载得到的是设备原始 `.opus` 字节流，不是 RIFF/WAV
+- 本地显示为“OPUS 原始流”；不在 Stage 5 主动转码 WAV
+- CMD=12 真机范围语义为 `[start, end)`，即 end exclusive
+- 设备单录音删除 CMD=8 使用 28B 参数：`00000000 + 完整 filename 固定 24B`
+- raw file-list entry 作为 CMD=8 body 已被真机否定，不得恢复
+- 成功删除设备逻辑录音会同时删除物理存储同名 `.opus + .wav`
+- 删除设备录音与删除本地录音完全独立，不提供 DeleteBoth
+- Stage 5 不提供 Delete All
+- 破坏性删除必须二次确认；结果不确定时不得自动重发删除命令
+- 本地录音使用 app-private / noBackupFilesDir 保存
+- Stage 5 不引入 Room；本地 metadata 使用轻量原子文件保存
+- Stage 5 不承诺后台/锁屏持续下载，不实现持久化断点续传
+
+## 十、架构规则
 
 - `:core:protocol` 保持纯 Kotlin，不依赖 Android BLE API。
 - UI 不得直接解析二进制协议。
@@ -182,7 +203,7 @@ Stage 3 冻结：
 - 下载、解码、转写、说话人分离等耗时任务必须支持取消与生命周期处理。
 - 本地录音在设备断开后仍应可独立使用。
 
-## 十、测试规则
+## 十一、测试规则
 
 协议层至少覆盖 deterministic/golden tests：
 
@@ -201,10 +222,10 @@ Stage 3 冻结：
 
 BLE、文件、音频、ASR、Speaker 必须继续做真实设备或真实录音验收。
 
-## 十一、CI 原则
+## 十二、CI 原则
 
 - PR 默认快速 Unit Test + assembleDebug
 - 默认不运行 Emulator / Instrumentation
 - 使用 concurrency / cancel-in-progress
 - 真机 APK 仅在阶段验收需要时上传
-- Stage 5 开始前不得为了方便扩大 Stage 4 的范围
+- Stage 6 开始前不得为了方便扩大 Stage 5 的范围

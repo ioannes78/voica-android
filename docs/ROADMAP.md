@@ -1,6 +1,6 @@
 # Voica Android 全项目 Stage 开发路线图
 
-当前状态：**Stage 4 已完成、真机验收通过并冻结；下一阶段为 Stage 5。**
+当前状态：**Stage 5 已完成、真机验收通过并冻结；下一阶段为 Stage 6。**
 
 整个 Voica 路线均为全新独立实现，不得从 `voice-card-android` 复制、迁移、继承、cherry-pick 或机械改写任何代码。
 
@@ -158,22 +158,34 @@
 
 ## Stage 5 — 文件下载 + 删除 + 原始音频落盘
 
-内容：
+完成内容：
 
-- 重新验证 TYPE=2/CMD=2 与 CMD=12 的 filename 参数：官方 App 使用实际 UTF-8 bytes，当前旧 builder 的 fixed-24 假设不得直接视为冻结协议
-- TYPE=2/CMD=3 文件开始/实际文件名
-- TYPE=2/CMD=4 文件数据
-- TYPE=2/CMD=5 文件结束
-- TYPE=2/CMD=7 取消/中止语义
-- TYPE=2/CMD=12 区间文件传输
-- 下载进度/取消/重试/超时
-- 断连恢复策略
-- 完整 ProtocolFrame 必须单次 GATT Write，不得应用层拆包
-- 重复下载保护
-- 原始音频可靠落盘
-- 单文件设备删除
-- 删除二次确认
-- 不提供 Delete All
+- Ready / reconnect / Recording finalized 自动刷新文件列表与 refresh coalescing
+- TYPE=2/CMD=2 → CMD=3 → CMD=4×N → CMD=5 完整下载链路
+- 文件 DATA 专用可靠通道，不依赖可丢帧 observer SharedFlow
+- 下载进度、取消 CMD=7、超时、断线终止、session generation 防污染
+- `.part` 流式落盘、size 校验、SHA-256、fsync、atomic commit
+- app-private / noBackupFilesDir 本地原始录音保存
+- 重复下载保护与 Remote / Local 独立生命周期
+- 本地文件独立删除；不联动设备
+- CMD=12 ranged transfer 真机确认 end exclusive：`[start, end)`
+- 单录音设备删除 CMD=8 真机协议冻结
+- 设备删除二次确认、OutcomeUnknown 防重复 destructive retry、Fresh list 验证
+- 真机确认删除设备录音会同时删除物理同名 `.opus + .wav`
+- 真机确认 BLE 下载的是原始 `.opus` 字节流，不是 WAV
+- 本地显示“OPUS 原始流”
+- 不提供 Delete All / DeleteBoth
+- Stage 1–4 regression 持续通过
+
+状态：**已完成 / 已真机验收 / 已冻结**
+
+冻结文档：
+
+- `docs/STAGE_5_TEST.md`
+- `docs/STAGE_5_FREEZE.md`
+- `docs/STAGE_5_HANDOFF.md`
+- `docs/STAGE_5_PROTOCOL_FINDINGS.md`
+- `docs/STAGE_5_REAL_DEVICE_FINDINGS.md`
 
 ## Stage 6 — 本地录音库 + Opus/WAV 音频链路
 
