@@ -15,6 +15,17 @@ data class RecordingAsset(
     val formatValidationState: String,
 )
 
+data class RecordingDerivation(
+    val profileId: String,
+    val sourceSha256: String,
+    val sourceAssetId: String,
+    val outputAssetId: String?,
+    val pipelineVersion: Int,
+    val state: String,
+    val errorCode: String?,
+    val errorDetail: String?,
+)
+
 data class RecordingLibraryItem(
     val id: String,
     val sourceRemoteIdentity: String,
@@ -26,6 +37,7 @@ data class RecordingLibraryItem(
     val downloadedAtMs: Long,
     val state: String,
     val assets: List<RecordingAsset>,
+    val derivations: List<RecordingDerivation>,
 )
 
 internal fun RecordingWithAssets.toLibraryItem(): RecordingLibraryItem =
@@ -53,6 +65,18 @@ internal fun RecordingWithAssets.toLibraryItem(): RecordingLibraryItem =
                 sha256 = asset.sha256,
                 integrityState = asset.integrityState,
                 formatValidationState = asset.formatValidationState,
+            )
+        },
+        derivations = derivations.map { derivation ->
+            RecordingDerivation(
+                profileId = derivation.profileId,
+                sourceSha256 = derivation.sourceSha256,
+                sourceAssetId = derivation.sourceAssetId,
+                outputAssetId = derivation.outputAssetId,
+                pipelineVersion = derivation.pipelineVersion,
+                state = derivation.state,
+                errorCode = derivation.errorCode,
+                errorDetail = derivation.errorDetail,
             )
         },
     )

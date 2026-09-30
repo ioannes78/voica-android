@@ -30,6 +30,28 @@ interface RecordingDao {
     suspend fun insertAssetIgnore(asset: AudioAssetEntity): Long
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAsset(asset: AudioAssetEntity)
+
+    @Query("UPDATE audio_assets SET integrityState = :integrityState, formatValidationState = :validationState, container = :container, codec = :codec, sampleRateHz = :sampleRateHz, channelCount = :channelCount, verifiedAtMs = :verifiedAtMs WHERE assetId = :assetId")
+    suspend fun updateAssetValidation(
+        assetId: String,
+        integrityState: String,
+        validationState: String,
+        container: String,
+        codec: String?,
+        sampleRateHz: Int?,
+        channelCount: Int?,
+        verifiedAtMs: Long,
+    ): Int
+
+    @Query("SELECT * FROM audio_derivations WHERE recordingId = :recordingId AND profileId = :profileId AND sourceSha256 = :sourceSha256 LIMIT 1")
+    suspend fun findDerivation(
+        recordingId: String,
+        profileId: String,
+        sourceSha256: String,
+    ): AudioDerivationEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertDerivation(derivation: AudioDerivationEntity)
 
     @Query("UPDATE recordings SET displayName = :displayName, updatedAtMs = :updatedAtMs WHERE id = :recordingId")

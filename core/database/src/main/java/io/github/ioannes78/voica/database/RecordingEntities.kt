@@ -167,4 +167,9 @@ data class RecordingWithAssets(
         entityColumn = "recordingId",
     )
     val assets: List<AudioAssetEntity>,
+    @Relation(
+        parentColumn = "id",
+        entityColumn = "recordingId",
+    )
+    val derivations: List<AudioDerivationEntity>,
 )

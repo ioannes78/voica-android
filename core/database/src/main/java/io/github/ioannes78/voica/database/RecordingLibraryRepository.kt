@@ -18,6 +18,31 @@ data class LibraryDeleteResult(
     val failedPaths: List<String> = emptyList(),
 )
 
+data class CanonicalConversionSource(
+    val recordingId: String,
+    val sourceAssetId: String,
+    val sourceRelativePath: String,
+    val sourceSha256: String,
+    val sourceSizeBytes: Long,
+    val deviceReportedDurationMs: Long?,
+    val existingCanonical: RecordingAsset?,
+    val derivationState: String?,
+)
+
+data class CanonicalWavRegistration(
+    val recordingId: String,
+    val sourceAssetId: String,
+    val sourceSha256: String,
+    val profileId: String,
+    val pipelineVersion: Int,
+    val relativePath: String,
+    val sizeBytes: Long,
+    val sha256: String,
+    val sampleRateHz: Int,
+    val channelCount: Int,
+    val verifiedAtMs: Long,
+)
+
 data class DownloadedDeviceAsset(
     val sourceRemoteIdentity: String,
     val sourceDeviceAddress: String,
@@ -191,7 +216,138 @@ class RecordingLibraryRepository(
         return file.isFile && file.length() == asset.sizeBytes
     }
 
-    suspend fun rename(recordingId: String, requestedName: String): Boolean {
+    suspend fun loadCanonicalConversionSource(
+        recordingId: String,
+        profileId: String,
+    ): CanonicalConversionSource? {
+        val row = dao.findWithAssets(recordingId) ?: return null
+        val source = row.assets.firstOrNull {
+            it.role == AudioAssetRole.DEVICE_OPUS &&
+                it.integrityState == AudioIntegrityState.VERIFIED
+        } ?: return null
+        val existingCanonical = row.assets.firstOrNull {
+            it.role == AudioAssetRole.CANONICAL_WAV &&
+                it.integrityState == AudioIntegrityState.VERIFIED
+        }?.toModel()
+        val derivation = dao.findDerivation(
+            recordingId = recordingId,
+            profileId = profileId,
+            sourceSha256 = source.sha256,
+        )
+        return CanonicalConversionSource(
+            recordingId = recordingId,
+            sourceAssetId = source.assetId,
+            sourceRelativePath = source.relativePath,
+            sourceSha256 = source.sha256,
+            sourceSizeBytes = source.sizeBytes,
+            deviceReportedDurationMs = row.recording.deviceReportedDurationMs,
+            existingCanonical = existingCanonical,
+            derivationState = derivation?.state,
+        )
+    }
+
+    suspend fun updateSourceValidation(
+        assetId: String,
+        validationState: String,
+        container: String,
+        codec: String? = "OPUS",
+        sampleRateHz: Int? = null,
+        channelCount: Int? = null,
+        integrityState: String = AudioIntegrityState.VERIFIED,
+    ): Boolean =
+        dao.updateAssetValidation(
+            assetId = assetId,
+            integrityState = integrityState,
+            validationState = validationState,
+            container = container,
+            codec = codec,
+            sampleRateHz = sampleRateHz,
+            channelCount = channelCount,
+            verifiedAtMs = nowMs(),
+        ) == 1
+
+    suspend fun updateCanonicalDerivation(
+        recordingId: String,
+        sourceAssetId: String,
+        sourceSha256: String,
+        profileId: String,
+        pipelineVersion: Int,
+        state: String,
+        outputAssetId: String? = null,
+        errorCode: String? = null,
+        errorDetail: String? = null,
+    ) {
+        val now = nowMs()
+        val previous = dao.findDerivation(recordingId, profileId, sourceSha256)
+        val terminal = state == AudioDerivationState.READY ||
+            state == AudioDerivationState.FAILED_RECOVERABLE ||
+            state == AudioDerivationState.FAILED_PERMANENT ||
+            state == AudioDerivationState.CANCELLED
+        dao.upsertDerivation(
+            AudioDerivationEntity(
+                recordingId = recordingId,
+                profileId = profileId,
+                sourceSha256 = sourceSha256,
+                sourceAssetId = sourceAssetId,
+                outputAssetId = outputAssetId ?: previous?.outputAssetId,
+                pipelineVersion = pipelineVersion,
+                state = state,
+                startedAtMs = previous?.startedAtMs ?: now,
+                updatedAtMs = now,
+                completedAtMs = if (terminal) now else null,
+                errorCode = errorCode,
+                errorDetail = errorDetail,
+            ),
+        )
+    }
+
+    suspend fun commitCanonicalWav(registration: CanonicalWavRegistration) {
+        val assetId = canonicalAssetId(registration.recordingId, registration.profileId)
+        database.withTransaction {
+            dao.upsertAsset(
+                AudioAssetEntity(
+                    assetId = assetId,
+                    recordingId = registration.recordingId,
+                    role = AudioAssetRole.CANONICAL_WAV,
+                    relativePath = registration.relativePath,
+                    container = "WAV",
+                    codec = "PCM",
+                    sampleFormat = "PCM16_LE",
+                    sampleRateHz = registration.sampleRateHz,
+                    channelCount = registration.channelCount,
+                    sizeBytes = registration.sizeBytes,
+                    sha256 = registration.sha256.lowercase(),
+                    integrityState = AudioIntegrityState.VERIFIED,
+                    formatValidationState = AudioValidationState.VALID,
+                    createdAtMs = registration.verifiedAtMs,
+                    verifiedAtMs = registration.verifiedAtMs,
+                ),
+            )
+            val previous = dao.findDerivation(
+                registration.recordingId,
+                registration.profileId,
+                registration.sourceSha256,
+            )
+            dao.upsertDerivation(
+                AudioDerivationEntity(
+                    recordingId = registration.recordingId,
+                    profileId = registration.profileId,
+                    sourceSha256 = registration.sourceSha256,
+                    sourceAssetId = registration.sourceAssetId,
+                    outputAssetId = assetId,
+                    pipelineVersion = registration.pipelineVersion,
+                    state = AudioDerivationState.READY,
+                    startedAtMs = previous?.startedAtMs ?: registration.verifiedAtMs,
+                    updatedAtMs = registration.verifiedAtMs,
+                    completedAtMs = registration.verifiedAtMs,
+                    errorCode = null,
+                    errorDetail = null,
+                ),
+            )
+        }
+    }
+
+$insertBefore
         val displayName = sanitizeDisplayName(requestedName) ?: return false
         return dao.rename(recordingId, displayName, nowMs()) == 1
     }
@@ -266,6 +422,9 @@ class RecordingLibraryRepository(
             .digest(remoteIdentity.encodeToByteArray())
             .joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') }
 
+    private fun canonicalAssetId(recordingId: String, profileId: String): String =
+        stableRecordingId("$recordingId|canonical=$profileId")
+
     private companion object {
         const val LEGACY_IMPORT_META_KEY = "legacy_stage5_import"
         const val LEGACY_IMPORT_VERSION = "1"
@@ -309,4 +468,21 @@ private fun LegacyStage5Candidate.toAssetEntity(now: Long): AudioAssetEntity =
         formatValidationState = AudioValidationState.LEGACY_HINT,
         createdAtMs = downloadedAtMs,
         verifiedAtMs = now,
+    )
+
+
+private fun AudioAssetEntity.toModel(): RecordingAsset =
+    RecordingAsset(
+        assetId = assetId,
+        role = role,
+        relativePath = relativePath,
+        container = container,
+        codec = codec,
+        sampleFormat = sampleFormat,
+        sampleRateHz = sampleRateHz,
+        channelCount = channelCount,
+        sizeBytes = sizeBytes,
+        sha256 = sha256,
+        integrityState = integrityState,
+        formatValidationState = formatValidationState,
     )
