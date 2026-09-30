@@ -5,7 +5,8 @@
     <string name="stage3_subtitle">录音控制与设备实时状态</string>
     <string name="stage4_subtitle">设备文件列表与文件名解析</string>
     <string name="stage5_subtitle">设备录音下载与可靠落盘</string>
-    <string name="version_label">0.5.3 Stage 5 Alpha 4</string>
+    <string name="stage6_subtitle">本地录音库与 Opus/WAV 音频链路</string>
+    <string name="version_label">0.6.0 Stage 6 Alpha 1</string>
     <string name="tab_device">设备</string>
     <string name="tab_local_files">本地</string>
     <string name="tab_settings">设置</string>
@@ -94,7 +95,14 @@
     <string name="device_file_size">大小</string>
     <string name="device_file_unknown">未知</string>
     <string name="device_file_download">下载</string>
+    <string name="device_file_download_opus">下载 OPUS</string>
+    <string name="device_file_download_wav">下载 WAV</string>
+    <string name="device_file_opus_available">OPUS · 设备原始压缩音频</string>
+    <string name="device_file_wav_available">WAV · 设备同名音频</string>
+    <string name="device_file_opus_downloaded">OPUS · 已下载</string>
+    <string name="device_file_wav_downloaded">WAV · 已下载</string>
     <string name="device_file_downloading">正在下载…</string>
+    <string name="device_file_downloading_format">正在下载 %1$s…</string>
     <string name="device_file_downloading_progress">正在下载 %1$d%% · %2$s / %3$s</string>
     <string name="device_file_cancel_download">取消下载</string>
     <string name="device_file_downloaded">已下载到本地</string>
@@ -154,9 +162,9 @@
     <string name="diagnostics_title">BLE Diagnostics</string>
     <string name="diagnostics_recent_log">最近通信日志</string>
 
-    <string name="settings_title">Stage 5 设置</string>
+    <string name="settings_title">Stage 6 设置</string>
     <string name="settings_language">默认语言</string>
     <string name="settings_language_value">简体中文</string>
     <string name="settings_scope">当前范围</string>
-    <string name="settings_scope_value">BLE 连接 + 录音控制 + 设备文件自动同步 + 下载 + 本地文件 + 单条设备删除</string>
+    <string name="settings_scope_value">BLE 连接 + 录音控制 + 设备文件自动同步 + OPUS/WAV 选择下载 + 本地录音库</string>
 </resources>
