@@ -72,12 +72,13 @@ class CanonicalAudioCoordinator(
             lateinit var job: Job
             job = applicationScope.launch(start = CoroutineStart.LAZY) {
                 try {
+                    var rerun: Boolean
                     do {
                         synchronized(automaticLock) {
                             automaticRerun.remove(recordingId)
                         }
                         generate(recordingId)
-                        val rerun = synchronized(automaticLock) {
+                        rerun = synchronized(automaticLock) {
                             automaticRerun.remove(recordingId)
                         }
                     } while (rerun)
