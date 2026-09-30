@@ -18,7 +18,7 @@ class LocalRecordingStoreTest {
     fun streamsWavToPartThenCommitsAtomicallyAndReloadsMetadata() = runTest {
         val root = Files.createTempDirectory("voica-local-store").toFile()
         try {
-            val store = LocalRecordingStore(root) { 1234L }
+            val store = LocalRecordingStore(root, nowMs = { 1234L })
             val remote = remote(size = WAV_BYTES.size.toLong())
             val prepared = store.prepare(remote)
 
@@ -51,18 +51,18 @@ class LocalRecordingStoreTest {
     }
 
     @Test
-    fun rawUnknownContainerKeepsRemoteOpusExtensionWhenStartHasNoFilename() = runTest {
+    fun alignedUnknownBytesRemainUnverifiedOpusCandidate() = runTest {
         val root = Files.createTempDirectory("voica-raw-opus").toFile()
         try {
             val raw = ByteArray(80) { index -> (index and 0x7F).toByte() }
-            val store = LocalRecordingStore(root) { 2233L }
+            val store = LocalRecordingStore(root, nowMs = { 2233L })
             val remote = remote(size = raw.size.toLong())
             val prepared = store.prepare(remote)
             prepared.writer.write(raw)
 
             val committed = store.commit(prepared, actualTransferFilename = null)
 
-            assertEquals(AudioContainer.RAW_OPUS, committed.artifact.container)
+            assertEquals(AudioContainer.UNKNOWN, committed.artifact.container)
             assertTrue(committed.artifact.physicalFileName.endsWith(".opus"))
             assertTrue(committed.artifact.displayFilename.endsWith(".opus"))
             assertArrayEquals(raw, store.resolveAudioFile(committed.artifact).readBytes())
@@ -76,7 +76,7 @@ class LocalRecordingStoreTest {
         val root = Files.createTempDirectory("voica-dual-format").toFile()
         try {
             val remote = remote(size = 80L)
-            val store = LocalRecordingStore(root) { 3300L }
+            val store = LocalRecordingStore(root, nowMs = { 3300L })
 
             val opusBytes = ByteArray(80) { index -> (index and 0x7F).toByte() }
             val opus = store.prepare(remote, DeviceAudioFormat.OPUS)
