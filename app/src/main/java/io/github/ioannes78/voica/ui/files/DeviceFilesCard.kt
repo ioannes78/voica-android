@@ -5,13 +5,19 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -35,9 +41,11 @@ fun DeviceFilesCard(
     onRefresh: () -> Unit,
     onDownload: (RemoteDeviceFile) -> Unit,
     onCancelDownload: () -> Unit,
+    onDeleteRemote: (RemoteDeviceFile) -> Unit,
 ) {
     val downloadedIds = localRecordings.mapTo(mutableSetOf()) { it.sourceRemoteIdentity }
     val active = operationState as? FileOperationState.Active
+    var pendingDelete by remember { mutableStateOf<RemoteDeviceFile?>(null) }
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -72,17 +80,14 @@ fun DeviceFilesCard(
             if (state.files.isNotEmpty()) {
                 HorizontalDivider()
                 state.files.forEachIndexed { index, file ->
-                    val activeForFile =
-                        active?.operation == DeviceFileOperationType.DOWNLOAD &&
-                            active.remoteIdentity == file.identity
                     DeviceFileRow(
                         file = file,
                         isDownloaded = file.identity in downloadedIds,
                         activeOperation = active,
-                        activeForFile = activeForFile,
                         operationState = operationState,
                         onDownload = { onDownload(file) },
                         onCancelDownload = onCancelDownload,
+                        onDeleteRemote = { pendingDelete = file },
                     )
                     if (index != state.files.lastIndex) {
                         HorizontalDivider()
@@ -90,6 +95,38 @@ fun DeviceFilesCard(
                 }
             }
         }
+    }
+
+    pendingDelete?.let { file ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text(stringResource(R.string.device_file_delete_remote_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(file.displayFilename)
+                    Text(
+                        stringResource(
+                            R.string.device_file_delete_remote_message,
+                        ),
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        pendingDelete = null
+                        onDeleteRemote(file)
+                    },
+                ) {
+                    Text(stringResource(R.string.device_file_delete_remote_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
     }
 }
 
@@ -131,11 +168,18 @@ private fun DeviceFileRow(
     file: RemoteDeviceFile,
     isDownloaded: Boolean,
     activeOperation: FileOperationState.Active?,
-    activeForFile: Boolean,
     operationState: FileOperationState,
     onDownload: () -> Unit,
     onCancelDownload: () -> Unit,
+    onDeleteRemote: () -> Unit,
 ) {
+    val activeDownload =
+        activeOperation?.operation == DeviceFileOperationType.DOWNLOAD &&
+            activeOperation.remoteIdentity == file.identity
+    val activeDelete =
+        activeOperation?.operation == DeviceFileOperationType.DELETE_REMOTE &&
+            activeOperation.remoteIdentity == file.identity
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -159,8 +203,8 @@ private fun DeviceFileRow(
         )
 
         when {
-            activeForFile -> {
-                val progress = activeOperation?.progress
+            activeDownload -> {
+                val progress = activeOperation.progress
                 val percent = progress?.fraction?.let { (it * 100).toInt() }
                 Text(
                     if (percent != null && progress != null) {
@@ -180,19 +224,35 @@ private fun DeviceFileRow(
                 }
             }
 
-            isDownloaded -> {
+            activeDelete -> {
                 Text(
-                    stringResource(R.string.device_file_downloaded),
+                    stringResource(R.string.device_file_deleting_remote),
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
 
             else -> {
-                Button(
-                    onClick = onDownload,
-                    enabled = activeOperation == null,
-                ) {
-                    Text(stringResource(R.string.device_file_download))
+                if (isDownloaded) {
+                    Text(
+                        stringResource(R.string.device_file_downloaded),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!isDownloaded) {
+                        Button(
+                            onClick = onDownload,
+                            enabled = activeOperation == null,
+                        ) {
+                            Text(stringResource(R.string.device_file_download))
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = onDeleteRemote,
+                        enabled = activeOperation == null,
+                    ) {
+                        Text(stringResource(R.string.device_file_delete_remote))
+                    }
                 }
             }
         }
@@ -201,9 +261,21 @@ private fun DeviceFileRow(
         if (failure?.remoteIdentity == file.identity) {
             Text(
                 stringResource(
-                    R.string.device_file_download_failed,
+                    if (failure.operation == DeviceFileOperationType.DELETE_REMOTE) {
+                        R.string.device_file_delete_remote_failed
+                    } else {
+                        R.string.device_file_download_failed
+                    },
                     failure.error.code.name,
                 ),
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+
+        val unknown = operationState as? FileOperationState.OutcomeUnknown
+        if (unknown?.remoteIdentity == file.identity) {
+            Text(
+                stringResource(R.string.device_file_delete_remote_unknown),
                 style = MaterialTheme.typography.bodySmall,
             )
         }

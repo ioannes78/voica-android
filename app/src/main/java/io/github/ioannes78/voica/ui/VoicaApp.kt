@@ -48,14 +48,21 @@ import io.github.ioannes78.voica.ble.FileTransferDiagnostics
 import io.github.ioannes78.voica.ble.NotificationSource
 import io.github.ioannes78.voica.ble.RecordingCommandState
 import io.github.ioannes78.voica.ble.RecordingFreshness
+import io.github.ioannes78.voica.ble.RemoteDeleteDiagnostics
 import io.github.ioannes78.voica.protocol.BatteryState
 import io.github.ioannes78.voica.protocol.RecordingStatus
 import io.github.ioannes78.voica.ui.files.DeviceFilesCard
+import io.github.ioannes78.voica.ui.files.LocalRecordingsCard
 import io.github.ioannes78.voica.ui.recording.RecordingCard
 
 @Composable
 fun VoicaApp(repository: DeviceRepository) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    val deviceViewModel: DeviceViewModel = viewModel(
+        factory = remember(repository) {
+            DeviceViewModel.Factory(repository)
+        },
+    )
 
     Scaffold(
         bottomBar = {
@@ -69,21 +76,22 @@ fun VoicaApp(repository: DeviceRepository) {
                 NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
+                    icon = { Text("文") },
+                    label = { Text(stringResource(R.string.tab_local_files)) },
+                )
+                NavigationBarItem(
+                    selected = selectedTab == 2,
+                    onClick = { selectedTab = 2 },
                     icon = { Text("设") },
                     label = { Text(stringResource(R.string.tab_settings)) },
                 )
             }
         },
     ) { padding ->
-        if (selectedTab == 0) {
-            val deviceViewModel: DeviceViewModel = viewModel(
-                factory = remember(repository) {
-                    DeviceViewModel.Factory(repository)
-                },
-            )
-            DeviceScreen(padding, deviceViewModel)
-        } else {
-            SettingsScreen(padding)
+        when (selectedTab) {
+            0 -> DeviceScreen(padding, deviceViewModel)
+            1 -> LocalFilesScreen(padding, deviceViewModel)
+            else -> SettingsScreen(padding)
         }
     }
 }
@@ -100,6 +108,7 @@ private fun DeviceScreen(
     val deviceFiles by viewModel.deviceFileListState.collectAsState()
     val fileOperation by viewModel.fileOperationState.collectAsState()
     val fileTransferDiagnostics by viewModel.fileTransferDiagnostics.collectAsState()
+    val remoteDeleteDiagnostics by viewModel.remoteDeleteDiagnostics.collectAsState()
     val localRecordings by viewModel.localRecordings.collectAsState()
     val diagnostics by viewModel.diagnostics.collectAsState()
     val missingPermissions by viewModel.missingPermissions.collectAsState()
@@ -230,6 +239,7 @@ private fun DeviceScreen(
                     onRefresh = viewModel::refreshDeviceFiles,
                     onDownload = viewModel::downloadDeviceFile,
                     onCancelDownload = viewModel::cancelDeviceFileDownload,
+                    onDeleteRemote = viewModel::deleteRemoteRecording,
                 )
             }
         } else if (connection !is DeviceConnectionState.Idle &&
@@ -276,12 +286,49 @@ private fun DeviceScreen(
 
         if (diagnosticsExpanded) {
             item {
-                DiagnosticsCard(diagnostics, fileTransferDiagnostics)
+                DiagnosticsCard(
+                    diagnostics,
+                    fileTransferDiagnostics,
+                    remoteDeleteDiagnostics,
+                )
             }
         }
 
         item {
             Spacer(modifier = Modifier.height(8.dp))
+        }
+    }
+}
+
+@Composable
+private fun LocalFilesScreen(
+    padding: PaddingValues,
+    viewModel: DeviceViewModel,
+) {
+    val localRecordings by viewModel.localRecordings.collectAsState()
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(padding),
+        contentPadding = PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item {
+            Text(
+                stringResource(R.string.local_files_screen_title),
+                style = MaterialTheme.typography.headlineLarge,
+            )
+            Text(
+                stringResource(R.string.local_files_screen_subtitle),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        item {
+            LocalRecordingsCard(
+                recordings = localRecordings,
+                onDeleteLocal = { viewModel.deleteLocalRecording(it.id) },
+            )
         }
     }
 }
@@ -415,6 +462,7 @@ private fun DeviceInfoCard(
 private fun DiagnosticsCard(
     diagnostics: BleDiagnostics,
     fileTransfer: FileTransferDiagnostics,
+    remoteDelete: RemoteDeleteDiagnostics,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -713,6 +761,38 @@ private fun DiagnosticsCard(
             fileTransfer.lastError?.let {
                 DiagnosticLine(
                     "Transfer error",
+                    it.code.name + (it.detail?.let { detail -> ": " + detail } ?: ""),
+                )
+            }
+            HorizontalDivider()
+            Text("Remote delete", style = MaterialTheme.typography.titleSmall)
+            DiagnosticLine(
+                "Delete body bytes",
+                remoteDelete.requestBodyLength?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "Delete response source",
+                remoteDelete.responseSource?.name ?: "--",
+            )
+            DiagnosticLine(
+                "Delete status",
+                remoteDelete.responseStatusCode?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "Delete latency",
+                remoteDelete.responseLatencyMs?.let { "$it ms" } ?: "--",
+            )
+            DiagnosticLine(
+                "Delete verification",
+                remoteDelete.verificationResult ?: "--",
+            )
+            DiagnosticLine(
+                "Delete outcome unknown",
+                remoteDelete.outcomeUnknown.toString(),
+            )
+            remoteDelete.lastError?.let {
+                DiagnosticLine(
+                    "Delete error",
                     it.code.name + (it.detail?.let { detail -> ": " + detail } ?: ""),
                 )
             }

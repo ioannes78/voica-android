@@ -5,8 +5,9 @@
     <string name="stage3_subtitle">录音控制与设备实时状态</string>
     <string name="stage4_subtitle">设备文件列表与文件名解析</string>
     <string name="stage5_subtitle">设备录音下载与可靠落盘</string>
-    <string name="version_label">0.5.0 Stage 5 Alpha 1</string>
+    <string name="version_label">0.5.1 Stage 5 Alpha 2</string>
     <string name="tab_device">设备</string>
+    <string name="tab_local_files">本地</string>
     <string name="tab_settings">设置</string>
 
     <string name="device_status">设备状态</string>
@@ -99,6 +100,28 @@
     <string name="device_file_downloaded">已下载到本地</string>
     <string name="device_file_download_failed">下载失败：%1$s</string>
     <string name="device_file_download_cancelled">下载已取消</string>
+    <string name="device_file_delete_remote">删除设备录音</string>
+    <string name="device_file_deleting_remote">正在删除设备录音并验证…</string>
+    <string name="device_file_delete_remote_title">删除设备录音？</string>
+    <string name="device_file_delete_remote_message">此操作仅删除录音设备中的该录音，不会删除手机中已经下载的文件。</string>
+    <string name="device_file_delete_remote_confirm">删除设备录音</string>
+    <string name="device_file_delete_remote_failed">设备录音删除失败：%1$s</string>
+    <string name="device_file_delete_remote_unknown">删除结果暂时无法确认，将在重新连接或刷新列表后核对。</string>
+    <string name="cancel">取消</string>
+
+    <string name="local_files_screen_title">本地文件</string>
+    <string name="local_files_screen_subtitle">这里只管理手机中的已下载文件，与录音设备文件独立。</string>
+    <string name="local_files_title">已下载录音</string>
+    <string name="local_files_empty">暂无本地录音文件。</string>
+    <string name="local_files_count">共 %1$d 个本地文件</string>
+    <string name="local_file_recorded_at">录制时间</string>
+    <string name="local_file_downloaded_at">下载时间</string>
+    <string name="local_file_size">大小</string>
+    <string name="local_file_format">容器识别</string>
+    <string name="local_file_delete">删除本地文件</string>
+    <string name="local_file_delete_title">删除本地文件？</string>
+    <string name="local_file_delete_message">此操作仅删除手机中的文件，不会删除录音设备中的录音。</string>
+    <string name="local_file_delete_confirm">删除本地文件</string>
 
     <string name="state_unavailable">当前设备不支持蓝牙低功耗。</string>
     <string name="state_permission_required">等待蓝牙权限</string>

@@ -26,6 +26,7 @@ class DeviceViewModel(
     val deviceFileListState = repository.deviceFileListState
     val fileOperationState = repository.fileOperationState
     val fileTransferDiagnostics = repository.fileTransferDiagnostics
+    val remoteDeleteDiagnostics = repository.remoteDeleteDiagnostics
     val localRecordings = repository.localRecordings
     val diagnostics = repository.diagnostics
 
@@ -110,6 +111,10 @@ class DeviceViewModel(
 
     fun cancelDeviceFileDownload() {
         viewModelScope.launch { repository.cancelDeviceFileDownload() }
+    }
+
+    fun deleteRemoteRecording(file: RemoteDeviceFile) {
+        viewModelScope.launch { repository.deleteRemoteRecording(file) }
     }
 
     fun deleteLocalRecording(localId: String) {
