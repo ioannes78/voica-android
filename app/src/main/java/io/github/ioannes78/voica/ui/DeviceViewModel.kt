@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.ioannes78.voica.ble.DeviceAudioFormat
 import io.github.ioannes78.voica.ble.DeviceRepository
 import io.github.ioannes78.voica.ble.RemoteDeviceFile
+import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.protocol.RecordingGain
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,6 +20,7 @@ enum class DeviceActionMessage {
 
 class DeviceViewModel(
     private val repository: DeviceRepository,
+    private val recordingLibraryRepository: RecordingLibraryRepository,
 ) : ViewModel() {
     val scanState = repository.scanState
     val connectionState = repository.connectionState
@@ -30,6 +32,7 @@ class DeviceViewModel(
     val remoteDeleteDiagnostics = repository.remoteDeleteDiagnostics
     val rangeProbeDiagnostics = repository.rangeProbeDiagnostics
     val localRecordings = repository.localRecordings
+    val libraryRecordings = recordingLibraryRepository.recordings
     val diagnostics = repository.diagnostics
 
     private val mutableMissingPermissions =
@@ -123,15 +126,24 @@ class DeviceViewModel(
         viewModelScope.launch { repository.runRangeProbe(file) }
     }
 
-    fun deleteLocalRecording(localId: String) {
-        viewModelScope.launch { repository.deleteLocalRecording(localId) }
+    fun renameLocalRecording(recordingId: String, displayName: String) {
+        viewModelScope.launch {
+            recordingLibraryRepository.rename(recordingId, displayName)
+        }
+    }
+
+    fun deleteLibraryRecording(recordingId: String) {
+        viewModelScope.launch {
+            recordingLibraryRepository.deleteLocalRecording(recordingId)
+        }
     }
 
     class Factory(
         private val repository: DeviceRepository,
+        private val recordingLibraryRepository: RecordingLibraryRepository,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            DeviceViewModel(repository) as T
+            DeviceViewModel(repository, recordingLibraryRepository) as T
     }
 }
