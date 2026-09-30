@@ -9,6 +9,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -29,6 +30,7 @@ import io.github.ioannes78.voica.ble.FileListErrorCode
 import io.github.ioannes78.voica.ble.FileListFreshness
 import io.github.ioannes78.voica.ble.FileOperationState
 import io.github.ioannes78.voica.ble.RemoteDeviceFile
+import io.github.ioannes78.voica.ble.WavSizeProbeState
 import io.github.ioannes78.voica.database.AudioAssetRole
 import io.github.ioannes78.voica.database.RecordingLibraryItem
 import java.time.format.DateTimeFormatter
@@ -210,30 +212,61 @@ private fun DeviceFileRow(
                 ?: stringResource(R.string.device_file_unknown),
         )
         FileInfoLine(
-            stringResource(R.string.device_file_size),
+            stringResource(R.string.device_file_opus_label),
             formatBytes(file.sizeBytes),
+        )
+        FileInfoLine(
+            stringResource(R.string.device_file_wav_label),
+            when (file.wavSizeProbeState) {
+                WavSizeProbeState.AVAILABLE ->
+                    file.wavSizeBytes?.let(::formatBytes)
+                        ?: stringResource(R.string.device_file_unknown)
+                WavSizeProbeState.PROBING ->
+                    stringResource(R.string.device_file_wav_size_probing)
+                WavSizeProbeState.NOT_PROBED,
+                WavSizeProbeState.UNAVAILABLE,
+                ->
+                    stringResource(R.string.device_file_wav_size_unknown)
+            },
         )
 
         when {
             activeDownload -> {
                 val progress = activeOperation.progress
-                val percent = progress?.fraction?.let { (it * 100).toInt() }
+                val fraction = progress?.fraction
                 Text(
-                    if (percent != null && progress != null) {
-                        stringResource(
-                            R.string.device_file_downloading_progress,
-                            percent,
-                            formatBytes(progress.receivedBytes),
-                            formatBytes(progress.expectedBytes),
-                        )
-                    } else {
-                        stringResource(
-                            R.string.device_file_downloading_format,
-                            activeOperation.audioFormat?.name ?: "—",
-                        )
-                    },
+                    stringResource(
+                        R.string.device_file_downloading_format,
+                        activeOperation.audioFormat?.name ?: "—",
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                 )
+                if (fraction != null && progress != null) {
+                    LinearProgressIndicator(
+                        progress = { fraction },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(
+                        stringResource(
+                            R.string.device_file_download_progress_value,
+                            (fraction * 100).toInt(),
+                            formatBytes(progress.receivedBytes),
+                            formatBytes(progress.expectedBytes),
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                } else {
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(
+                        stringResource(
+                            R.string.device_file_download_received,
+                            formatBytes(progress?.receivedBytes ?: 0L),
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
                 OutlinedButton(onClick = onCancelDownload) {
                     Text(stringResource(R.string.device_file_cancel_download))
                 }
