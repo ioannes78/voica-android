@@ -18,6 +18,9 @@ class MainActivity : ComponentActivity() {
     private val recordingLibraryRepository: RecordingLibraryRepository
         get() = appContainer.recordingLibraryRepository
 
+    private val canonicalAudioCoordinator: CanonicalAudioCoordinator
+        get() = appContainer.canonicalAudioCoordinator
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -25,6 +28,7 @@ class MainActivity : ComponentActivity() {
                 VoicaApp(
                     repository = deviceRepository,
                     recordingLibraryRepository = recordingLibraryRepository,
+                    canonicalAudioCoordinator = canonicalAudioCoordinator,
                 )
             }
         }
