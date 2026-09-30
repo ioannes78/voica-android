@@ -155,6 +155,7 @@ class DeviceViewModel(
     }
 
     fun cancelCanonicalAudio(recordingId: String) {
+        canonicalAudioCoordinator.cancel(recordingId)
         canonicalJobs.remove(recordingId)?.cancel()
     }
 
