@@ -176,14 +176,14 @@ class AndroidPlaybackController(
                         core.play()
                     }
                 }
-                FocusChange.LOSS_TRANSIENT -> {
+                FocusChange.LOSS_TRANSIENT,
+                FocusChange.DUCK,
+                -> {
                     resumeEligibleAfterTransientLoss =
                         core.snapshot.value.state == PlaybackState.PLAYING
                     core.pause()
                 }
-                FocusChange.LOSS,
-                FocusChange.DUCK,
-                -> {
+                FocusChange.LOSS -> {
                     resumeEligibleAfterTransientLoss = false
                     core.pause()
                     audioFocus.abandon()
@@ -227,6 +227,7 @@ private class PlaybackAudioFocusManager(
 
     private val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
         .setAudioAttributes(attributes)
+        .setWillPauseWhenDucked(true)
         .setOnAudioFocusChangeListener(listener)
         .build()
 

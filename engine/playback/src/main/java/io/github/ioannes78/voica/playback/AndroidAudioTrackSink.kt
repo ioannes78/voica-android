@@ -16,8 +16,9 @@ class AndroidAudioTrackSinkFactory : PlaybackAudioSinkFactory {
         require(descriptor.channelCount == CanonicalPcmProfile.CHANNEL_COUNT)
         require(descriptor.bitsPerSample == CanonicalPcmProfile.BITS_PER_SAMPLE)
 
+        val sampleRate = requireNotNull(descriptor.sampleRateHz)
         val minBuffer = AudioTrack.getMinBufferSize(
-            descriptor.sampleRateHz,
+            sampleRate,
             AudioFormat.CHANNEL_OUT_MONO,
             AudioFormat.ENCODING_PCM_16BIT,
         )
@@ -37,7 +38,7 @@ class AndroidAudioTrackSinkFactory : PlaybackAudioSinkFactory {
             .setAudioFormat(
                 AudioFormat.Builder()
                     .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                    .setSampleRate(descriptor.sampleRateHz)
+                    .setSampleRate(sampleRate)
                     .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                     .build(),
             )
@@ -104,6 +105,7 @@ private class AndroidAudioTrackSink(
             track.playbackParams = PlaybackParams()
                 .setSpeed(speed)
                 .setPitch(1.0f)
+                .setAudioFallbackMode(PlaybackParams.AUDIO_FALLBACK_MODE_FAIL)
             true
         }.getOrDefault(false)
     }

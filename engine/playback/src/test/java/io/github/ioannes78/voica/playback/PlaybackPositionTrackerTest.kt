@@ -49,6 +49,18 @@ class PlaybackPositionTrackerTest {
     }
 
     @Test
+    fun wideTimestampCanFallBackToRaw32BitHeadWithoutGoingBackwards() {
+        val tracker = PlaybackPositionTracker()
+        val wide = 0x1_0000_0100L
+        tracker.rebase(sourceSampleIndex = 20_000L, sinkFramePosition = wide)
+
+        assertEquals(
+            20_256L,
+            tracker.absoluteSample(0x200L, totalSampleCount = 100_000L),
+        )
+    }
+
+    @Test
     fun clampsPresentedPositionToDuration() {
         val tracker = PlaybackPositionTracker()
         tracker.rebase(sourceSampleIndex = 90L, sinkFramePosition = 1_000L)

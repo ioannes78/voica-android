@@ -7,6 +7,7 @@ import io.github.ioannes78.voica.audio.PlaybackAudioSourceDescriptor
 import io.github.ioannes78.voica.audio.PlaybackState
 import io.github.ioannes78.voica.audio.SeekableAudioHandle
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -17,19 +18,24 @@ import org.junit.Test
 class StreamingPlaybackControllerTest {
     @Test
     fun loadPlayPauseAndSeekUseCanonicalSampleCoordinates() = runTest {
-        val sourceBytes = ByteArray(44 + 200 * 2)
+        val dataOffset = 98
+        val sourceBytes = ByteArray(dataOffset + 200 * 2)
         for (sample in 0 until 200) {
             val value = sample.toShort().toInt()
-            val offset = 44 + sample * 2
+            val offset = dataOffset + sample * 2
             sourceBytes[offset] = (value and 0xFF).toByte()
             sourceBytes[offset + 1] = ((value ushr 8) and 0xFF).toByte()
         }
 
         val sink = FakeSink()
         val controller = StreamingPlaybackController(
-            sourceResolver = FakeResolver(sourceBytes),
+            sourceResolver = FakeResolver(
+                bytes = sourceBytes,
+                dataOffset = dataOffset.toLong(),
+            ),
             sinkFactory = PlaybackAudioSinkFactory { sink },
             scope = this,
+            ioDispatcher = StandardTestDispatcher(testScheduler),
         )
 
         controller.load("recording-1")
@@ -53,16 +59,25 @@ class StreamingPlaybackControllerTest {
         val first = sink.writes.first()
         assertEquals(150 and 0xFF, first[0].toInt() and 0xFF)
         assertEquals((150 ushr 8) and 0xFF, first[1].toInt() and 0xFF)
+
+        controller.release()
+        runCurrent()
     }
 
     @Test
     fun latestRapidSeekWins() = runTest {
-        val bytes = ByteArray(44 + 1_000 * 2)
+        val dataOffset = 98L
+        val bytes = ByteArray(dataOffset.toInt() + 1_000 * 2)
         val sink = FakeSink()
         val controller = StreamingPlaybackController(
-            sourceResolver = FakeResolver(bytes, sampleCount = 1_000L),
+            sourceResolver = FakeResolver(
+                bytes = bytes,
+                sampleCount = 1_000L,
+                dataOffset = dataOffset,
+            ),
             sinkFactory = PlaybackAudioSinkFactory { sink },
             scope = this,
+            ioDispatcher = StandardTestDispatcher(testScheduler),
         )
         controller.load("recording-1")
 
@@ -72,11 +87,15 @@ class StreamingPlaybackControllerTest {
 
         assertEquals(900L, controller.snapshot.value.positionSampleIndex)
         assertEquals(PlaybackState.PAUSED, controller.snapshot.value.state)
+
+        controller.release()
+        runCurrent()
     }
 
     private class FakeResolver(
         private val bytes: ByteArray,
         private val sampleCount: Long = 200L,
+        private val dataOffset: Long = 44L,
     ) : AudioSourceResolver {
         override suspend fun resolvePlaybackSource(
             recordingId: String,
@@ -92,7 +111,7 @@ class StreamingPlaybackControllerTest {
                     seekable = true,
                     lengthBytes = bytes.size.toLong(),
                     bitsPerSample = 16,
-                    pcmDataOffsetBytes = 44L,
+                    pcmDataOffsetBytes = dataOffset,
                     pcmDataSizeBytes = sampleCount * 2L,
                     bytesPerFrame = 2,
                     totalSampleCount = sampleCount,
