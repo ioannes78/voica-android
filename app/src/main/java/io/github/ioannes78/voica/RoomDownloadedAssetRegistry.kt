@@ -15,6 +15,7 @@ import java.security.MessageDigest
 class RoomDownloadedAssetRegistry(
     private val repository: RecordingLibraryRepository,
     private val recordingsRoot: File,
+    private val assetValidator: DeviceAudioAssetValidator,
     private val onRegistered: (String) -> Unit = {},
 ) : DownloadedAssetRegistry {
     override suspend fun isAvailable(
@@ -74,6 +75,10 @@ class RoomDownloadedAssetRegistry(
                     sha256 = artifact.sha256,
                     container = artifact.container.name,
                 ),
+            )
+            assetValidator.validate(
+                remoteIdentity = artifact.sourceRemoteIdentity,
+                format = artifact.sourceFormat.toDatabaseFormat(),
             )
             onRegistered(recordingId)
         }
