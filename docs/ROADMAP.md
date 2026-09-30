@@ -247,6 +247,21 @@ Material 3、Dark Mode、Loading/Error/Empty State、中文文案统一。
 
 BLE soak、多文件/大文件/断连下载、1h/2h 音频、长转写、RAM/CPU/温度、锁屏/后台/低存储等。
 
+后台下载在 Stage 13 正式实现，范围固定为：
+
+- Android Foreground Service 承载设备文件传输
+- App 切到后台后继续下载
+- 熄屏/锁屏后继续下载
+- 常驻系统通知显示文件名、OPUS/WAV 格式和真实下载百分比
+- 通知中支持取消下载
+- BLE 后台连接保持与系统限制适配
+- 断连后的明确失败/恢复策略
+- App 进程被系统回收后的下载状态恢复策略
+- 多文件、大文件及 1h/2h 录音下载压力测试
+- 录音控制继续高于文件下载优先级
+
+Stage 6 不实现 Foreground Service；Stage 6 维持 App 进入后台时主动取消当前 BLE 文件传输。
+
 ## Stage 14 — Voica V1.0 Release Freeze
 
 Release APK/AAB、R8、权限隐私、Schema/Model Manifest Freeze、完整 Test/Architecture/Handoff。
