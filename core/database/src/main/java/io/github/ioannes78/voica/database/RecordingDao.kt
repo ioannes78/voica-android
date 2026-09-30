@@ -35,13 +35,14 @@ interface RecordingDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAsset(asset: AudioAssetEntity)
 
-    @Query("UPDATE audio_assets SET integrityState = :integrityState, formatValidationState = :validationState, container = :container, codec = :codec, sampleRateHz = :sampleRateHz, channelCount = :channelCount, verifiedAtMs = :verifiedAtMs WHERE assetId = :assetId")
+    @Query("UPDATE audio_assets SET integrityState = :integrityState, formatValidationState = :validationState, container = :container, codec = :codec, sampleFormat = :sampleFormat, sampleRateHz = :sampleRateHz, channelCount = :channelCount, verifiedAtMs = :verifiedAtMs WHERE assetId = :assetId")
     suspend fun updateAssetValidation(
         assetId: String,
         integrityState: String,
         validationState: String,
         container: String,
         codec: String?,
+        sampleFormat: String?,
         sampleRateHz: Int?,
         channelCount: Int?,
         verifiedAtMs: Long,
