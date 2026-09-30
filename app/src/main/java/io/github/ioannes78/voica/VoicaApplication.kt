@@ -37,7 +37,10 @@ class AppContainer(
         )
 
     private val downloadedAssetRegistry =
-        RoomDownloadedAssetRegistry(recordingLibraryRepository)
+        RoomDownloadedAssetRegistry(
+            repository = recordingLibraryRepository,
+            recordingsRoot = recordingsRoot,
+        )
 
     val deviceRepository: DeviceRepository =
         DefaultDeviceRepository(

@@ -155,20 +155,40 @@ class RecordingLibraryRepository(
         }
     }
 
-    suspend fun isDeviceAssetAvailable(
+    suspend fun findDeviceAsset(
         remoteIdentity: String,
         format: LegacyAssetFormat,
-    ): Boolean {
+    ): RecordingAsset? {
         val recordingId = stableRecordingId(remoteIdentity)
         val role = when (format) {
             LegacyAssetFormat.OPUS -> AudioAssetRole.DEVICE_OPUS
             LegacyAssetFormat.WAV -> AudioAssetRole.DEVICE_WAV
         }
-        val asset = dao.findAsset(recordingId, role) ?: return false
+        val asset = dao.findAsset(recordingId, role) ?: return null
+        if (asset.integrityState != AudioIntegrityState.VERIFIED) return null
+        return RecordingAsset(
+            assetId = asset.assetId,
+            role = asset.role,
+            relativePath = asset.relativePath,
+            container = asset.container,
+            codec = asset.codec,
+            sampleFormat = asset.sampleFormat,
+            sampleRateHz = asset.sampleRateHz,
+            channelCount = asset.channelCount,
+            sizeBytes = asset.sizeBytes,
+            sha256 = asset.sha256,
+            integrityState = asset.integrityState,
+            formatValidationState = asset.formatValidationState,
+        )
+    }
+
+    suspend fun isDeviceAssetAvailable(
+        remoteIdentity: String,
+        format: LegacyAssetFormat,
+    ): Boolean {
+        val asset = findDeviceAsset(remoteIdentity, format) ?: return false
         val file = File(recordingsRoot, asset.relativePath)
-        return asset.integrityState == AudioIntegrityState.VERIFIED &&
-            file.isFile &&
-            file.length() == asset.sizeBytes
+        return file.isFile && file.length() == asset.sizeBytes
     }
 
     suspend fun rename(recordingId: String, requestedName: String): Boolean {

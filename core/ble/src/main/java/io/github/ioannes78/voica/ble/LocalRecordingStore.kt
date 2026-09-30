@@ -225,6 +225,7 @@ class StreamingDownloadWriter internal constructor(
 class LocalRecordingStore(
     baseDirectory: File,
     private val nowMs: () -> Long = System::currentTimeMillis,
+    private val legacyMetadataEnabled: Boolean = true,
 ) {
     private val baseDir = baseDirectory
     private val tempDir = File(baseDir, "temp")
@@ -236,7 +237,7 @@ class LocalRecordingStore(
         tempDir.mkdirs()
         completedDir.mkdirs()
         cleanupStaleTempFiles()
-        reload()
+        if (legacyMetadataEnabled) reload()
     }
 
     @Synchronized
@@ -340,18 +341,7 @@ class LocalRecordingStore(
                 .replaceSuffixForContainer(writerResult.container),
         )
 
-        val resolvedContainer =
-            if (
-                writerResult.container == AudioContainer.UNKNOWN &&
-                prepared.format == DeviceAudioFormat.OPUS &&
-                extension == ".opus" &&
-                writerResult.sizeBytes > 0L &&
-                writerResult.sizeBytes % RAW_OPUS_PACKET_BYTES == 0L
-            ) {
-                AudioContainer.RAW_OPUS
-            } else {
-                writerResult.container
-            }
+        val resolvedContainer = writerResult.container
 
         if (prepared.format == DeviceAudioFormat.WAV && resolvedContainer != AudioContainer.WAV) {
             actualFinalFile.delete()
@@ -378,8 +368,12 @@ class LocalRecordingStore(
             container = resolvedContainer,
         )
 
-        writeMetadataAtomically(artifact)
-        reload()
+        if (legacyMetadataEnabled) {
+            writeMetadataAtomically(artifact)
+            reload()
+        } else {
+            publishRuntimeArtifact(artifact)
+        }
         return LocalDownloadCommitResult(
             artifact = artifact,
             firstDataPrefix = writerResult.firstDataPrefix,
@@ -398,9 +392,14 @@ class LocalRecordingStore(
         val audio = File(completedDir, artifact.physicalFileName)
         val metadata = metadataFile(localId)
         val audioDeleted = !audio.exists() || audio.delete()
-        val metadataDeleted = !metadata.exists() || metadata.delete()
+        val metadataDeleted =
+            !legacyMetadataEnabled || !metadata.exists() || metadata.delete()
 
-        reload()
+        if (legacyMetadataEnabled) {
+            reload()
+        } else {
+            mutableRecordings.value = mutableRecordings.value.filterNot { it.id == localId }
+        }
         return if (audioDeleted && metadataDeleted) {
             LocalDeleteResult(deleted = true)
         } else {
@@ -416,6 +415,7 @@ class LocalRecordingStore(
 
     @Synchronized
     fun reload() {
+        if (!legacyMetadataEnabled) return
         completedDir.mkdirs()
         val loaded = completedDir.listFiles()
             .orEmpty()
@@ -427,6 +427,13 @@ class LocalRecordingStore(
             }
             .sortedByDescending { it.downloadedAtMs }
         mutableRecordings.value = loaded
+    }
+
+    @Synchronized
+    private fun publishRuntimeArtifact(artifact: LocalRecordingArtifact) {
+        mutableRecordings.value =
+            (mutableRecordings.value.filterNot { it.id == artifact.id } + artifact)
+                .sortedByDescending { it.downloadedAtMs }
     }
 
     fun cleanupStaleTempFiles(): Int {

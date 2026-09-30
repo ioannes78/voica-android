@@ -98,6 +98,36 @@ class LocalRecordingStoreTest {
     }
 
     @Test
+    fun runtimeModeDoesNotWriteOrReloadLegacyProperties() = runTest {
+        val root = Files.createTempDirectory("voica-runtime-store").toFile()
+        try {
+            val remote = remote(size = 80L)
+            val store = LocalRecordingStore(
+                baseDirectory = root,
+                nowMs = { 4400L },
+                legacyMetadataEnabled = false,
+            )
+            val prepared = store.prepare(remote, DeviceAudioFormat.OPUS)
+            prepared.writer.write(ByteArray(80))
+            val committed = store.commit(prepared, "note20260930-083059.opus")
+
+            val completed = root.resolve("completed")
+            assertTrue(store.isDownloaded(remote.identity, DeviceAudioFormat.OPUS))
+            assertTrue(completed.resolve(committed.artifact.physicalFileName).isFile)
+            assertTrue(completed.listFiles().orEmpty().none { it.name.endsWith(".properties") })
+
+            val restarted = LocalRecordingStore(
+                baseDirectory = root,
+                nowMs = { 4500L },
+                legacyMetadataEnabled = false,
+            )
+            assertTrue(restarted.recordings.value.isEmpty())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun sizeMismatchDeletesPartAndDoesNotCreateReadyArtifact() = runTest {
         val root = Files.createTempDirectory("voica-size-mismatch").toFile()
         try {

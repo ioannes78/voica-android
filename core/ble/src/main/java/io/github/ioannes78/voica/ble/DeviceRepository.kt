@@ -104,7 +104,8 @@ class DefaultDeviceRepository(
     private val fileListSessionCoordinator = FileListSessionCoordinator()
     private val fileOperationCoordinator = DeviceFileOperationCoordinator()
     private val localRecordingStore = LocalRecordingStore(
-        File(applicationContext.noBackupFilesDir, "recordings"),
+        baseDirectory = File(applicationContext.noBackupFilesDir, "recordings"),
+        legacyMetadataEnabled = false,
     )
     private val recordingSyncMutex = Mutex()
     private val rememberedDeviceStore = RememberedDeviceStore(applicationContext)
@@ -1172,17 +1173,18 @@ class DefaultDeviceRepository(
                 return
             }
 
-            val artifact = localRecordingStore.artifactForRemote(remoteIdentity)
-            if (artifact == null) {
+            val registeredAsset =
+                downloadedAssetRegistry.resolve(remoteIdentity, DeviceAudioFormat.OPUS)
+            if (registeredAsset == null) {
                 finishWithError(
                     FileOperationError(
                         FileOperationErrorCode.LOCAL_ARTIFACT_CONFLICT,
-                        "download the recording before running range probe",
+                        "download the OPUS recording before running range probe",
                     ),
                 )
                 return
             }
-            val localFile = localRecordingStore.resolveAudioFile(artifact)
+            val localFile = registeredAsset.file
             if (!localFile.isFile || localFile.length() < RANGE_PROBE_REFERENCE_BYTES) {
                 finishWithError(
                     FileOperationError(
