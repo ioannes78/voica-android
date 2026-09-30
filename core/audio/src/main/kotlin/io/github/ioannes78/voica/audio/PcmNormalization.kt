@@ -64,7 +64,7 @@ class StreamingPcm16Normalizer(
                 val remainder = sourceNumerator % targetSampleRateHz
 
                 val sample = when {
-                    baseIndex == sourceFrameIndex && remainder == 0L -> currentMono
+                    baseIndex == sourceFrameIndex && remainder == 0L -> currentMono.toLong()
                     baseIndex == sourceFrameIndex - 1L -> {
                         val delta = currentMono.toLong() - previous.toLong()
                         previous.toLong() +
