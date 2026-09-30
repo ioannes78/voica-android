@@ -49,6 +49,7 @@ import io.github.ioannes78.voica.ble.NotificationSource
 import io.github.ioannes78.voica.ble.RecordingCommandState
 import io.github.ioannes78.voica.ble.RecordingFreshness
 import io.github.ioannes78.voica.ble.RemoteDeleteDiagnostics
+import io.github.ioannes78.voica.ble.RangeProbeDiagnostics
 import io.github.ioannes78.voica.protocol.BatteryState
 import io.github.ioannes78.voica.protocol.RecordingStatus
 import io.github.ioannes78.voica.ui.files.DeviceFilesCard
@@ -109,6 +110,7 @@ private fun DeviceScreen(
     val fileOperation by viewModel.fileOperationState.collectAsState()
     val fileTransferDiagnostics by viewModel.fileTransferDiagnostics.collectAsState()
     val remoteDeleteDiagnostics by viewModel.remoteDeleteDiagnostics.collectAsState()
+    val rangeProbeDiagnostics by viewModel.rangeProbeDiagnostics.collectAsState()
     val localRecordings by viewModel.localRecordings.collectAsState()
     val diagnostics by viewModel.diagnostics.collectAsState()
     val missingPermissions by viewModel.missingPermissions.collectAsState()
@@ -240,6 +242,7 @@ private fun DeviceScreen(
                     onDownload = viewModel::downloadDeviceFile,
                     onCancelDownload = viewModel::cancelDeviceFileDownload,
                     onDeleteRemote = viewModel::deleteRemoteRecording,
+                    onRangeProbe = viewModel::runRangeProbe,
                 )
             }
         } else if (connection !is DeviceConnectionState.Idle &&
@@ -290,6 +293,7 @@ private fun DeviceScreen(
                     diagnostics,
                     fileTransferDiagnostics,
                     remoteDeleteDiagnostics,
+                    rangeProbeDiagnostics,
                 )
             }
         }
@@ -463,6 +467,7 @@ private fun DiagnosticsCard(
     diagnostics: BleDiagnostics,
     fileTransfer: FileTransferDiagnostics,
     remoteDelete: RemoteDeleteDiagnostics,
+    rangeProbe: RangeProbeDiagnostics,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -793,6 +798,43 @@ private fun DiagnosticsCard(
             remoteDelete.lastError?.let {
                 DiagnosticLine(
                     "Delete error",
+                    it.code.name + (it.detail?.let { detail -> ": " + detail } ?: ""),
+                )
+            }
+            HorizontalDivider()
+            Text("Range probe", style = MaterialTheme.typography.titleSmall)
+            DiagnosticLine(
+                "Range",
+                if (rangeProbe.startOffset != null && rangeProbe.requestedEnd != null) {
+                    rangeProbe.startOffset.toString() + ".." + rangeProbe.requestedEnd
+                } else {
+                    "--"
+                },
+            )
+            DiagnosticLine("Range received", rangeProbe.receivedBytes.toString())
+            DiagnosticLine(
+                "Range actual filename",
+                rangeProbe.actualTransferFilename ?: "--",
+            )
+            DiagnosticLine(
+                "Range first data",
+                rangeProbe.firstDataPrefixHex ?: "--",
+            )
+            DiagnosticLine(
+                "Range matches local",
+                rangeProbe.matchesLocalBytes?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "Range end semantics",
+                rangeProbe.inferredEndSemantics ?: "--",
+            )
+            DiagnosticLine(
+                "Range remote status",
+                rangeProbe.remoteStatusCode?.toString() ?: "--",
+            )
+            rangeProbe.lastError?.let {
+                DiagnosticLine(
+                    "Range error",
                     it.code.name + (it.detail?.let { detail -> ": " + detail } ?: ""),
                 )
             }

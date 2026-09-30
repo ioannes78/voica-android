@@ -5,7 +5,7 @@
     <string name="stage3_subtitle">录音控制与设备实时状态</string>
     <string name="stage4_subtitle">设备文件列表与文件名解析</string>
     <string name="stage5_subtitle">设备录音下载与可靠落盘</string>
-    <string name="version_label">0.5.1 Stage 5 Alpha 2</string>
+    <string name="version_label">0.5.2 Stage 5 Alpha 3</string>
     <string name="tab_device">设备</string>
     <string name="tab_local_files">本地</string>
     <string name="tab_settings">设置</string>
@@ -101,6 +101,7 @@
     <string name="device_file_download_failed">下载失败：%1$s</string>
     <string name="device_file_download_cancelled">下载已取消</string>
     <string name="device_file_delete_remote">删除设备录音</string>
+    <string name="device_file_range_probe">范围验证</string>
     <string name="device_file_deleting_remote">正在删除设备录音并验证…</string>
     <string name="device_file_delete_remote_title">删除设备录音？</string>
     <string name="device_file_delete_remote_message">此操作仅删除录音设备中的该录音，不会删除手机中已经下载的文件。</string>
@@ -154,5 +155,5 @@
     <string name="settings_language">默认语言</string>
     <string name="settings_language_value">简体中文</string>
     <string name="settings_scope">当前范围</string>
-    <string name="settings_scope_value">BLE 连接 + 录音控制 + 设备文件列表 + 文件下载</string>
+    <string name="settings_scope_value">BLE 连接 + 录音控制 + 设备文件自动同步 + 下载 + 本地文件 + 单条设备删除</string>
 </resources>

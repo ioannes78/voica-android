@@ -42,6 +42,7 @@ fun DeviceFilesCard(
     onDownload: (RemoteDeviceFile) -> Unit,
     onCancelDownload: () -> Unit,
     onDeleteRemote: (RemoteDeviceFile) -> Unit,
+    onRangeProbe: (RemoteDeviceFile) -> Unit,
 ) {
     val downloadedIds = localRecordings.mapTo(mutableSetOf()) { it.sourceRemoteIdentity }
     val active = operationState as? FileOperationState.Active
@@ -88,6 +89,7 @@ fun DeviceFilesCard(
                         onDownload = { onDownload(file) },
                         onCancelDownload = onCancelDownload,
                         onDeleteRemote = { pendingDelete = file },
+                        onRangeProbe = { onRangeProbe(file) },
                     )
                     if (index != state.files.lastIndex) {
                         HorizontalDivider()
@@ -172,6 +174,7 @@ private fun DeviceFileRow(
     onDownload: () -> Unit,
     onCancelDownload: () -> Unit,
     onDeleteRemote: () -> Unit,
+    onRangeProbe: () -> Unit,
 ) {
     val activeDownload =
         activeOperation?.operation == DeviceFileOperationType.DOWNLOAD &&
@@ -245,6 +248,13 @@ private fun DeviceFileRow(
                             enabled = activeOperation == null,
                         ) {
                             Text(stringResource(R.string.device_file_download))
+                        }
+                    } else {
+                        OutlinedButton(
+                            onClick = onRangeProbe,
+                            enabled = activeOperation == null,
+                        ) {
+                            Text(stringResource(R.string.device_file_range_probe))
                         }
                     }
                     OutlinedButton(

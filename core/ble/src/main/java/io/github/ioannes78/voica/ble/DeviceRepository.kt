@@ -41,6 +41,7 @@ interface DeviceRepository {
     val fileOperationState: StateFlow<FileOperationState>
     val fileTransferDiagnostics: StateFlow<FileTransferDiagnostics>
     val remoteDeleteDiagnostics: StateFlow<RemoteDeleteDiagnostics>
+    val rangeProbeDiagnostics: StateFlow<RangeProbeDiagnostics>
     val localRecordings: StateFlow<List<LocalRecordingArtifact>>
     val diagnostics: StateFlow<BleDiagnostics>
 
@@ -64,6 +65,7 @@ interface DeviceRepository {
     suspend fun downloadDeviceFile(file: RemoteDeviceFile)
     suspend fun cancelDeviceFileDownload()
     suspend fun deleteRemoteRecording(file: RemoteDeviceFile)
+    suspend fun runRangeProbe(file: RemoteDeviceFile)
     suspend fun deleteLocalRecording(localId: String): LocalDeleteResult
 }
 
@@ -138,6 +140,11 @@ class DefaultDeviceRepository(
         MutableStateFlow(RemoteDeleteDiagnostics())
     override val remoteDeleteDiagnostics: StateFlow<RemoteDeleteDiagnostics> =
         mutableRemoteDeleteDiagnostics.asStateFlow()
+
+    private val mutableRangeProbeDiagnostics =
+        MutableStateFlow(RangeProbeDiagnostics())
+    override val rangeProbeDiagnostics: StateFlow<RangeProbeDiagnostics> =
+        mutableRangeProbeDiagnostics.asStateFlow()
 
     override val localRecordings: StateFlow<List<LocalRecordingArtifact>> =
         localRecordingStore.recordings
@@ -1085,6 +1092,198 @@ class DefaultDeviceRepository(
                     error = error,
                 )
             }
+        }
+    }
+
+    override suspend fun runRangeProbe(file: RemoteDeviceFile) {
+        val operation = fileOperationCoordinator.tryStart(DeviceFileOperationType.RANGE_PROBE)
+            ?: return
+        val operationId = operation.operationId
+        val remoteIdentity = file.identity
+        var transfer: FileTransferSession? = null
+
+        fun finishWithError(error: FileOperationError) {
+            mutableRangeProbeDiagnostics.value =
+                mutableRangeProbeDiagnostics.value.copy(
+                    operationId = operationId,
+                    remoteIdentity = remoteIdentity,
+                    lastError = error,
+                )
+            mutableFileOperationState.value = FileOperationState.Failed(
+                operationId = operationId,
+                operation = DeviceFileOperationType.RANGE_PROBE,
+                remoteIdentity = remoteIdentity,
+                error = error,
+            )
+        }
+
+        try {
+            mutableFileOperationState.value = FileOperationState.Active(
+                operationId = operationId,
+                operation = DeviceFileOperationType.RANGE_PROBE,
+                stage = FileOperationStage.PREPARING,
+                remoteIdentity = remoteIdentity,
+            )
+
+            val ready = session.state.value as? DeviceConnectionState.Ready
+            if (ready == null) {
+                finishWithError(FileOperationError(FileOperationErrorCode.NOT_READY))
+                return
+            }
+            val recording = mutableRecordingState.value
+            if (
+                recording.status != RecordingStatus.Idle ||
+                recording.freshness != RecordingFreshness.FRESH ||
+                recording.commandState != RecordingCommandState.IDLE
+            ) {
+                finishWithError(FileOperationError(FileOperationErrorCode.RECORDING_ACTIVE))
+                return
+            }
+            val listState = mutableDeviceFileListState.value
+            if (
+                listState.freshness != FileListFreshness.FRESH ||
+                listState.deviceAddress != ready.address ||
+                listState.files.none { it.identity == remoteIdentity }
+            ) {
+                finishWithError(
+                    FileOperationError(FileOperationErrorCode.FILE_LIST_NOT_FRESH),
+                )
+                return
+            }
+
+            val artifact = localRecordingStore.artifactForRemote(remoteIdentity)
+            if (artifact == null) {
+                finishWithError(
+                    FileOperationError(
+                        FileOperationErrorCode.LOCAL_ARTIFACT_CONFLICT,
+                        "download the recording before running range probe",
+                    ),
+                )
+                return
+            }
+            val localFile = localRecordingStore.resolveAudioFile(artifact)
+            if (!localFile.isFile || localFile.length() < RANGE_PROBE_REFERENCE_BYTES) {
+                finishWithError(
+                    FileOperationError(
+                        FileOperationErrorCode.LOCAL_ARTIFACT_CONFLICT,
+                        "local reference file is unavailable or too short",
+                    ),
+                )
+                return
+            }
+
+            val filenameBytes = file.displayFilename.encodeToByteArray()
+            if (filenameBytes.isEmpty() || filenameBytes.any { it.toInt() == 0 }) {
+                finishWithError(FileOperationError(FileOperationErrorCode.INVALID_FILENAME))
+                return
+            }
+
+            val sink = RangeProbeDataSink()
+            val transferSession = FileTransferSession(
+                absoluteTimeoutMs = RANGE_PROBE_ABSOLUTE_TIMEOUT_MS,
+            )
+            transfer = transferSession
+            if (!session.registerFileTransferConsumer(transferSession)) {
+                finishWithError(FileOperationError(FileOperationErrorCode.FILE_OPERATION_BUSY))
+                return
+            }
+            activeFileTransferSession = transferSession
+            activeFileTransferOperationId = operationId
+
+            mutableRangeProbeDiagnostics.value = RangeProbeDiagnostics(
+                operationId = operationId,
+                remoteIdentity = remoteIdentity,
+                startOffset = RANGE_PROBE_START,
+                requestedEnd = RANGE_PROBE_END,
+            )
+            mutableFileOperationState.value = FileOperationState.Active(
+                operationId = operationId,
+                operation = DeviceFileOperationType.RANGE_PROBE,
+                stage = FileOperationStage.REQUESTING,
+                remoteIdentity = remoteIdentity,
+            )
+
+            when (
+                val result = transferSession.execute(
+                    sink = sink,
+                    sendRequest = {
+                        session.sendFileTransferRequest { sequence ->
+                            FileTransferProtocol.buildRangeRequest(
+                                sequence = sequence,
+                                start = RANGE_PROBE_START,
+                                end = RANGE_PROBE_END,
+                                filenameBytes = filenameBytes,
+                            )
+                        }
+                    },
+                    sendAbort = session::sendFileTransferAbort,
+                    expectedBytes = 0L,
+                )
+            ) {
+                is FileTransferExecutionResult.Completed -> {
+                    val received = sink.bytes()
+                    val localPrefix = localFile.inputStream().use { input ->
+                        val wanted = received.size
+                        val buffer = ByteArray(wanted)
+                        var offset = 0
+                        while (offset < wanted) {
+                            val read = input.read(buffer, offset, wanted - offset)
+                            if (read < 0) break
+                            offset += read
+                        }
+                        buffer.copyOf(offset)
+                    }
+                    val matches = received.contentEquals(localPrefix)
+                    val semantics = when (received.size) {
+                        RANGE_PROBE_END.toInt() - RANGE_PROBE_START.toInt() + 1 ->
+                            "END_INCLUSIVE"
+                        RANGE_PROBE_END.toInt() - RANGE_PROBE_START.toInt() ->
+                            "END_EXCLUSIVE"
+                        else -> "UNRESOLVED"
+                    }
+                    mutableRangeProbeDiagnostics.value = RangeProbeDiagnostics(
+                        operationId = operationId,
+                        remoteIdentity = remoteIdentity,
+                        startOffset = RANGE_PROBE_START,
+                        requestedEnd = RANGE_PROBE_END,
+                        receivedBytes = received.size.toLong(),
+                        actualTransferFilename = result.value.actualFilename,
+                        firstDataPrefixHex = result.value.firstDataPrefix.toDiagnosticHex(),
+                        matchesLocalBytes = matches,
+                        inferredEndSemantics = if (matches) semantics else "MISMATCH",
+                        remoteStatusCode = result.value.remoteStatusCode,
+                        lastError = null,
+                    )
+                    mutableFileOperationState.value = FileOperationState.Completed(
+                        operationId = operationId,
+                        operation = DeviceFileOperationType.RANGE_PROBE,
+                        remoteIdentity = remoteIdentity,
+                    )
+                }
+
+                is FileTransferExecutionResult.Failed -> {
+                    finishWithError(result.error)
+                }
+
+                is FileTransferExecutionResult.Cancelled -> {
+                    mutableRangeProbeDiagnostics.value =
+                        mutableRangeProbeDiagnostics.value.copy(lastError = result.error)
+                    mutableFileOperationState.value = FileOperationState.Cancelled(
+                        operationId = operationId,
+                        operation = DeviceFileOperationType.RANGE_PROBE,
+                        remoteIdentity = remoteIdentity,
+                        reason = result.error,
+                    )
+                }
+            }
+        } finally {
+            transfer?.let { session.unregisterFileTransferConsumer(it) }
+            transfer?.close()
+            if (activeFileTransferSession === transfer) {
+                activeFileTransferSession = null
+                activeFileTransferOperationId = null
+            }
+            finishCoordinatorOperation(operationId)
         }
     }
 
@@ -2290,5 +2489,9 @@ class DefaultDeviceRepository(
         const val FILE_DOWNLOAD_FRAME_FIXED_BYTES = 12
         const val FILE_DIAGNOSTIC_PREFIX_BYTES = 32
         const val DELETE_VERIFICATION_TIMEOUT_MS = 25_000L
+        const val RANGE_PROBE_START = 0L
+        const val RANGE_PROBE_END = 255L
+        const val RANGE_PROBE_REFERENCE_BYTES = 256L
+        const val RANGE_PROBE_ABSOLUTE_TIMEOUT_MS = 20_000L
     }
 }

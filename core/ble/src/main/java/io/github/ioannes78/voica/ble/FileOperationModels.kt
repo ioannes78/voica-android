@@ -161,3 +161,18 @@ data class RemoteDeleteDiagnostics(
     val outcomeUnknown: Boolean = false,
     val lastError: FileOperationError? = null,
 )
+
+
+data class RangeProbeDiagnostics(
+    val operationId: Long? = null,
+    val remoteIdentity: String? = null,
+    val startOffset: Long? = null,
+    val requestedEnd: Long? = null,
+    val receivedBytes: Long = 0L,
+    val actualTransferFilename: String? = null,
+    val firstDataPrefixHex: String? = null,
+    val matchesLocalBytes: Boolean? = null,
+    val inferredEndSemantics: String? = null,
+    val remoteStatusCode: Int? = null,
+    val lastError: FileOperationError? = null,
+)
