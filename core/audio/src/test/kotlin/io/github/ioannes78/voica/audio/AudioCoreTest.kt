@@ -61,6 +61,52 @@ class AudioCoreTest {
     }
 
     @Test
+    fun stereoDownmixAnd48kTo16kRemainBoundedAndDeterministic() {
+        val normalizer = StreamingPcm16Normalizer(
+            sourceSampleRateHz = 48_000,
+            sourceChannelCount = 2,
+        )
+        val interleaved = ShortArray(48 * 2) { index ->
+            if (index % 2 == 0) 1_000 else 3_000
+        }
+
+        val output = normalizer.processInterleaved(interleaved)
+
+        assertEquals(16, output.size)
+        assertTrue(output.all { it.toInt() == 2_000 })
+        assertEquals(16L, normalizer.outputSampleCount)
+    }
+
+    @Test
+    fun canonicalPcmSourceReturnsAbsoluteSampleIndexes() {
+        val root = Files.createTempDirectory("voica-pcm-source").toFile()
+        try {
+            val file = root.resolve("source.wav")
+            CanonicalWavWriter(file).use { writer ->
+                writer.writePcm16(shortArrayOf(1, 2, 3, 4, 5))
+                writer.commit()
+            }
+
+            CanonicalWavPcmSource(file).use { source ->
+                val first = ShortArray(3)
+                val firstRead = kotlinx.coroutines.runBlocking { source.read(first) }!!
+                assertEquals(0L, firstRead.startSampleIndex)
+                assertEquals(3, firstRead.sampleCount)
+                assertTrue(first.contentEquals(shortArrayOf(1, 2, 3)))
+
+                val second = ShortArray(3)
+                val secondRead = kotlinx.coroutines.runBlocking { source.read(second) }!!
+                assertEquals(3L, secondRead.startSampleIndex)
+                assertEquals(2, secondRead.sampleCount)
+                assertEquals(4, second[0].toInt())
+                assertEquals(5, second[1].toInt())
+            }
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun sampleClockUsesIntegerTimeline() {
         assertEquals(1_000_000L, sampleIndexToTimeUs(16_000L, 16_000))
         assertEquals(500_000L, sampleIndexToTimeUs(8_000L, 16_000))
