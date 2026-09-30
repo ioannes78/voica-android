@@ -11,9 +11,11 @@ object AudioContainerDetector {
 
         if (prefix.size >= 8 && prefix.matchesAscii(0, "OggS")) {
             val searchEnd = minOf(prefix.size - OPUS_HEAD.length, MAX_OGG_PREFIX_SEARCH)
-            for (offset in 0..searchEnd.coerceAtLeast(-1)) {
-                if (offset >= 0 && prefix.matchesAscii(offset, OPUS_HEAD)) {
-                    return AudioContainerKind.OGG_OPUS
+            if (searchEnd >= 0) {
+                for (offset in 0..searchEnd) {
+                    if (prefix.matchesAscii(offset, OPUS_HEAD)) {
+                        return AudioContainerKind.OGG_OPUS
+                    }
                 }
             }
         }

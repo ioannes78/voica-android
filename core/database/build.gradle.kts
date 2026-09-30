@@ -26,6 +26,10 @@ kotlin {
     }
 }
 
+ksp {
+    arg("room.schemaLocation", file("schemas").absolutePath)
+}
+
 dependencies {
     val roomVersion = "2.8.5"
 
