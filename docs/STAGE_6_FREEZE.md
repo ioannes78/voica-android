@@ -200,4 +200,14 @@ Stage 7 必须从最新 `main` 重新 baseline validation，不得直接从聊�
 
 ## 13. Seal
 
-Freeze/Handoff 内容提交 SHA 与最终 seal CI 将由 seal commit 补充。
+Freeze/Handoff 内容提交：
+
+`fcf38ce5049b84568b7ac7898e6738c96aefc019`
+
+Android PR CI：
+
+`36753154631` — **success**
+
+该 Run 在用户最终真机验收通过后执行，确认 Freeze/Handoff 文档提交没有破坏 build/test 基线。
+
+本次 seal evidence commit 仅记录最终证据，不改变生产实现。

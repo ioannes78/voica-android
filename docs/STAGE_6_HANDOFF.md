@@ -242,4 +242,12 @@ Stage 6 不支持：
 
 ## Seal
 
-Freeze/Handoff 内容提交 SHA 与最终 seal CI 将由 seal commit 补充。
+Freeze/Handoff 内容提交：
+
+`fcf38ce5049b84568b7ac7898e6738c96aefc019`
+
+Android PR CI：
+
+`36753154631` — **success**
+
+Stage 7 接管时仍必须从 GitHub 重新读取合并后的 `main` HEAD 与最终 Actions，不得把本文件中的开发分支 SHA 当作最终 main SHA。

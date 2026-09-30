@@ -187,4 +187,14 @@ Stage 8 的 PCM 契约：
 
 ## 11. Freeze/Handoff seal
 
-本文件首次写入后，Freeze/Handoff 内容提交 SHA 与最终 seal CI 将由 seal commit 补充。
+Freeze/Handoff 内容提交：
+
+`fcf38ce5049b84568b7ac7898e6738c96aefc019`
+
+Android PR CI：
+
+`36753154631` — **success**
+
+该 Run 在用户最终“真机功能测试通过”后再次通过完整 Stage 6 自动验证与 Debug Build。
+
+本次 seal evidence commit 仅记录最终验收证据，不改变 Stage 6 生产代码。
