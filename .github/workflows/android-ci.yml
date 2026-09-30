@@ -55,6 +55,8 @@ jobs:
           gradle
           :core:protocol:test
           :core:ble:testDebugUnitTest
+          :core:database:testDebugUnitTest
+          :core:audio:test
           :app:assembleDebug
           --stacktrace
 
