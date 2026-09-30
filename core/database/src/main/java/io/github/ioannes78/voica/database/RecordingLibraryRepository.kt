@@ -181,17 +181,7 @@ class RecordingLibraryRepository(
             ?: return LibraryDeleteResult(deleted = true)
         dao.updateState(recordingId, RecordingState.DELETING, nowMs())
 
-        val failed = recording.assets.mapNotNull { asset ->
-            val file = File(recordingsRoot, asset.relativePath)
-            if (!isManagedPath(file)) {
-                file.absolutePath
-            } else if (!file.exists() || file.delete()) {
-                null
-            } else {
-                file.absolutePath
-            }
-        }
-
+        val failed = deleteManagedFiles(recording)
         return if (failed.isEmpty()) {
             dao.deleteRecording(recordingId)
             LibraryDeleteResult(deleted = true)
@@ -201,8 +191,34 @@ class RecordingLibraryRepository(
     }
 
     suspend fun reconcilePendingDeletes() {
-        // DELETING rows remain visible to diagnostics until every managed asset can be removed.
-        // A future UI retry can call deleteLocalRecording again with the same recording id.
+        dao.findByState(RecordingState.DELETING).forEach { recording ->
+            val failed = deleteManagedFiles(recording)
+            if (failed.isEmpty()) {
+                dao.deleteRecording(recording.recording.id)
+            }
+        }
+    }
+
+    private fun deleteManagedFiles(recording: RecordingWithAssets): List<String> {
+        val candidates = buildList {
+            recording.assets.forEach { asset ->
+                add(File(recordingsRoot, asset.relativePath))
+                if (asset.relativePath.startsWith("completed/")) {
+                    add(File(recordingsRoot, "completed/${asset.assetId}.properties"))
+                    add(File(recordingsRoot, "completed/${asset.assetId}.properties.part"))
+                }
+            }
+        }.distinctBy { it.path }
+
+        return candidates.mapNotNull { file ->
+            if (!isManagedPath(file)) {
+                file.absolutePath
+            } else if (!file.exists() || file.delete()) {
+                null
+            } else {
+                file.absolutePath
+            }
+        }
     }
 
     suspend fun migrationDiagnostics(): List<MigrationDiagnosticEntity> =
