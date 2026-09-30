@@ -27,6 +27,7 @@ data class FileTransferCompleted(
     val requestSequence: Int,
     val actualFilename: String?,
     val receivedBytes: Long,
+    val expectedBytes: Long? = null,
     val firstDataPrefix: ByteArray,
     val startSource: NotificationSource,
     val endSource: NotificationSource,
@@ -84,6 +85,7 @@ class FileTransferSession(
         sendAbort: suspend () -> DeviceSendOnlyResult,
         onProgress: (DownloadProgress) -> Unit = {},
         expectedBytes: Long,
+        resolveExpectedBytes: (ByteArray) -> Long? = { null },
     ): FileTransferExecutionResult {
         val startedNanos = nowNanos()
         val deadlineNanos = startedNanos + absoluteTimeoutMs * NANOS_PER_MILLI
@@ -168,6 +170,7 @@ class FileTransferSession(
         }
 
         var receivedBytes = 0L
+        var resolvedExpectedBytes = expectedBytes.takeIf { it > 0L }
         var dataFrameCount = 0
         var lastDataSource: NotificationSource? = null
         val prefix = ArrayList<Byte>(FIRST_DATA_PREFIX_LIMIT)
@@ -224,10 +227,15 @@ class FileTransferSession(
                             val remaining = FIRST_DATA_PREFIX_LIMIT - prefix.size
                             event.bytes.take(remaining).forEach(prefix::add)
                         }
+                        if (resolvedExpectedBytes == null) {
+                            resolvedExpectedBytes =
+                                resolveExpectedBytes(prefix.toByteArray())
+                                    ?.takeIf { it > 0L }
+                        }
                         onProgress(
                             DownloadProgress(
                                 receivedBytes = receivedBytes,
-                                expectedBytes = expectedBytes,
+                                expectedBytes = resolvedExpectedBytes ?: 0L,
                             ),
                         )
                     }
@@ -246,6 +254,7 @@ class FileTransferSession(
                                 requestSequence = request.requestSequence,
                                 actualFilename = start.actualFilename,
                                 receivedBytes = receivedBytes,
+                                expectedBytes = resolvedExpectedBytes,
                                 firstDataPrefix = prefix.toByteArray(),
                                 startSource = start.source,
                                 endSource = event.source,
@@ -408,7 +417,7 @@ class FileTransferSession(
         const val DEFAULT_ABSOLUTE_TIMEOUT_MS = 10 * 60_000L
         const val DEFAULT_ABORT_WAIT_MS = 1_500L
         const val DEFAULT_EVENT_CAPACITY = 64
-        const val FIRST_DATA_PREFIX_LIMIT = 32
+        const val FIRST_DATA_PREFIX_LIMIT = 64
         const val NANOS_PER_MILLI = 1_000_000L
 
         const val REMOTE_STATUS_OK = 0

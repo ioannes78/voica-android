@@ -14,8 +14,8 @@ android {
         applicationId = "io.github.ioannes78.voica"
         minSdk = 26
         targetSdk = 37
-        versionCode = 14
-        versionName = "0.5.3-stage5-alpha4"
+        versionCode = 17
+        versionName = "0.6.0-stage6-alpha3"
     }
 
     buildFeatures {
@@ -43,6 +43,9 @@ kotlin {
 dependencies {
     implementation(project(":core:protocol"))
     implementation(project(":core:ble"))
+    implementation(project(":core:database"))
+    implementation(project(":core:audio"))
+    implementation(project(":engine:opus"))
     implementation("androidx.core:core-ktx:1.19.1")
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")

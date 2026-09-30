@@ -63,7 +63,8 @@ Voica 是面向 QS668 / CB08 AI 录音卡的 Android 原生客户端。
 - Stage 3：已完成 / 已真机验收 / 已冻结
 - Stage 4：已完成 / 已真机验收 / 已冻结
 - Stage 5：已完成 / 已真机验收 / 已冻结
-- 下一阶段：**Stage 6 — 本地录音库 + Opus/WAV 音频链路**
+- Stage 6：已完成 / 已真机验收 / 已冻结
+- 下一阶段：**Stage 7 — 播放器 + 精确时间轴**
 
 Stage 2 已建立：
 
@@ -123,6 +124,21 @@ Stage 5 已建立：
 - 本地文件与设备文件独立管理，不提供联合删除
 - 不提供 Delete All
 
+Stage 6 已建立：
+
+- Room 正式本地录音库与 Stage 5 legacy metadata 导入
+- DEVICE_OPUS / DEVICE_WAV / CANONICAL_WAV 独立资产模型
+- 设备 OPUS / WAV 独立下载、独立验证
+- 设备列表分别显示 OPUS / WAV 真实大小
+- WAV CMD=12 `[0,44)` RIFF header probe
+- OPUS / WAV 真实百分比下载进度
+- official libopus 1.6.1 JNI/NDK 解码
+- raw Opus → PCM → 16 kHz mono PCM16 canonical WAV
+- PCM WAV → canonical WAV 流式归一化
+- 逻辑 Recording 重命名、删除、崩溃恢复
+- `AudioSourceResolver` / `PcmSourceResolver` 稳定接口
+- 后台可靠下载明确规划到 Stage 13
+
 项目文档：
 
 - [产品需求](docs/PRODUCT_REQUIREMENTS.md)
@@ -144,6 +160,11 @@ Stage 5 已建立：
 - [Stage 5 Handoff](docs/STAGE_5_HANDOFF.md)
 - [Stage 5 协议发现](docs/STAGE_5_PROTOCOL_FINDINGS.md)
 - [Stage 5 真机发现](docs/STAGE_5_REAL_DEVICE_FINDINGS.md)
+- [Stage 6 测试](docs/STAGE_6_TEST.md)
+- [Stage 6 Freeze](docs/STAGE_6_FREEZE.md)
+- [Stage 6 Handoff](docs/STAGE_6_HANDOFF.md)
+- [Stage 6 协议与音频发现](docs/STAGE_6_PROTOCOL_FINDINGS.md)
+- [Stage 6 真机发现](docs/STAGE_6_REAL_DEVICE_FINDINGS.md)
 - [开发规则](AGENTS.md)
 
 ## License

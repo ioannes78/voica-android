@@ -24,9 +24,11 @@ data class LocalRecordingArtifact(
     val id: String,
     val sourceRemoteIdentity: String,
     val sourceDeviceAddress: String,
+    val sourceFormat: DeviceAudioFormat,
     val displayFilename: String,
     val physicalFileName: String,
     val recordedAt: LocalDateTime?,
+    val deviceReportedDurationMs: Long?,
     val downloadedAtMs: Long,
     val sizeBytes: Long,
     val sha256: String,
@@ -223,6 +225,7 @@ class StreamingDownloadWriter internal constructor(
 class LocalRecordingStore(
     baseDirectory: File,
     private val nowMs: () -> Long = System::currentTimeMillis,
+    private val legacyMetadataEnabled: Boolean = true,
 ) {
     private val baseDir = baseDirectory
     private val tempDir = File(baseDir, "temp")
@@ -234,19 +237,48 @@ class LocalRecordingStore(
         tempDir.mkdirs()
         completedDir.mkdirs()
         cleanupStaleTempFiles()
-        reload()
+        if (legacyMetadataEnabled) reload()
     }
 
     @Synchronized
-    fun isDownloaded(remoteIdentity: String): Boolean =
+    fun isDownloaded(
+        remoteIdentity: String,
+        format: DeviceAudioFormat = DeviceAudioFormat.OPUS,
+    ): Boolean =
         mutableRecordings.value.any { artifact ->
             artifact.sourceRemoteIdentity == remoteIdentity &&
+                artifact.sourceFormat == format &&
                 File(completedDir, artifact.physicalFileName).let { it.isFile && it.length() == artifact.sizeBytes }
         }
 
     @Synchronized
-    fun artifactForRemote(remoteIdentity: String): LocalRecordingArtifact? =
-        mutableRecordings.value.firstOrNull { it.sourceRemoteIdentity == remoteIdentity }
+    fun artifactForRemote(
+        remoteIdentity: String,
+        format: DeviceAudioFormat = DeviceAudioFormat.OPUS,
+    ): LocalRecordingArtifact? =
+        mutableRecordings.value.firstOrNull {
+            it.sourceRemoteIdentity == remoteIdentity && it.sourceFormat == format
+        }
+
+    fun expectedDownloadBytes(remote: RemoteDeviceFile, format: DeviceAudioFormat): Long =
+        when (format) {
+            DeviceAudioFormat.OPUS -> remote.sizeBytes
+            DeviceAudioFormat.WAV -> remote.wavSizeBytes ?: 0L
+        }
+
+    fun estimatedDownloadBytes(remote: RemoteDeviceFile, format: DeviceAudioFormat): Long =
+        when (format) {
+            DeviceAudioFormat.OPUS -> remote.sizeBytes
+            DeviceAudioFormat.WAV ->
+                remote.wavSizeBytes
+                    ?: remote.durationSeconds
+                        ?.let {
+                            it.coerceAtLeast(0L) *
+                                PCM16_MONO_16K_BYTES_PER_SECOND +
+                                WAV_HEADER_BYTES
+                        }
+                    ?: remote.sizeBytes.coerceAtLeast(MINIMUM_WAV_ESTIMATE_BYTES)
+        }
 
     fun hasCapacity(expectedBytes: Long): Boolean {
         if (expectedBytes <= 0L) return true
@@ -254,19 +286,30 @@ class LocalRecordingStore(
         return baseDir.usableSpace > expectedBytes + margin
     }
 
-    fun prepare(remote: RemoteDeviceFile): PreparedLocalDownload {
-        val id = stableId(remote.identity)
+    fun prepare(
+        remote: RemoteDeviceFile,
+        format: DeviceAudioFormat = DeviceAudioFormat.OPUS,
+    ): PreparedLocalDownload {
+        val requestFilename = remote.downloadFilename(format)
+            ?: throw IllegalArgumentException("remote recording cannot project ${format.name} filename")
+        val id = if (format == DeviceAudioFormat.OPUS) {
+            stableId(remote.identity)
+        } else {
+            stableId(remote.identity + "|format=" + format.name)
+        }
         tempDir.mkdirs()
         completedDir.mkdirs()
         val tempFile = File(tempDir, "$id.part")
         runCatching { tempFile.delete() }
         val writer = StreamingDownloadWriter(
             tempFile = tempFile,
-            expectedBytes = remote.sizeBytes,
+            expectedBytes = expectedDownloadBytes(remote, format),
         )
         return PreparedLocalDownload(
             id = id,
             remote = remote,
+            format = format,
+            requestFilename = requestFilename,
             tempFile = tempFile,
             writer = writer,
         )
@@ -276,7 +319,7 @@ class LocalRecordingStore(
         prepared: PreparedLocalDownload,
         actualTransferFilename: String?,
     ): LocalDownloadCommitResult {
-        val extension = extensionFor(actualTransferFilename ?: prepared.remote.displayFilename)
+        val extension = extensionFor(actualTransferFilename ?: prepared.requestFilename)
         val physicalFileName = prepared.id + extension
         val finalFile = File(completedDir, physicalFileName)
 
@@ -307,33 +350,39 @@ class LocalRecordingStore(
                 .replaceSuffixForContainer(writerResult.container),
         )
 
-        val resolvedContainer =
-            if (
-                writerResult.container == AudioContainer.UNKNOWN &&
-                extension == ".opus" &&
-                writerResult.sizeBytes > 0L &&
-                writerResult.sizeBytes % RAW_OPUS_PACKET_BYTES == 0L
-            ) {
-                AudioContainer.RAW_OPUS
-            } else {
-                writerResult.container
-            }
+        val resolvedContainer = writerResult.container
+
+        if (prepared.format == DeviceAudioFormat.WAV && resolvedContainer != AudioContainer.WAV) {
+            actualFinalFile.delete()
+            throw FileTransferSinkException(
+                FileOperationError(
+                    FileOperationErrorCode.INVALID_AUDIO_CONTAINER,
+                    "requested WAV but downloaded bytes are not RIFF/WAVE",
+                ),
+            )
+        }
 
         val artifact = LocalRecordingArtifact(
             id = prepared.id,
             sourceRemoteIdentity = prepared.remote.identity,
             sourceDeviceAddress = prepared.remote.deviceAddress,
+            sourceFormat = prepared.format,
             displayFilename = displayFilename,
             physicalFileName = actualFinalFile.name,
             recordedAt = prepared.remote.recordedAt,
+            deviceReportedDurationMs = prepared.remote.durationSeconds?.times(1_000L),
             downloadedAtMs = nowMs(),
             sizeBytes = writerResult.sizeBytes,
             sha256 = writerResult.sha256,
             container = resolvedContainer,
         )
 
-        writeMetadataAtomically(artifact)
-        reload()
+        if (legacyMetadataEnabled) {
+            writeMetadataAtomically(artifact)
+            reload()
+        } else {
+            publishRuntimeArtifact(artifact)
+        }
         return LocalDownloadCommitResult(
             artifact = artifact,
             firstDataPrefix = writerResult.firstDataPrefix,
@@ -352,9 +401,14 @@ class LocalRecordingStore(
         val audio = File(completedDir, artifact.physicalFileName)
         val metadata = metadataFile(localId)
         val audioDeleted = !audio.exists() || audio.delete()
-        val metadataDeleted = !metadata.exists() || metadata.delete()
+        val metadataDeleted =
+            !legacyMetadataEnabled || !metadata.exists() || metadata.delete()
 
-        reload()
+        if (legacyMetadataEnabled) {
+            reload()
+        } else {
+            mutableRecordings.value = mutableRecordings.value.filterNot { it.id == localId }
+        }
         return if (audioDeleted && metadataDeleted) {
             LocalDeleteResult(deleted = true)
         } else {
@@ -370,6 +424,7 @@ class LocalRecordingStore(
 
     @Synchronized
     fun reload() {
+        if (!legacyMetadataEnabled) return
         completedDir.mkdirs()
         val loaded = completedDir.listFiles()
             .orEmpty()
@@ -381,6 +436,13 @@ class LocalRecordingStore(
             }
             .sortedByDescending { it.downloadedAtMs }
         mutableRecordings.value = loaded
+    }
+
+    @Synchronized
+    private fun publishRuntimeArtifact(artifact: LocalRecordingArtifact) {
+        mutableRecordings.value =
+            (mutableRecordings.value.filterNot { it.id == artifact.id } + artifact)
+                .sortedByDescending { it.downloadedAtMs }
     }
 
     fun cleanupStaleTempFiles(): Int {
@@ -400,6 +462,8 @@ class LocalRecordingStore(
     data class PreparedLocalDownload(
         val id: String,
         val remote: RemoteDeviceFile,
+        val format: DeviceAudioFormat,
+        val requestFilename: String,
         internal val tempFile: File,
         val writer: StreamingDownloadWriter,
     )
@@ -451,9 +515,11 @@ class LocalRecordingStore(
             setProperty("id", artifact.id)
             setProperty("sourceRemoteIdentity", artifact.sourceRemoteIdentity)
             setProperty("sourceDeviceAddress", artifact.sourceDeviceAddress)
+            setProperty("sourceFormat", artifact.sourceFormat.name)
             setProperty("displayFilename", artifact.displayFilename)
             setProperty("physicalFileName", artifact.physicalFileName)
             setProperty("recordedAt", artifact.recordedAt?.toString().orEmpty())
+            setProperty("deviceReportedDurationMs", artifact.deviceReportedDurationMs?.toString().orEmpty())
             setProperty("downloadedAtMs", artifact.downloadedAtMs.toString())
             setProperty("sizeBytes", artifact.sizeBytes.toString())
             setProperty("sha256", artifact.sha256)
@@ -486,11 +552,25 @@ class LocalRecordingStore(
                 id = properties.getProperty("id"),
                 sourceRemoteIdentity = properties.getProperty("sourceRemoteIdentity"),
                 sourceDeviceAddress = properties.getProperty("sourceDeviceAddress"),
+                sourceFormat = properties.getProperty("sourceFormat")
+                    ?.let { runCatching { DeviceAudioFormat.valueOf(it) }.getOrNull() }
+                    ?: if (properties.getProperty("displayFilename").endsWith(".wav", ignoreCase = true)) {
+                        DeviceAudioFormat.WAV
+                    } else {
+                        DeviceAudioFormat.OPUS
+                    },
                 displayFilename = properties.getProperty("displayFilename"),
                 physicalFileName = properties.getProperty("physicalFileName"),
                 recordedAt = properties.getProperty("recordedAt")
                     .takeIf { it.isNotBlank() }
                     ?.let(LocalDateTime::parse),
+                deviceReportedDurationMs = properties.getProperty("deviceReportedDurationMs")
+                    ?.takeIf { it.isNotBlank() }
+                    ?.toLongOrNull()
+                    ?: properties.getProperty("sourceRemoteIdentity")
+                        .substringAfterLast('|', missingDelimiterValue = "")
+                        .toLongOrNull()
+                        ?.times(1_000L),
                 downloadedAtMs = properties.getProperty("downloadedAtMs").toLong(),
                 sizeBytes = properties.getProperty("sizeBytes").toLong(),
                 sha256 = properties.getProperty("sha256"),
@@ -531,5 +611,8 @@ class LocalRecordingStore(
         const val MINIMUM_FREE_MARGIN_BYTES = 16L * 1024L * 1024L
         const val MAX_DISPLAY_FILENAME_LENGTH = 160
         const val RAW_OPUS_PACKET_BYTES = 40L
+        const val PCM16_MONO_16K_BYTES_PER_SECOND = 32_000L
+        const val WAV_HEADER_BYTES = 44L
+        const val MINIMUM_WAV_ESTIMATE_BYTES = 1L * 1024L * 1024L
     }
 }

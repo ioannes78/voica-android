@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import io.github.ioannes78.voica.CanonicalAudioCoordinator
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.ble.BleDiagnostics
 import io.github.ioannes78.voica.ble.BleError
@@ -50,6 +51,7 @@ import io.github.ioannes78.voica.ble.RecordingCommandState
 import io.github.ioannes78.voica.ble.RecordingFreshness
 import io.github.ioannes78.voica.ble.RemoteDeleteDiagnostics
 import io.github.ioannes78.voica.ble.RangeProbeDiagnostics
+import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.protocol.BatteryState
 import io.github.ioannes78.voica.protocol.RecordingStatus
 import io.github.ioannes78.voica.ui.files.DeviceFilesCard
@@ -57,11 +59,23 @@ import io.github.ioannes78.voica.ui.files.LocalRecordingsCard
 import io.github.ioannes78.voica.ui.recording.RecordingCard
 
 @Composable
-fun VoicaApp(repository: DeviceRepository) {
+fun VoicaApp(
+    repository: DeviceRepository,
+    recordingLibraryRepository: RecordingLibraryRepository,
+    canonicalAudioCoordinator: CanonicalAudioCoordinator,
+) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val deviceViewModel: DeviceViewModel = viewModel(
-        factory = remember(repository) {
-            DeviceViewModel.Factory(repository)
+        factory = remember(
+            repository,
+            recordingLibraryRepository,
+            canonicalAudioCoordinator,
+        ) {
+            DeviceViewModel.Factory(
+                repository,
+                recordingLibraryRepository,
+                canonicalAudioCoordinator,
+            )
         },
     )
 
@@ -111,7 +125,7 @@ private fun DeviceScreen(
     val fileTransferDiagnostics by viewModel.fileTransferDiagnostics.collectAsState()
     val remoteDeleteDiagnostics by viewModel.remoteDeleteDiagnostics.collectAsState()
     val rangeProbeDiagnostics by viewModel.rangeProbeDiagnostics.collectAsState()
-    val localRecordings by viewModel.localRecordings.collectAsState()
+    val libraryRecordings by viewModel.libraryRecordings.collectAsState(initial = emptyList())
     val diagnostics by viewModel.diagnostics.collectAsState()
     val missingPermissions by viewModel.missingPermissions.collectAsState()
     val actionMessage by viewModel.actionMessage.collectAsState()
@@ -142,7 +156,7 @@ private fun DeviceScreen(
                 style = MaterialTheme.typography.headlineLarge,
             )
             Text(
-                stringResource(R.string.stage5_subtitle),
+                stringResource(R.string.stage6_subtitle),
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
@@ -236,7 +250,7 @@ private fun DeviceScreen(
                 DeviceFilesCard(
                     state = deviceFiles,
                     operationState = fileOperation,
-                    localRecordings = localRecordings,
+                    localRecordings = libraryRecordings,
                     canRefresh = canRefreshFiles,
                     onRefresh = viewModel::refreshDeviceFiles,
                     onDownload = viewModel::downloadDeviceFile,
@@ -309,7 +323,7 @@ private fun LocalFilesScreen(
     padding: PaddingValues,
     viewModel: DeviceViewModel,
 ) {
-    val localRecordings by viewModel.localRecordings.collectAsState()
+    val recordings by viewModel.libraryRecordings.collectAsState(initial = emptyList())
 
     LazyColumn(
         modifier = Modifier
@@ -330,8 +344,11 @@ private fun LocalFilesScreen(
         }
         item {
             LocalRecordingsCard(
-                recordings = localRecordings,
-                onDeleteLocal = { viewModel.deleteLocalRecording(it.id) },
+                recordings = recordings,
+                onRename = viewModel::renameLocalRecording,
+                onDeleteLocal = viewModel::deleteLibraryRecording,
+                onGenerateCanonical = viewModel::generateCanonicalAudio,
+                onCancelCanonical = viewModel::cancelCanonicalAudio,
             )
         }
     }

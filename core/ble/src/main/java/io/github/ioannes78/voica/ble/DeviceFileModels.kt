@@ -3,6 +3,18 @@ package io.github.ioannes78.voica.ble
 import io.github.ioannes78.voica.protocol.FilenameResolution
 import java.time.LocalDateTime
 
+enum class DeviceAudioFormat(val extension: String) {
+    OPUS("opus"),
+    WAV("wav"),
+}
+
+enum class WavSizeProbeState {
+    NOT_PROBED,
+    PROBING,
+    AVAILABLE,
+    UNAVAILABLE,
+}
+
 enum class FileListFreshness {
     NOT_LOADED,
     LOADING,
@@ -35,6 +47,8 @@ data class RemoteDeviceFile(
     val rawTimeValue: Long,
     val durationSeconds: Long? = null,
     val sizeBytes: Long,
+    val wavSizeBytes: Long? = null,
+    val wavSizeProbeState: WavSizeProbeState = WavSizeProbeState.NOT_PROBED,
     val rawFilename: String,
     val resolvedFilename: String?,
     val filenameResolution: FilenameResolution,
@@ -45,7 +59,29 @@ data class RemoteDeviceFile(
 ) {
     val displayFilename: String
         get() = resolvedFilename ?: rawFilename
+
+    fun downloadFilename(format: DeviceAudioFormat): String? {
+        val sourceName = resolvedFilename ?: return null
+        val currentExtension = sourceName.substringAfterLast('.', missingDelimiterValue = "")
+        if (currentExtension.equals(format.extension, ignoreCase = true)) return sourceName
+
+        val stem = sourceName.substringBeforeLast('.', missingDelimiterValue = "")
+        val mayProjectSibling =
+            filenameResolution == FilenameResolution.RecoveredStandardOpusName ||
+                filenameResolution == FilenameResolution.DeviceFullName
+        return if (mayProjectSibling && STANDARD_RECORDING_STEM.matches(stem)) {
+            "$stem.${format.extension}"
+        } else {
+            null
+        }
+    }
+
+    val availableDownloadFormats: List<DeviceAudioFormat>
+        get() = DeviceAudioFormat.entries.filter { downloadFilename(it) != null }
 }
+
+private val STANDARD_RECORDING_STEM =
+    Regex("^note\\d{8}-\\d{6}$", RegexOption.IGNORE_CASE)
 
 data class DeviceFileListState(
     val deviceAddress: String? = null,

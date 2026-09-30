@@ -4,17 +4,17 @@
 
 当前 `ioannes78/voica-android` 仓库是 Voica 项目实现状态的唯一事实来源。
 
-当前已冻结基线：**Stage 5**
+当前已冻结基线：**Stage 6**
 
-Stage 5 Freeze/Handoff：
+Stage 6 Freeze/Handoff：
 
-- `docs/STAGE_5_FREEZE.md`
-- `docs/STAGE_5_HANDOFF.md`
-- `docs/STAGE_5_TEST.md`
-- `docs/STAGE_5_PROTOCOL_FINDINGS.md`
-- `docs/STAGE_5_REAL_DEVICE_FINDINGS.md`
+- `docs/STAGE_6_FREEZE.md`
+- `docs/STAGE_6_HANDOFF.md`
+- `docs/STAGE_6_TEST.md`
+- `docs/STAGE_6_PROTOCOL_FINDINGS.md`
+- `docs/STAGE_6_REAL_DEVICE_FINDINGS.md`
 
-下一阶段：**Stage 6 — 本地录音库 + Opus/WAV 音频链路**
+下一阶段：**Stage 7 — 播放器 + 精确时间轴**
 
 协议与行为参考：
 
@@ -84,8 +84,8 @@ Stage 3 冻结：
 - minSdk：26
 - Compose BOM：2026.09.00
 - Application ID：`io.github.ioannes78.voica`
-- versionCode：14
-- versionName：`0.5.3-stage5-alpha4`
+- versionCode：17
+- versionName：`0.6.0-stage6-alpha3`
 - 默认产品语言：简体中文
 
 当前物理模块：
@@ -93,10 +93,19 @@ Stage 3 冻结：
 - `:app`
 - `:core:protocol`
 - `:core:ble`
+- `:core:database`
+- `:core:audio`
+- `:engine:opus`
 
-依赖方向：
+依赖主方向：
 
-`app → core:ble → core:protocol`
+```
+app
+├─ core:ble → core:protocol
+├─ core:database
+├─ core:audio
+└─ engine:opus → core:audio
+```
 
 ## 六、Stage 2 已冻结 BLE 事实
 
@@ -190,6 +199,24 @@ Stage 3 冻结：
 - 本地录音使用 app-private / noBackupFilesDir 保存
 - Stage 5 不引入 Room；本地 metadata 使用轻量原子文件保存
 - Stage 5 不承诺后台/锁屏持续下载，不实现持久化断点续传
+
+## 九-A、Stage 6 已冻结本地库与音频事实
+
+后续 Stage 不得无新真机证据改变：
+
+- Room `voica-recordings.db` 为本地录音运行时事实来源；Stage 5 properties 只作为 legacy import 输入。
+- 一条设备录音对应一条逻辑 Recording，可含 DEVICE_OPUS / DEVICE_WAV / CANONICAL_WAV。
+- 标准设备录音逻辑 displayName 默认不带 `.opus/.wav`；用户重命名不改变物理文件、remote identity 或 SHA。
+- DEVICE_OPUS 与 DEVICE_WAV 必须独立验证；canonical source 选择不得决定另一资产的验证状态。
+- Stage 4 `sizeBytes` 继续表示 OPUS 大小。
+- WAV 大小使用同名 `.wav` CMD=12 `[0,44)` 读取 RIFF header，并按 little-endian `ChunkSize + 8` 得到真实总大小。
+- OPUS / WAV 下载均显示真实 received / expected / percent；WAV 首包也可动态解析真实 expectedBytes。
+- 不得恢复 `size % 40 == 0 → RAW_OPUS` 的启发式判断。
+- official libopus 固定 1.6.1，source SHA-256 `6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1`。
+- canonical 音频固定为 RIFF/WAVE、16 kHz、mono、PCM16_LE。
+- 原始设备音频必须保留；派生 canonical 可重建。
+- Stage 7 通过 `AudioSourceResolver`，Stage 8 通过 `PcmSourceResolver/PcmSource` 使用音频，不得绕过边界。
+- Stage 6 不实现后台/锁屏持续下载；可靠后台下载在 Stage 13 使用 Foreground Service 实现。
 
 ## 十、架构规则
 

@@ -9,6 +9,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -22,13 +23,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.R
+import io.github.ioannes78.voica.ble.DeviceAudioFormat
 import io.github.ioannes78.voica.ble.DeviceFileListState
 import io.github.ioannes78.voica.ble.DeviceFileOperationType
 import io.github.ioannes78.voica.ble.FileListErrorCode
 import io.github.ioannes78.voica.ble.FileListFreshness
 import io.github.ioannes78.voica.ble.FileOperationState
-import io.github.ioannes78.voica.ble.LocalRecordingArtifact
 import io.github.ioannes78.voica.ble.RemoteDeviceFile
+import io.github.ioannes78.voica.ble.WavSizeProbeState
+import io.github.ioannes78.voica.database.AudioAssetRole
+import io.github.ioannes78.voica.database.RecordingLibraryItem
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -36,15 +40,18 @@ import java.util.Locale
 fun DeviceFilesCard(
     state: DeviceFileListState,
     operationState: FileOperationState,
-    localRecordings: List<LocalRecordingArtifact>,
+    localRecordings: List<RecordingLibraryItem>,
     canRefresh: Boolean,
     onRefresh: () -> Unit,
-    onDownload: (RemoteDeviceFile) -> Unit,
+    onDownload: (RemoteDeviceFile, DeviceAudioFormat) -> Unit,
     onCancelDownload: () -> Unit,
     onDeleteRemote: (RemoteDeviceFile) -> Unit,
     onRangeProbe: (RemoteDeviceFile) -> Unit,
 ) {
-    val downloadedIds = localRecordings.mapTo(mutableSetOf()) { it.sourceRemoteIdentity }
+    val downloadedRoles = localRecordings
+        .associate { recording ->
+            recording.sourceRemoteIdentity to recording.assets.mapTo(mutableSetOf()) { it.role }
+        }
     val active = operationState as? FileOperationState.Active
     var pendingDelete by remember { mutableStateOf<RemoteDeviceFile?>(null) }
 
@@ -83,10 +90,13 @@ fun DeviceFilesCard(
                 state.files.forEachIndexed { index, file ->
                     DeviceFileRow(
                         file = file,
-                        isDownloaded = file.identity in downloadedIds,
+                        opusDownloaded =
+                            AudioAssetRole.DEVICE_OPUS in downloadedRoles[file.identity].orEmpty(),
+                        wavDownloaded =
+                            AudioAssetRole.DEVICE_WAV in downloadedRoles[file.identity].orEmpty(),
                         activeOperation = active,
                         operationState = operationState,
-                        onDownload = { onDownload(file) },
+                        onDownload = { format -> onDownload(file, format) },
                         onCancelDownload = onCancelDownload,
                         onDeleteRemote = { pendingDelete = file },
                         onRangeProbe = { onRangeProbe(file) },
@@ -168,10 +178,11 @@ private fun FileListStatus(state: DeviceFileListState) {
 @Composable
 private fun DeviceFileRow(
     file: RemoteDeviceFile,
-    isDownloaded: Boolean,
+    opusDownloaded: Boolean,
+    wavDownloaded: Boolean,
     activeOperation: FileOperationState.Active?,
     operationState: FileOperationState,
-    onDownload: () -> Unit,
+    onDownload: (DeviceAudioFormat) -> Unit,
     onCancelDownload: () -> Unit,
     onDeleteRemote: () -> Unit,
     onRangeProbe: () -> Unit,
@@ -201,27 +212,61 @@ private fun DeviceFileRow(
                 ?: stringResource(R.string.device_file_unknown),
         )
         FileInfoLine(
-            stringResource(R.string.device_file_size),
+            stringResource(R.string.device_file_opus_label),
             formatBytes(file.sizeBytes),
+        )
+        FileInfoLine(
+            stringResource(R.string.device_file_wav_label),
+            when (file.wavSizeProbeState) {
+                WavSizeProbeState.AVAILABLE ->
+                    file.wavSizeBytes?.let(::formatBytes)
+                        ?: stringResource(R.string.device_file_unknown)
+                WavSizeProbeState.PROBING ->
+                    stringResource(R.string.device_file_wav_size_probing)
+                WavSizeProbeState.NOT_PROBED,
+                WavSizeProbeState.UNAVAILABLE,
+                ->
+                    stringResource(R.string.device_file_wav_size_unknown)
+            },
         )
 
         when {
             activeDownload -> {
                 val progress = activeOperation.progress
-                val percent = progress?.fraction?.let { (it * 100).toInt() }
+                val fraction = progress?.fraction
                 Text(
-                    if (percent != null && progress != null) {
-                        stringResource(
-                            R.string.device_file_downloading_progress,
-                            percent,
-                            formatBytes(progress.receivedBytes),
-                            formatBytes(progress.expectedBytes),
-                        )
-                    } else {
-                        stringResource(R.string.device_file_downloading)
-                    },
+                    stringResource(
+                        R.string.device_file_downloading_format,
+                        activeOperation.audioFormat?.name ?: "—",
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                 )
+                if (fraction != null && progress != null) {
+                    LinearProgressIndicator(
+                        progress = { fraction },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(
+                        stringResource(
+                            R.string.device_file_download_progress_value,
+                            (fraction * 100).toInt(),
+                            formatBytes(progress.receivedBytes),
+                            formatBytes(progress.expectedBytes),
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                } else {
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(
+                        stringResource(
+                            R.string.device_file_download_received,
+                            formatBytes(progress?.receivedBytes ?: 0L),
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
                 OutlinedButton(onClick = onCancelDownload) {
                     Text(stringResource(R.string.device_file_cancel_download))
                 }
@@ -235,21 +280,50 @@ private fun DeviceFileRow(
             }
 
             else -> {
-                if (isDownloaded) {
-                    Text(
-                        stringResource(R.string.device_file_downloaded),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                val opusAvailable = file.downloadFilename(DeviceAudioFormat.OPUS) != null
+                val wavAvailable = file.downloadFilename(DeviceAudioFormat.WAV) != null
+                if (opusAvailable) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            if (opusDownloaded) {
+                                stringResource(R.string.device_file_opus_downloaded)
+                            } else {
+                                stringResource(R.string.device_file_opus_available)
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        if (!opusDownloaded) {
+                            Button(
+                                onClick = { onDownload(DeviceAudioFormat.OPUS) },
+                                enabled = activeOperation == null,
+                            ) {
+                                Text(stringResource(R.string.device_file_download_opus))
+                            }
+                        }
+                    }
+                }
+                if (wavAvailable) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            if (wavDownloaded) {
+                                stringResource(R.string.device_file_wav_downloaded)
+                            } else {
+                                stringResource(R.string.device_file_wav_available)
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        if (!wavDownloaded) {
+                            Button(
+                                onClick = { onDownload(DeviceAudioFormat.WAV) },
+                                enabled = activeOperation == null,
+                            ) {
+                                Text(stringResource(R.string.device_file_download_wav))
+                            }
+                        }
+                    }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (!isDownloaded) {
-                        Button(
-                            onClick = onDownload,
-                            enabled = activeOperation == null,
-                        ) {
-                            Text(stringResource(R.string.device_file_download))
-                        }
-                    } else {
+                    if (opusDownloaded) {
                         OutlinedButton(
                             onClick = onRangeProbe,
                             enabled = activeOperation == null,

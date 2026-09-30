@@ -6,16 +6,18 @@ Voica 是全新 Android 工程，不从 `voice-card-android` 继承任何代码�
 
 系统按协议、传输、数据、音频、AI/ML、Feature UI 分层，避免形成同时处理 BLE、文件、音频、模型和界面的巨型状态对象。
 
-## 2. Stage 2 已落地模块
+## 2. 当前已落地模块
 
-当前物理模块：
+Stage 6 当前物理模块：
 
 ```
 :app
-  ↓
-:core:ble
-  ↓
-:core:protocol
+├─ :core:ble
+│  └─ :core:protocol
+├─ :core:database
+├─ :core:audio
+└─ :engine:opus
+   └─ :core:audio
 ```
 
 ### `:core:protocol`
@@ -596,3 +598,124 @@ Stage 5 使用 `noBackupFilesDir/recordings`：
 - stale temp cleanup
 
 Stage 5 不引入 Room；Stage 6 才进入正式本地录音库与音频转换链。
+
+
+## Stage 6 — 本地录音库与音频链路架构
+
+### Room 本地库
+
+```
+BLE download artifact
+      ↓
+DownloadedAssetRegistry
+      ↓
+RecordingLibraryRepository
+      ↓
+Room
+├─ RecordingEntity
+├─ AudioAssetEntity
+├─ AudioDerivationEntity
+├─ LibraryMetaEntity
+└─ MigrationDiagnosticEntity
+```
+
+Stage 5 properties 仅作为一次性 legacy import 输入；Stage 6 新下载不再把 properties 当运行时事实来源。
+
+### 逻辑 Recording 与 AudioAsset
+
+一条设备逻辑录音：
+
+```
+Recording
+├─ DEVICE_OPUS
+├─ DEVICE_WAV
+└─ CANONICAL_WAV
+```
+
+displayName 与实际物理扩展名解耦。标准 `noteYYYYMMDD-HHMMSS.opus/.wav` 默认显示为 `noteYYYYMMDD-HHMMSS`。
+
+### 独立资产验证
+
+```
+DEVICE_OPUS
+→ size/SHA
+→ container
+→ framing
+→ libopus packet inspect
+→ VALID / UNSUPPORTED / INVALID
+
+DEVICE_WAV
+→ size/SHA
+→ RIFF/WAVE
+→ PCM/sampleRate/channels/bits
+→ VALID / UNSUPPORTED / INVALID
+```
+
+资产验证与 canonical source selection 分离。
+
+### canonical 生成
+
+```
+优先 DEVICE_OPUS
+  ↓
+RawOpusValidator
+  ↓
+libopus 1.6.1
+  ↓
+PCM
+  ↓
+StreamingPcm16Normalizer
+  ↓
+CanonicalWavWriter
+  ↓
+16k mono PCM16 WAV
+```
+
+没有可用 OPUS 时，可用 DEVICE_WAV：
+
+- 已为 canonical：直接登记
+- PCM16 非 canonical：流式 downmix/resample 后生成 canonical
+
+### 文件大小与进度
+
+Stage 4 list `sizeBytes` 继续是 OPUS 大小。
+
+WAV：
+
+```
+CMD=12 same-name .wav [0,44)
+→ RIFF ChunkSize + 8
+→ exact wavSizeBytes
+```
+
+若列表 probe 未取得大小，完整下载首包继续解析 RIFF 头并动态填充 expectedBytes。
+
+OPUS/WAV 均使用真实 receivedBytes / expectedBytes 驱动确定型进度。
+
+### 音频消费边界
+
+Stage 7：
+
+`AudioSourceResolver.resolvePlaybackSource(recordingId)`
+
+Stage 8：
+
+`PcmSourceResolver.resolvePcmSource(recordingId)`
+
+PcmSource 固定：
+
+- 16000 Hz
+- mono
+- PCM16_LE
+- streaming
+- absolute sample index
+
+### 生命周期
+
+- 原始设备音频先可靠落盘，再处理
+- canonical 转换串行、可取消
+- `.part` + fsync + atomic commit
+- interrupted derivation 启动时 reconciliation
+- 本地库位于 App private `noBackupFilesDir/recordings`
+- Stage 6 后台时取消 BLE 文件传输
+- Stage 13 才引入 Foreground Service 可靠后台下载

@@ -6,6 +6,7 @@ on:
     paths:
       - "app/**"
       - "core/**"
+      - "engine/**"
       - "gradle.properties"
       - "settings.gradle.kts"
       - "build.gradle.kts"
@@ -36,14 +37,18 @@ jobs:
           java-version: "17"
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
           packages: platform-tools
 
-      - name: Install Android 37.1 platform
+      - name: Install Android build and native toolchains
         shell: bash
         run: |
-          sdkmanager "platforms;android-37.1" "build-tools;36.0.0"
+          sdkmanager \
+            "platforms;android-37.1" \
+            "build-tools;36.0.0" \
+            "ndk;28.2.13676358" \
+            "cmake;3.22.1"
 
       - name: Setup Gradle 9.6
         uses: gradle/actions/setup-gradle@v4
@@ -55,8 +60,41 @@ jobs:
           gradle
           :core:protocol:test
           :core:ble:testDebugUnitTest
+          :core:database:testDebugUnitTest
+          :core:audio:test
+          :engine:opus:assembleDebug
           :app:assembleDebug
           --stacktrace
+
+      # Upgrade migration candidates must share one debug signing key.
+      # Building Stage 5 and Stage 6 in the same runner guarantees that pairing
+      # without committing a signing key to the public repository.
+      - name: Checkout Stage 5 upgrade baseline
+        if: ${{ success() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[APK]'))) }}
+        uses: actions/checkout@v5
+        with:
+          ref: 91fd841a9400ad4812ee1ceaa5990a1484ead669
+          path: .stage5-upgrade-baseline
+
+      - name: Build paired Stage 5 upgrade baseline
+        if: ${{ success() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[APK]'))) }}
+        shell: bash
+        run: |
+          gradle -p .stage5-upgrade-baseline :app:assembleDebug --stacktrace
+          mkdir -p build/upgrade-pair
+          cp .stage5-upgrade-baseline/app/build/outputs/apk/debug/app-debug.apk \
+            build/upgrade-pair/Voica-stage5-baseline-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk \
+            build/upgrade-pair/Voica-stage6-candidate-debug.apk
+
+      - name: Upload Stage 5 to Stage 6 upgrade pair
+        if: ${{ success() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[APK]'))) }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Voica-stage6-upgrade-pair
+          path: build/upgrade-pair/*.apk
+          if-no-files-found: error
+          retention-days: 3
 
       # Low-cost default: PR builds do not upload artifacts.
       # Add [APK] to the PR title only when an explicit real-device candidate is needed.

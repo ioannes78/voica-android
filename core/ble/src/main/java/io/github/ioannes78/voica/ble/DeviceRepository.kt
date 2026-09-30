@@ -15,6 +15,8 @@ import io.github.ioannes78.voica.protocol.ProtocolConstants
 import io.github.ioannes78.voica.protocol.RecordingCommandResult
 import io.github.ioannes78.voica.protocol.RecordingGain
 import io.github.ioannes78.voica.protocol.RecordingStatus
+import io.github.ioannes78.voica.protocol.WavHeaderProbeParser
+import io.github.ioannes78.voica.protocol.WavHeaderProbeResult
 import java.io.Closeable
 import java.io.File
 import kotlinx.coroutines.CompletableDeferred
@@ -62,7 +64,7 @@ interface DeviceRepository {
     suspend fun syncRecordingState()
     suspend fun setRecordingGain(gain: RecordingGain)
     suspend fun refreshDeviceFiles()
-    suspend fun downloadDeviceFile(file: RemoteDeviceFile)
+    suspend fun downloadDeviceFile(file: RemoteDeviceFile, format: DeviceAudioFormat)
     suspend fun cancelDeviceFileDownload()
     suspend fun deleteRemoteRecording(file: RemoteDeviceFile)
     suspend fun runRangeProbe(file: RemoteDeviceFile)
@@ -87,9 +89,16 @@ private data class PendingUnknownDelete(
     val deviceAddress: String,
 )
 
+private enum class WavHeaderProbeOutcome {
+    SUCCESS,
+    FILE_UNAVAILABLE,
+    STOP_PROBING,
+}
+
 class DefaultDeviceRepository(
     context: Context,
     parentScope: CoroutineScope,
+    private val downloadedAssetRegistry: DownloadedAssetRegistry = NoOpDownloadedAssetRegistry,
 ) : DeviceRepository, Closeable {
     private val applicationContext = context.applicationContext
     private val job = SupervisorJob(parentScope.coroutineContext[Job])
@@ -103,7 +112,8 @@ class DefaultDeviceRepository(
     private val fileListSessionCoordinator = FileListSessionCoordinator()
     private val fileOperationCoordinator = DeviceFileOperationCoordinator()
     private val localRecordingStore = LocalRecordingStore(
-        File(applicationContext.noBackupFilesDir, "recordings"),
+        baseDirectory = File(applicationContext.noBackupFilesDir, "recordings"),
+        legacyMetadataEnabled = false,
     )
     private val recordingSyncMutex = Mutex()
     private val rememberedDeviceStore = RememberedDeviceStore(applicationContext)
@@ -164,6 +174,7 @@ class DefaultDeviceRepository(
     private var fileListTotalTimeoutJob: Job? = null
     private var activeFileListOperationId: Long? = null
     private var recordingFinalizedRefreshJob: Job? = null
+    private var wavHeaderProbeJob: Job? = null
     private var activeFileTransferSession: FileTransferSession? = null
     private var activeFileTransferOperationId: Long? = null
     private var pendingDeleteVerification: PendingDeleteVerification? = null
@@ -362,6 +373,8 @@ class DefaultDeviceRepository(
 
     override fun disconnect() {
         userDisconnectedThisProcess = true
+        wavHeaderProbeJob?.cancel()
+        wavHeaderProbeJob = null
         reconnectJob?.cancel()
         reconnectJob = null
         reconnectAttempt = 0
@@ -380,6 +393,8 @@ class DefaultDeviceRepository(
         this.foreground = foreground
 
         if (!foreground) {
+            wavHeaderProbeJob?.cancel()
+            wavHeaderProbeJob = null
             activeFileTransferSession?.requestCancel(TransferCancelReason.BACKGROUND)
             scanner.stop()
             reconnectJob?.cancel()
@@ -609,7 +624,10 @@ class DefaultDeviceRepository(
         scheduleFileListTimeouts(fileSessionId)
     }
 
-    override suspend fun downloadDeviceFile(file: RemoteDeviceFile) {
+    override suspend fun downloadDeviceFile(
+        file: RemoteDeviceFile,
+        format: DeviceAudioFormat,
+    ) {
         val operation = fileOperationCoordinator.tryStart(DeviceFileOperationType.DOWNLOAD)
             ?: return
 
@@ -620,6 +638,7 @@ class DefaultDeviceRepository(
             operation = DeviceFileOperationType.DOWNLOAD,
             stage = FileOperationStage.PREPARING,
             remoteIdentity = remoteIdentity,
+            audioFormat = format,
         )
 
         var prepared: LocalRecordingStore.PreparedLocalDownload? = null
@@ -627,11 +646,7 @@ class DefaultDeviceRepository(
         try {
             val ready = session.state.value as? DeviceConnectionState.Ready
             if (ready == null) {
-                failDownloadPrecondition(
-                    operationId,
-                    remoteIdentity,
-                    FileOperationError(FileOperationErrorCode.NOT_READY),
-                )
+                failDownloadPrecondition(operationId, remoteIdentity, FileOperationError(FileOperationErrorCode.NOT_READY), format)
                 return
             }
 
@@ -641,77 +656,96 @@ class DefaultDeviceRepository(
                 recording.freshness != RecordingFreshness.FRESH ||
                 recording.commandState != RecordingCommandState.IDLE
             ) {
-                failDownloadPrecondition(
-                    operationId,
-                    remoteIdentity,
-                    FileOperationError(FileOperationErrorCode.RECORDING_ACTIVE),
-                )
+                failDownloadPrecondition(operationId, remoteIdentity, FileOperationError(FileOperationErrorCode.RECORDING_ACTIVE), format)
                 return
             }
 
             val listState = mutableDeviceFileListState.value
             if (listState.freshness != FileListFreshness.FRESH) {
-                failDownloadPrecondition(
-                    operationId,
-                    remoteIdentity,
-                    FileOperationError(FileOperationErrorCode.FILE_LIST_NOT_FRESH),
-                )
+                failDownloadPrecondition(operationId, remoteIdentity, FileOperationError(FileOperationErrorCode.FILE_LIST_NOT_FRESH), format)
                 return
             }
-            if (
-                listState.deviceAddress != ready.address ||
-                listState.files.none { it.identity == remoteIdentity }
-            ) {
+            if (listState.deviceAddress != ready.address || listState.files.none { it.identity == remoteIdentity }) {
+                failDownloadPrecondition(operationId, remoteIdentity, FileOperationError(FileOperationErrorCode.INVALID_REMOTE_RECORDING), format)
+                return
+            }
+
+            val requestFilename = file.downloadFilename(format)
+            if (requestFilename == null) {
                 failDownloadPrecondition(
                     operationId,
                     remoteIdentity,
-                    FileOperationError(FileOperationErrorCode.INVALID_REMOTE_RECORDING),
+                    FileOperationError(
+                        FileOperationErrorCode.INVALID_FILENAME,
+                        "cannot project ${format.name} filename from ${file.displayFilename}",
+                    ),
+                    format,
                 )
                 return
             }
 
-            if (localRecordingStore.isDownloaded(remoteIdentity)) {
+            if (downloadedAssetRegistry.isAvailable(remoteIdentity, format)) {
                 mutableFileOperationState.value = FileOperationState.Completed(
                     operationId = operationId,
                     operation = DeviceFileOperationType.DOWNLOAD,
                     remoteIdentity = remoteIdentity,
+                    audioFormat = format,
                 )
                 return
             }
 
-            if (!localRecordingStore.hasCapacity(file.sizeBytes)) {
-                failDownloadPrecondition(
-                    operationId,
-                    remoteIdentity,
-                    FileOperationError(FileOperationErrorCode.INSUFFICIENT_STORAGE),
-                )
+            val runtimeArtifact =
+                localRecordingStore.artifactForRemote(remoteIdentity, format)
+            if (
+                runtimeArtifact != null &&
+                localRecordingStore.isDownloaded(remoteIdentity, format)
+            ) {
+                val repairedRegistration =
+                    downloadedAssetRegistry.register(runtimeArtifact)
+                if (repairedRegistration.isSuccess) {
+                    mutableFileOperationState.value = FileOperationState.Completed(
+                        operationId = operationId,
+                        operation = DeviceFileOperationType.DOWNLOAD,
+                        remoteIdentity = remoteIdentity,
+                        audioFormat = format,
+                    )
+                } else {
+                    failDownloadPrecondition(
+                        operationId = operationId,
+                        remoteIdentity = remoteIdentity,
+                        error = FileOperationError(
+                            FileOperationErrorCode.LOCAL_ASSET_REGISTRATION_FAILED,
+                            repairedRegistration.exceptionOrNull()?.message,
+                        ),
+                        audioFormat = format,
+                    )
+                }
                 return
             }
 
-            val requestFilename = file.displayFilename
+            val capacityEstimate = localRecordingStore.estimatedDownloadBytes(file, format)
+            if (!localRecordingStore.hasCapacity(capacityEstimate)) {
+                failDownloadPrecondition(operationId, remoteIdentity, FileOperationError(FileOperationErrorCode.INSUFFICIENT_STORAGE), format)
+                return
+            }
+
             val filenameBytes = requestFilename.encodeToByteArray()
             if (filenameBytes.isEmpty() || filenameBytes.any { it.toInt() == 0 }) {
-                failDownloadPrecondition(
-                    operationId,
-                    remoteIdentity,
-                    FileOperationError(FileOperationErrorCode.INVALID_FILENAME),
-                )
+                failDownloadPrecondition(operationId, remoteIdentity, FileOperationError(FileOperationErrorCode.INVALID_FILENAME), format)
                 return
             }
 
             val preparedDownload = try {
-                localRecordingStore.prepare(file)
+                localRecordingStore.prepare(file, format)
             } catch (error: FileTransferSinkException) {
-                failDownloadPrecondition(operationId, remoteIdentity, error.operationError)
+                failDownloadPrecondition(operationId, remoteIdentity, error.operationError, format)
                 return
             } catch (error: Throwable) {
                 failDownloadPrecondition(
                     operationId,
                     remoteIdentity,
-                    FileOperationError(
-                        FileOperationErrorCode.TEMP_FILE_CREATE_FAILED,
-                        error.message,
-                    ),
+                    FileOperationError(FileOperationErrorCode.TEMP_FILE_CREATE_FAILED, error.message),
+                    format,
                 )
                 return
             }
@@ -721,72 +755,118 @@ class DefaultDeviceRepository(
             transfer = transferSession
             if (!session.registerFileTransferConsumer(transferSession)) {
                 localRecordingStore.abort(preparedDownload)
-                failDownloadPrecondition(
-                    operationId,
-                    remoteIdentity,
-                    FileOperationError(FileOperationErrorCode.FILE_OPERATION_BUSY),
-                )
+                failDownloadPrecondition(operationId, remoteIdentity, FileOperationError(FileOperationErrorCode.FILE_OPERATION_BUSY), format)
                 return
             }
             activeFileTransferSession = transferSession
             activeFileTransferOperationId = operationId
 
+            val expectedBytes = localRecordingStore.expectedDownloadBytes(file, format)
             mutableFileTransferDiagnostics.value = FileTransferDiagnostics(
                 operationId = operationId,
                 transportSessionId = session.diagnostics.value.sessionId,
                 remoteIdentity = remoteIdentity,
                 listFilename = file.displayFilename,
                 requestFilename = requestFilename,
+                requestedFormat = format,
                 requestFilenameByteLength = filenameBytes.size,
                 requestFrameLength = FILE_DOWNLOAD_FRAME_FIXED_BYTES + filenameBytes.size,
-                expectedBytes = file.sizeBytes,
+                expectedBytes = expectedBytes.takeIf { it > 0L },
             )
             mutableFileOperationState.value = FileOperationState.Active(
                 operationId = operationId,
                 operation = DeviceFileOperationType.DOWNLOAD,
                 stage = FileOperationStage.REQUESTING,
                 remoteIdentity = remoteIdentity,
-                progress = DownloadProgress(0L, file.sizeBytes),
+                audioFormat = format,
+                progress = DownloadProgress(0L, expectedBytes),
             )
 
             val result = transferSession.execute(
                 sink = preparedDownload.writer,
                 sendRequest = {
                     session.sendFileTransferRequest { sequence ->
-                        FileTransferProtocol.buildDownloadRequest(
-                            sequence = sequence,
-                            offset = 0L,
-                            filenameBytes = filenameBytes,
-                        )
+                        FileTransferProtocol.buildDownloadRequest(sequence, 0L, filenameBytes)
                     }
                 },
                 sendAbort = session::sendFileTransferAbort,
-                expectedBytes = file.sizeBytes,
+                expectedBytes = expectedBytes,
+                resolveExpectedBytes = { prefix ->
+                    if (format != DeviceAudioFormat.WAV) {
+                        null
+                    } else {
+                        when (val parsed = WavHeaderProbeParser.parse(prefix)) {
+                            is WavHeaderProbeResult.Success ->
+                                parsed.value.totalSizeBytes
+                            else -> null
+                        }
+                    }
+                },
                 onProgress = { progress ->
+                    if (
+                        format == DeviceAudioFormat.WAV &&
+                        progress.expectedBytes > 0L
+                    ) {
+                        updateWavSizeProbe(
+                            remoteIdentity = remoteIdentity,
+                            state = WavSizeProbeState.AVAILABLE,
+                            sizeBytes = progress.expectedBytes,
+                        )
+                    }
                     mutableFileOperationState.value = FileOperationState.Active(
                         operationId = operationId,
                         operation = DeviceFileOperationType.DOWNLOAD,
                         stage = FileOperationStage.TRANSFERRING,
                         remoteIdentity = remoteIdentity,
+                        audioFormat = format,
                         progress = progress,
                     )
                     mutableFileTransferDiagnostics.value =
                         mutableFileTransferDiagnostics.value.copy(
                             receivedBytes = progress.receivedBytes,
+                            expectedBytes =
+                                progress.expectedBytes.takeIf { it > 0L },
                         )
                 },
             )
 
             when (result) {
                 is FileTransferExecutionResult.Completed -> {
+                    val finalExpectedBytes =
+                        result.value.expectedBytes ?: expectedBytes.takeIf { it > 0L }
+                    if (
+                        finalExpectedBytes != null &&
+                        result.value.receivedBytes != finalExpectedBytes
+                    ) {
+                        localRecordingStore.abort(preparedDownload)
+                        val mismatch = FileOperationError(
+                            FileOperationErrorCode.SIZE_MISMATCH,
+                            "expected=$finalExpectedBytes actual=${result.value.receivedBytes}",
+                        )
+                        mutableFileTransferDiagnostics.value =
+                            mutableFileTransferDiagnostics.value.copy(
+                                receivedBytes = result.value.receivedBytes,
+                                expectedBytes = finalExpectedBytes,
+                                lastError = mismatch,
+                            )
+                        mutableFileOperationState.value = FileOperationState.Failed(
+                            operationId = operationId,
+                            operation = DeviceFileOperationType.DOWNLOAD,
+                            remoteIdentity = remoteIdentity,
+                            audioFormat = format,
+                            error = mismatch,
+                        )
+                        return
+                    }
                     mutableFileOperationState.value = FileOperationState.Active(
                         operationId = operationId,
                         operation = DeviceFileOperationType.DOWNLOAD,
                         stage = FileOperationStage.VERIFYING,
                         remoteIdentity = remoteIdentity,
+                        audioFormat = format,
                         progress = DownloadProgress(
                             result.value.receivedBytes,
-                            file.sizeBytes,
+                            finalExpectedBytes ?: 0L,
                         ),
                     )
                     mutableFileTransferDiagnostics.value =
@@ -798,6 +878,7 @@ class DefaultDeviceRepository(
                             endSource = result.value.endSource,
                             dataFrameCount = result.value.dataFrameCount,
                             receivedBytes = result.value.receivedBytes,
+                            expectedBytes = finalExpectedBytes,
                             firstDataPrefixHex = result.value.firstDataPrefix.toDiagnosticHex(),
                             remoteStatusCode = result.value.remoteStatusCode,
                         )
@@ -807,37 +888,55 @@ class DefaultDeviceRepository(
                         operation = DeviceFileOperationType.DOWNLOAD,
                         stage = FileOperationStage.COMMITTING,
                         remoteIdentity = remoteIdentity,
+                        audioFormat = format,
                         progress = DownloadProgress(
                             result.value.receivedBytes,
-                            file.sizeBytes,
+                            finalExpectedBytes ?: 0L,
                         ),
                     )
                     try {
-                        val commit = localRecordingStore.commit(
-                            prepared = preparedDownload,
-                            actualTransferFilename = result.value.actualFilename,
-                        )
+                        val commit = localRecordingStore.commit(preparedDownload, result.value.actualFilename)
                         mutableFileTransferDiagnostics.value =
                             mutableFileTransferDiagnostics.value.copy(
                                 firstDataPrefixHex = commit.firstDataPrefix.toDiagnosticHex(),
                                 detectedContainer = commit.artifact.container,
                                 lastError = null,
                             )
-                        mutableFileOperationState.value = FileOperationState.Completed(
-                            operationId = operationId,
-                            operation = DeviceFileOperationType.DOWNLOAD,
-                            remoteIdentity = remoteIdentity,
-                        )
+                        val registration = downloadedAssetRegistry.register(commit.artifact)
+                        if (registration.isSuccess) {
+                            mutableFileOperationState.value = FileOperationState.Completed(
+                                operationId = operationId,
+                                operation = DeviceFileOperationType.DOWNLOAD,
+                                remoteIdentity = remoteIdentity,
+                                audioFormat = format,
+                            )
+                        } else {
+                            val registrationError = FileOperationError(
+                                FileOperationErrorCode.LOCAL_ASSET_REGISTRATION_FAILED,
+                                registration.exceptionOrNull()?.message,
+                            )
+                            mutableFileTransferDiagnostics.value =
+                                mutableFileTransferDiagnostics.value.copy(
+                                    lastError = registrationError,
+                                )
+                            mutableFileOperationState.value = FileOperationState.Failed(
+                                operationId = operationId,
+                                operation = DeviceFileOperationType.DOWNLOAD,
+                                remoteIdentity = remoteIdentity,
+                                audioFormat = format,
+                                error = registrationError,
+                            )
+                        }
                     } catch (error: FileTransferSinkException) {
                         localRecordingStore.abort(preparedDownload)
-                        val operationError = error.operationError
                         mutableFileTransferDiagnostics.value =
-                            mutableFileTransferDiagnostics.value.copy(lastError = operationError)
+                            mutableFileTransferDiagnostics.value.copy(lastError = error.operationError)
                         mutableFileOperationState.value = FileOperationState.Failed(
                             operationId = operationId,
                             operation = DeviceFileOperationType.DOWNLOAD,
                             remoteIdentity = remoteIdentity,
-                            error = operationError,
+                            audioFormat = format,
+                            error = error.operationError,
                         )
                     }
                 }
@@ -850,6 +949,7 @@ class DefaultDeviceRepository(
                         operationId = operationId,
                         operation = DeviceFileOperationType.DOWNLOAD,
                         remoteIdentity = remoteIdentity,
+                        audioFormat = format,
                         error = result.error,
                     )
                 }
@@ -862,6 +962,7 @@ class DefaultDeviceRepository(
                         operationId = operationId,
                         operation = DeviceFileOperationType.DOWNLOAD,
                         remoteIdentity = remoteIdentity,
+                        audioFormat = format,
                         reason = result.error,
                     )
                 }
@@ -1113,6 +1214,232 @@ class DefaultDeviceRepository(
         }
     }
 
+    private fun scheduleWavHeaderProbes(files: List<RemoteDeviceFile>) {
+        wavHeaderProbeJob?.cancel()
+        val candidateIds = files
+            .filter {
+                it.wavSizeBytes == null &&
+                    it.downloadFilename(DeviceAudioFormat.WAV) != null
+            }
+            .map { it.identity }
+        if (candidateIds.isEmpty()) return
+
+        wavHeaderProbeJob = scope.launch {
+            delay(WAV_HEADER_PROBE_SETTLE_MS)
+            var capabilityConfirmed = false
+            for (identity in candidateIds) {
+                if (!isActive || !foreground) break
+                val currentFile = mutableDeviceFileListState.value.files
+                    .firstOrNull { it.identity == identity }
+                    ?: continue
+                if (currentFile.wavSizeBytes != null) continue
+
+                when (probeWavHeaderSize(currentFile)) {
+                    WavHeaderProbeOutcome.SUCCESS -> capabilityConfirmed = true
+                    WavHeaderProbeOutcome.FILE_UNAVAILABLE -> {
+                        if (!capabilityConfirmed) {
+                            // One missing sibling does not prove CMD=12 is unsupported.
+                            continue
+                        }
+                    }
+                    WavHeaderProbeOutcome.STOP_PROBING -> break
+                }
+            }
+            if (wavHeaderProbeJob === coroutineContext[Job]) {
+                wavHeaderProbeJob = null
+            }
+        }
+    }
+
+    private suspend fun probeWavHeaderSize(
+        file: RemoteDeviceFile,
+    ): WavHeaderProbeOutcome {
+        val operation =
+            fileOperationCoordinator.tryStart(DeviceFileOperationType.WAV_HEADER_PROBE)
+                ?: return WavHeaderProbeOutcome.STOP_PROBING
+        val operationId = operation.operationId
+        val remoteIdentity = file.identity
+        var transfer: FileTransferSession? = null
+
+        updateWavSizeProbe(
+            remoteIdentity = remoteIdentity,
+            state = WavSizeProbeState.PROBING,
+            sizeBytes = null,
+        )
+        mutableFileOperationState.value = FileOperationState.Active(
+            operationId = operationId,
+            operation = DeviceFileOperationType.WAV_HEADER_PROBE,
+            stage = FileOperationStage.REQUESTING,
+            remoteIdentity = remoteIdentity,
+            audioFormat = DeviceAudioFormat.WAV,
+        )
+
+        var outcome = WavHeaderProbeOutcome.STOP_PROBING
+        try {
+            val ready = session.state.value as? DeviceConnectionState.Ready
+            val recording = mutableRecordingState.value
+            if (
+                ready == null ||
+                recording.status != RecordingStatus.Idle ||
+                recording.freshness != RecordingFreshness.FRESH ||
+                recording.commandState != RecordingCommandState.IDLE
+            ) {
+                updateWavSizeProbe(
+                    remoteIdentity,
+                    WavSizeProbeState.UNAVAILABLE,
+                    null,
+                )
+                return WavHeaderProbeOutcome.STOP_PROBING
+            }
+
+            val requestFilename =
+                file.downloadFilename(DeviceAudioFormat.WAV)
+                    ?: return WavHeaderProbeOutcome.FILE_UNAVAILABLE
+            val filenameBytes = requestFilename.encodeToByteArray()
+            if (filenameBytes.isEmpty() || filenameBytes.any { it.toInt() == 0 }) {
+                updateWavSizeProbe(
+                    remoteIdentity,
+                    WavSizeProbeState.UNAVAILABLE,
+                    null,
+                )
+                return WavHeaderProbeOutcome.FILE_UNAVAILABLE
+            }
+
+            val sink = RangeProbeDataSink(maximumBytes = WAV_HEADER_PROBE_MAX_BYTES)
+            val transferSession = FileTransferSession(
+                startTimeoutMs = WAV_HEADER_PROBE_START_TIMEOUT_MS,
+                idleTimeoutMs = WAV_HEADER_PROBE_IDLE_TIMEOUT_MS,
+                absoluteTimeoutMs = WAV_HEADER_PROBE_ABSOLUTE_TIMEOUT_MS,
+            )
+            transfer = transferSession
+            if (!session.registerFileTransferConsumer(transferSession)) {
+                updateWavSizeProbe(
+                    remoteIdentity,
+                    WavSizeProbeState.UNAVAILABLE,
+                    null,
+                )
+                return WavHeaderProbeOutcome.STOP_PROBING
+            }
+            activeFileTransferSession = transferSession
+            activeFileTransferOperationId = operationId
+
+            when (
+                val result = transferSession.execute(
+                    sink = sink,
+                    sendRequest = {
+                        session.sendFileTransferRequest { sequence ->
+                            FileTransferProtocol.buildRangeRequest(
+                                sequence = sequence,
+                                start = 0L,
+                                end = WAV_HEADER_PROBE_END_EXCLUSIVE,
+                                filenameBytes = filenameBytes,
+                            )
+                        }
+                    },
+                    sendAbort = session::sendFileTransferAbort,
+                    expectedBytes = 0L,
+                )
+            ) {
+                is FileTransferExecutionResult.Completed -> {
+                    when (val parsed = WavHeaderProbeParser.parse(sink.bytes())) {
+                        is WavHeaderProbeResult.Success -> {
+                            updateWavSizeProbe(
+                                remoteIdentity,
+                                WavSizeProbeState.AVAILABLE,
+                                parsed.value.totalSizeBytes,
+                            )
+                            outcome = WavHeaderProbeOutcome.SUCCESS
+                        }
+                        is WavHeaderProbeResult.NeedMoreBytes,
+                        is WavHeaderProbeResult.Invalid,
+                        -> {
+                            updateWavSizeProbe(
+                                remoteIdentity,
+                                WavSizeProbeState.UNAVAILABLE,
+                                null,
+                            )
+                            outcome = WavHeaderProbeOutcome.STOP_PROBING
+                        }
+                    }
+                }
+
+                is FileTransferExecutionResult.Failed -> {
+                    updateWavSizeProbe(
+                        remoteIdentity,
+                        WavSizeProbeState.UNAVAILABLE,
+                        null,
+                    )
+                    outcome =
+                        if (
+                            result.error.code ==
+                            FileOperationErrorCode.REMOTE_FILE_NOT_FOUND
+                        ) {
+                            WavHeaderProbeOutcome.FILE_UNAVAILABLE
+                        } else {
+                            WavHeaderProbeOutcome.STOP_PROBING
+                        }
+                }
+
+                is FileTransferExecutionResult.Cancelled -> {
+                    updateWavSizeProbe(
+                        remoteIdentity,
+                        WavSizeProbeState.UNAVAILABLE,
+                        null,
+                    )
+                    outcome = WavHeaderProbeOutcome.STOP_PROBING
+                }
+            }
+
+            mutableFileOperationState.value = FileOperationState.Completed(
+                operationId = operationId,
+                operation = DeviceFileOperationType.WAV_HEADER_PROBE,
+                remoteIdentity = remoteIdentity,
+                audioFormat = DeviceAudioFormat.WAV,
+            )
+            return outcome
+        } finally {
+            transfer?.let { session.unregisterFileTransferConsumer(it) }
+            transfer?.close()
+            if (activeFileTransferSession === transfer) {
+                activeFileTransferSession = null
+                activeFileTransferOperationId = null
+            }
+            val currentOperation = mutableFileOperationState.value
+            if (
+                currentOperation is FileOperationState.Active &&
+                currentOperation.operationId == operationId
+            ) {
+                mutableFileOperationState.value = FileOperationState.Completed(
+                    operationId = operationId,
+                    operation = DeviceFileOperationType.WAV_HEADER_PROBE,
+                    remoteIdentity = remoteIdentity,
+                    audioFormat = DeviceAudioFormat.WAV,
+                )
+            }
+            finishCoordinatorOperation(operationId)
+        }
+    }
+
+    private fun updateWavSizeProbe(
+        remoteIdentity: String,
+        state: WavSizeProbeState,
+        sizeBytes: Long?,
+    ) {
+        val current = mutableDeviceFileListState.value
+        mutableDeviceFileListState.value = current.copy(
+            files = current.files.map { file ->
+                if (file.identity == remoteIdentity) {
+                    file.copy(
+                        wavSizeBytes = sizeBytes,
+                        wavSizeProbeState = state,
+                    )
+                } else {
+                    file
+                }
+            },
+        )
+    }
+
     override suspend fun runRangeProbe(file: RemoteDeviceFile) {
         val operation = fileOperationCoordinator.tryStart(DeviceFileOperationType.RANGE_PROBE)
             ?: return
@@ -1169,17 +1496,18 @@ class DefaultDeviceRepository(
                 return
             }
 
-            val artifact = localRecordingStore.artifactForRemote(remoteIdentity)
-            if (artifact == null) {
+            val registeredAsset =
+                downloadedAssetRegistry.resolve(remoteIdentity, DeviceAudioFormat.OPUS)
+            if (registeredAsset == null) {
                 finishWithError(
                     FileOperationError(
                         FileOperationErrorCode.LOCAL_ARTIFACT_CONFLICT,
-                        "download the recording before running range probe",
+                        "download the OPUS recording before running range probe",
                     ),
                 )
                 return
             }
-            val localFile = localRecordingStore.resolveAudioFile(artifact)
+            val localFile = registeredAsset.file
             if (!localFile.isFile || localFile.length() < RANGE_PROBE_REFERENCE_BYTES) {
                 finishWithError(
                     FileOperationError(
@@ -1367,6 +1695,7 @@ class DefaultDeviceRepository(
         operationId: Long,
         remoteIdentity: String,
         error: FileOperationError,
+        audioFormat: DeviceAudioFormat? = null,
     ) {
         mutableFileTransferDiagnostics.value =
             mutableFileTransferDiagnostics.value.copy(
@@ -1378,6 +1707,7 @@ class DefaultDeviceRepository(
             operationId = operationId,
             operation = DeviceFileOperationType.DOWNLOAD,
             remoteIdentity = remoteIdentity,
+            audioFormat = audioFormat,
             error = error,
         )
     }
@@ -1841,10 +2171,25 @@ class DefaultDeviceRepository(
 
             is FileListSessionResult.Completed -> {
                 cancelFileListTimeouts()
+                val previousFiles =
+                    mutableDeviceFileListState.value.files.associateBy { it.identity }
                 val files = RemoteDeviceFileMapper.map(
                     deviceAddress = result.snapshot.deviceAddress,
                     entries = result.snapshot.entries,
-                )
+                ).map { fresh ->
+                    val previous = previousFiles[fresh.identity]
+                    if (
+                        previous?.wavSizeProbeState == WavSizeProbeState.AVAILABLE &&
+                        previous.wavSizeBytes != null
+                    ) {
+                        fresh.copy(
+                            wavSizeBytes = previous.wavSizeBytes,
+                            wavSizeProbeState = WavSizeProbeState.AVAILABLE,
+                        )
+                    } else {
+                        fresh
+                    }
+                }
                 mutableDeviceFileListState.value = DeviceFileListState(
                     deviceAddress = result.snapshot.deviceAddress,
                     files = files,
@@ -1868,6 +2213,9 @@ class DefaultDeviceRepository(
                 finishFileListOperation(error = null)
                 unknownDelete?.let { state ->
                     mutableFileOperationState.value = state
+                }
+                if (unknownDelete == null) {
+                    scheduleWavHeaderProbes(files)
                 }
             }
 
@@ -2473,6 +2821,8 @@ class DefaultDeviceRepository(
     private fun nowMs(): Long = System.currentTimeMillis()
 
     override fun close() {
+        wavHeaderProbeJob?.cancel()
+        wavHeaderProbeJob = null
         reconnectJob?.cancel()
         refreshJob?.cancel()
         recordingReconcileJob?.cancel()
@@ -2511,5 +2861,11 @@ class DefaultDeviceRepository(
         const val RANGE_PROBE_END = 255L
         const val RANGE_PROBE_REFERENCE_BYTES = 256L
         const val RANGE_PROBE_ABSOLUTE_TIMEOUT_MS = 20_000L
+        const val WAV_HEADER_PROBE_END_EXCLUSIVE = 44L
+        const val WAV_HEADER_PROBE_MAX_BYTES = 64
+        const val WAV_HEADER_PROBE_SETTLE_MS = 120L
+        const val WAV_HEADER_PROBE_START_TIMEOUT_MS = 2_500L
+        const val WAV_HEADER_PROBE_IDLE_TIMEOUT_MS = 2_500L
+        const val WAV_HEADER_PROBE_ABSOLUTE_TIMEOUT_MS = 6_000L
     }
 }
