@@ -1,6 +1,6 @@
 # Voica Android 全项目 Stage 开发路线图
 
-当前状态：**Stage 5 已完成、真机验收通过并冻结；下一阶段为 Stage 6。**
+当前状态：**Stage 6 已完成、真机验收通过并冻结；下一阶段为 Stage 7。**
 
 整个 Voica 路线均为全新独立实现，不得从 `voice-card-android` 复制、迁移、继承、cherry-pick 或机械改写任何代码。
 
@@ -189,14 +189,35 @@
 
 ## Stage 6 — 本地录音库 + Opus/WAV 音频链路
 
-内容：
+完成内容：
 
-- Room 本地元数据
-- 原始 Opus 校验
-- QS668 原始包结构重新验证
-- Ogg/Opus/PCM/WAV 处理
-- 16 kHz 标准音频
-- 本地浏览/重命名/删除
+- Room 正式本地录音库与 Stage 5 legacy metadata 导入
+- Recording / AudioAsset / AudioDerivation 数据模型
+- DEVICE_OPUS / DEVICE_WAV 独立下载与独立验证
+- 设备 OPUS / WAV 真实文件大小显示
+- WAV CMD=12 `[0,44)` RIFF header probe
+- OPUS / WAV 真实百分比下载进度
+- raw Opus framing validation
+- official libopus 1.6.1 JNI/NDK decoder
+- raw Opus → PCM → 16 kHz mono PCM16 canonical WAV
+- PCM WAV → canonical WAV 流式归一化
+- 原始设备音频保留、派生资产幂等/可重建
+- 本地浏览、逻辑重命名、独立删除
+- 标准设备逻辑录音名默认去掉 `.opus/.wav`
+- conversion cancellation / interrupted recovery
+- `AudioSourceResolver` / `PcmSourceResolver` / `PcmSource` 稳定接口
+- Stage 1–5 regression 持续通过
+- Alpha 3 QS668/CB08 真机功能验收通过
+
+状态：**已完成 / 已真机验收 / 已冻结**
+
+冻结文档：
+
+- `docs/STAGE_6_TEST.md`
+- `docs/STAGE_6_FREEZE.md`
+- `docs/STAGE_6_HANDOFF.md`
+- `docs/STAGE_6_PROTOCOL_FINDINGS.md`
+- `docs/STAGE_6_REAL_DEVICE_FINDINGS.md`
 
 ## Stage 7 — 播放器 + 精确时间轴
 
