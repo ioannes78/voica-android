@@ -46,6 +46,7 @@ private enum class LocalRecordingSort {
 @Composable
 fun LocalRecordingsCard(
     recordings: List<RecordingLibraryItem>,
+    onPlay: (String) -> Unit,
     onRename: (String, String) -> Unit,
     onDeleteLocal: (String) -> Unit,
     onGenerateCanonical: (String) -> Unit,
@@ -122,6 +123,7 @@ fun LocalRecordingsCard(
                 sortedRecordings.forEachIndexed { index, item ->
                     RecordingRow(
                         item = item,
+                        onPlay = { onPlay(item.id) },
                         onRename = {
                             pendingRename = item
                             renameValue = item.displayName
@@ -213,6 +215,7 @@ private fun SortButton(
 @Composable
 private fun RecordingRow(
     item: RecordingLibraryItem,
+    onPlay: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
     onGenerateCanonical: () -> Unit,
@@ -296,6 +299,12 @@ private fun RecordingRow(
                     stringResource(R.string.local_standard_audio_no_source)
             },
         )
+
+        if (canonicalReady) {
+            OutlinedButton(onClick = onPlay) {
+                Text(stringResource(R.string.playback_play))
+            }
+        }
 
         if (activeDerivation != null) {
             OutlinedButton(onClick = onCancelCanonical) {

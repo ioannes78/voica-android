@@ -14,8 +14,8 @@ android {
         applicationId = "io.github.ioannes78.voica"
         minSdk = 26
         targetSdk = 37
-        versionCode = 17
-        versionName = "0.6.0-stage6-alpha3"
+        versionCode = 18
+        versionName = "0.7.0-stage7-alpha1"
     }
 
     buildFeatures {

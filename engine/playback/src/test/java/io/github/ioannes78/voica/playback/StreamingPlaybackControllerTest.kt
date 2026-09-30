@@ -7,7 +7,7 @@ import io.github.ioannes78.voica.audio.PlaybackAudioSourceDescriptor
 import io.github.ioannes78.voica.audio.PlaybackState
 import io.github.ioannes78.voica.audio.SeekableAudioHandle
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -37,7 +37,7 @@ class StreamingPlaybackControllerTest {
         assertEquals(200L, controller.snapshot.value.durationSampleCount)
 
         controller.play()
-        advanceUntilIdle()
+        runCurrent()
         assertTrue(sink.totalWrittenBytes > 0)
 
         controller.pause()
@@ -46,7 +46,7 @@ class StreamingPlaybackControllerTest {
         sink.clearWritten()
         controller.seekToSample(150L)
         controller.play()
-        advanceUntilIdle()
+        runCurrent()
 
         assertTrue(sink.flushCount >= 1)
         assertTrue(sink.writes.isNotEmpty())
