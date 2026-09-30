@@ -164,15 +164,16 @@ class CanonicalAudioCoordinator(
             profileId = PROFILE_ID,
         ) ?: return CanonicalGenerationOutcome.NoSource
 
+        val existingCanonical = source.existingCanonical
         if (
             source.derivationState == AudioDerivationState.READY &&
-            source.existingCanonical != null &&
-            withContext(ioDispatcher) { isCanonicalAssetValid(source.existingCanonical) }
+            existingCanonical != null &&
+            withContext(ioDispatcher) { isCanonicalAssetValid(existingCanonical) }
         ) {
             return CanonicalGenerationOutcome.AlreadyReady
         }
 
-        source.existingCanonical?.let { existing ->
+        existingCanonical?.let { existing ->
             val valid = withContext(ioDispatcher) { isCanonicalAssetValid(existing) }
             if (!valid) {
                 repository.markAssetIntegrity(
