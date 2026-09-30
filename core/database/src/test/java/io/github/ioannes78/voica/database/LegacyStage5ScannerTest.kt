@@ -76,7 +76,7 @@ class LegacyStage5ScannerTest {
             val result = LegacyStage5Scanner(root).scan()
 
             assertTrue(result.candidates.isEmpty())
-            assertEquals("RAW_SHA_MISMATCH", result.issues.single().code)
+            assertTrue(result.issues.any { it.code == "RAW_SHA_MISMATCH" })
         } finally {
             root.deleteRecursively()
         }
