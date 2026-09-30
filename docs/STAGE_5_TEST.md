@@ -142,3 +142,22 @@ Stage 5 不实现：
 - DeleteBoth
 
 以上从 Stage 6 及后续阶段继续。
+
+
+## Freeze/Handoff 收口验证
+
+Freeze/Handoff 内容提交：
+
+`ddbd5989e1d567f92f9b9612f583f53dd890dc4a`
+
+Android PR CI：
+
+`36691943084` — **success**
+
+该 Run 在用户最终“测试通过”后再次通过：
+
+- `:core:protocol:test`
+- `:core:ble:testDebugUnitTest`
+- `:app:assembleDebug`
+
+本 seal 提交仅记录最终验证证据，不改变 Stage 5 生产代码。

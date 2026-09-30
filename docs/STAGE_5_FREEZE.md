@@ -151,3 +151,22 @@ Stage 6 才负责正式 Opus/Ogg/PCM/WAV 音频链路。
 Stage 6：**本地录音库 + Opus/WAV 音频链路**
 
 Stage 6 必须从 Stage 5 合并后的 `main` 重新检查实际 HEAD、文档与代码，再进入需求/规划双确认门禁。
+
+
+## Freeze/Handoff 收口验证
+
+Freeze/Handoff 内容提交：
+
+`ddbd5989e1d567f92f9b9612f583f53dd890dc4a`
+
+Android PR CI：
+
+`36691943084` — **success**
+
+该 Run 在用户最终“测试通过”后再次通过：
+
+- `:core:protocol:test`
+- `:core:ble:testDebugUnitTest`
+- `:app:assembleDebug`
+
+本 seal 提交仅记录最终验证证据，不改变 Stage 5 生产代码。
