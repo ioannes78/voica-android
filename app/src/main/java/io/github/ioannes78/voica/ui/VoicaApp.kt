@@ -64,7 +64,7 @@ fun VoicaApp(
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val deviceViewModel: DeviceViewModel = viewModel(
-        factory = remember(repository) {
+        factory = remember(repository, recordingLibraryRepository) {
             DeviceViewModel.Factory(repository, recordingLibraryRepository)
         },
     )
@@ -240,7 +240,7 @@ private fun DeviceScreen(
                 DeviceFilesCard(
                     state = deviceFiles,
                     operationState = fileOperation,
-                    localRecordings = localRecordings,
+                    localRecordings = libraryRecordings,
                     canRefresh = canRefreshFiles,
                     onRefresh = viewModel::refreshDeviceFiles,
                     onDownload = viewModel::downloadDeviceFile,
