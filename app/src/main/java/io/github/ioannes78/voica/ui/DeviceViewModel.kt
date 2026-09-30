@@ -3,11 +3,13 @@ package io.github.ioannes78.voica.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import io.github.ioannes78.voica.CanonicalAudioCoordinator
 import io.github.ioannes78.voica.ble.DeviceAudioFormat
 import io.github.ioannes78.voica.ble.DeviceRepository
 import io.github.ioannes78.voica.ble.RemoteDeviceFile
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.protocol.RecordingGain
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,6 +23,7 @@ enum class DeviceActionMessage {
 class DeviceViewModel(
     private val repository: DeviceRepository,
     private val recordingLibraryRepository: RecordingLibraryRepository,
+    private val canonicalAudioCoordinator: CanonicalAudioCoordinator,
 ) : ViewModel() {
     val scanState = repository.scanState
     val connectionState = repository.connectionState
@@ -34,6 +37,8 @@ class DeviceViewModel(
     val localRecordings = repository.localRecordings
     val libraryRecordings = recordingLibraryRepository.recordings
     val diagnostics = repository.diagnostics
+
+    private val canonicalJobs = mutableMapOf<String, Job>()
 
     private val mutableMissingPermissions =
         MutableStateFlow(repository.missingPermissions())
@@ -138,12 +143,32 @@ class DeviceViewModel(
         }
     }
 
+    fun generateCanonicalAudio(recordingId: String) {
+        if (canonicalJobs[recordingId]?.isActive == true) return
+        canonicalJobs[recordingId] = viewModelScope.launch {
+            try {
+                canonicalAudioCoordinator.generate(recordingId)
+            } finally {
+                canonicalJobs.remove(recordingId)
+            }
+        }
+    }
+
+    fun cancelCanonicalAudio(recordingId: String) {
+        canonicalJobs.remove(recordingId)?.cancel()
+    }
+
     class Factory(
         private val repository: DeviceRepository,
         private val recordingLibraryRepository: RecordingLibraryRepository,
+        private val canonicalAudioCoordinator: CanonicalAudioCoordinator,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            DeviceViewModel(repository, recordingLibraryRepository) as T
+            DeviceViewModel(
+                repository,
+                recordingLibraryRepository,
+                canonicalAudioCoordinator,
+            ) as T
     }
 }
