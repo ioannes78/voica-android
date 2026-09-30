@@ -347,7 +347,7 @@ class RecordingLibraryRepository(
         }
     }
 
-$insertBefore
+    suspend fun rename(recordingId: String, requestedName: String): Boolean {
         val displayName = sanitizeDisplayName(requestedName) ?: return false
         return dao.rename(recordingId, displayName, nowMs()) == 1
     }
