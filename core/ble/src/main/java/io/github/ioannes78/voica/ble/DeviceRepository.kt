@@ -62,7 +62,7 @@ interface DeviceRepository {
     suspend fun syncRecordingState()
     suspend fun setRecordingGain(gain: RecordingGain)
     suspend fun refreshDeviceFiles()
-    suspend fun downloadDeviceFile(file: RemoteDeviceFile)
+    suspend fun downloadDeviceFile(file: RemoteDeviceFile, format: DeviceAudioFormat)
     suspend fun cancelDeviceFileDownload()
     suspend fun deleteRemoteRecording(file: RemoteDeviceFile)
     suspend fun runRangeProbe(file: RemoteDeviceFile)
@@ -609,7 +609,10 @@ class DefaultDeviceRepository(
         scheduleFileListTimeouts(fileSessionId)
     }
 
-    override suspend fun downloadDeviceFile(file: RemoteDeviceFile) {
+    override suspend fun downloadDeviceFile(
+        file: RemoteDeviceFile,
+        format: DeviceAudioFormat,
+    ) {
         val operation = fileOperationCoordinator.tryStart(DeviceFileOperationType.DOWNLOAD)
             ?: return
 
@@ -620,6 +623,7 @@ class DefaultDeviceRepository(
             operation = DeviceFileOperationType.DOWNLOAD,
             stage = FileOperationStage.PREPARING,
             remoteIdentity = remoteIdentity,
+            audioFormat = format,
         )
 
         var prepared: LocalRecordingStore.PreparedLocalDownload? = null
@@ -627,11 +631,7 @@ class DefaultDeviceRepository(
         try {
             val ready = session.state.value as? DeviceConnectionState.Ready
             if (ready == null) {
-                failDownloadPrecondition(
-                    operationId,
-                    remoteIdentity,
-                    FileOperationError(FileOperationErrorCode.NOT_READY),
-                )
+                failDownloadPrecondition(operationId, remoteIdentity, FileOperationError(FileOperationErrorCode.NOT_READY), format)
                 return
             }
 
@@ -641,77 +641,67 @@ class DefaultDeviceRepository(
                 recording.freshness != RecordingFreshness.FRESH ||
                 recording.commandState != RecordingCommandState.IDLE
             ) {
-                failDownloadPrecondition(
-                    operationId,
-                    remoteIdentity,
-                    FileOperationError(FileOperationErrorCode.RECORDING_ACTIVE),
-                )
+                failDownloadPrecondition(operationId, remoteIdentity, FileOperationError(FileOperationErrorCode.RECORDING_ACTIVE), format)
                 return
             }
 
             val listState = mutableDeviceFileListState.value
             if (listState.freshness != FileListFreshness.FRESH) {
-                failDownloadPrecondition(
-                    operationId,
-                    remoteIdentity,
-                    FileOperationError(FileOperationErrorCode.FILE_LIST_NOT_FRESH),
-                )
+                failDownloadPrecondition(operationId, remoteIdentity, FileOperationError(FileOperationErrorCode.FILE_LIST_NOT_FRESH), format)
                 return
             }
-            if (
-                listState.deviceAddress != ready.address ||
-                listState.files.none { it.identity == remoteIdentity }
-            ) {
+            if (listState.deviceAddress != ready.address || listState.files.none { it.identity == remoteIdentity }) {
+                failDownloadPrecondition(operationId, remoteIdentity, FileOperationError(FileOperationErrorCode.INVALID_REMOTE_RECORDING), format)
+                return
+            }
+
+            val requestFilename = file.downloadFilename(format)
+            if (requestFilename == null) {
                 failDownloadPrecondition(
                     operationId,
                     remoteIdentity,
-                    FileOperationError(FileOperationErrorCode.INVALID_REMOTE_RECORDING),
+                    FileOperationError(
+                        FileOperationErrorCode.INVALID_FILENAME,
+                        "cannot project ${format.name} filename from ${file.displayFilename}",
+                    ),
+                    format,
                 )
                 return
             }
 
-            if (localRecordingStore.isDownloaded(remoteIdentity)) {
+            if (localRecordingStore.isDownloaded(remoteIdentity, format)) {
                 mutableFileOperationState.value = FileOperationState.Completed(
                     operationId = operationId,
                     operation = DeviceFileOperationType.DOWNLOAD,
                     remoteIdentity = remoteIdentity,
+                    audioFormat = format,
                 )
                 return
             }
 
-            if (!localRecordingStore.hasCapacity(file.sizeBytes)) {
-                failDownloadPrecondition(
-                    operationId,
-                    remoteIdentity,
-                    FileOperationError(FileOperationErrorCode.INSUFFICIENT_STORAGE),
-                )
+            val capacityEstimate = localRecordingStore.estimatedDownloadBytes(file, format)
+            if (!localRecordingStore.hasCapacity(capacityEstimate)) {
+                failDownloadPrecondition(operationId, remoteIdentity, FileOperationError(FileOperationErrorCode.INSUFFICIENT_STORAGE), format)
                 return
             }
 
-            val requestFilename = file.displayFilename
             val filenameBytes = requestFilename.encodeToByteArray()
             if (filenameBytes.isEmpty() || filenameBytes.any { it.toInt() == 0 }) {
-                failDownloadPrecondition(
-                    operationId,
-                    remoteIdentity,
-                    FileOperationError(FileOperationErrorCode.INVALID_FILENAME),
-                )
+                failDownloadPrecondition(operationId, remoteIdentity, FileOperationError(FileOperationErrorCode.INVALID_FILENAME), format)
                 return
             }
 
             val preparedDownload = try {
-                localRecordingStore.prepare(file)
+                localRecordingStore.prepare(file, format)
             } catch (error: FileTransferSinkException) {
-                failDownloadPrecondition(operationId, remoteIdentity, error.operationError)
+                failDownloadPrecondition(operationId, remoteIdentity, error.operationError, format)
                 return
             } catch (error: Throwable) {
                 failDownloadPrecondition(
                     operationId,
                     remoteIdentity,
-                    FileOperationError(
-                        FileOperationErrorCode.TEMP_FILE_CREATE_FAILED,
-                        error.message,
-                    ),
+                    FileOperationError(FileOperationErrorCode.TEMP_FILE_CREATE_FAILED, error.message),
+                    format,
                 )
                 return
             }
@@ -721,59 +711,53 @@ class DefaultDeviceRepository(
             transfer = transferSession
             if (!session.registerFileTransferConsumer(transferSession)) {
                 localRecordingStore.abort(preparedDownload)
-                failDownloadPrecondition(
-                    operationId,
-                    remoteIdentity,
-                    FileOperationError(FileOperationErrorCode.FILE_OPERATION_BUSY),
-                )
+                failDownloadPrecondition(operationId, remoteIdentity, FileOperationError(FileOperationErrorCode.FILE_OPERATION_BUSY), format)
                 return
             }
             activeFileTransferSession = transferSession
             activeFileTransferOperationId = operationId
 
+            val expectedBytes = localRecordingStore.expectedDownloadBytes(file, format)
             mutableFileTransferDiagnostics.value = FileTransferDiagnostics(
                 operationId = operationId,
                 transportSessionId = session.diagnostics.value.sessionId,
                 remoteIdentity = remoteIdentity,
                 listFilename = file.displayFilename,
                 requestFilename = requestFilename,
+                requestedFormat = format,
                 requestFilenameByteLength = filenameBytes.size,
                 requestFrameLength = FILE_DOWNLOAD_FRAME_FIXED_BYTES + filenameBytes.size,
-                expectedBytes = file.sizeBytes,
+                expectedBytes = expectedBytes.takeIf { it > 0L },
             )
             mutableFileOperationState.value = FileOperationState.Active(
                 operationId = operationId,
                 operation = DeviceFileOperationType.DOWNLOAD,
                 stage = FileOperationStage.REQUESTING,
                 remoteIdentity = remoteIdentity,
-                progress = DownloadProgress(0L, file.sizeBytes),
+                audioFormat = format,
+                progress = DownloadProgress(0L, expectedBytes),
             )
 
             val result = transferSession.execute(
                 sink = preparedDownload.writer,
                 sendRequest = {
                     session.sendFileTransferRequest { sequence ->
-                        FileTransferProtocol.buildDownloadRequest(
-                            sequence = sequence,
-                            offset = 0L,
-                            filenameBytes = filenameBytes,
-                        )
+                        FileTransferProtocol.buildDownloadRequest(sequence, 0L, filenameBytes)
                     }
                 },
                 sendAbort = session::sendFileTransferAbort,
-                expectedBytes = file.sizeBytes,
+                expectedBytes = expectedBytes,
                 onProgress = { progress ->
                     mutableFileOperationState.value = FileOperationState.Active(
                         operationId = operationId,
                         operation = DeviceFileOperationType.DOWNLOAD,
                         stage = FileOperationStage.TRANSFERRING,
                         remoteIdentity = remoteIdentity,
+                        audioFormat = format,
                         progress = progress,
                     )
                     mutableFileTransferDiagnostics.value =
-                        mutableFileTransferDiagnostics.value.copy(
-                            receivedBytes = progress.receivedBytes,
-                        )
+                        mutableFileTransferDiagnostics.value.copy(receivedBytes = progress.receivedBytes)
                 },
             )
 
@@ -784,10 +768,8 @@ class DefaultDeviceRepository(
                         operation = DeviceFileOperationType.DOWNLOAD,
                         stage = FileOperationStage.VERIFYING,
                         remoteIdentity = remoteIdentity,
-                        progress = DownloadProgress(
-                            result.value.receivedBytes,
-                            file.sizeBytes,
-                        ),
+                        audioFormat = format,
+                        progress = DownloadProgress(result.value.receivedBytes, expectedBytes),
                     )
                     mutableFileTransferDiagnostics.value =
                         mutableFileTransferDiagnostics.value.copy(
@@ -807,16 +789,11 @@ class DefaultDeviceRepository(
                         operation = DeviceFileOperationType.DOWNLOAD,
                         stage = FileOperationStage.COMMITTING,
                         remoteIdentity = remoteIdentity,
-                        progress = DownloadProgress(
-                            result.value.receivedBytes,
-                            file.sizeBytes,
-                        ),
+                        audioFormat = format,
+                        progress = DownloadProgress(result.value.receivedBytes, expectedBytes),
                     )
                     try {
-                        val commit = localRecordingStore.commit(
-                            prepared = preparedDownload,
-                            actualTransferFilename = result.value.actualFilename,
-                        )
+                        val commit = localRecordingStore.commit(preparedDownload, result.value.actualFilename)
                         mutableFileTransferDiagnostics.value =
                             mutableFileTransferDiagnostics.value.copy(
                                 firstDataPrefixHex = commit.firstDataPrefix.toDiagnosticHex(),
@@ -827,17 +804,18 @@ class DefaultDeviceRepository(
                             operationId = operationId,
                             operation = DeviceFileOperationType.DOWNLOAD,
                             remoteIdentity = remoteIdentity,
+                            audioFormat = format,
                         )
                     } catch (error: FileTransferSinkException) {
                         localRecordingStore.abort(preparedDownload)
-                        val operationError = error.operationError
                         mutableFileTransferDiagnostics.value =
-                            mutableFileTransferDiagnostics.value.copy(lastError = operationError)
+                            mutableFileTransferDiagnostics.value.copy(lastError = error.operationError)
                         mutableFileOperationState.value = FileOperationState.Failed(
                             operationId = operationId,
                             operation = DeviceFileOperationType.DOWNLOAD,
                             remoteIdentity = remoteIdentity,
-                            error = operationError,
+                            audioFormat = format,
+                            error = error.operationError,
                         )
                     }
                 }
@@ -850,6 +828,7 @@ class DefaultDeviceRepository(
                         operationId = operationId,
                         operation = DeviceFileOperationType.DOWNLOAD,
                         remoteIdentity = remoteIdentity,
+                        audioFormat = format,
                         error = result.error,
                     )
                 }
@@ -862,6 +841,7 @@ class DefaultDeviceRepository(
                         operationId = operationId,
                         operation = DeviceFileOperationType.DOWNLOAD,
                         remoteIdentity = remoteIdentity,
+                        audioFormat = format,
                         reason = result.error,
                     )
                 }
@@ -1367,6 +1347,7 @@ class DefaultDeviceRepository(
         operationId: Long,
         remoteIdentity: String,
         error: FileOperationError,
+        audioFormat: DeviceAudioFormat? = null,
     ) {
         mutableFileTransferDiagnostics.value =
             mutableFileTransferDiagnostics.value.copy(
@@ -1378,6 +1359,7 @@ class DefaultDeviceRepository(
             operationId = operationId,
             operation = DeviceFileOperationType.DOWNLOAD,
             remoteIdentity = remoteIdentity,
+            audioFormat = audioFormat,
             error = error,
         )
     }
