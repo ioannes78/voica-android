@@ -161,7 +161,10 @@ class RecordingLibraryRepository(
                     sourceRemoteIdentity = asset.sourceRemoteIdentity,
                     sourceDeviceAddress = asset.sourceDeviceAddress,
                     originalFilename = asset.displayFilename,
-                    displayName = asset.displayFilename,
+                    displayName =
+                        RecordingDisplayNamePolicy.defaultDisplayName(
+                            asset.displayFilename,
+                        ),
                     recordedAtLocalIso = asset.recordedAtLocalIso,
                     deviceReportedDurationMs = asset.deviceReportedDurationMs,
                     downloadedAtMs = asset.downloadedAtMs,
@@ -457,6 +460,31 @@ class RecordingLibraryRepository(
         }
     }
 
+    suspend fun normalizeStandardDeviceDisplayNames(): Int {
+        var updated = 0
+        val now = nowMs()
+        dao.allRecordings().forEach { recording ->
+            if (
+                RecordingDisplayNamePolicy.shouldNormalizeExisting(
+                    displayName = recording.displayName,
+                    originalFilename = recording.originalFilename,
+                )
+            ) {
+                val normalized =
+                    RecordingDisplayNamePolicy.defaultDisplayName(
+                        recording.displayName,
+                    )
+                if (
+                    normalized != recording.displayName &&
+                    dao.rename(recording.id, normalized, now) == 1
+                ) {
+                    updated += 1
+                }
+            }
+        }
+        return updated
+    }
+
     suspend fun migrationDiagnostics(): List<MigrationDiagnosticEntity> =
         dao.migrationDiagnostics()
 
@@ -508,7 +536,8 @@ private fun LegacyStage5Candidate.toRecordingEntity(now: Long): RecordingEntity 
         sourceRemoteIdentity = sourceRemoteIdentity,
         sourceDeviceAddress = sourceDeviceAddress,
         originalFilename = displayFilename,
-        displayName = displayFilename,
+        displayName =
+            RecordingDisplayNamePolicy.defaultDisplayName(displayFilename),
         recordedAtLocalIso = recordedAtLocalIso,
         deviceReportedDurationMs = deviceReportedDurationMs,
         downloadedAtMs = downloadedAtMs,
