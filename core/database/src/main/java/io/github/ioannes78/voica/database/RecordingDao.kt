@@ -62,6 +62,12 @@ interface RecordingDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertDerivation(derivation: AudioDerivationEntity)
 
+    @Query("SELECT * FROM audio_derivations WHERE profileId = :profileId AND state IN (:states)")
+    suspend fun findDerivationsByStates(
+        profileId: String,
+        states: List<String>,
+    ): List<AudioDerivationEntity>
+
     @Query("UPDATE audio_derivations SET state = :failedState, updatedAtMs = :updatedAtMs, completedAtMs = :updatedAtMs, errorCode = :errorCode, errorDetail = :errorDetail WHERE profileId = :profileId AND state IN (:activeStates)")
     suspend fun failActiveDerivations(
         profileId: String,
