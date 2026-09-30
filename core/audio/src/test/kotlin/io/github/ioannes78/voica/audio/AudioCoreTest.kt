@@ -179,7 +179,7 @@ class AudioCoreTest {
             writeU32(36L + dataBytes)
             raf.write("WAVE".encodeToByteArray())
             raf.write("fmt ".encodeToByteArray())
-            writeU32(16)
+            writeU32(16L)
             writeU16(1)
             writeU16(channels)
             writeU32(sampleRateHz.toLong())
