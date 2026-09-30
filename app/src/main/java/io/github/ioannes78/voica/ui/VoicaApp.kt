@@ -115,7 +115,7 @@ private fun DeviceScreen(
     val fileTransferDiagnostics by viewModel.fileTransferDiagnostics.collectAsState()
     val remoteDeleteDiagnostics by viewModel.remoteDeleteDiagnostics.collectAsState()
     val rangeProbeDiagnostics by viewModel.rangeProbeDiagnostics.collectAsState()
-    val localRecordings by viewModel.localRecordings.collectAsState()
+    val localRecordings by viewModel.libraryRecordings.collectAsState(initial = emptyList())
     val diagnostics by viewModel.diagnostics.collectAsState()
     val missingPermissions by viewModel.missingPermissions.collectAsState()
     val actionMessage by viewModel.actionMessage.collectAsState()
