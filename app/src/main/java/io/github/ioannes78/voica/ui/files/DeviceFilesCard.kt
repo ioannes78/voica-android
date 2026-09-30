@@ -28,8 +28,9 @@ import io.github.ioannes78.voica.ble.DeviceFileOperationType
 import io.github.ioannes78.voica.ble.FileListErrorCode
 import io.github.ioannes78.voica.ble.FileListFreshness
 import io.github.ioannes78.voica.ble.FileOperationState
-import io.github.ioannes78.voica.ble.LocalRecordingArtifact
 import io.github.ioannes78.voica.ble.RemoteDeviceFile
+import io.github.ioannes78.voica.database.AudioAssetRole
+import io.github.ioannes78.voica.database.RecordingLibraryItem
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -37,7 +38,7 @@ import java.util.Locale
 fun DeviceFilesCard(
     state: DeviceFileListState,
     operationState: FileOperationState,
-    localRecordings: List<LocalRecordingArtifact>,
+    localRecordings: List<RecordingLibraryItem>,
     canRefresh: Boolean,
     onRefresh: () -> Unit,
     onDownload: (RemoteDeviceFile, DeviceAudioFormat) -> Unit,
@@ -45,9 +46,10 @@ fun DeviceFilesCard(
     onDeleteRemote: (RemoteDeviceFile) -> Unit,
     onRangeProbe: (RemoteDeviceFile) -> Unit,
 ) {
-    val downloadedFormats = localRecordings
-        .groupBy { it.sourceRemoteIdentity }
-        .mapValues { (_, assets) -> assets.mapTo(mutableSetOf()) { it.sourceFormat } }
+    val downloadedRoles = localRecordings
+        .associate { recording ->
+            recording.sourceRemoteIdentity to recording.assets.mapTo(mutableSetOf()) { it.role }
+        }
     val active = operationState as? FileOperationState.Active
     var pendingDelete by remember { mutableStateOf<RemoteDeviceFile?>(null) }
 
@@ -87,9 +89,9 @@ fun DeviceFilesCard(
                     DeviceFileRow(
                         file = file,
                         opusDownloaded =
-                            DeviceAudioFormat.OPUS in downloadedFormats[file.identity].orEmpty(),
+                            AudioAssetRole.DEVICE_OPUS in downloadedRoles[file.identity].orEmpty(),
                         wavDownloaded =
-                            DeviceAudioFormat.WAV in downloadedFormats[file.identity].orEmpty(),
+                            AudioAssetRole.DEVICE_WAV in downloadedRoles[file.identity].orEmpty(),
                         activeOperation = active,
                         operationState = operationState,
                         onDownload = { format -> onDownload(file, format) },
