@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import io.github.ioannes78.voica.CanonicalAudioCoordinator
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.ble.BleDiagnostics
 import io.github.ioannes78.voica.ble.BleError
@@ -61,11 +62,20 @@ import io.github.ioannes78.voica.ui.recording.RecordingCard
 fun VoicaApp(
     repository: DeviceRepository,
     recordingLibraryRepository: RecordingLibraryRepository,
+    canonicalAudioCoordinator: CanonicalAudioCoordinator,
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val deviceViewModel: DeviceViewModel = viewModel(
-        factory = remember(repository, recordingLibraryRepository) {
-            DeviceViewModel.Factory(repository, recordingLibraryRepository)
+        factory = remember(
+            repository,
+            recordingLibraryRepository,
+            canonicalAudioCoordinator,
+        ) {
+            DeviceViewModel.Factory(
+                repository,
+                recordingLibraryRepository,
+                canonicalAudioCoordinator,
+            )
         },
     )
 
@@ -337,6 +347,8 @@ private fun LocalFilesScreen(
                 recordings = recordings,
                 onRename = viewModel::renameLocalRecording,
                 onDeleteLocal = viewModel::deleteLibraryRecording,
+                onGenerateCanonical = viewModel::generateCanonicalAudio,
+                onCancelCanonical = viewModel::cancelCanonicalAudio,
             )
         }
     }
