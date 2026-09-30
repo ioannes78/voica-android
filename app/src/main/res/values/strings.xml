@@ -93,6 +93,10 @@
     <string name="device_file_time">录制时间</string>
     <string name="device_file_duration">时长</string>
     <string name="device_file_size">大小</string>
+    <string name="device_file_opus_label">OPUS</string>
+    <string name="device_file_wav_label">WAV</string>
+    <string name="device_file_wav_size_probing">读取大小…</string>
+    <string name="device_file_wav_size_unknown">大小未知</string>
     <string name="device_file_unknown">未知</string>
     <string name="device_file_download">下载</string>
     <string name="device_file_download_opus">下载 OPUS</string>
@@ -104,6 +108,8 @@
     <string name="device_file_downloading">正在下载…</string>
     <string name="device_file_downloading_format">正在下载 %1$s…</string>
     <string name="device_file_downloading_progress">正在下载 %1$d%% · %2$s / %3$s</string>
+    <string name="device_file_download_progress_value">%1$d%% · %2$s / %3$s</string>
+    <string name="device_file_download_received">已接收 %1$s · 正在读取真实总大小</string>
     <string name="device_file_cancel_download">取消下载</string>
     <string name="device_file_downloaded">已下载到本地</string>
     <string name="device_file_download_failed">下载失败：%1$s</string>
