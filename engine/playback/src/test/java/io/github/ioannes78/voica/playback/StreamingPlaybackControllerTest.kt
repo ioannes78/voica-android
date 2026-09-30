@@ -4,6 +4,7 @@ import io.github.ioannes78.voica.audio.AudioContainerKind
 import io.github.ioannes78.voica.audio.AudioSourceResolver
 import io.github.ioannes78.voica.audio.PlaybackAudioSource
 import io.github.ioannes78.voica.audio.PlaybackAudioSourceDescriptor
+import io.github.ioannes78.voica.audio.PlaybackErrorCode
 import io.github.ioannes78.voica.audio.PlaybackState
 import io.github.ioannes78.voica.audio.SeekableAudioHandle
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -139,10 +140,43 @@ class StreamingPlaybackControllerTest {
         assertEquals(PlaybackState.RELEASED, controller.snapshot.value.state)
     }
 
+
+    @Test
+    fun invalidCanonicalDescriptorFailsBeforeOpeningAudioSink() = runTest {
+        val bytes = ByteArray(44 + 20)
+        var sinkCreated = false
+        val controller = StreamingPlaybackController(
+            sourceResolver = FakeResolver(
+                bytes = bytes,
+                sampleCount = 10L,
+                bitsPerSample = 24,
+            ),
+            sinkFactory = PlaybackAudioSinkFactory {
+                sinkCreated = true
+                FakeSink()
+            },
+            scope = this,
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+        )
+
+        controller.load("invalid-recording")
+
+        assertEquals(PlaybackState.ERROR, controller.snapshot.value.state)
+        assertEquals(
+            PlaybackErrorCode.INVALID_CANONICAL_WAV,
+            controller.snapshot.value.error?.code,
+        )
+        assertTrue(!sinkCreated)
+
+        controller.release()
+        runCurrent()
+    }
+
     private class FakeResolver(
         private val bytes: ByteArray,
         private val sampleCount: Long = 200L,
         private val dataOffset: Long = 44L,
+        private val bitsPerSample: Int = 16,
     ) : AudioSourceResolver {
         override suspend fun resolvePlaybackSource(
             recordingId: String,
@@ -157,7 +191,7 @@ class StreamingPlaybackControllerTest {
                     channelCount = 1,
                     seekable = true,
                     lengthBytes = bytes.size.toLong(),
-                    bitsPerSample = 16,
+                    bitsPerSample = bitsPerSample,
                     pcmDataOffsetBytes = dataOffset,
                     pcmDataSizeBytes = sampleCount * 2L,
                     bytesPerFrame = 2,
