@@ -3,6 +3,7 @@ package io.github.ioannes78.voica.ble
 import io.github.ioannes78.voica.protocol.FrameParser
 import io.github.ioannes78.voica.protocol.ProtocolCodec
 import io.github.ioannes78.voica.protocol.ProtocolConstants
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -24,6 +25,7 @@ class RemoteDeletePolicyTest {
         assertEquals(0, outcome.statusCode)
         assertEquals(NotificationSource.AE23, outcome.source)
         assertEquals(42L, outcome.latencyMs)
+        assertArrayEquals(byteArrayOf(0), outcome.responseBody)
     }
 
     @Test

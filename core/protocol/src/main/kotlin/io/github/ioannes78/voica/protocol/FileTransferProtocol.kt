@@ -87,6 +87,27 @@ object FileTransferProtocol {
         )
     }
 
+    fun buildDeleteRecordingFilename24Request(
+        sequence: Int,
+        filename: String,
+    ): ByteArray {
+        val filenameBytes = filename.encodeToByteArray()
+        require(filenameBytes.isNotEmpty()) { "filename 不能为空" }
+        require(filenameBytes.size <= ProtocolConstants.FILENAME_FIELD_LENGTH) {
+            "delete filename UTF-8 长度不能超过 24B"
+        }
+        require(filenameBytes.none { it.toInt() == 0 }) { "filename 不能包含 NUL" }
+
+        val params = ByteArray(4 + ProtocolConstants.FILENAME_FIELD_LENGTH)
+        filenameBytes.copyInto(params, destinationOffset = 4)
+        return ProtocolCodec.buildCommand(
+            sequence = sequence,
+            type = ProtocolConstants.Type.FILE,
+            command = ProtocolConstants.File.DELETE_ONE,
+            params = params,
+        )
+    }
+
     fun decodeDownloadStart(body: ByteArray): FileTransferDecodeResult<DownloadStart> {
         if (body.isEmpty()) {
             return FileTransferDecodeResult.Success(

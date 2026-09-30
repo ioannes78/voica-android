@@ -8,12 +8,14 @@ sealed interface RemoteDeleteCommandOutcome {
         val statusCode: Int,
         val source: NotificationSource?,
         val latencyMs: Long?,
+        val responseBody: ByteArray,
     ) : RemoteDeleteCommandOutcome
 
     data class Rejected(
         val statusCode: Int?,
         val source: NotificationSource?,
         val latencyMs: Long?,
+        val responseBody: ByteArray?,
         val error: FileOperationError,
     ) : RemoteDeleteCommandOutcome
 
@@ -62,12 +64,14 @@ object RemoteDeletePolicy {
                                 statusCode = decoded.value.statusCode,
                                 source = result.source,
                                 latencyMs = result.latencyMs,
+                                responseBody = result.response.body.copyOf(),
                             )
                         } else {
                             RemoteDeleteCommandOutcome.Rejected(
                                 statusCode = decoded.value.statusCode,
                                 source = result.source,
                                 latencyMs = result.latencyMs,
+                                responseBody = result.response.body.copyOf(),
                                 error = FileOperationError(
                                     FileOperationErrorCode.DELETE_REJECTED,
                                     "remote status=" + decoded.value.statusCode,
@@ -81,6 +85,7 @@ object RemoteDeletePolicy {
                             statusCode = null,
                             source = result.source,
                             latencyMs = result.latencyMs,
+                            responseBody = result.response.body.copyOf(),
                             error = FileOperationError(
                                 FileOperationErrorCode.DELETE_REJECTED,
                                 decoded.reason,

@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 
 enum class AudioContainer {
     WAV,
+    RAW_OPUS,
     UNKNOWN,
 }
 
@@ -306,6 +307,18 @@ class LocalRecordingStore(
                 .replaceSuffixForContainer(writerResult.container),
         )
 
+        val resolvedContainer =
+            if (
+                writerResult.container == AudioContainer.UNKNOWN &&
+                extension == ".opus" &&
+                writerResult.sizeBytes > 0L &&
+                writerResult.sizeBytes % RAW_OPUS_PACKET_BYTES == 0L
+            ) {
+                AudioContainer.RAW_OPUS
+            } else {
+                writerResult.container
+            }
+
         val artifact = LocalRecordingArtifact(
             id = prepared.id,
             sourceRemoteIdentity = prepared.remote.identity,
@@ -316,7 +329,7 @@ class LocalRecordingStore(
             downloadedAtMs = nowMs(),
             sizeBytes = writerResult.sizeBytes,
             sha256 = writerResult.sha256,
-            container = writerResult.container,
+            container = resolvedContainer,
         )
 
         writeMetadataAtomically(artifact)
@@ -405,6 +418,8 @@ class LocalRecordingStore(
         when (container) {
             AudioContainer.WAV ->
                 if (contains('.')) substringBeforeLast('.') + ".wav" else "$this.wav"
+            AudioContainer.RAW_OPUS ->
+                if (contains('.')) substringBeforeLast('.') + ".opus" else "$this.opus"
             AudioContainer.UNKNOWN -> this
         }
 
@@ -505,5 +520,6 @@ class LocalRecordingStore(
         const val METADATA_TEMP_SUFFIX = ".properties.part"
         const val MINIMUM_FREE_MARGIN_BYTES = 16L * 1024L * 1024L
         const val MAX_DISPLAY_FILENAME_LENGTH = 160
+        const val RAW_OPUS_PACKET_BYTES = 40L
     }
 }

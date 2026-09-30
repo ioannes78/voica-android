@@ -266,15 +266,16 @@ class AndroidDeviceSession(
             io.github.ioannes78.voica.protocol.FileTransferProtocol.buildAbortRequest(sequence)
         }
 
-    suspend fun deleteRemoteRecording(deleteToken: ByteArray): DeviceCommandResult =
+    suspend fun deleteRemoteRecording(filename: String): DeviceCommandResult =
         commandClient.request(
             expectedType = ProtocolConstants.Type.FILE,
             expectedCommand = ProtocolConstants.File.DELETE_ONE_RESPONSE,
         ) { sequence ->
-            io.github.ioannes78.voica.protocol.FileTransferProtocol.buildDeleteRecordingRequest(
-                sequence = sequence,
-                deleteToken = deleteToken,
-            )
+            io.github.ioannes78.voica.protocol.FileTransferProtocol
+                .buildDeleteRecordingFilename24Request(
+                    sequence = sequence,
+                    filename = filename,
+                )
         }
 
     suspend fun readBattery(): BatteryState? =

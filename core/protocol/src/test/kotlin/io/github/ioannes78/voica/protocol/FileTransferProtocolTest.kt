@@ -58,6 +58,25 @@ class FileTransferProtocolTest {
     }
 
     @Test
+    fun filename24DeleteUsesZeroPrefixAndFullStandardFilename() {
+        val filename = "note20260930-161431.opus"
+        val frame = FileTransferProtocol.buildDeleteRecordingFilename24Request(
+            sequence = 4,
+            filename = filename,
+        )
+        val parsed = FrameParser("test").feed(frame).single()
+
+        assertEquals(ProtocolConstants.File.DELETE_ONE, parsed.command)
+        assertEquals(28, parsed.body.size)
+        assertArrayEquals(byteArrayOf(0, 0, 0, 0), parsed.body.copyOfRange(0, 4))
+        assertArrayEquals(
+            filename.encodeToByteArray(),
+            parsed.body.copyOfRange(4, 28),
+        )
+        assertEquals(36, frame.size)
+    }
+
+    @Test
     fun deleteRecordingUsesOpaqueTokenWithoutRebuildingFilename() {
         val token = ByteArray(28) { it.toByte() }
         val frame = FileTransferProtocol.buildDeleteRecordingRequest(

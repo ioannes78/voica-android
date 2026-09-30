@@ -61,7 +61,7 @@ class LocalRecordingStoreTest {
 
             val committed = store.commit(prepared, actualTransferFilename = null)
 
-            assertEquals(AudioContainer.UNKNOWN, committed.artifact.container)
+            assertEquals(AudioContainer.RAW_OPUS, committed.artifact.container)
             assertTrue(committed.artifact.physicalFileName.endsWith(".opus"))
             assertTrue(committed.artifact.displayFilename.endsWith(".opus"))
             assertArrayEquals(raw, store.resolveAudioFile(committed.artifact).readBytes())
