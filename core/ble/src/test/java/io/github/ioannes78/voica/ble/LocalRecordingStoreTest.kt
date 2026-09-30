@@ -27,6 +27,7 @@ class LocalRecordingStoreTest {
             val committed = store.commit(prepared, "note20260930-083059.wav")
 
             assertEquals(AudioContainer.WAV, committed.artifact.container)
+            assertEquals(DeviceAudioFormat.OPUS, committed.artifact.sourceFormat)
             assertEquals(WAV_BYTES.size.toLong(), committed.artifact.sizeBytes)
             assertEquals(1234L, committed.artifact.downloadedAtMs)
             assertEquals(
@@ -65,6 +66,32 @@ class LocalRecordingStoreTest {
             assertTrue(committed.artifact.physicalFileName.endsWith(".opus"))
             assertTrue(committed.artifact.displayFilename.endsWith(".opus"))
             assertArrayEquals(raw, store.resolveAudioFile(committed.artifact).readBytes())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun opusAndWavDownloadsForSameRemoteAreIndependentAssets() = runTest {
+        val root = Files.createTempDirectory("voica-dual-format").toFile()
+        try {
+            val remote = remote(size = 80L)
+            val store = LocalRecordingStore(root) { 3300L }
+
+            val opusBytes = ByteArray(80) { index -> (index and 0x7F).toByte() }
+            val opus = store.prepare(remote, DeviceAudioFormat.OPUS)
+            opus.writer.write(opusBytes)
+            val opusArtifact = store.commit(opus, "note20260930-083059.opus").artifact
+
+            val wav = store.prepare(remote, DeviceAudioFormat.WAV)
+            wav.writer.write(WAV_BYTES)
+            val wavArtifact = store.commit(wav, "note20260930-083059.wav").artifact
+
+            assertTrue(store.isDownloaded(remote.identity, DeviceAudioFormat.OPUS))
+            assertTrue(store.isDownloaded(remote.identity, DeviceAudioFormat.WAV))
+            assertEquals(DeviceAudioFormat.OPUS, opusArtifact.sourceFormat)
+            assertEquals(DeviceAudioFormat.WAV, wavArtifact.sourceFormat)
+            assertTrue(opusArtifact.id != wavArtifact.id)
         } finally {
             root.deleteRecursively()
         }
