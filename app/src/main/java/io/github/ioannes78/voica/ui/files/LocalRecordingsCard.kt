@@ -23,7 +23,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.R
+import io.github.ioannes78.voica.audio.CanonicalPcmProfile
 import io.github.ioannes78.voica.database.AudioAssetRole
+import io.github.ioannes78.voica.database.AudioDerivationState
+import io.github.ioannes78.voica.database.AudioIntegrityState
+import io.github.ioannes78.voica.database.AudioValidationState
 import io.github.ioannes78.voica.database.RecordingAsset
 import io.github.ioannes78.voica.database.RecordingLibraryItem
 import java.time.Instant
@@ -37,6 +41,8 @@ fun LocalRecordingsCard(
     recordings: List<RecordingLibraryItem>,
     onRename: (String, String) -> Unit,
     onDeleteLocal: (String) -> Unit,
+    onGenerateCanonical: (String) -> Unit,
+    onCancelCanonical: (String) -> Unit,
 ) {
     var pendingDelete by remember { mutableStateOf<RecordingLibraryItem?>(null) }
     var pendingRename by remember { mutableStateOf<RecordingLibraryItem?>(null) }
@@ -60,57 +66,16 @@ fun LocalRecordingsCard(
                 )
                 HorizontalDivider()
                 recordings.forEachIndexed { index, item ->
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 6.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Text(item.displayName, style = MaterialTheme.typography.titleSmall)
-                        LocalInfoLine(
-                            stringResource(R.string.local_file_recorded_at),
-                            item.recordedAtLocalIso
-                                ?.let { runCatching { LocalDateTime.parse(it) }.getOrNull() }
-                                ?.format(DISPLAY_TIME)
-                                ?: stringResource(R.string.device_file_unknown),
-                        )
-                        LocalInfoLine(
-                            stringResource(R.string.local_file_duration),
-                            item.deviceReportedDurationMs
-                                ?.let(::formatDurationMs)
-                                ?: stringResource(R.string.device_file_unknown),
-                        )
-                        LocalInfoLine(
-                            stringResource(R.string.local_file_downloaded_at),
-                            Instant.ofEpochMilli(item.downloadedAtMs)
-                                .atZone(ZoneId.systemDefault())
-                                .toLocalDateTime()
-                                .format(DISPLAY_TIME),
-                        )
-
-                        item.assets
-                            .sortedBy(::assetSortKey)
-                            .forEach { asset ->
-                                LocalInfoLine(
-                                    assetLabel(asset),
-                                    formatBytes(asset.sizeBytes),
-                                )
-                            }
-
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(
-                                onClick = {
-                                    pendingRename = item
-                                    renameValue = item.displayName
-                                },
-                            ) {
-                                Text(stringResource(R.string.local_file_rename))
-                            }
-                            OutlinedButton(onClick = { pendingDelete = item }) {
-                                Text(stringResource(R.string.local_file_delete))
-                            }
-                        }
-                    }
+                    RecordingRow(
+                        item = item,
+                        onRename = {
+                            pendingRename = item
+                            renameValue = item.displayName
+                        },
+                        onDelete = { pendingDelete = item },
+                        onGenerateCanonical = { onGenerateCanonical(item.id) },
+                        onCancelCanonical = { onCancelCanonical(item.id) },
+                    )
                     if (index != recordings.lastIndex) {
                         HorizontalDivider()
                     }
@@ -181,6 +146,122 @@ fun LocalRecordingsCard(
 }
 
 @Composable
+private fun RecordingRow(
+    item: RecordingLibraryItem,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+    onGenerateCanonical: () -> Unit,
+    onCancelCanonical: () -> Unit,
+) {
+    val profileDerivations = item.derivations.filter {
+        it.profileId == CanonicalPcmProfile.PROFILE_ID
+    }
+    val activeDerivation = profileDerivations.firstOrNull {
+        it.state in ACTIVE_DERIVATION_STATES
+    }
+    val latestFailure = profileDerivations.firstOrNull {
+        it.state == AudioDerivationState.FAILED_RECOVERABLE ||
+            it.state == AudioDerivationState.FAILED_PERMANENT ||
+            it.state == AudioDerivationState.CANCELLED
+    }
+    val canonicalReady = item.assets.any {
+        it.role == AudioAssetRole.CANONICAL_WAV &&
+            it.integrityState == AudioIntegrityState.VERIFIED &&
+            it.formatValidationState == AudioValidationState.VALID
+    }
+    val sourceAvailable = item.assets.any {
+        (it.role == AudioAssetRole.DEVICE_OPUS ||
+            it.role == AudioAssetRole.DEVICE_WAV) &&
+            it.integrityState == AudioIntegrityState.VERIFIED
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(item.displayName, style = MaterialTheme.typography.titleSmall)
+        LocalInfoLine(
+            stringResource(R.string.local_file_recorded_at),
+            item.recordedAtLocalIso
+                ?.let { runCatching { LocalDateTime.parse(it) }.getOrNull() }
+                ?.format(DISPLAY_TIME)
+                ?: stringResource(R.string.device_file_unknown),
+        )
+        LocalInfoLine(
+            stringResource(R.string.local_file_duration),
+            item.deviceReportedDurationMs
+                ?.let(::formatDurationMs)
+                ?: stringResource(R.string.device_file_unknown),
+        )
+        LocalInfoLine(
+            stringResource(R.string.local_file_downloaded_at),
+            Instant.ofEpochMilli(item.downloadedAtMs)
+                .atZone(ZoneId.systemDefault())
+                .toLocalDateTime()
+                .format(DISPLAY_TIME),
+        )
+
+        item.assets
+            .sortedBy(::assetSortKey)
+            .forEach { asset ->
+                LocalInfoLine(
+                    assetLabel(asset),
+                    assetValue(asset),
+                )
+            }
+
+        LocalInfoLine(
+            stringResource(R.string.local_standard_audio_status),
+            when {
+                activeDerivation != null ->
+                    derivationStateLabel(activeDerivation.state)
+
+                canonicalReady ->
+                    stringResource(R.string.local_standard_audio_ready)
+
+                latestFailure != null ->
+                    derivationStateLabel(latestFailure.state)
+
+                sourceAvailable ->
+                    stringResource(R.string.local_standard_audio_not_generated)
+
+                else ->
+                    stringResource(R.string.local_standard_audio_no_source)
+            },
+        )
+
+        if (activeDerivation != null) {
+            OutlinedButton(onClick = onCancelCanonical) {
+                Text(stringResource(R.string.local_standard_audio_cancel))
+            }
+        } else if (sourceAvailable && !canonicalReady) {
+            OutlinedButton(onClick = onGenerateCanonical) {
+                Text(
+                    stringResource(
+                        if (latestFailure == null) {
+                            R.string.local_standard_audio_generate
+                        } else {
+                            R.string.local_standard_audio_retry
+                        },
+                    ),
+                )
+            }
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onRename) {
+                Text(stringResource(R.string.local_file_rename))
+            }
+            OutlinedButton(onClick = onDelete) {
+                Text(stringResource(R.string.local_file_delete))
+            }
+        }
+    }
+}
+
+@Composable
 private fun LocalInfoLine(label: String, value: String) {
     Row(modifier = Modifier.fillMaxWidth()) {
         Text(
@@ -203,6 +284,61 @@ private fun assetLabel(asset: RecordingAsset): String =
             stringResource(R.string.local_asset_canonical_wav)
         else ->
             stringResource(R.string.local_asset_other, asset.role)
+    }
+
+@Composable
+private fun assetValue(asset: RecordingAsset): String =
+    stringResource(
+        R.string.local_asset_value,
+        formatBytes(asset.sizeBytes),
+        validationLabel(asset),
+    )
+
+@Composable
+private fun validationLabel(asset: RecordingAsset): String =
+    when {
+        asset.integrityState == AudioIntegrityState.MISSING ->
+            stringResource(R.string.local_asset_missing)
+        asset.integrityState == AudioIntegrityState.CORRUPTED ->
+            stringResource(R.string.local_asset_corrupted)
+        asset.formatValidationState == AudioValidationState.VALID ->
+            stringResource(R.string.local_asset_verified)
+        asset.formatValidationState == AudioValidationState.VALIDATING ->
+            stringResource(R.string.local_asset_validating)
+        asset.formatValidationState == AudioValidationState.UNSUPPORTED ->
+            stringResource(R.string.local_asset_unsupported)
+        asset.formatValidationState == AudioValidationState.INVALID ||
+            asset.formatValidationState == AudioValidationState.CORRUPTED ->
+            stringResource(R.string.local_asset_invalid)
+        else ->
+            stringResource(R.string.local_asset_unverified)
+    }
+
+@Composable
+private fun derivationStateLabel(state: String): String =
+    when (state) {
+        AudioDerivationState.PREPARING ->
+            stringResource(R.string.local_standard_audio_preparing)
+        AudioDerivationState.DECODING ->
+            stringResource(R.string.local_standard_audio_decoding)
+        AudioDerivationState.NORMALIZING ->
+            stringResource(R.string.local_standard_audio_normalizing)
+        AudioDerivationState.WRITING ->
+            stringResource(R.string.local_standard_audio_writing)
+        AudioDerivationState.VERIFYING ->
+            stringResource(R.string.local_standard_audio_verifying)
+        AudioDerivationState.COMMITTING ->
+            stringResource(R.string.local_standard_audio_committing)
+        AudioDerivationState.FAILED_RECOVERABLE ->
+            stringResource(R.string.local_standard_audio_failed_retryable)
+        AudioDerivationState.FAILED_PERMANENT ->
+            stringResource(R.string.local_standard_audio_failed_permanent)
+        AudioDerivationState.CANCELLED ->
+            stringResource(R.string.local_standard_audio_cancelled)
+        AudioDerivationState.READY ->
+            stringResource(R.string.local_standard_audio_ready)
+        else ->
+            stringResource(R.string.local_standard_audio_not_generated)
     }
 
 private fun assetSortKey(asset: RecordingAsset): Int =
@@ -233,6 +369,15 @@ private fun formatBytes(bytes: Long): String {
     if (mb < 1024) return String.format(Locale.US, "%.2f MB", mb)
     return String.format(Locale.US, "%.2f GB", mb / 1024.0)
 }
+
+private val ACTIVE_DERIVATION_STATES = setOf(
+    AudioDerivationState.PREPARING,
+    AudioDerivationState.DECODING,
+    AudioDerivationState.NORMALIZING,
+    AudioDerivationState.WRITING,
+    AudioDerivationState.VERIFYING,
+    AudioDerivationState.COMMITTING,
+)
 
 private val DISPLAY_TIME: DateTimeFormatter =
     DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
