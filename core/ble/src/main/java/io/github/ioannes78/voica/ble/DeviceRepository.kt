@@ -791,7 +791,28 @@ class DefaultDeviceRepository(
                 },
                 sendAbort = session::sendFileTransferAbort,
                 expectedBytes = expectedBytes,
+                resolveExpectedBytes = { prefix ->
+                    if (format != DeviceAudioFormat.WAV) {
+                        null
+                    } else {
+                        when (val parsed = WavHeaderProbeParser.parse(prefix)) {
+                            is WavHeaderProbeResult.Success ->
+                                parsed.value.totalSizeBytes
+                            else -> null
+                        }
+                    }
+                },
                 onProgress = { progress ->
+                    if (
+                        format == DeviceAudioFormat.WAV &&
+                        progress.expectedBytes > 0L
+                    ) {
+                        updateWavSizeProbe(
+                            remoteIdentity = remoteIdentity,
+                            state = WavSizeProbeState.AVAILABLE,
+                            sizeBytes = progress.expectedBytes,
+                        )
+                    }
                     mutableFileOperationState.value = FileOperationState.Active(
                         operationId = operationId,
                         operation = DeviceFileOperationType.DOWNLOAD,
@@ -801,19 +822,52 @@ class DefaultDeviceRepository(
                         progress = progress,
                     )
                     mutableFileTransferDiagnostics.value =
-                        mutableFileTransferDiagnostics.value.copy(receivedBytes = progress.receivedBytes)
+                        mutableFileTransferDiagnostics.value.copy(
+                            receivedBytes = progress.receivedBytes,
+                            expectedBytes =
+                                progress.expectedBytes.takeIf { it > 0L },
+                        )
                 },
             )
 
             when (result) {
                 is FileTransferExecutionResult.Completed -> {
+                    val finalExpectedBytes =
+                        result.value.expectedBytes ?: expectedBytes.takeIf { it > 0L }
+                    if (
+                        finalExpectedBytes != null &&
+                        result.value.receivedBytes != finalExpectedBytes
+                    ) {
+                        localRecordingStore.abort(preparedDownload)
+                        val mismatch = FileOperationError(
+                            FileOperationErrorCode.SIZE_MISMATCH,
+                            "expected=$finalExpectedBytes actual=${result.value.receivedBytes}",
+                        )
+                        mutableFileTransferDiagnostics.value =
+                            mutableFileTransferDiagnostics.value.copy(
+                                receivedBytes = result.value.receivedBytes,
+                                expectedBytes = finalExpectedBytes,
+                                lastError = mismatch,
+                            )
+                        mutableFileOperationState.value = FileOperationState.Failed(
+                            operationId = operationId,
+                            operation = DeviceFileOperationType.DOWNLOAD,
+                            remoteIdentity = remoteIdentity,
+                            audioFormat = format,
+                            error = mismatch,
+                        )
+                        return
+                    }
                     mutableFileOperationState.value = FileOperationState.Active(
                         operationId = operationId,
                         operation = DeviceFileOperationType.DOWNLOAD,
                         stage = FileOperationStage.VERIFYING,
                         remoteIdentity = remoteIdentity,
                         audioFormat = format,
-                        progress = DownloadProgress(result.value.receivedBytes, expectedBytes),
+                        progress = DownloadProgress(
+                            result.value.receivedBytes,
+                            finalExpectedBytes ?: 0L,
+                        ),
                     )
                     mutableFileTransferDiagnostics.value =
                         mutableFileTransferDiagnostics.value.copy(
@@ -824,6 +878,7 @@ class DefaultDeviceRepository(
                             endSource = result.value.endSource,
                             dataFrameCount = result.value.dataFrameCount,
                             receivedBytes = result.value.receivedBytes,
+                            expectedBytes = finalExpectedBytes,
                             firstDataPrefixHex = result.value.firstDataPrefix.toDiagnosticHex(),
                             remoteStatusCode = result.value.remoteStatusCode,
                         )
@@ -834,7 +889,10 @@ class DefaultDeviceRepository(
                         stage = FileOperationStage.COMMITTING,
                         remoteIdentity = remoteIdentity,
                         audioFormat = format,
-                        progress = DownloadProgress(result.value.receivedBytes, expectedBytes),
+                        progress = DownloadProgress(
+                            result.value.receivedBytes,
+                            finalExpectedBytes ?: 0L,
+                        ),
                     )
                     try {
                         val commit = localRecordingStore.commit(preparedDownload, result.value.actualFilename)
