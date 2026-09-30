@@ -89,6 +89,12 @@ private data class PendingUnknownDelete(
     val deviceAddress: String,
 )
 
+private enum class WavHeaderProbeOutcome {
+    SUCCESS,
+    FILE_UNAVAILABLE,
+    STOP_PROBING,
+}
+
 class DefaultDeviceRepository(
     context: Context,
     parentScope: CoroutineScope,
@@ -367,6 +373,8 @@ class DefaultDeviceRepository(
 
     override fun disconnect() {
         userDisconnectedThisProcess = true
+        wavHeaderProbeJob?.cancel()
+        wavHeaderProbeJob = null
         reconnectJob?.cancel()
         reconnectJob = null
         reconnectAttempt = 0
@@ -385,6 +393,8 @@ class DefaultDeviceRepository(
         this.foreground = foreground
 
         if (!foreground) {
+            wavHeaderProbeJob?.cancel()
+            wavHeaderProbeJob = null
             activeFileTransferSession?.requestCancel(TransferCancelReason.BACKGROUND)
             scanner.stop()
             reconnectJob?.cancel()
@@ -1146,6 +1156,220 @@ class DefaultDeviceRepository(
         }
     }
 
+    private fun scheduleWavHeaderProbes(files: List<RemoteDeviceFile>) {
+        wavHeaderProbeJob?.cancel()
+        val candidateIds = files
+            .filter {
+                it.wavSizeBytes == null &&
+                    it.downloadFilename(DeviceAudioFormat.WAV) != null
+            }
+            .map { it.identity }
+        if (candidateIds.isEmpty()) return
+
+        wavHeaderProbeJob = scope.launch {
+            delay(WAV_HEADER_PROBE_SETTLE_MS)
+            var capabilityConfirmed = false
+            for (identity in candidateIds) {
+                if (!isActive || !foreground) break
+                val currentFile = mutableDeviceFileListState.value.files
+                    .firstOrNull { it.identity == identity }
+                    ?: continue
+                if (currentFile.wavSizeBytes != null) continue
+
+                when (probeWavHeaderSize(currentFile)) {
+                    WavHeaderProbeOutcome.SUCCESS -> capabilityConfirmed = true
+                    WavHeaderProbeOutcome.FILE_UNAVAILABLE -> {
+                        if (!capabilityConfirmed) {
+                            // One missing sibling does not prove CMD=12 is unsupported.
+                            continue
+                        }
+                    }
+                    WavHeaderProbeOutcome.STOP_PROBING -> break
+                }
+            }
+            if (wavHeaderProbeJob === coroutineContext[Job]) {
+                wavHeaderProbeJob = null
+            }
+        }
+    }
+
+    private suspend fun probeWavHeaderSize(
+        file: RemoteDeviceFile,
+    ): WavHeaderProbeOutcome {
+        val operation =
+            fileOperationCoordinator.tryStart(DeviceFileOperationType.WAV_HEADER_PROBE)
+                ?: return WavHeaderProbeOutcome.STOP_PROBING
+        val operationId = operation.operationId
+        val remoteIdentity = file.identity
+        var transfer: FileTransferSession? = null
+
+        updateWavSizeProbe(
+            remoteIdentity = remoteIdentity,
+            state = WavSizeProbeState.PROBING,
+            sizeBytes = null,
+        )
+        mutableFileOperationState.value = FileOperationState.Active(
+            operationId = operationId,
+            operation = DeviceFileOperationType.WAV_HEADER_PROBE,
+            stage = FileOperationStage.REQUESTING,
+            remoteIdentity = remoteIdentity,
+            audioFormat = DeviceAudioFormat.WAV,
+        )
+
+        var outcome = WavHeaderProbeOutcome.STOP_PROBING
+        try {
+            val ready = session.state.value as? DeviceConnectionState.Ready
+            val recording = mutableRecordingState.value
+            if (
+                ready == null ||
+                recording.status != RecordingStatus.Idle ||
+                recording.freshness != RecordingFreshness.FRESH ||
+                recording.commandState != RecordingCommandState.IDLE
+            ) {
+                updateWavSizeProbe(
+                    remoteIdentity,
+                    WavSizeProbeState.UNAVAILABLE,
+                    null,
+                )
+                return WavHeaderProbeOutcome.STOP_PROBING
+            }
+
+            val requestFilename =
+                file.downloadFilename(DeviceAudioFormat.WAV)
+                    ?: return WavHeaderProbeOutcome.FILE_UNAVAILABLE
+            val filenameBytes = requestFilename.encodeToByteArray()
+            if (filenameBytes.isEmpty() || filenameBytes.any { it.toInt() == 0 }) {
+                updateWavSizeProbe(
+                    remoteIdentity,
+                    WavSizeProbeState.UNAVAILABLE,
+                    null,
+                )
+                return WavHeaderProbeOutcome.FILE_UNAVAILABLE
+            }
+
+            val sink = RangeProbeDataSink(maximumBytes = WAV_HEADER_PROBE_MAX_BYTES)
+            val transferSession = FileTransferSession(
+                startTimeoutMs = WAV_HEADER_PROBE_START_TIMEOUT_MS,
+                idleTimeoutMs = WAV_HEADER_PROBE_IDLE_TIMEOUT_MS,
+                absoluteTimeoutMs = WAV_HEADER_PROBE_ABSOLUTE_TIMEOUT_MS,
+            )
+            transfer = transferSession
+            if (!session.registerFileTransferConsumer(transferSession)) {
+                updateWavSizeProbe(
+                    remoteIdentity,
+                    WavSizeProbeState.UNAVAILABLE,
+                    null,
+                )
+                return WavHeaderProbeOutcome.STOP_PROBING
+            }
+            activeFileTransferSession = transferSession
+            activeFileTransferOperationId = operationId
+
+            when (
+                val result = transferSession.execute(
+                    sink = sink,
+                    sendRequest = {
+                        session.sendFileTransferRequest { sequence ->
+                            FileTransferProtocol.buildRangeRequest(
+                                sequence = sequence,
+                                start = 0L,
+                                end = WAV_HEADER_PROBE_END_EXCLUSIVE,
+                                filenameBytes = filenameBytes,
+                            )
+                        }
+                    },
+                    sendAbort = session::sendFileTransferAbort,
+                    expectedBytes = 0L,
+                )
+            ) {
+                is FileTransferExecutionResult.Completed -> {
+                    when (val parsed = WavHeaderProbeParser.parse(sink.bytes())) {
+                        is WavHeaderProbeResult.Success -> {
+                            updateWavSizeProbe(
+                                remoteIdentity,
+                                WavSizeProbeState.AVAILABLE,
+                                parsed.value.totalSizeBytes,
+                            )
+                            outcome = WavHeaderProbeOutcome.SUCCESS
+                        }
+                        is WavHeaderProbeResult.NeedMoreBytes,
+                        is WavHeaderProbeResult.Invalid,
+                        -> {
+                            updateWavSizeProbe(
+                                remoteIdentity,
+                                WavSizeProbeState.UNAVAILABLE,
+                                null,
+                            )
+                            outcome = WavHeaderProbeOutcome.STOP_PROBING
+                        }
+                    }
+                }
+
+                is FileTransferExecutionResult.Failed -> {
+                    updateWavSizeProbe(
+                        remoteIdentity,
+                        WavSizeProbeState.UNAVAILABLE,
+                        null,
+                    )
+                    outcome =
+                        if (
+                            result.error.code ==
+                            FileOperationErrorCode.REMOTE_FILE_NOT_FOUND
+                        ) {
+                            WavHeaderProbeOutcome.FILE_UNAVAILABLE
+                        } else {
+                            WavHeaderProbeOutcome.STOP_PROBING
+                        }
+                }
+
+                is FileTransferExecutionResult.Cancelled -> {
+                    updateWavSizeProbe(
+                        remoteIdentity,
+                        WavSizeProbeState.UNAVAILABLE,
+                        null,
+                    )
+                    outcome = WavHeaderProbeOutcome.STOP_PROBING
+                }
+            }
+
+            mutableFileOperationState.value = FileOperationState.Completed(
+                operationId = operationId,
+                operation = DeviceFileOperationType.WAV_HEADER_PROBE,
+                remoteIdentity = remoteIdentity,
+                audioFormat = DeviceAudioFormat.WAV,
+            )
+            return outcome
+        } finally {
+            transfer?.let { session.unregisterFileTransferConsumer(it) }
+            transfer?.close()
+            if (activeFileTransferSession === transfer) {
+                activeFileTransferSession = null
+                activeFileTransferOperationId = null
+            }
+            finishCoordinatorOperation(operationId)
+        }
+    }
+
+    private fun updateWavSizeProbe(
+        remoteIdentity: String,
+        state: WavSizeProbeState,
+        sizeBytes: Long?,
+    ) {
+        val current = mutableDeviceFileListState.value
+        mutableDeviceFileListState.value = current.copy(
+            files = current.files.map { file ->
+                if (file.identity == remoteIdentity) {
+                    file.copy(
+                        wavSizeBytes = sizeBytes,
+                        wavSizeProbeState = state,
+                    )
+                } else {
+                    file
+                }
+            },
+        )
+    }
+
     override suspend fun runRangeProbe(file: RemoteDeviceFile) {
         val operation = fileOperationCoordinator.tryStart(DeviceFileOperationType.RANGE_PROBE)
             ?: return
@@ -1877,10 +2101,25 @@ class DefaultDeviceRepository(
 
             is FileListSessionResult.Completed -> {
                 cancelFileListTimeouts()
+                val previousFiles =
+                    mutableDeviceFileListState.value.files.associateBy { it.identity }
                 val files = RemoteDeviceFileMapper.map(
                     deviceAddress = result.snapshot.deviceAddress,
                     entries = result.snapshot.entries,
-                )
+                ).map { fresh ->
+                    val previous = previousFiles[fresh.identity]
+                    if (
+                        previous?.wavSizeProbeState == WavSizeProbeState.AVAILABLE &&
+                        previous.wavSizeBytes != null
+                    ) {
+                        fresh.copy(
+                            wavSizeBytes = previous.wavSizeBytes,
+                            wavSizeProbeState = WavSizeProbeState.AVAILABLE,
+                        )
+                    } else {
+                        fresh
+                    }
+                }
                 mutableDeviceFileListState.value = DeviceFileListState(
                     deviceAddress = result.snapshot.deviceAddress,
                     files = files,
@@ -1904,6 +2143,9 @@ class DefaultDeviceRepository(
                 finishFileListOperation(error = null)
                 unknownDelete?.let { state ->
                     mutableFileOperationState.value = state
+                }
+                if (unknownDelete == null) {
+                    scheduleWavHeaderProbes(files)
                 }
             }
 
@@ -2509,6 +2751,8 @@ class DefaultDeviceRepository(
     private fun nowMs(): Long = System.currentTimeMillis()
 
     override fun close() {
+        wavHeaderProbeJob?.cancel()
+        wavHeaderProbeJob = null
         reconnectJob?.cancel()
         refreshJob?.cancel()
         recordingReconcileJob?.cancel()
@@ -2547,5 +2791,11 @@ class DefaultDeviceRepository(
         const val RANGE_PROBE_END = 255L
         const val RANGE_PROBE_REFERENCE_BYTES = 256L
         const val RANGE_PROBE_ABSOLUTE_TIMEOUT_MS = 20_000L
+        const val WAV_HEADER_PROBE_END_EXCLUSIVE = 44L
+        const val WAV_HEADER_PROBE_MAX_BYTES = 64
+        const val WAV_HEADER_PROBE_SETTLE_MS = 120L
+        const val WAV_HEADER_PROBE_START_TIMEOUT_MS = 2_500L
+        const val WAV_HEADER_PROBE_IDLE_TIMEOUT_MS = 2_500L
+        const val WAV_HEADER_PROBE_ABSOLUTE_TIMEOUT_MS = 6_000L
     }
 }
