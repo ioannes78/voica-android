@@ -62,6 +62,10 @@ data class PcmReadResult(
     val sampleCount: Int,
 )
 
+interface PcmSourceResolver {
+    suspend fun resolvePcmSource(recordingId: String): PcmSource?
+}
+
 interface PcmSource : Closeable {
     val sampleRateHz: Int
     val channelCount: Int
