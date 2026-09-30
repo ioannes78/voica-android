@@ -6,6 +6,7 @@ on:
     paths:
       - "app/**"
       - "core/**"
+      - "engine/**"
       - "gradle.properties"
       - "settings.gradle.kts"
       - "build.gradle.kts"
@@ -57,6 +58,7 @@ jobs:
           :core:ble:testDebugUnitTest
           :core:database:testDebugUnitTest
           :core:audio:test
+          :engine:opus:assembleDebug
           :app:assembleDebug
           --stacktrace
 
