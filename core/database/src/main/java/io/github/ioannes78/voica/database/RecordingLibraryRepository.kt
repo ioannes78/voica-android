@@ -21,6 +21,8 @@ data class LibraryDeleteResult(
 data class CanonicalConversionSource(
     val recordingId: String,
     val sourceAssetId: String,
+    val sourceRole: String,
+    val sourceContainer: String,
     val sourceRelativePath: String,
     val sourceSha256: String,
     val sourceSizeBytes: Long,
@@ -128,7 +130,7 @@ class RecordingLibraryRepository(
         )
     }
 
-    suspend fun registerDownloadedDeviceAsset(asset: DownloadedDeviceAsset) {
+    suspend fun registerDownloadedDeviceAsset(asset: DownloadedDeviceAsset): String {
         require(asset.sizeBytes >= 0L) { "sizeBytes must be non-negative" }
         require(SHA256.matches(asset.sha256.lowercase())) { "invalid SHA-256" }
         val recordingId = stableRecordingId(asset.sourceRemoteIdentity)
@@ -178,6 +180,7 @@ class RecordingLibraryRepository(
                 ),
             )
         }
+        return recordingId
     }
 
     suspend fun findDeviceAsset(
@@ -221,10 +224,14 @@ class RecordingLibraryRepository(
         profileId: String,
     ): CanonicalConversionSource? {
         val row = dao.findWithAssets(recordingId) ?: return null
-        val source = row.assets.firstOrNull {
-            it.role == AudioAssetRole.DEVICE_OPUS &&
-                it.integrityState == AudioIntegrityState.VERIFIED
-        } ?: return null
+        val source =
+            row.assets.firstOrNull {
+                it.role == AudioAssetRole.DEVICE_OPUS &&
+                    it.integrityState == AudioIntegrityState.VERIFIED
+            } ?: row.assets.firstOrNull {
+                it.role == AudioAssetRole.DEVICE_WAV &&
+                    it.integrityState == AudioIntegrityState.VERIFIED
+            } ?: return null
         val existingCanonical = row.assets.firstOrNull {
             it.role == AudioAssetRole.CANONICAL_WAV &&
                 it.integrityState == AudioIntegrityState.VERIFIED
@@ -237,6 +244,8 @@ class RecordingLibraryRepository(
         return CanonicalConversionSource(
             recordingId = recordingId,
             sourceAssetId = source.assetId,
+            sourceRole = source.role,
+            sourceContainer = source.container,
             sourceRelativePath = source.relativePath,
             sourceSha256 = source.sha256,
             sourceSizeBytes = source.sizeBytes,
@@ -263,6 +272,18 @@ class RecordingLibraryRepository(
             codec = codec,
             sampleRateHz = sampleRateHz,
             channelCount = channelCount,
+            verifiedAtMs = nowMs(),
+        ) == 1
+
+    suspend fun markAssetIntegrity(
+        assetId: String,
+        integrityState: String,
+        validationState: String,
+    ): Boolean =
+        dao.updateAssetIntegrity(
+            assetId = assetId,
+            integrityState = integrityState,
+            validationState = validationState,
             verifiedAtMs = nowMs(),
         ) == 1
 
@@ -300,6 +321,26 @@ class RecordingLibraryRepository(
             ),
         )
     }
+
+    suspend fun reconcileInterruptedCanonicalDerivations(profileId: String): Int =
+        dao.failActiveDerivations(
+            profileId = profileId,
+            activeStates = listOf(
+                AudioDerivationState.PREPARING,
+                AudioDerivationState.DECODING,
+                AudioDerivationState.NORMALIZING,
+                AudioDerivationState.WRITING,
+                AudioDerivationState.VERIFYING,
+                AudioDerivationState.COMMITTING,
+            ),
+            failedState = AudioDerivationState.FAILED_RECOVERABLE,
+            updatedAtMs = nowMs(),
+            errorCode = "PROCESS_INTERRUPTED",
+            errorDetail = "previous conversion was interrupted before completion",
+        )
+
+    suspend fun loadRecording(recordingId: String): RecordingLibraryItem? =
+        dao.findWithAssets(recordingId)?.toLibraryItem()
 
     suspend fun commitCanonicalWav(registration: CanonicalWavRegistration) {
         val assetId = canonicalAssetId(registration.recordingId, registration.profileId)
