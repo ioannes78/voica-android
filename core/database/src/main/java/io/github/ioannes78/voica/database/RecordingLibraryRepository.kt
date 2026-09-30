@@ -31,6 +31,15 @@ data class CanonicalConversionSource(
     val derivationState: String?,
 )
 
+data class InterruptedCanonicalDerivation(
+    val recordingId: String,
+    val sourceAssetId: String,
+    val sourceSha256: String,
+    val profileId: String,
+    val pipelineVersion: Int,
+    val state: String,
+)
+
 data class CanonicalWavRegistration(
     val recordingId: String,
     val sourceAssetId: String,
@@ -322,17 +331,27 @@ class RecordingLibraryRepository(
         )
     }
 
+    suspend fun loadInterruptedCanonicalDerivations(
+        profileId: String,
+    ): List<InterruptedCanonicalDerivation> =
+        dao.findDerivationsByStates(
+            profileId = profileId,
+            states = ACTIVE_DERIVATION_STATES,
+        ).map { derivation ->
+            InterruptedCanonicalDerivation(
+                recordingId = derivation.recordingId,
+                sourceAssetId = derivation.sourceAssetId,
+                sourceSha256 = derivation.sourceSha256,
+                profileId = derivation.profileId,
+                pipelineVersion = derivation.pipelineVersion,
+                state = derivation.state,
+            )
+        }
+
     suspend fun reconcileInterruptedCanonicalDerivations(profileId: String): Int =
         dao.failActiveDerivations(
             profileId = profileId,
-            activeStates = listOf(
-                AudioDerivationState.PREPARING,
-                AudioDerivationState.DECODING,
-                AudioDerivationState.NORMALIZING,
-                AudioDerivationState.WRITING,
-                AudioDerivationState.VERIFYING,
-                AudioDerivationState.COMMITTING,
-            ),
+            activeStates = ACTIVE_DERIVATION_STATES,
             failedState = AudioDerivationState.FAILED_RECOVERABLE,
             updatedAtMs = nowMs(),
             errorCode = "PROCESS_INTERRUPTED",
@@ -471,6 +490,14 @@ class RecordingLibraryRepository(
         const val LEGACY_IMPORT_VERSION = "1"
         const val MAX_DISPLAY_NAME = 160
         val SHA256 = Regex("^[0-9a-f]{64}$")
+        val ACTIVE_DERIVATION_STATES = listOf(
+            AudioDerivationState.PREPARING,
+            AudioDerivationState.DECODING,
+            AudioDerivationState.NORMALIZING,
+            AudioDerivationState.WRITING,
+            AudioDerivationState.VERIFYING,
+            AudioDerivationState.COMMITTING,
+        )
     }
 }
 
