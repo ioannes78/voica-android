@@ -8,6 +8,13 @@ enum class DeviceAudioFormat(val extension: String) {
     WAV("wav"),
 }
 
+enum class WavSizeProbeState {
+    NOT_PROBED,
+    PROBING,
+    AVAILABLE,
+    UNAVAILABLE,
+}
+
 enum class FileListFreshness {
     NOT_LOADED,
     LOADING,
@@ -40,6 +47,8 @@ data class RemoteDeviceFile(
     val rawTimeValue: Long,
     val durationSeconds: Long? = null,
     val sizeBytes: Long,
+    val wavSizeBytes: Long? = null,
+    val wavSizeProbeState: WavSizeProbeState = WavSizeProbeState.NOT_PROBED,
     val rawFilename: String,
     val resolvedFilename: String?,
     val filenameResolution: FilenameResolution,
