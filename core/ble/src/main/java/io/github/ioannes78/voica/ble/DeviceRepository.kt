@@ -1346,6 +1346,18 @@ class DefaultDeviceRepository(
                 activeFileTransferSession = null
                 activeFileTransferOperationId = null
             }
+            val currentOperation = mutableFileOperationState.value
+            if (
+                currentOperation is FileOperationState.Active &&
+                currentOperation.operationId == operationId
+            ) {
+                mutableFileOperationState.value = FileOperationState.Completed(
+                    operationId = operationId,
+                    operation = DeviceFileOperationType.WAV_HEADER_PROBE,
+                    remoteIdentity = remoteIdentity,
+                    audioFormat = DeviceAudioFormat.WAV,
+                )
+            }
             finishCoordinatorOperation(operationId)
         }
     }
