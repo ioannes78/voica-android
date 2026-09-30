@@ -482,7 +482,7 @@ class LocalRecordingStore(
         runCatching {
             val properties = Properties()
             FileInputStream(file).use(properties::load)
-            LocalRecordingArtifact(
+            val artifact = LocalRecordingArtifact(
                 id = properties.getProperty("id"),
                 sourceRemoteIdentity = properties.getProperty("sourceRemoteIdentity"),
                 sourceDeviceAddress = properties.getProperty("sourceDeviceAddress"),
@@ -496,6 +496,16 @@ class LocalRecordingStore(
                 sha256 = properties.getProperty("sha256"),
                 container = AudioContainer.valueOf(properties.getProperty("container")),
             )
+            if (
+                artifact.container == AudioContainer.UNKNOWN &&
+                artifact.displayFilename.endsWith(".opus", ignoreCase = true) &&
+                artifact.sizeBytes > 0L &&
+                artifact.sizeBytes % RAW_OPUS_PACKET_BYTES == 0L
+            ) {
+                artifact.copy(container = AudioContainer.RAW_OPUS)
+            } else {
+                artifact
+            }
         }.getOrNull()
 
     private fun moveReplacing(source: File, target: File) {
