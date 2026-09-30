@@ -20,6 +20,9 @@ interface RecordingDao {
     @Query("SELECT * FROM recordings WHERE sourceRemoteIdentity = :remoteIdentity LIMIT 1")
     suspend fun findByRemoteIdentity(remoteIdentity: String): RecordingEntity?
 
+    @Query("SELECT * FROM recordings")
+    suspend fun allRecordings(): List<RecordingEntity>
+
     @Query("SELECT * FROM audio_assets WHERE recordingId = :recordingId AND role = :role LIMIT 1")
     suspend fun findAsset(recordingId: String, role: String): AudioAssetEntity?
 
