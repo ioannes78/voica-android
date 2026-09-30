@@ -18,3 +18,4 @@ rootProject.name = "Voica"
 include(":app")
 include(":core:protocol")
 include(":core:ble")
+include(":core:database")
