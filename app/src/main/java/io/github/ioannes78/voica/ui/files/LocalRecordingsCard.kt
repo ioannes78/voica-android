@@ -36,6 +36,13 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+private enum class LocalRecordingSort {
+    RECORDED_AT,
+    DOWNLOADED_AT,
+    NAME,
+    SIZE,
+}
+
 @Composable
 fun LocalRecordingsCard(
     recordings: List<RecordingLibraryItem>,
@@ -47,6 +54,25 @@ fun LocalRecordingsCard(
     var pendingDelete by remember { mutableStateOf<RecordingLibraryItem?>(null) }
     var pendingRename by remember { mutableStateOf<RecordingLibraryItem?>(null) }
     var renameValue by remember { mutableStateOf("") }
+    var sortMode by remember { mutableStateOf(LocalRecordingSort.RECORDED_AT) }
+    val sortedRecordings = remember(recordings, sortMode) {
+        when (sortMode) {
+            LocalRecordingSort.RECORDED_AT ->
+                recordings.sortedWith(
+                    compareByDescending<RecordingLibraryItem> {
+                        it.recordedAtLocalIso ?: ""
+                    }.thenByDescending { it.downloadedAtMs },
+                )
+            LocalRecordingSort.DOWNLOADED_AT ->
+                recordings.sortedByDescending { it.downloadedAtMs }
+            LocalRecordingSort.NAME ->
+                recordings.sortedBy { it.displayName.lowercase(Locale.ROOT) }
+            LocalRecordingSort.SIZE ->
+                recordings.sortedByDescending { item ->
+                    item.assets.sumOf { asset -> asset.sizeBytes }
+                }
+        }
+    }
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -64,8 +90,36 @@ fun LocalRecordingsCard(
                     stringResource(R.string.local_recordings_count, recordings.size),
                     style = MaterialTheme.typography.bodySmall,
                 )
+                Text(
+                    stringResource(R.string.local_sort_title),
+                    style = MaterialTheme.typography.labelMedium,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    SortButton(
+                        selected = sortMode == LocalRecordingSort.RECORDED_AT,
+                        label = stringResource(R.string.local_sort_recorded),
+                        onClick = { sortMode = LocalRecordingSort.RECORDED_AT },
+                    )
+                    SortButton(
+                        selected = sortMode == LocalRecordingSort.DOWNLOADED_AT,
+                        label = stringResource(R.string.local_sort_downloaded),
+                        onClick = { sortMode = LocalRecordingSort.DOWNLOADED_AT },
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    SortButton(
+                        selected = sortMode == LocalRecordingSort.NAME,
+                        label = stringResource(R.string.local_sort_name),
+                        onClick = { sortMode = LocalRecordingSort.NAME },
+                    )
+                    SortButton(
+                        selected = sortMode == LocalRecordingSort.SIZE,
+                        label = stringResource(R.string.local_sort_size),
+                        onClick = { sortMode = LocalRecordingSort.SIZE },
+                    )
+                }
                 HorizontalDivider()
-                recordings.forEachIndexed { index, item ->
+                sortedRecordings.forEachIndexed { index, item ->
                     RecordingRow(
                         item = item,
                         onRename = {
@@ -76,7 +130,7 @@ fun LocalRecordingsCard(
                         onGenerateCanonical = { onGenerateCanonical(item.id) },
                         onCancelCanonical = { onCancelCanonical(item.id) },
                     )
-                    if (index != recordings.lastIndex) {
+                    if (index != sortedRecordings.lastIndex) {
                         HorizontalDivider()
                     }
                 }
@@ -142,6 +196,17 @@ fun LocalRecordingsCard(
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun SortButton(
+    selected: Boolean,
+    label: String,
+    onClick: () -> Unit,
+) {
+    TextButton(onClick = onClick) {
+        Text(if (selected) "✓ $label" else label)
     }
 }
 
