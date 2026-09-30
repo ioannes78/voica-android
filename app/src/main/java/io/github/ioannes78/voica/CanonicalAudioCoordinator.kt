@@ -20,9 +20,12 @@ import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.opus.NativeOpusBackend
 import java.io.File
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -54,16 +57,60 @@ class CanonicalAudioCoordinator(
 ) {
     private val serial = Mutex()
     private val canonicalDir = File(recordingsRoot, CANONICAL_DIRECTORY)
+    private val activeTokens = ConcurrentHashMap<String, AtomicBoolean>()
+    private val automaticLock = Any()
+    private val automaticJobs = mutableMapOf<String, Job>()
+    private val automaticRerun = mutableSetOf<String>()
 
     fun requestAutomatic(recordingId: String) {
-        applicationScope.launch {
-            generate(recordingId)
+        synchronized(automaticLock) {
+            if (automaticJobs[recordingId]?.isActive == true) {
+                automaticRerun += recordingId
+                return
+            }
+
+            lateinit var job: Job
+            job = applicationScope.launch(start = CoroutineStart.LAZY) {
+                try {
+                    do {
+                        synchronized(automaticLock) {
+                            automaticRerun.remove(recordingId)
+                        }
+                        generate(recordingId)
+                        val rerun = synchronized(automaticLock) {
+                            automaticRerun.remove(recordingId)
+                        }
+                    } while (rerun)
+                } finally {
+                    synchronized(automaticLock) {
+                        if (automaticJobs[recordingId] === job) {
+                            automaticJobs.remove(recordingId)
+                        }
+                    }
+                }
+            }
+            automaticJobs[recordingId] = job
+            job.start()
+        }
+    }
+
+    fun cancel(recordingId: String) {
+        activeTokens[recordingId]?.set(true)
+        synchronized(automaticLock) {
+            automaticRerun.remove(recordingId)
+            automaticJobs.remove(recordingId)?.cancel()
         }
     }
 
     suspend fun generate(recordingId: String): CanonicalGenerationOutcome =
         serial.withLock {
-            generateLocked(recordingId)
+            val token = AtomicBoolean(false)
+            activeTokens[recordingId] = token
+            try {
+                generateLocked(recordingId, token)
+            } finally {
+                activeTokens.remove(recordingId, token)
+            }
         }
 
     suspend fun reconcileOnStartup() {
@@ -109,6 +156,7 @@ class CanonicalAudioCoordinator(
 
     private suspend fun generateLocked(
         recordingId: String,
+        cancellationToken: AtomicBoolean,
     ): CanonicalGenerationOutcome {
         val source = repository.loadCanonicalConversionSource(
             recordingId = recordingId,
@@ -200,10 +248,20 @@ class CanonicalAudioCoordinator(
         return try {
             when (source.sourceRole) {
                 AudioAssetRole.DEVICE_OPUS ->
-                    generateFromOpus(source, sourceFile, callerJob)
+                    generateFromOpus(
+                        source,
+                        sourceFile,
+                        callerJob,
+                        cancellationToken,
+                    )
 
                 AudioAssetRole.DEVICE_WAV ->
-                    generateFromDeviceWav(source, sourceFile, callerJob)
+                    generateFromDeviceWav(
+                        source,
+                        sourceFile,
+                        callerJob,
+                        cancellationToken,
+                    )
 
                 else ->
                     fail(
@@ -263,6 +321,7 @@ class CanonicalAudioCoordinator(
         source: CanonicalConversionSource,
         sourceFile: File,
         callerJob: Job?,
+        cancellationToken: AtomicBoolean,
     ): CanonicalGenerationOutcome {
         val backend = NativeOpusBackend()
         val validation = withContext(ioDispatcher) {
@@ -302,7 +361,9 @@ class CanonicalAudioCoordinator(
                 sourceFile = sourceFile,
                 targetFile = target,
                 expectedSourceSha256 = source.sourceSha256,
-                isCancelled = { callerJob?.isActive == false },
+                isCancelled = {
+                    cancellationToken.get() || callerJob?.isActive == false
+                },
                 onStage = { stage -> persistStageBlocking(source, stage) },
             )
         }
@@ -319,6 +380,7 @@ class CanonicalAudioCoordinator(
         source: CanonicalConversionSource,
         sourceFile: File,
         callerJob: Job?,
+        cancellationToken: AtomicBoolean,
     ): CanonicalGenerationOutcome {
         val parsed = withContext(ioDispatcher) { WavPcmParser.parse(sourceFile) }
         val info = (parsed as? WavParseResult.Valid)?.info
@@ -396,7 +458,9 @@ class CanonicalAudioCoordinator(
                 sourceFile = sourceFile,
                 targetFile = target,
                 expectedSourceSha256 = source.sourceSha256,
-                isCancelled = { callerJob?.isActive == false },
+                isCancelled = {
+                    cancellationToken.get() || callerJob?.isActive == false
+                },
                 onStage = { stage -> persistStageBlocking(source, stage) },
             )
         }
