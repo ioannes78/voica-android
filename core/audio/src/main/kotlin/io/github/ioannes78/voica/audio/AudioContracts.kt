@@ -2,6 +2,13 @@ package io.github.ioannes78.voica.audio
 
 import java.io.Closeable
 
+enum class CanonicalAudioStage {
+    DECODING,
+    NORMALIZING,
+    WRITING,
+    VERIFYING,
+}
+
 object CanonicalPcmProfile {
     const val SAMPLE_RATE_HZ = 16_000
     const val CHANNEL_COUNT = 1
