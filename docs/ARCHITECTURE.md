@@ -493,3 +493,106 @@ Stage 4 不实现 2/2、2/12 文件传输。
 - 文件传输后续使用 2/3、2/4、2/5
 
 Stage 5 必须重新验证 filename 参数长度。当前旧 builder 的 fixed-24 实现不能因为 Stage 1 存在就直接视为冻结协议。
+
+
+## Stage 5 — 文件下载、删除与原始音频落盘架构
+
+Stage 5 继续保持：
+
+```
+:app
+  ↓
+:core:ble
+  ↓
+:core:protocol
+```
+
+### 设备文件操作串行化
+
+设备文件操作由 `DeviceFileOperationCoordinator` 统一互斥：
+
+```
+Refresh
+Download
+RangeProbe
+DeleteRemote
+```
+
+同一时间最多一个设备文件操作。Recording 状态优先，物理开始录音可以取消当前文件传输。
+
+### 文件下载
+
+```
+RemoteDeviceFile
+  ↓
+CMD=2 request
+  ↓
+CMD=3 start / actual filename
+  ↓
+CMD=4 data × N
+  ↓
+专用 ReliableFileTransferConsumer
+  ↓
+StreamingDownloadWriter
+  ↓
+.part
+  ↓
+size / SHA-256 / fsync
+  ↓
+atomic rename
+  ↓
+LocalRecordingArtifact
+  ↓
+CMD=5 terminal status
+```
+
+CMD=4 DATA 不通过普通 observer SharedFlow 作为唯一数据通道，任何无法可靠交付的数据都会使传输失败。
+
+Stage 5 真机确认当前设备下载得到的是 raw Opus 字节流而不是 RIFF/WAV；因此原始 `.opus` 直接保存，转换留给 Stage 6。
+
+### Range transfer
+
+CMD=12 使用 start/end 范围。当前 QS668/CB08 真机通过与完整本地下载逐字节比对确认：
+
+```
+[start, end)
+```
+
+end 为 exclusive。
+
+### 设备删除
+
+单文件删除使用：
+
+```
+TYPE=2 / CMD=8
+body:
+  00 00 00 00
+  filename fixed 24B
+```
+
+标准 `noteYYYYMMDD-HHMMSS.opus` 正好为 24 ASCII bytes。
+
+raw file-list entry 作为 CMD=8 参数已被当前真机否定。
+
+成功删除设备逻辑录音后，设备物理存储同名 `.opus` 与 `.wav` 会一起消失。
+
+设备删除与本地删除为两个独立生命周期：
+
+- DeleteRemote 不删除本地 artifact
+- DeleteLocal 不发送 BLE 删除命令
+- 不提供 DeleteBoth
+- 不提供 Delete All
+
+### 本地存储
+
+Stage 5 使用 `noBackupFilesDir/recordings`：
+
+- temp `.part`
+- completed raw audio
+- 轻量 metadata properties
+- SHA-256
+- stable local id
+- stale temp cleanup
+
+Stage 5 不引入 Room；Stage 6 才进入正式本地录音库与音频转换链。
