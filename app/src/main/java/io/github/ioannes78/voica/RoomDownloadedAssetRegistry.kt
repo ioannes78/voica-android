@@ -12,6 +12,7 @@ import java.io.File
 class RoomDownloadedAssetRegistry(
     private val repository: RecordingLibraryRepository,
     private val recordingsRoot: File,
+    private val onRegistered: (String) -> Unit = {},
 ) : DownloadedAssetRegistry {
     override suspend fun isAvailable(
         remoteIdentity: String,
@@ -37,7 +38,7 @@ class RoomDownloadedAssetRegistry(
 
     override suspend fun register(artifact: LocalRecordingArtifact): Result<Unit> =
         runCatching {
-            repository.registerDownloadedDeviceAsset(
+            val recordingId = repository.registerDownloadedDeviceAsset(
                 DownloadedDeviceAsset(
                     sourceRemoteIdentity = artifact.sourceRemoteIdentity,
                     sourceDeviceAddress = artifact.sourceDeviceAddress,
@@ -52,6 +53,7 @@ class RoomDownloadedAssetRegistry(
                     container = artifact.container.name,
                 ),
             )
+            onRegistered(recordingId)
         }
 }
 
