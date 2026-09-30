@@ -54,10 +54,17 @@ class AppContainer(
     val audioSourceResolver: AudioSourceResolver = roomAudioSourceResolver
     val pcmSourceResolver: PcmSourceResolver = roomAudioSourceResolver
 
+    private val deviceAudioAssetValidator =
+        DeviceAudioAssetValidator(
+            repository = recordingLibraryRepository,
+            recordingsRoot = recordingsRoot,
+        )
+
     private val downloadedAssetRegistry =
         RoomDownloadedAssetRegistry(
             repository = recordingLibraryRepository,
             recordingsRoot = recordingsRoot,
+            assetValidator = deviceAudioAssetValidator,
             onRegistered = canonicalAudioCoordinator::requestAutomatic,
         )
 
