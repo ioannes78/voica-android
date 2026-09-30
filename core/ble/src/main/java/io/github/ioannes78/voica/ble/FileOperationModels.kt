@@ -4,6 +4,7 @@ enum class DeviceFileOperationType {
     REFRESH,
     DOWNLOAD,
     RANGE_PROBE,
+    WAV_HEADER_PROBE,
     DELETE_REMOTE,
 }
 
