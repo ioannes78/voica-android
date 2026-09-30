@@ -614,7 +614,7 @@ class DefaultDeviceRepository(
                 return
             }
 
-            prepared = try {
+            val preparedDownload = try {
                 localRecordingStore.prepare(file)
             } catch (error: FileTransferSinkException) {
                 failDownloadPrecondition(operationId, remoteIdentity, error.operationError)
@@ -631,9 +631,11 @@ class DefaultDeviceRepository(
                 return
             }
 
-            transfer = FileTransferSession()
-            if (!session.registerFileTransferConsumer(transfer)) {
-                localRecordingStore.abort(prepared)
+            prepared = preparedDownload
+            val transferSession = FileTransferSession()
+            transfer = transferSession
+            if (!session.registerFileTransferConsumer(transferSession)) {
+                localRecordingStore.abort(preparedDownload)
                 failDownloadPrecondition(
                     operationId,
                     remoteIdentity,
@@ -641,7 +643,7 @@ class DefaultDeviceRepository(
                 )
                 return
             }
-            activeFileTransferSession = transfer
+            activeFileTransferSession = transferSession
             activeFileTransferOperationId = operationId
 
             mutableFileTransferDiagnostics.value = FileTransferDiagnostics(
@@ -662,8 +664,8 @@ class DefaultDeviceRepository(
                 progress = DownloadProgress(0L, file.sizeBytes),
             )
 
-            val result = transfer.execute(
-                sink = prepared.writer,
+            val result = transferSession.execute(
+                sink = preparedDownload.writer,
                 sendRequest = {
                     session.sendFileTransferRequest { sequence ->
                         FileTransferProtocol.buildDownloadRequest(
@@ -727,7 +729,7 @@ class DefaultDeviceRepository(
                     )
                     try {
                         val commit = localRecordingStore.commit(
-                            prepared = prepared,
+                            prepared = preparedDownload,
                             actualTransferFilename = result.value.actualFilename,
                         )
                         mutableFileTransferDiagnostics.value =
@@ -742,7 +744,7 @@ class DefaultDeviceRepository(
                             remoteIdentity = remoteIdentity,
                         )
                     } catch (error: FileTransferSinkException) {
-                        localRecordingStore.abort(prepared)
+                        localRecordingStore.abort(preparedDownload)
                         val operationError = error.operationError
                         mutableFileTransferDiagnostics.value =
                             mutableFileTransferDiagnostics.value.copy(lastError = operationError)
