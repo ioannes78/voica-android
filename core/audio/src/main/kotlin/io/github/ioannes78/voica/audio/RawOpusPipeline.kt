@@ -189,6 +189,7 @@ class RawOpusToCanonicalWavConverter(
         targetFile: File,
         expectedSourceSha256: String? = null,
         isCancelled: () -> Boolean = { false },
+        onStage: (CanonicalAudioStage) -> Unit = {},
     ): RawOpusConversionResult {
         val validation = when (val result = RawOpusValidator(inspector).validate(sourceFile)) {
             is RawOpusValidationResult.Valid -> result.value
@@ -218,6 +219,9 @@ class RawOpusToCanonicalWavConverter(
         )
 
         try {
+            onStage(CanonicalAudioStage.DECODING)
+            var normalizationReported = false
+            var writingReported = false
             decoderFactory.create(
                 sampleRateHz = CanonicalPcmProfile.SAMPLE_RATE_HZ,
                 channelCount = validation.channelCount,
@@ -261,13 +265,22 @@ class RawOpusToCanonicalWavConverter(
                             )
                         }
 
+                        if (!normalizationReported) {
+                            normalizationReported = true
+                            onStage(CanonicalAudioStage.NORMALIZING)
+                        }
                         val mono = normalizer.processInterleaved(
                             input = decoded,
                             frameCount = expectedFrames16k,
                         )
+                        if (!writingReported) {
+                            writingReported = true
+                            onStage(CanonicalAudioStage.WRITING)
+                        }
                         writer.writePcm16(mono)
                     }
 
+                    onStage(CanonicalAudioStage.VERIFYING)
                     val commit = writer.commit()
                     return RawOpusConversionResult(
                         validation = validation,
