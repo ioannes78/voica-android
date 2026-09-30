@@ -261,14 +261,23 @@ class LocalRecordingStore(
         }
 
     fun expectedDownloadBytes(remote: RemoteDeviceFile, format: DeviceAudioFormat): Long =
-        if (format == DeviceAudioFormat.OPUS) remote.sizeBytes else 0L
+        when (format) {
+            DeviceAudioFormat.OPUS -> remote.sizeBytes
+            DeviceAudioFormat.WAV -> remote.wavSizeBytes ?: 0L
+        }
 
     fun estimatedDownloadBytes(remote: RemoteDeviceFile, format: DeviceAudioFormat): Long =
         when (format) {
             DeviceAudioFormat.OPUS -> remote.sizeBytes
-            DeviceAudioFormat.WAV -> remote.durationSeconds
-                ?.let { it.coerceAtLeast(0L) * PCM16_MONO_16K_BYTES_PER_SECOND + WAV_HEADER_BYTES }
-                ?: remote.sizeBytes.coerceAtLeast(MINIMUM_WAV_ESTIMATE_BYTES)
+            DeviceAudioFormat.WAV ->
+                remote.wavSizeBytes
+                    ?: remote.durationSeconds
+                        ?.let {
+                            it.coerceAtLeast(0L) *
+                                PCM16_MONO_16K_BYTES_PER_SECOND +
+                                WAV_HEADER_BYTES
+                        }
+                    ?: remote.sizeBytes.coerceAtLeast(MINIMUM_WAV_ESTIMATE_BYTES)
         }
 
     fun hasCapacity(expectedBytes: Long): Boolean {
