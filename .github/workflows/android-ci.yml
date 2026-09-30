@@ -85,7 +85,7 @@ jobs:
           cp .stage5-upgrade-baseline/app/build/outputs/apk/debug/app-debug.apk \
             build/upgrade-pair/Voica-stage5-baseline-debug.apk
           cp app/build/outputs/apk/debug/app-debug.apk \
-            build/upgrade-pair/Voica-stage6-alpha2-debug.apk
+            build/upgrade-pair/Voica-stage6-candidate-debug.apk
 
       - name: Upload Stage 5 to Stage 6 upgrade pair
         if: ${{ success() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[APK]'))) }}
