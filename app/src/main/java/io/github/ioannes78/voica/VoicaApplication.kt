@@ -36,10 +36,18 @@ class AppContainer(
             recordingsRoot = recordingsRoot,
         )
 
+    val canonicalAudioCoordinator =
+        CanonicalAudioCoordinator(
+            repository = recordingLibraryRepository,
+            recordingsRoot = recordingsRoot,
+            applicationScope = applicationScope,
+        )
+
     private val downloadedAssetRegistry =
         RoomDownloadedAssetRegistry(
             repository = recordingLibraryRepository,
             recordingsRoot = recordingsRoot,
+            onRegistered = canonicalAudioCoordinator::requestAutomatic,
         )
 
     val deviceRepository: DeviceRepository =
@@ -53,6 +61,7 @@ class AppContainer(
         applicationScope.launch(Dispatchers.IO) {
             recordingLibraryRepository.importLegacyStage5IfNeeded()
             recordingLibraryRepository.reconcilePendingDeletes()
+            canonicalAudioCoordinator.reconcileOnStartup()
         }
     }
 }
