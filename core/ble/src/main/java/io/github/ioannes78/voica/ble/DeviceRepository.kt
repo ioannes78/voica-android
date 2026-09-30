@@ -1350,23 +1350,6 @@ class DefaultDeviceRepository(
                     error = result.error,
                     completionReason = result.completionReason,
                 )
-                finishFileListOperation(
-                    FileOperationError(
-                        code = when (result.error.code) {
-                            FileListErrorCode.NOT_READY -> FileOperationErrorCode.NOT_READY
-                            FileListErrorCode.RECORDING_ACTIVE ->
-                                FileOperationErrorCode.RECORDING_ACTIVE
-                            FileListErrorCode.WRITE_FAILED ->
-                                FileOperationErrorCode.GATT_WRITE_FAILED
-                            FileListErrorCode.DISCONNECTED ->
-                                FileOperationErrorCode.BLE_DISCONNECTED
-                            FileListErrorCode.SESSION_REPLACED ->
-                                FileOperationErrorCode.SESSION_REPLACED
-                            else -> FileOperationErrorCode.TRANSFER_TIMEOUT
-                        },
-                        detail = result.error.detail,
-                    ),
-                )
             }
 
             is FileListSessionResult.Ignored -> Unit
@@ -1490,7 +1473,24 @@ class DefaultDeviceRepository(
             lastError = error,
         )
         publishFileListDiagnostics(snapshot, completionReason, error)
+        finishFileListOperation(fileListOperationError(error))
     }
+
+    private fun fileListOperationError(error: FileListError): FileOperationError =
+        FileOperationError(
+            code = when (error.code) {
+                FileListErrorCode.NOT_READY -> FileOperationErrorCode.NOT_READY
+                FileListErrorCode.RECORDING_ACTIVE -> FileOperationErrorCode.RECORDING_ACTIVE
+                FileListErrorCode.WRITE_FAILED -> FileOperationErrorCode.GATT_WRITE_FAILED
+                FileListErrorCode.DISCONNECTED -> FileOperationErrorCode.BLE_DISCONNECTED
+                FileListErrorCode.SESSION_REPLACED -> FileOperationErrorCode.SESSION_REPLACED
+                FileListErrorCode.MALFORMED_PAYLOAD -> FileOperationErrorCode.UNEXPECTED_FRAME
+                FileListErrorCode.FIRST_RESPONSE_TIMEOUT,
+                FileListErrorCode.SESSION_TIMEOUT,
+                -> FileOperationErrorCode.TRANSFER_TIMEOUT
+            },
+            detail = error.detail,
+        )
 
     private fun noteFileListGuardFailure(error: FileListError) {
         val previous = mutableDeviceFileListState.value
