@@ -271,15 +271,11 @@ class LocalRecordingStore(
         )
     }
 
-    @Synchronized
     suspend fun commit(
         prepared: PreparedLocalDownload,
         actualTransferFilename: String?,
     ): LocalDownloadCommitResult {
-        val extension = extensionFor(
-            actualTransferFilename = actualTransferFilename,
-            prefix = prepared.writerPrefixForDecision(),
-        )
+        val extension = extensionFor(actualTransferFilename)
         val physicalFileName = prepared.id + extension
         val finalFile = File(completedDir, physicalFileName)
 
@@ -306,8 +302,7 @@ class LocalRecordingStore(
             }
 
         val displayFilename = safeDisplayFilename(
-            actualTransferFilename
-                ?: prepared.remote.displayFilename
+            (actualTransferFilename ?: prepared.remote.displayFilename)
                 .replaceSuffixForContainer(writerResult.container),
         )
 
@@ -394,21 +389,11 @@ class LocalRecordingStore(
         val remote: RemoteDeviceFile,
         internal val tempFile: File,
         val writer: StreamingDownloadWriter,
-    ) {
-        internal fun writerPrefixForDecision(): ByteArray = byteArrayOf()
-    }
+    )
 
     private fun extensionFor(
         actualTransferFilename: String?,
-        prefix: ByteArray,
     ): String {
-        if (
-            prefix.size >= 12 &&
-            prefix.copyOfRange(0, 4).contentEquals("RIFF".encodeToByteArray()) &&
-            prefix.copyOfRange(8, 12).contentEquals("WAVE".encodeToByteArray())
-        ) {
-            return ".wav"
-        }
         val extension = actualTransferFilename
             ?.substringAfterLast('.', missingDelimiterValue = "")
             ?.lowercase()
