@@ -555,6 +555,13 @@ class LocalRecordingStore(
                 recordedAt = properties.getProperty("recordedAt")
                     .takeIf { it.isNotBlank() }
                     ?.let(LocalDateTime::parse),
+                deviceReportedDurationMs = properties.getProperty("deviceReportedDurationMs")
+                    ?.takeIf { it.isNotBlank() }
+                    ?.toLongOrNull()
+                    ?: properties.getProperty("sourceRemoteIdentity")
+                        .substringAfterLast('|', missingDelimiterValue = "")
+                        .toLongOrNull()
+                        ?.times(1_000L),
                 downloadedAtMs = properties.getProperty("downloadedAtMs").toLong(),
                 sizeBytes = properties.getProperty("sizeBytes").toLong(),
                 sha256 = properties.getProperty("sha256"),
