@@ -44,6 +44,14 @@ interface RecordingDao {
         verifiedAtMs: Long,
     ): Int
 
+    @Query("UPDATE audio_assets SET integrityState = :integrityState, formatValidationState = :validationState, verifiedAtMs = :verifiedAtMs WHERE assetId = :assetId")
+    suspend fun updateAssetIntegrity(
+        assetId: String,
+        integrityState: String,
+        validationState: String,
+        verifiedAtMs: Long,
+    ): Int
+
     @Query("SELECT * FROM audio_derivations WHERE recordingId = :recordingId AND profileId = :profileId AND sourceSha256 = :sourceSha256 LIMIT 1")
     suspend fun findDerivation(
         recordingId: String,
@@ -53,6 +61,16 @@ interface RecordingDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertDerivation(derivation: AudioDerivationEntity)
+
+    @Query("UPDATE audio_derivations SET state = :failedState, updatedAtMs = :updatedAtMs, completedAtMs = :updatedAtMs, errorCode = :errorCode, errorDetail = :errorDetail WHERE profileId = :profileId AND state IN (:activeStates)")
+    suspend fun failActiveDerivations(
+        profileId: String,
+        activeStates: List<String>,
+        failedState: String,
+        updatedAtMs: Long,
+        errorCode: String,
+        errorDetail: String,
+    ): Int
 
     @Query("UPDATE recordings SET displayName = :displayName, updatedAtMs = :updatedAtMs WHERE id = :recordingId")
     suspend fun rename(recordingId: String, displayName: String, updatedAtMs: Long): Int
