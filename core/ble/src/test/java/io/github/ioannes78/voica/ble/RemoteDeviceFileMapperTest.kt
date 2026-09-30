@@ -61,7 +61,7 @@ class RemoteDeviceFileMapperTest {
     fun preservesRawListEntryAsOpaqueDeleteEvidence() {
         val rawEntry = ByteArray(28) { index -> (index + 1).toByte() }
         val source = entry(
-            name = "note20260930-083059.opus",
+            name = "note20260930-083059.",
             time = 16,
             size = 519_724,
             fieldLength = 20,
