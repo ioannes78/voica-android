@@ -169,7 +169,7 @@ class RecordingLibraryRepository(
                     updatedAtMs = now,
                 ),
             )
-            dao.insertAssetIgnore(
+            dao.upsertAsset(
                 AudioAssetEntity(
                     assetId = assetId,
                     recordingId = recordingId,
