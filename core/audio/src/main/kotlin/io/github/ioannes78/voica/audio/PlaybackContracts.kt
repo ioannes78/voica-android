@@ -57,6 +57,8 @@ data class PlaybackSnapshot(
 
 interface PlaybackController {
     val snapshot: StateFlow<PlaybackSnapshot>
+    val stateFlow: StateFlow<PlaybackState>
+    val positionFlow: StateFlow<Long>
 
     suspend fun load(recordingId: String)
     suspend fun play()
