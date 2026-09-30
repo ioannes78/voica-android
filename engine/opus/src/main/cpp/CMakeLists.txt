@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.31.5)
+cmake_minimum_required(VERSION 3.22.1)
 project(voica_opus_jni LANGUAGES C CXX)
 
 include(FetchContent)
@@ -11,6 +11,7 @@ set(OPUS_INSTALL_CMAKE_CONFIG_MODULE OFF CACHE BOOL "" FORCE)
 set(OPUS_BUILD_SHARED_LIBRARY OFF CACHE BOOL "" FORCE)
 set(OPUS_DRED OFF CACHE BOOL "" FORCE)
 set(OPUS_OSCE OFF CACHE BOOL "" FORCE)
+set(OPUS_DEEP_PLC OFF CACHE BOOL "" FORCE)
 
 FetchContent_Declare(
     opus_src

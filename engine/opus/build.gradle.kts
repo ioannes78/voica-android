@@ -8,7 +8,7 @@ android {
     namespace = "io.github.ioannes78.voica.opus"
     compileSdk = 37
     compileSdkMinor = 1
-    ndkVersion = "29.0.14206865"
+    ndkVersion = "28.2.13676358"
 
     defaultConfig {
         minSdk = 26
@@ -20,7 +20,7 @@ android {
         externalNativeBuild {
             cmake {
                 arguments += listOf(
-                    "-DANDROID_STL=c++_shared",
+                    "-DANDROID_STL=c++_static",
                     "-DOPUS_BUILD_PROGRAMS=OFF",
                     "-DOPUS_BUILD_TESTING=OFF",
                     "-DOPUS_INSTALL_PKG_CONFIG_MODULE=OFF",
@@ -35,7 +35,7 @@ android {
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.31.5"
+            version = "3.22.1"
         }
     }
 

@@ -41,10 +41,14 @@ jobs:
         with:
           packages: platform-tools
 
-      - name: Install Android 37.1 platform
+      - name: Install Android build and native toolchains
         shell: bash
         run: |
-          sdkmanager "platforms;android-37.1" "build-tools;36.0.0"
+          sdkmanager \
+            "platforms;android-37.1" \
+            "build-tools;36.0.0" \
+            "ndk;28.2.13676358" \
+            "cmake;3.22.1"
 
       - name: Setup Gradle 9.6
         uses: gradle/actions/setup-gradle@v4

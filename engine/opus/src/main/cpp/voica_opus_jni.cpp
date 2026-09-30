@@ -197,9 +197,15 @@ Java_io_github_ioannes78_voica_opus_NativeOpusBridge_nativeInspect(
 
     const bool valid =
         channels > 0 &&
+        frame_count == parsed &&
         frame_count > 0 &&
         samples_per_frame > 0 &&
-        total_samples > 0;
+        samples_per_frame <= 5760 &&
+        total_samples > 0 &&
+        total_samples <= 5760 &&
+        bandwidth >= 0 &&
+        payload_offset >= 0 &&
+        payload_offset <= static_cast<int>(data.size());
 
     return make_inspection(
         env,
@@ -339,11 +345,11 @@ Java_io_github_ioannes78_voica_opus_NativeOpusBridge_nativeDestroyDecoder(
     g_decoders.erase(handle);
 }
 
-JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* /* vm */, void* /* reserved */) {
+extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* /* vm */, void* /* reserved */) {
     return JNI_VERSION_1_6;
 }
 
-JNIEXPORT void JNICALL JNI_OnUnload(JavaVM* /* vm */, void* /* reserved */) {
+extern "C" JNIEXPORT void JNICALL JNI_OnUnload(JavaVM* /* vm */, void* /* reserved */) {
     std::lock_guard<std::mutex> guard(g_registry_mutex);
     g_decoders.clear();
 }
