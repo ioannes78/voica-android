@@ -123,6 +123,17 @@
     <string name="local_files_title">已下载录音</string>
     <string name="local_files_empty">暂无本地录音文件。</string>
     <string name="local_files_count">共 %1$d 个本地文件</string>
+    <string name="local_recordings_count">共 %1$d 条本地录音</string>
+    <string name="local_file_duration">时长</string>
+    <string name="local_file_rename">重命名</string>
+    <string name="local_file_rename_title">重命名本地录音</string>
+    <string name="local_file_rename_label">显示名称</string>
+    <string name="local_file_rename_confirm">保存</string>
+    <string name="local_recording_delete_message">此操作会删除这条录音在手机中的所有本地音频资产，不会删除录音设备中的录音。</string>
+    <string name="local_asset_device_opus">设备 OPUS</string>
+    <string name="local_asset_device_wav">设备 WAV</string>
+    <string name="local_asset_canonical_wav">标准 WAV · 16 kHz · 单声道 · PCM16</string>
+    <string name="local_asset_other">音频资产 · %1$s</string>
     <string name="local_file_recorded_at">录制时间</string>
     <string name="local_file_downloaded_at">下载时间</string>
     <string name="local_file_size">大小</string>
