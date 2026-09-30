@@ -41,6 +41,10 @@ interface RecordingDao {
     @Query("DELETE FROM recordings WHERE id = :recordingId")
     suspend fun deleteRecording(recordingId: String): Int
 
+    @Transaction
+    @Query("SELECT * FROM recordings WHERE state = :state")
+    suspend fun findByState(state: String): List<RecordingWithAssets>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun putMeta(meta: LibraryMetaEntity)
 
