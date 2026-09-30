@@ -53,6 +53,13 @@ class LegacyStage5Scanner(
             .orEmpty()
             .filter { it.isFile && it.name.endsWith(METADATA_SUFFIX) }
             .sortedBy { it.name }
+        val metadataReferencedAudioNames = metadataFiles.mapNotNullTo(mutableSetOf()) { metadata ->
+            runCatching {
+                Properties().also { props ->
+                    FileInputStream(metadata).use(props::load)
+                }.getProperty("physicalFileName")
+            }.getOrNull()?.takeIf { it.isNotBlank() }
+        }
 
         metadataFiles.forEach { metadata ->
             when (val result = readCandidate(metadata)) {
@@ -67,7 +74,8 @@ class LegacyStage5Scanner(
                 file.isFile &&
                     !file.name.endsWith(METADATA_SUFFIX) &&
                     !file.name.endsWith(METADATA_TEMP_SUFFIX) &&
-                    file.name !in referenced
+                    file.name !in referenced &&
+                    file.name !in metadataReferencedAudioNames
             }
             .forEach { orphan ->
                 issues += LegacyScanIssue(
