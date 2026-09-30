@@ -671,16 +671,42 @@ class DefaultDeviceRepository(
                 return
             }
 
-            if (
-                downloadedAssetRegistry.isAvailable(remoteIdentity, format) ||
-                localRecordingStore.isDownloaded(remoteIdentity, format)
-            ) {
+            if (downloadedAssetRegistry.isAvailable(remoteIdentity, format)) {
                 mutableFileOperationState.value = FileOperationState.Completed(
                     operationId = operationId,
                     operation = DeviceFileOperationType.DOWNLOAD,
                     remoteIdentity = remoteIdentity,
                     audioFormat = format,
                 )
+                return
+            }
+
+            val runtimeArtifact =
+                localRecordingStore.artifactForRemote(remoteIdentity, format)
+            if (
+                runtimeArtifact != null &&
+                localRecordingStore.isDownloaded(remoteIdentity, format)
+            ) {
+                val repairedRegistration =
+                    downloadedAssetRegistry.register(runtimeArtifact)
+                if (repairedRegistration.isSuccess) {
+                    mutableFileOperationState.value = FileOperationState.Completed(
+                        operationId = operationId,
+                        operation = DeviceFileOperationType.DOWNLOAD,
+                        remoteIdentity = remoteIdentity,
+                        audioFormat = format,
+                    )
+                } else {
+                    failDownloadPrecondition(
+                        operationId = operationId,
+                        remoteIdentity = remoteIdentity,
+                        error = FileOperationError(
+                            FileOperationErrorCode.LOCAL_ASSET_REGISTRATION_FAILED,
+                            repairedRegistration.exceptionOrNull()?.message,
+                        ),
+                        audioFormat = format,
+                    )
+                }
                 return
             }
 

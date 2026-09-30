@@ -39,6 +39,13 @@ class PcmWavToCanonicalWavConverter {
                 message = "unsupported WAV channels=${info.channelCount}",
             )
         }
+        if (info.blockAlign != info.channelCount * 2) {
+            throw AudioPipelineException(
+                code = "UNSUPPORTED_WAV_FRAME",
+                recoverable = false,
+                message = "PCM16 blockAlign=${info.blockAlign} channels=${info.channelCount}",
+            )
+        }
 
         val sourceSha = sha256(sourceFile)
         if (

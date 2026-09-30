@@ -2,6 +2,7 @@ package io.github.ioannes78.voica.audio
 
 import java.io.EOFException
 import java.io.File
+import java.io.IOException
 import java.io.RandomAccessFile
 import java.security.MessageDigest
 
@@ -292,6 +293,13 @@ class RawOpusToCanonicalWavConverter(
             }
         } catch (error: AudioPipelineException) {
             throw error
+        } catch (error: IOException) {
+            throw AudioPipelineException(
+                code = "LOCAL_WRITE_FAILED",
+                recoverable = true,
+                message = error.message ?: error::class.java.simpleName,
+                cause = error,
+            )
         } catch (error: Throwable) {
             throw AudioPipelineException(
                 code = "OPUS_DECODE_FAILED",
