@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.R
+import io.github.ioannes78.voica.ble.DeviceAudioFormat
 import io.github.ioannes78.voica.ble.DeviceFileListState
 import io.github.ioannes78.voica.ble.DeviceFileOperationType
 import io.github.ioannes78.voica.ble.FileListErrorCode
@@ -39,12 +40,14 @@ fun DeviceFilesCard(
     localRecordings: List<LocalRecordingArtifact>,
     canRefresh: Boolean,
     onRefresh: () -> Unit,
-    onDownload: (RemoteDeviceFile) -> Unit,
+    onDownload: (RemoteDeviceFile, DeviceAudioFormat) -> Unit,
     onCancelDownload: () -> Unit,
     onDeleteRemote: (RemoteDeviceFile) -> Unit,
     onRangeProbe: (RemoteDeviceFile) -> Unit,
 ) {
-    val downloadedIds = localRecordings.mapTo(mutableSetOf()) { it.sourceRemoteIdentity }
+    val downloadedFormats = localRecordings
+        .groupBy { it.sourceRemoteIdentity }
+        .mapValues { (_, assets) -> assets.mapTo(mutableSetOf()) { it.sourceFormat } }
     val active = operationState as? FileOperationState.Active
     var pendingDelete by remember { mutableStateOf<RemoteDeviceFile?>(null) }
 
@@ -83,10 +86,13 @@ fun DeviceFilesCard(
                 state.files.forEachIndexed { index, file ->
                     DeviceFileRow(
                         file = file,
-                        isDownloaded = file.identity in downloadedIds,
+                        opusDownloaded =
+                            DeviceAudioFormat.OPUS in downloadedFormats[file.identity].orEmpty(),
+                        wavDownloaded =
+                            DeviceAudioFormat.WAV in downloadedFormats[file.identity].orEmpty(),
                         activeOperation = active,
                         operationState = operationState,
-                        onDownload = { onDownload(file) },
+                        onDownload = { format -> onDownload(file, format) },
                         onCancelDownload = onCancelDownload,
                         onDeleteRemote = { pendingDelete = file },
                         onRangeProbe = { onRangeProbe(file) },
@@ -168,10 +174,11 @@ private fun FileListStatus(state: DeviceFileListState) {
 @Composable
 private fun DeviceFileRow(
     file: RemoteDeviceFile,
-    isDownloaded: Boolean,
+    opusDownloaded: Boolean,
+    wavDownloaded: Boolean,
     activeOperation: FileOperationState.Active?,
     operationState: FileOperationState,
-    onDownload: () -> Unit,
+    onDownload: (DeviceAudioFormat) -> Unit,
     onCancelDownload: () -> Unit,
     onDeleteRemote: () -> Unit,
     onRangeProbe: () -> Unit,
@@ -218,7 +225,10 @@ private fun DeviceFileRow(
                             formatBytes(progress.expectedBytes),
                         )
                     } else {
-                        stringResource(R.string.device_file_downloading)
+                        stringResource(
+                            R.string.device_file_downloading_format,
+                            activeOperation.audioFormat?.name ?: "—",
+                        )
                     },
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -235,21 +245,50 @@ private fun DeviceFileRow(
             }
 
             else -> {
-                if (isDownloaded) {
-                    Text(
-                        stringResource(R.string.device_file_downloaded),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                val opusAvailable = file.downloadFilename(DeviceAudioFormat.OPUS) != null
+                val wavAvailable = file.downloadFilename(DeviceAudioFormat.WAV) != null
+                if (opusAvailable) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            if (opusDownloaded) {
+                                stringResource(R.string.device_file_opus_downloaded)
+                            } else {
+                                stringResource(R.string.device_file_opus_available)
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        if (!opusDownloaded) {
+                            Button(
+                                onClick = { onDownload(DeviceAudioFormat.OPUS) },
+                                enabled = activeOperation == null,
+                            ) {
+                                Text(stringResource(R.string.device_file_download_opus))
+                            }
+                        }
+                    }
+                }
+                if (wavAvailable) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            if (wavDownloaded) {
+                                stringResource(R.string.device_file_wav_downloaded)
+                            } else {
+                                stringResource(R.string.device_file_wav_available)
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        if (!wavDownloaded) {
+                            Button(
+                                onClick = { onDownload(DeviceAudioFormat.WAV) },
+                                enabled = activeOperation == null,
+                            ) {
+                                Text(stringResource(R.string.device_file_download_wav))
+                            }
+                        }
+                    }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (!isDownloaded) {
-                        Button(
-                            onClick = onDownload,
-                            enabled = activeOperation == null,
-                        ) {
-                            Text(stringResource(R.string.device_file_download))
-                        }
-                    } else {
+                    if (opusDownloaded) {
                         OutlinedButton(
                             onClick = onRangeProbe,
                             enabled = activeOperation == null,
