@@ -15,6 +15,8 @@ import io.github.ioannes78.voica.protocol.ProtocolConstants
 import io.github.ioannes78.voica.protocol.RecordingCommandResult
 import io.github.ioannes78.voica.protocol.RecordingGain
 import io.github.ioannes78.voica.protocol.RecordingStatus
+import io.github.ioannes78.voica.protocol.WavHeaderProbeParser
+import io.github.ioannes78.voica.protocol.WavHeaderProbeResult
 import java.io.Closeable
 import java.io.File
 import kotlinx.coroutines.CompletableDeferred
@@ -166,6 +168,7 @@ class DefaultDeviceRepository(
     private var fileListTotalTimeoutJob: Job? = null
     private var activeFileListOperationId: Long? = null
     private var recordingFinalizedRefreshJob: Job? = null
+    private var wavHeaderProbeJob: Job? = null
     private var activeFileTransferSession: FileTransferSession? = null
     private var activeFileTransferOperationId: Long? = null
     private var pendingDeleteVerification: PendingDeleteVerification? = null
