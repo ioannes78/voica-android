@@ -43,6 +43,8 @@ import io.github.ioannes78.voica.ble.DeviceConnectionState
 import io.github.ioannes78.voica.ble.DeviceInfo
 import io.github.ioannes78.voica.ble.DeviceRepository
 import io.github.ioannes78.voica.ble.FileListFreshness
+import io.github.ioannes78.voica.ble.FileOperationState
+import io.github.ioannes78.voica.ble.FileTransferDiagnostics
 import io.github.ioannes78.voica.ble.NotificationSource
 import io.github.ioannes78.voica.ble.RecordingCommandState
 import io.github.ioannes78.voica.ble.RecordingFreshness
@@ -96,6 +98,9 @@ private fun DeviceScreen(
     val info by viewModel.deviceInfo.collectAsState()
     val recording by viewModel.recordingState.collectAsState()
     val deviceFiles by viewModel.deviceFileListState.collectAsState()
+    val fileOperation by viewModel.fileOperationState.collectAsState()
+    val fileTransferDiagnostics by viewModel.fileTransferDiagnostics.collectAsState()
+    val localRecordings by viewModel.localRecordings.collectAsState()
     val diagnostics by viewModel.diagnostics.collectAsState()
     val missingPermissions by viewModel.missingPermissions.collectAsState()
     val actionMessage by viewModel.actionMessage.collectAsState()
@@ -126,7 +131,7 @@ private fun DeviceScreen(
                 style = MaterialTheme.typography.headlineLarge,
             )
             Text(
-                stringResource(R.string.stage4_subtitle),
+                stringResource(R.string.stage5_subtitle),
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
@@ -215,11 +220,16 @@ private fun DeviceScreen(
                     recording.status == RecordingStatus.Idle &&
                         recording.freshness == RecordingFreshness.FRESH &&
                         recording.commandState == RecordingCommandState.IDLE &&
-                        deviceFiles.freshness != FileListFreshness.LOADING
+                        deviceFiles.freshness != FileListFreshness.LOADING &&
+                        fileOperation !is FileOperationState.Active
                 DeviceFilesCard(
                     state = deviceFiles,
+                    operationState = fileOperation,
+                    localRecordings = localRecordings,
                     canRefresh = canRefreshFiles,
                     onRefresh = viewModel::refreshDeviceFiles,
+                    onDownload = viewModel::downloadDeviceFile,
+                    onCancelDownload = viewModel::cancelDeviceFileDownload,
                 )
             }
         } else if (connection !is DeviceConnectionState.Idle &&
@@ -266,7 +276,7 @@ private fun DeviceScreen(
 
         if (diagnosticsExpanded) {
             item {
-                DiagnosticsCard(diagnostics)
+                DiagnosticsCard(diagnostics, fileTransferDiagnostics)
             }
         }
 
@@ -402,7 +412,10 @@ private fun DeviceInfoCard(
 }
 
 @Composable
-private fun DiagnosticsCard(diagnostics: BleDiagnostics) {
+private fun DiagnosticsCard(
+    diagnostics: BleDiagnostics,
+    fileTransfer: FileTransferDiagnostics,
+) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -629,6 +642,79 @@ private fun DiagnosticsCard(diagnostics: BleDiagnostics) {
             }
             diagnostics.fileList.lastOperationError?.let {
                 DiagnosticLine("File error", it)
+            }
+            HorizontalDivider()
+            Text("File transfer", style = MaterialTheme.typography.titleSmall)
+            DiagnosticLine(
+                "Transfer operation",
+                fileTransfer.operationId?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "Transfer session",
+                fileTransfer.transportSessionId?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "List filename",
+                fileTransfer.listFilename ?: "--",
+            )
+            DiagnosticLine(
+                "Request filename",
+                fileTransfer.requestFilename ?: "--",
+            )
+            DiagnosticLine(
+                "Request filename bytes",
+                fileTransfer.requestFilenameByteLength?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "Request frame bytes",
+                fileTransfer.requestFrameLength?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "Request seq",
+                fileTransfer.requestSequence?.toString() ?: "--",
+            )
+            DiagnosticLine(
+                "Actual filename",
+                fileTransfer.actualTransferFilename ?: "--",
+            )
+            DiagnosticLine(
+                "START source",
+                fileTransfer.startSource?.name ?: "--",
+            )
+            DiagnosticLine(
+                "DATA source",
+                fileTransfer.lastDataSource?.name ?: "--",
+            )
+            DiagnosticLine(
+                "END source",
+                fileTransfer.endSource?.name ?: "--",
+            )
+            DiagnosticLine(
+                "DATA frames",
+                fileTransfer.dataFrameCount.toString(),
+            )
+            DiagnosticLine(
+                "Expected/received",
+                (fileTransfer.expectedBytes?.toString() ?: "--") + "/" +
+                    fileTransfer.receivedBytes,
+            )
+            DiagnosticLine(
+                "First data",
+                fileTransfer.firstDataPrefixHex ?: "--",
+            )
+            DiagnosticLine(
+                "Container",
+                fileTransfer.detectedContainer?.name ?: "--",
+            )
+            DiagnosticLine(
+                "Remote status",
+                fileTransfer.remoteStatusCode?.toString() ?: "--",
+            )
+            fileTransfer.lastError?.let {
+                DiagnosticLine(
+                    "Transfer error",
+                    it.code.name + (it.detail?.let { detail -> ": " + detail } ?: ""),
+                )
             }
             diagnostics.lastError?.let {
                 DiagnosticLine("Last error", errorText(it))

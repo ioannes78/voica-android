@@ -4,7 +4,8 @@
     <string name="stage2_subtitle">BLE 设备连接与基础信息</string>
     <string name="stage3_subtitle">录音控制与设备实时状态</string>
     <string name="stage4_subtitle">设备文件列表与文件名解析</string>
-    <string name="version_label">0.4.2 Stage 4</string>
+    <string name="stage5_subtitle">设备录音下载与可靠落盘</string>
+    <string name="version_label">0.5.0 Stage 5 Alpha 1</string>
     <string name="tab_device">设备</string>
     <string name="tab_settings">设置</string>
 
@@ -91,6 +92,13 @@
     <string name="device_file_duration">时长</string>
     <string name="device_file_size">大小</string>
     <string name="device_file_unknown">未知</string>
+    <string name="device_file_download">下载</string>
+    <string name="device_file_downloading">正在下载…</string>
+    <string name="device_file_downloading_progress">正在下载 %1$d%% · %2$s / %3$s</string>
+    <string name="device_file_cancel_download">取消下载</string>
+    <string name="device_file_downloaded">已下载到本地</string>
+    <string name="device_file_download_failed">下载失败：%1$s</string>
+    <string name="device_file_download_cancelled">下载已取消</string>
 
     <string name="state_unavailable">当前设备不支持蓝牙低功耗。</string>
     <string name="state_permission_required">等待蓝牙权限</string>
@@ -119,9 +127,9 @@
     <string name="diagnostics_title">BLE Diagnostics</string>
     <string name="diagnostics_recent_log">最近通信日志</string>
 
-    <string name="settings_title">Stage 4 设置</string>
+    <string name="settings_title">Stage 5 设置</string>
     <string name="settings_language">默认语言</string>
     <string name="settings_language_value">简体中文</string>
     <string name="settings_scope">当前范围</string>
-    <string name="settings_scope_value">BLE 连接 + 录音控制 + 设备文件列表</string>
+    <string name="settings_scope_value">BLE 连接 + 录音控制 + 设备文件列表 + 文件下载</string>
 </resources>

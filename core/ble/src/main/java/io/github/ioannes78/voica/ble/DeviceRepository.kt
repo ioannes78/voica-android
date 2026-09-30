@@ -128,6 +128,8 @@ class DefaultDeviceRepository(
     private var recordingReconcileJob: Job? = null
     private var fileListFirstResponseJob: Job? = null
     private var fileListTotalTimeoutJob: Job? = null
+    private var activeFileListOperationId: Long? = null
+    private var recordingFinalizedRefreshJob: Job? = null
     private var activeFileTransferSession: FileTransferSession? = null
     private var activeFileTransferOperationId: Long? = null
     private var lastReadySessionId: Long? = null
@@ -457,12 +459,47 @@ class DefaultDeviceRepository(
     override suspend fun syncTime(): Boolean = session.syncTime()
 
     override suspend fun refreshDeviceFiles() {
-        if (mutableDeviceFileListState.value.freshness == FileListFreshness.LOADING) return
+        requestDeviceFileRefresh(RefreshReason.USER_REQUESTED)
+    }
+
+    private suspend fun requestDeviceFileRefresh(reason: RefreshReason) {
+        when (val decision = fileOperationCoordinator.requestRefresh(reason)) {
+            is RefreshRequestDecision.Started ->
+                startDeviceFileListRefresh(decision.operation, decision.reason)
+            is RefreshRequestDecision.Queued,
+            is RefreshRequestDecision.Coalesced,
+            -> Unit
+        }
+    }
+
+    private suspend fun startDeviceFileListRefresh(
+        operation: ActiveDeviceFileOperation,
+        reason: RefreshReason,
+    ) {
+        val operationId = operation.operationId
+        activeFileListOperationId = operationId
+        mutableFileOperationState.value = FileOperationState.Active(
+            operationId = operationId,
+            operation = DeviceFileOperationType.REFRESH,
+            stage = FileOperationStage.PREPARING,
+        )
+
+        if (mutableDeviceFileListState.value.freshness == FileListFreshness.LOADING) {
+            finishFileListOperation(
+                FileOperationError(
+                    FileOperationErrorCode.FILE_OPERATION_BUSY,
+                    "file list is already loading",
+                ),
+            )
+            return
+        }
 
         val ready = session.state.value as? DeviceConnectionState.Ready
         if (ready == null) {
-            noteFileListGuardFailure(
-                FileListError(FileListErrorCode.NOT_READY, "device is not Ready"),
+            val error = FileListError(FileListErrorCode.NOT_READY, "device is not Ready")
+            noteFileListGuardFailure(error)
+            finishFileListOperation(
+                FileOperationError(FileOperationErrorCode.NOT_READY, error.detail),
             )
             return
         }
@@ -473,13 +510,15 @@ class DefaultDeviceRepository(
             recording.freshness != RecordingFreshness.FRESH ||
             recording.commandState != RecordingCommandState.IDLE
         ) {
-            noteFileListGuardFailure(
-                FileListError(
-                    FileListErrorCode.RECORDING_ACTIVE,
-                    "recording status=" + recording.status +
-                        " freshness=" + recording.freshness +
-                        " command=" + recording.commandState,
-                ),
+            val error = FileListError(
+                FileListErrorCode.RECORDING_ACTIVE,
+                "recording status=" + recording.status +
+                    " freshness=" + recording.freshness +
+                    " command=" + recording.commandState,
+            )
+            noteFileListGuardFailure(error)
+            finishFileListOperation(
+                FileOperationError(FileOperationErrorCode.RECORDING_ACTIVE, error.detail),
             )
             return
         }
@@ -503,6 +542,11 @@ class DefaultDeviceRepository(
             error = null,
         )
 
+        mutableFileOperationState.value = FileOperationState.Active(
+            operationId = operationId,
+            operation = DeviceFileOperationType.REFRESH,
+            stage = FileOperationStage.REQUESTING,
+        )
         val request = session.requestFileList()
         if (!request.written) {
             failActiveFileList(
@@ -788,7 +832,7 @@ class DefaultDeviceRepository(
                 activeFileTransferSession = null
                 activeFileTransferOperationId = null
             }
-            fileOperationCoordinator.finish(operationId)
+            finishCoordinatorOperation(operationId)
         }
     }
 
@@ -1158,6 +1202,11 @@ class DefaultDeviceRepository(
                 )
             }
             updateRecordingPoller()
+            scheduleFileRefreshAfterRecordingSync(
+                reason = reason,
+                expectedStatus = expectedStatus,
+                resolvedStatus = resolvedStatus,
+            )
         }
     }
 
@@ -1291,6 +1340,7 @@ class DefaultDeviceRepository(
                     completionReason = FileListCompletionReason.LIST_DONE,
                     error = null,
                 )
+                finishFileListOperation(error = null)
             }
 
             is FileListSessionResult.Failed -> {
@@ -1300,9 +1350,85 @@ class DefaultDeviceRepository(
                     error = result.error,
                     completionReason = result.completionReason,
                 )
+                finishFileListOperation(
+                    FileOperationError(
+                        code = when (result.error.code) {
+                            FileListErrorCode.NOT_READY -> FileOperationErrorCode.NOT_READY
+                            FileListErrorCode.RECORDING_ACTIVE ->
+                                FileOperationErrorCode.RECORDING_ACTIVE
+                            FileListErrorCode.WRITE_FAILED ->
+                                FileOperationErrorCode.GATT_WRITE_FAILED
+                            FileListErrorCode.DISCONNECTED ->
+                                FileOperationErrorCode.BLE_DISCONNECTED
+                            FileListErrorCode.SESSION_REPLACED ->
+                                FileOperationErrorCode.SESSION_REPLACED
+                            else -> FileOperationErrorCode.TRANSFER_TIMEOUT
+                        },
+                        detail = result.error.detail,
+                    ),
+                )
             }
 
             is FileListSessionResult.Ignored -> Unit
+        }
+    }
+
+    private fun finishFileListOperation(error: FileOperationError?) {
+        val operationId = activeFileListOperationId ?: return
+        activeFileListOperationId = null
+        mutableFileOperationState.value =
+            if (error == null) {
+                FileOperationState.Completed(
+                    operationId = operationId,
+                    operation = DeviceFileOperationType.REFRESH,
+                )
+            } else {
+                FileOperationState.Failed(
+                    operationId = operationId,
+                    operation = DeviceFileOperationType.REFRESH,
+                    error = error,
+                )
+            }
+        finishCoordinatorOperation(operationId)
+    }
+
+    private fun finishCoordinatorOperation(operationId: Long) {
+        val next = fileOperationCoordinator.finish(operationId) ?: return
+        scope.launch {
+            startDeviceFileListRefresh(next.operation, next.reason)
+        }
+    }
+
+    private fun scheduleFileRefreshAfterRecordingSync(
+        reason: RecordingSyncReason,
+        expectedStatus: RecordingStatus?,
+        resolvedStatus: RecordingStatus,
+    ) {
+        if (resolvedStatus != RecordingStatus.Idle) return
+
+        val refresh = when {
+            reason == RecordingSyncReason.INITIAL_READY ->
+                RefreshReason.INITIAL_CONNECTION to 0L
+            reason == RecordingSyncReason.RECONNECT ->
+                RefreshReason.RECONNECTED to 0L
+            reason == RecordingSyncReason.APP_COMMAND &&
+                expectedStatus == RecordingStatus.Idle ->
+                RefreshReason.RECORDING_FINALIZED to RECORDING_FINALIZED_REFRESH_DELAY_MS
+            reason == RecordingSyncReason.HARDWARE_EVENT &&
+                expectedStatus == RecordingStatus.Idle ->
+                RefreshReason.RECORDING_FINALIZED to RECORDING_FINALIZED_REFRESH_DELAY_MS
+            else -> null
+        } ?: return
+
+        if (refresh.first == RefreshReason.RECORDING_FINALIZED) {
+            recordingFinalizedRefreshJob?.cancel()
+        }
+        val job = scope.launch {
+            if (refresh.second > 0L) delay(refresh.second)
+            requestDeviceFileRefresh(refresh.first)
+        }
+        if (refresh.first == RefreshReason.RECORDING_FINALIZED) {
+            recordingFinalizedRefreshJob = job
         }
     }
 
@@ -1812,6 +1938,7 @@ class DefaultDeviceRepository(
         reconnectJob?.cancel()
         refreshJob?.cancel()
         recordingReconcileJob?.cancel()
+        recordingFinalizedRefreshJob?.cancel()
         cancelFileListTimeouts()
         fileListSessionCoordinator.cancel(nowMs())
         activeFileTransferSession?.requestCancel(TransferCancelReason.BACKGROUND)
@@ -1838,6 +1965,7 @@ class DefaultDeviceRepository(
         const val AUTO_CONNECT_AFTER_BLUETOOTH_ON_MS = 300L
         const val FILE_LIST_FIRST_RESPONSE_TIMEOUT_MS = 8_000L
         const val FILE_LIST_TOTAL_SESSION_TIMEOUT_MS = 20_000L
+        const val RECORDING_FINALIZED_REFRESH_DELAY_MS = 1_000L
         const val FILE_DOWNLOAD_FRAME_FIXED_BYTES = 12
         const val FILE_DIAGNOSTIC_PREFIX_BYTES = 32
     }
