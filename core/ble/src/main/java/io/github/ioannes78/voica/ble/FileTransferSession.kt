@@ -60,6 +60,7 @@ class FileTransferSession(
     private val events = Channel<FileTransferFrameEvent>(capacity = eventCapacity)
     private val cancelSignal = CompletableDeferred<TransferCancelReason>()
     private val overflowed = AtomicBoolean(false)
+    private val transportDisconnected = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
 
     override fun offer(notification: RoutedNotification): Boolean {
@@ -293,6 +294,13 @@ class FileTransferSession(
         }
     }
 
+    fun notifyTransportDisconnected() {
+        transportDisconnected.set(true)
+        if (closed.compareAndSet(false, true)) {
+            events.close()
+        }
+    }
+
     fun close() {
         if (closed.compareAndSet(false, true)) {
             events.close()
@@ -339,10 +347,10 @@ class FileTransferSession(
         sink.abortQuietly()
         return FileTransferExecutionResult.Failed(
             FileOperationError(
-                if (overflowed.get()) {
-                    FileOperationErrorCode.DATA_PIPELINE_OVERFLOW
-                } else {
-                    FileOperationErrorCode.SESSION_REPLACED
+                when {
+                    overflowed.get() -> FileOperationErrorCode.DATA_PIPELINE_OVERFLOW
+                    transportDisconnected.get() -> FileOperationErrorCode.BLE_DISCONNECTED
+                    else -> FileOperationErrorCode.SESSION_REPLACED
                 },
             ),
         )

@@ -275,7 +275,7 @@ class LocalRecordingStore(
         prepared: PreparedLocalDownload,
         actualTransferFilename: String?,
     ): LocalDownloadCommitResult {
-        val extension = extensionFor(actualTransferFilename)
+        val extension = extensionFor(actualTransferFilename ?: prepared.remote.displayFilename)
         val physicalFileName = prepared.id + extension
         val finalFile = File(completedDir, physicalFileName)
 

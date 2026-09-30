@@ -148,3 +148,16 @@ data class FileTransferDiagnostics(
     val remoteStatusCode: Int? = null,
     val lastError: FileOperationError? = null,
 )
+
+
+data class RemoteDeleteDiagnostics(
+    val operationId: Long? = null,
+    val remoteIdentity: String? = null,
+    val requestBodyLength: Int? = null,
+    val responseSource: NotificationSource? = null,
+    val responseStatusCode: Int? = null,
+    val responseLatencyMs: Long? = null,
+    val verificationResult: String? = null,
+    val outcomeUnknown: Boolean = false,
+    val lastError: FileOperationError? = null,
+)

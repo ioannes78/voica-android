@@ -50,6 +50,27 @@ class LocalRecordingStoreTest {
     }
 
     @Test
+    fun rawUnknownContainerKeepsRemoteOpusExtensionWhenStartHasNoFilename() = runTest {
+        val root = Files.createTempDirectory("voica-raw-opus").toFile()
+        try {
+            val raw = ByteArray(80) { index -> (index and 0x7F).toByte() }
+            val store = LocalRecordingStore(root) { 2233L }
+            val remote = remote(size = raw.size.toLong())
+            val prepared = store.prepare(remote)
+            prepared.writer.write(raw)
+
+            val committed = store.commit(prepared, actualTransferFilename = null)
+
+            assertEquals(AudioContainer.UNKNOWN, committed.artifact.container)
+            assertTrue(committed.artifact.physicalFileName.endsWith(".opus"))
+            assertTrue(committed.artifact.displayFilename.endsWith(".opus"))
+            assertArrayEquals(raw, store.resolveAudioFile(committed.artifact).readBytes())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun sizeMismatchDeletesPartAndDoesNotCreateReadyArtifact() = runTest {
         val root = Files.createTempDirectory("voica-size-mismatch").toFile()
         try {
