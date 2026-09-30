@@ -1,6 +1,8 @@
 package io.github.ioannes78.voica
 
 import android.app.Application
+import io.github.ioannes78.voica.audio.AudioSourceResolver
+import io.github.ioannes78.voica.audio.PcmSourceResolver
 import io.github.ioannes78.voica.ble.DefaultDeviceRepository
 import io.github.ioannes78.voica.ble.DeviceRepository
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
@@ -42,6 +44,15 @@ class AppContainer(
             recordingsRoot = recordingsRoot,
             applicationScope = applicationScope,
         )
+
+    private val roomAudioSourceResolver =
+        RoomAudioSourceResolver(
+            repository = recordingLibraryRepository,
+            recordingsRoot = recordingsRoot,
+        )
+
+    val audioSourceResolver: AudioSourceResolver = roomAudioSourceResolver
+    val pcmSourceResolver: PcmSourceResolver = roomAudioSourceResolver
 
     private val downloadedAssetRegistry =
         RoomDownloadedAssetRegistry(
