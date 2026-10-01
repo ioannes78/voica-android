@@ -4,6 +4,7 @@ import io.github.ioannes78.voica.model.ModelCatalogCodec
 import io.github.ioannes78.voica.model.ModelSourceType
 import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -32,5 +33,39 @@ class BootstrapModelCatalogTest {
         assertNull(silero.packageFormat)
         assertEquals(212_860L, silero.installedSizeBytes)
         assertTrue(silero.autoUpdateEligible)
+    }
+
+    @Test
+    fun debugCandidateManifestUrlIsRestrictedToVoicaReleaseProductionJson() {
+        assertTrue(
+            VoicaModelChannel.isAllowedDebugManifestUrl(
+                "https://github.com/ioannes78/voica-model-channel/releases/download/" +
+                    "candidate-small-bilingual-r1/production.json",
+            ),
+        )
+
+        assertFalse(
+            VoicaModelChannel.isAllowedDebugManifestUrl(
+                "http://github.com/ioannes78/voica-model-channel/releases/download/" +
+                    "candidate-small-bilingual-r1/production.json",
+            ),
+        )
+        assertFalse(
+            VoicaModelChannel.isAllowedDebugManifestUrl(
+                "https://github.com/other/voica-model-channel/releases/download/" +
+                    "candidate-small-bilingual-r1/production.json",
+            ),
+        )
+        assertFalse(
+            VoicaModelChannel.isAllowedDebugManifestUrl(
+                "https://github.com/ioannes78/voica-model-channel/releases/download/" +
+                    "candidate-small-bilingual-r1/model.zip",
+            ),
+        )
+        assertFalse(
+            VoicaModelChannel.isAllowedDebugManifestUrl(
+                VoicaModelChannel.PRODUCTION_MANIFEST_URL,
+            ),
+        )
     }
 }
