@@ -28,3 +28,11 @@ Implementation gates:
 3. Prove ModelManager hashing/staging/atomic install/rollback before using production model packages.
 4. Prove the fast pipeline before enabling SenseVoice two-pass.
 5. No Stage 8 Freeze/merge until real-device acceptance and explicit user confirmation.
+
+## Stage 8A / 8B progress
+
+- Room v1 schema generated from unchanged Stage 7 entities and frozen with identity hash `a2d73e20eae7b30d6efcdb455cc5eec8`.
+- CI now rejects Room schema drift.
+- Added `:engine:sherpa` pinned to sherpa-onnx v1.13.8.
+- App is pinned to arm64-v8a for the Stage 8 native runtime.
+- Added a Settings-page native-load probe for the first Stage 8 real-device runtime gate.
