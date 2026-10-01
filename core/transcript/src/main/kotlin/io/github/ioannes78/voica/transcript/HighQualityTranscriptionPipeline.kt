@@ -199,8 +199,11 @@ class HighQualityTranscriptionPipeline(
                         val count = Math.toIntExact(overlapEnd - overlapStart)
                         val destinationOffset =
                             Math.toIntExact(overlapStart - segment.startSampleIndex)
+                        val pcm =
+                            segmentPcm
+                                ?: error("second-pass segment buffer is missing")
                         readBuffer.copyInto(
-                            destination = segmentPcm,
+                            destination = pcm,
                             destinationOffset = destinationOffset,
                             startIndex = sourceOffset,
                             endIndex = sourceOffset + count,
