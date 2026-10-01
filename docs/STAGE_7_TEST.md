@@ -171,3 +171,17 @@ Stage 8/10 不得把毫秒 Float Slider 或 wall clock 重新定义为媒体时�
 - Bluetooth / Audio Focus 1–7：真机通过
 - 8–12 长录音真机专项：未执行、转 Stage 13
 - Stage 7：允许 Freeze/Handoff/merge
+
+## 10. Freeze/Handoff seal
+
+Freeze/Handoff 内容提交：
+
+`669885d9267b91fa0515fe265ea416e1454a585f`
+
+Seal CI：
+
+- Run ID：`36816506117`
+- Run #149
+- 结论：**success**
+
+该 Run 在用户最终验收决定后，对 Freeze/Handoff 文档提交再次执行完整自动测试与 Debug Build，结果通过。

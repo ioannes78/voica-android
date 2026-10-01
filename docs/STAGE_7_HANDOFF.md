@@ -201,3 +201,15 @@ Stage 10 使用：
 7. 等用户确认。
 8. 再输出《Voica Stage 8 修订开发规划》。
 9. 再次等用户确认后才允许创建 Stage 8 development branch 和编码。
+
+## Freeze/Handoff seal
+
+Freeze/Handoff 内容提交：
+
+`669885d9267b91fa0515fe265ea416e1454a585f`
+
+Seal CI：
+
+`36816506117` / #149 — **success**
+
+Stage 8 接管时仍必须重新读取最终合并后的 `main` HEAD 与最终 Actions。

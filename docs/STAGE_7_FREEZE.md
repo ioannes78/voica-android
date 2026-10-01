@@ -255,3 +255,15 @@ Stage 7 接受但未执行：
 **Stage 8 — 本地 ASR + VAD + 标点 + 模型管理**
 
 Stage 8 必须从合并后的最新 `main` 重新做 baseline validation，并先走需求确认/开发规划确认门禁。
+
+## 18. Seal 证据
+
+Freeze/Handoff 内容提交：
+
+`669885d9267b91fa0515fe265ea416e1454a585f`
+
+Seal CI：
+
+`36816506117` / #149 — **success**
+
+本次 seal 证明 Freeze/Handoff 内容提交没有破坏 Stage 1–7 build/test 基线。
