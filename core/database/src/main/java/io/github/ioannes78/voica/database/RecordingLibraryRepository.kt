@@ -54,6 +54,14 @@ data class CanonicalWavRegistration(
     val verifiedAtMs: Long,
 )
 
+data class CanonicalTranscriptionLineage(
+    val recordingId: String,
+    val canonicalAssetId: String,
+    val canonicalSha256: String,
+    val canonicalProfileId: String,
+    val canonicalPipelineVersion: Int,
+)
+
 data class DownloadedDeviceAsset(
     val sourceRemoteIdentity: String,
     val sourceDeviceAddress: String,
@@ -229,6 +237,39 @@ class RecordingLibraryRepository(
         val asset = findDeviceAsset(remoteIdentity, format) ?: return false
         val file = File(recordingsRoot, asset.relativePath)
         return file.isFile && file.length() == asset.sizeBytes
+    }
+
+    suspend fun loadCanonicalTranscriptionLineage(
+        recordingId: String,
+        profileId: String,
+    ): CanonicalTranscriptionLineage? {
+        val row = dao.findWithAssets(recordingId) ?: return null
+        if (row.recording.state != RecordingState.ACTIVE) return null
+
+        val canonical =
+            row.assets.firstOrNull { asset ->
+                asset.role == AudioAssetRole.CANONICAL_WAV &&
+                    asset.integrityState == AudioIntegrityState.VERIFIED &&
+                    asset.formatValidationState == AudioValidationState.VALID
+            } ?: return null
+
+        val derivation =
+            row.derivations
+                .filter { item ->
+                    item.profileId == profileId &&
+                        item.outputAssetId == canonical.assetId &&
+                        item.state == AudioDerivationState.READY
+                }
+                .maxByOrNull { it.updatedAtMs }
+                ?: return null
+
+        return CanonicalTranscriptionLineage(
+            recordingId = recordingId,
+            canonicalAssetId = canonical.assetId,
+            canonicalSha256 = canonical.sha256,
+            canonicalProfileId = derivation.profileId,
+            canonicalPipelineVersion = derivation.pipelineVersion,
+        )
     }
 
     suspend fun loadCanonicalConversionSource(
