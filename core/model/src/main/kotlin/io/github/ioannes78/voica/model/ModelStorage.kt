@@ -114,12 +114,21 @@ class ModelStorage(
     fun promoteVerifiedStaging(
         descriptor: ModelDescriptor,
         stagingDirectory: File,
+        manifestDigest: String? = null,
     ): InstalledModelVersion {
         require(isInside(stagingRoot, stagingDirectory.canonicalFile)) {
             "staging directory is outside managed staging root"
         }
         check(verifyDirectory(descriptor, stagingDirectory) == ModelVerificationResult.Valid) {
             "staging verification failed"
+        }
+
+        manifestDigest?.let {
+            writeDescriptorSnapshot(
+                directory = stagingDirectory,
+                descriptor = descriptor,
+                manifestDigest = it,
+            )
         }
 
         val target = versionDirectory(descriptor.modelId, descriptor.version, descriptor.revision)
@@ -130,6 +139,13 @@ class ModelStorage(
                 "existing model version is corrupted"
             }
             stagingDirectory.deleteRecursively()
+            manifestDigest?.let {
+                writeDescriptorSnapshot(
+                    directory = target,
+                    descriptor = descriptor,
+                    manifestDigest = it,
+                )
+            }
         } else {
             Files.move(
                 stagingDirectory.toPath(),
@@ -197,6 +213,35 @@ class ModelStorage(
             previousVersion = properties.getProperty("previousVersion"),
             previousRevision = properties.getProperty("previousRevision")?.toLongOrNull(),
         )
+    }
+
+    fun installedSnapshot(
+        modelId: String,
+        version: String,
+        revision: Long,
+    ): ModelDescriptorSnapshot? {
+        val directory = versionDirectory(modelId, version, revision)
+        if (!directory.isDirectory) return null
+        val metadata = File(directory, DESCRIPTOR_SNAPSHOT)
+        if (!metadata.isFile) return null
+
+        val properties = Properties()
+        metadata.inputStream().use(properties::load)
+        val snapshot =
+            runCatching {
+                ModelDescriptorSnapshotCodec.decode(properties)
+            }.getOrNull() ?: return null
+        val descriptor = snapshot.descriptor
+        if (descriptor.modelId != modelId ||
+            descriptor.version != version ||
+            descriptor.revision != revision
+        ) {
+            return null
+        }
+        if (verifyDirectory(descriptor, directory) != ModelVerificationResult.Valid) {
+            return null
+        }
+        return snapshot
     }
 
     fun installedVersion(descriptor: ModelDescriptor): InstalledModelVersion? {
@@ -282,6 +327,24 @@ class ModelStorage(
         stagingRoot.listFiles()?.forEach { it.deleteRecursively() }
     }
 
+    private fun writeDescriptorSnapshot(
+        directory: File,
+        descriptor: ModelDescriptor,
+        manifestDigest: String,
+    ) {
+        val target = File(directory, DESCRIPTOR_SNAPSHOT)
+        val properties =
+            ModelDescriptorSnapshotCodec.encode(
+                ModelDescriptorSnapshot(
+                    descriptor = descriptor,
+                    manifestDigest = manifestDigest,
+                ),
+            )
+        target.outputStream().use { output ->
+            properties.store(output, "Voica installed model descriptor")
+        }
+    }
+
     private fun writeActivationState(
         modelId: String,
         state: ModelActivationState,
@@ -354,3 +417,4 @@ fun sha256Hex(file: File): String {
 }
 
 private const val SHA_BUFFER_SIZE = 64 * 1024
+private const val DESCRIPTOR_SNAPSHOT = ".voica-model-descriptor.properties"

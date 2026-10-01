@@ -43,6 +43,39 @@ class DefaultModelManager(
     override suspend fun catalog(): ModelCatalog =
         remoteCatalog ?: bundledCatalog
 
+    override suspend fun activeModel(modelId: String): ActiveModel? {
+        val activation = storage.activationState(modelId)
+        val activeVersion = activation.activeVersion
+        val activeRevision = activation.activeRevision
+
+        if (activeVersion != null && activeRevision != null) {
+            val snapshot =
+                storage.installedSnapshot(
+                    modelId = modelId,
+                    version = activeVersion,
+                    revision = activeRevision,
+                ) ?: return null
+            return ActiveModel(
+                descriptor = snapshot.descriptor,
+                manifestDigest = snapshot.manifestDigest,
+                installedDirectory =
+                    storage.activeDirectory(modelId)
+                        ?: return null,
+            )
+        }
+
+        val builtin = bundledCatalog.model(modelId) ?: return null
+        val builtinAvailable =
+            builtin.sourceType == ModelSourceType.BUILTIN ||
+                builtin.sourceType == ModelSourceType.BUILTIN_WITH_OVERRIDE
+        if (!builtinAvailable) return null
+        return ActiveModel(
+            descriptor = builtin,
+            manifestDigest = bundledCatalog.manifestDigest,
+            installedDirectory = null,
+        )
+    }
+
     override suspend fun checkForUpdates(force: Boolean): ModelCatalog {
         val provider = remoteCatalogProvider ?: return catalog()
         return catalogMutex.withLock {
@@ -121,7 +154,12 @@ class DefaultModelManager(
     ) {
         val mutex = modelMutexes.computeIfAbsent(modelId) { Mutex() }
         mutex.withLock {
-            val descriptor = requireDescriptor(modelId, version, revision)
+            val sourceCatalog = catalog()
+            val descriptor =
+                sourceCatalog.model(modelId)
+                    ?.takeIf { it.version == version && it.revision == revision }
+                    ?: error("model version is not present in the active catalog")
+            val manifestDigest = sourceCatalog.manifestDigest
             require(descriptor.compatibilityWith(environment).compatible) {
                 "model is incompatible with this device/app/runtime"
             }
@@ -168,7 +206,11 @@ class DefaultModelManager(
                 extractor.verifyPackage(descriptor, packagePart)
                 staging = storage.createStagingDirectory(descriptor)
                 extractor.extract(descriptor, packagePart, staging)
-                storage.promoteVerifiedStaging(descriptor, staging)
+                storage.promoteVerifiedStaging(
+                    descriptor = descriptor,
+                    stagingDirectory = staging,
+                    manifestDigest = manifestDigest,
+                )
                 staging = null
 
                 updateOperation(
@@ -213,7 +255,10 @@ class DefaultModelManager(
     ) {
         val mutex = modelMutexes.computeIfAbsent(modelId) { Mutex() }
         mutex.withLock {
-            val descriptor = requireDescriptor(modelId, version, revision)
+            val snapshot =
+                storage.installedSnapshot(modelId, version, revision)
+                    ?: error("model candidate metadata is missing or failed integrity verification")
+            val descriptor = snapshot.descriptor
             require(descriptor.compatibilityWith(environment).compatible) {
                 "model is incompatible with this device/app/runtime"
             }

@@ -167,6 +167,12 @@ data class InstalledModel(
     val confirmedGood: Boolean,
 )
 
+data class ActiveModel(
+    val descriptor: ModelDescriptor,
+    val manifestDigest: String,
+    val installedDirectory: java.io.File?,
+)
+
 data class ModelAvailability(
     val descriptor: ModelDescriptor,
     val state: ModelState,
@@ -213,6 +219,8 @@ interface ModelManager {
     suspend fun catalog(): ModelCatalog
 
     suspend fun availability(modelId: String): ModelAvailability?
+
+    suspend fun activeModel(modelId: String): ActiveModel?
 
     suspend fun checkForUpdates(force: Boolean = false): ModelCatalog
 

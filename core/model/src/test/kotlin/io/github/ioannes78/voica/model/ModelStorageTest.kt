@@ -59,6 +59,29 @@ class ModelStorageTest {
     }
 
     @Test
+    fun installedSnapshotPreservesDescriptorAndManifestLineage() {
+        val storage = ModelStorage(root)
+        val descriptor = descriptor(version = "v1", revision = 1)
+        val staging = prepareStaging(storage, descriptor, "one")
+
+        storage.promoteVerifiedStaging(
+            descriptor = descriptor,
+            stagingDirectory = staging,
+            manifestDigest = "d".repeat(64),
+        )
+
+        val snapshot =
+            storage.installedSnapshot(
+                modelId = descriptor.modelId,
+                version = descriptor.version,
+                revision = descriptor.revision,
+            )
+        assertNotNull(snapshot)
+        assertEquals(descriptor, snapshot!!.descriptor)
+        assertEquals("d".repeat(64), snapshot.manifestDigest)
+    }
+
+    @Test
     fun clearActivationLeavesInstalledCandidateButNoActiveOverride() {
         val storage = ModelStorage(root)
         val descriptor = descriptor(version = "v1", revision = 1)

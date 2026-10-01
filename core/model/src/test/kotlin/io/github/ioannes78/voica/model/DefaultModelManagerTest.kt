@@ -60,9 +60,18 @@ class DefaultModelManagerTest {
         assertEquals(2L, active.activeRevision)
         assertFalse(active.updateAvailable)
 
+        val activeModelBeforeUpdate = manager.activeModel("asr")!!
+        assertEquals("v2", activeModelBeforeUpdate.descriptor.version)
+        assertEquals(catalog(descriptor("v2", 2, v2Bytes)).manifestDigest, activeModelBeforeUpdate.manifestDigest)
+        assertNotNull(activeModelBeforeUpdate.installedDirectory)
+
         remote = catalog(descriptor("v3", 3, "model-v3".toByteArray()))
         manager.checkForUpdates(force = true)
         assertTrue(manager.availability("asr")!!.updateAvailable)
+
+        val activeModelAfterUpdate = manager.activeModel("asr")!!
+        assertEquals("v2", activeModelAfterUpdate.descriptor.version)
+        assertEquals(2L, activeModelAfterUpdate.descriptor.revision)
     }
 
     @Test
@@ -111,6 +120,9 @@ class DefaultModelManagerTest {
 
         manager.checkForUpdates(true)
         val before = manager.availability("silero")!!
+        val builtin = manager.activeModel("silero")!!
+        assertEquals("baseline", builtin.descriptor.version)
+        assertNull(builtin.installedDirectory)
         assertEquals("baseline", before.activeVersion)
         assertEquals(1L, before.activeRevision)
         assertTrue(before.updateAvailable)
