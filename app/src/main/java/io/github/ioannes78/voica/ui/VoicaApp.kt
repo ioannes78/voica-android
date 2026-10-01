@@ -56,12 +56,14 @@ import io.github.ioannes78.voica.ble.RangeProbeDiagnostics
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.protocol.BatteryState
 import io.github.ioannes78.voica.protocol.RecordingStatus
+import io.github.ioannes78.voica.model.ModelManager
 import io.github.ioannes78.voica.sherpa.SherpaRuntime
 import io.github.ioannes78.voica.ui.files.DeviceFilesCard
 import io.github.ioannes78.voica.ui.files.LocalRecordingsCard
 import io.github.ioannes78.voica.ui.playback.PlaybackCard
 import io.github.ioannes78.voica.ui.playback.PlaybackViewModel
 import io.github.ioannes78.voica.ui.recording.RecordingCard
+import io.github.ioannes78.voica.ui.model.ModelManagerCard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -72,6 +74,7 @@ fun VoicaApp(
     recordingLibraryRepository: RecordingLibraryRepository,
     canonicalAudioCoordinator: CanonicalAudioCoordinator,
     playbackController: PlaybackController,
+    modelManager: ModelManager,
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val deviceViewModel: DeviceViewModel = viewModel(
@@ -130,7 +133,7 @@ fun VoicaApp(
                 deviceViewModel,
                 playbackViewModel,
             )
-            else -> SettingsScreen(padding)
+            else -> SettingsScreen(padding, modelManager)
         }
     }
 }
@@ -1014,7 +1017,10 @@ private fun formatCapacity(kb: Long?): String {
 }
 
 @Composable
-private fun SettingsScreen(padding: PaddingValues) {
+private fun SettingsScreen(
+    padding: PaddingValues,
+    modelManager: ModelManager,
+) {
     val scope = rememberCoroutineScope()
     var runtimeProbeRunning by remember { mutableStateOf(false) }
     var runtimeProbeResult by remember { mutableStateOf<String?>(null) }
@@ -1093,5 +1099,6 @@ private fun SettingsScreen(padding: PaddingValues) {
                 }
             }
         }
+        ModelManagerCard(modelManager = modelManager)
     }
 }

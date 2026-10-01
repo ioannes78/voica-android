@@ -11,6 +11,7 @@ import io.github.ioannes78.voica.ble.DeviceRepository
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.database.VoicaDatabase
 import io.github.ioannes78.voica.playback.AndroidPlaybackController
+import io.github.ioannes78.voica.model.ModelUseRegistry
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -59,6 +60,13 @@ class AppContainer(
 
     val audioSourceResolver: AudioSourceResolver = roomAudioSourceResolver
     val pcmSourceResolver: PcmSourceResolver = roomAudioSourceResolver
+
+    val modelUseRegistry = ModelUseRegistry()
+    val modelManager =
+        createVoicaModelManager(
+            application = application,
+            useRegistry = modelUseRegistry,
+        )
 
     val playbackController =
         AndroidPlaybackController(
