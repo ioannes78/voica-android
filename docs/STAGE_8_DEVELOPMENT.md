@@ -101,11 +101,11 @@ Implementation gates:
 
 - Added pure-JVM virtual 30/60/120 minute pipeline tests. They exercise the full VAD -> first-pass ASR -> punctuation path with fixed 4,096-sample reads, absolute Long sample indices and no whole-file PCM allocation.
 - Added cancellation coverage during a virtual 120-minute VAD scan; cancellation must close VAD/PCM resources and must not open ASR or punctuation engines.
-- Re-verified the exact sherpa-onnx Small Bilingual zh-en 2023-02-16 int8 layout against the model-specific upstream documentation. The correct generic CPU files are:
+- The Small Bilingual release contains both fp32 and int8 variants, including an int8 decoder file. However, the model-specific sherpa-onnx int8 invocation for `sherpa-onnx-streaming-zipformer-small-bilingual-zh-en-2023-02-16` explicitly uses:
   - `encoder.int8.onnx` (renamed from `encoder-epoch-99-avg-1.int8.onnx`)
-  - `decoder.int8.onnx` (renamed from `decoder-epoch-99-avg-1.int8.onnx`)
+  - `decoder.onnx` (renamed from `decoder-epoch-99-avg-1.onnx`)
   - `joiner.int8.onnx` (renamed from `joiner-epoch-99-avg-1.int8.onnx`)
   - `tokens.txt`
-- The upstream model-specific documentation lists the int8 components at approximately 41 MB + 3.4 MB + 3.1 MB plus about 55 KB of tokens, so the installed Voica first-pass payload remains roughly 47–48 MB before filesystem overhead.
-- Do not infer this model's decoder layout from other Zipformer releases. Several newer or different Zipformer models use an fp32 `decoder.onnx`, but that is not the documented int8 layout for Small Bilingual zh-en 2023-02-16.
+- Voica follows that documented generic CPU combination for the first production candidate. The installed payload is therefore approximately 41 MB + 14 MB + 3.1 MB plus tokens, roughly 58–60 MB before filesystem overhead.
+- The unproven all-int8 decoder variant may be benchmarked later as a separate revision, but it must not replace the documented baseline without Android native-load and recognition-quality evidence.
 - Rockchip RK356x/RK3576/RK3588 ~50 MB release assets are accelerator-specific and are not valid substitutes for the generic Android arm64 CPU package.

@@ -36,13 +36,19 @@ The upstream archive contains both floating-point and int8 variants. Voica publi
 only these four runtime files:
 
 - `encoder-epoch-99-avg-1.int8.onnx` -> `encoder.int8.onnx`
-- `decoder-epoch-99-avg-1.int8.onnx` -> `decoder.int8.onnx`
+- `decoder-epoch-99-avg-1.onnx` -> `decoder.onnx`
 - `joiner-epoch-99-avg-1.int8.onnx` -> `joiner.int8.onnx`
 - `tokens.txt` -> `tokens.txt`
 
-The three int8 ONNX files are approximately 41 MB + 3.4 MB + 3.1 MB and tokens are
-approximately 55 KB, so the installed first-pass payload is roughly 47–48 MB rather
+The documented generic CPU int8 invocation uses an int8 encoder and joiner with the
+fp32 decoder. Those files are approximately 41 MB + 14 MB + 3.1 MB and tokens are
+approximately 55 KB, so the installed first-pass payload is roughly 58–60 MB rather
 than the full upstream archive.
+
+The source archive also contains `decoder-epoch-99-avg-1.int8.onnx`, but Voica does
+not publish that smaller decoder in the first production revision because the
+model-specific sherpa-onnx int8 example does not use it. It may be evaluated later as
+a distinct candidate revision after Android accuracy/stability validation.
 
 Do not substitute the ~49 MB RK356x/RK3588 release assets. Those are Rockchip-targeted
 packages and are not the generic Android arm64 CPU package used by Voica.

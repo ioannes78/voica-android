@@ -24,24 +24,26 @@ fi
 
 tar -xjf "$archive" -C "$work/source"
 
-copy_unique() {
-  local pattern="$1"
+source_root="$work/source/sherpa-onnx-streaming-zipformer-small-bilingual-zh-en-2023-02-16"
+test -d "$source_root"
+
+copy_exact() {
+  local source_name="$1"
   local target="$2"
-  mapfile -t matches < <(find "$work/source" -type f -name "$pattern" -print)
-  if [[ "${#matches[@]}" -ne 1 ]]; then
-    echo "Expected exactly one $pattern, found ${#matches[@]}" >&2
-    printf '%s\n' "${matches[@]}" >&2
+  local source_file="$source_root/$source_name"
+  if [[ ! -s "$source_file" ]]; then
+    echo "Missing expected upstream file: $source_name" >&2
     exit 1
   fi
-  cp "${matches[0]}" "$work/package/$target"
+  cp "$source_file" "$work/package/$target"
 }
 
-copy_unique 'encoder-epoch-99-avg-1.int8.onnx' 'encoder.int8.onnx'
-copy_unique 'decoder-epoch-99-avg-1.int8.onnx' 'decoder.int8.onnx'
-copy_unique 'joiner-epoch-99-avg-1.int8.onnx' 'joiner.int8.onnx'
-copy_unique 'tokens.txt' 'tokens.txt'
+copy_exact 'encoder-epoch-99-avg-1.int8.onnx' 'encoder.int8.onnx'
+copy_exact 'decoder-epoch-99-avg-1.onnx' 'decoder.onnx'
+copy_exact 'joiner-epoch-99-avg-1.int8.onnx' 'joiner.int8.onnx'
+copy_exact 'tokens.txt' 'tokens.txt'
 
-for file in encoder.int8.onnx decoder.int8.onnx joiner.int8.onnx tokens.txt; do
+for file in encoder.int8.onnx decoder.onnx joiner.int8.onnx tokens.txt; do
   test -s "$work/package/$file"
   touch -t 198001010000 "$work/package/$file"
 done
@@ -49,7 +51,7 @@ done
 (
   cd "$work/package"
   zip -X -9 "$OLDPWD/$OUT_DIR/$PACKAGE_NAME" \
-    encoder.int8.onnx decoder.int8.onnx joiner.int8.onnx tokens.txt
+    encoder.int8.onnx decoder.onnx joiner.int8.onnx tokens.txt
 )
 
 source_sha="$(sha256sum "$archive" | awk '{print $1}')"
@@ -67,7 +69,7 @@ import sys
 
 root, out, revision, package_name, package_sha, package_bytes, source_url, source_asset_id, source_bytes, source_sha = sys.argv[1:]
 files = []
-for name in ("encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"):
+for name in ("encoder.int8.onnx", "decoder.onnx", "joiner.int8.onnx", "tokens.txt"):
     path = os.path.join(root, name)
     h = hashlib.sha256()
     with open(path, "rb") as f:
