@@ -1,5 +1,6 @@
 package io.github.ioannes78.voica.model
 
+import java.security.MessageDigest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -19,16 +20,35 @@ object ModelCatalogCodec {
 
     fun decode(text: String): ModelCatalog {
         val root = json.parseToJsonElement(text).jsonObject
+        val models = root.requiredArray("models")
+        val declaredDigest = root.requiredString("manifestDigest").lowercase()
+        val actualDigest = digestModels(models)
+        require(declaredDigest == actualDigest) {
+            "model manifest digest mismatch"
+        }
+
         return ModelCatalog(
             catalogVersion = root.requiredInt("catalogVersion"),
             manifestVersion = root.requiredInt("manifestVersion"),
             channel = root.requiredString("channel"),
             publishedAt = root.optionalString("publishedAt"),
-            manifestDigest = root.requiredString("manifestDigest"),
+            manifestDigest = declaredDigest,
             signature = root.optionalString("signature"),
             keyId = root.optionalString("keyId"),
-            models = root.requiredArray("models").map { decodeModel(it.jsonObject) },
+            models = models.map { decodeModel(it.jsonObject) },
         )
+    }
+
+    internal fun computeModelsDigest(modelsJson: String): String =
+        digestModels(json.parseToJsonElement(modelsJson).jsonArray)
+
+    private fun digestModels(models: JsonArray): String {
+        val digest =
+            MessageDigest.getInstance("SHA-256")
+                .digest(models.toString().toByteArray(Charsets.UTF_8))
+        return digest.joinToString(separator = "") { byte ->
+            "%02x".format(byte)
+        }
     }
 
     private fun decodeModel(obj: JsonObject): ModelDescriptor {
