@@ -25,6 +25,7 @@ import io.github.ioannes78.voica.sherpa.SherpaRuntime
 import io.github.ioannes78.voica.transcript.FastTranscriptionPipeline
 import io.github.ioannes78.voica.transcript.HighQualityTranscriptionPipeline
 import io.github.ioannes78.voica.transcript.PunctuationEngineFactory
+import io.github.ioannes78.voica.transcript.ProgressListener
 import io.github.ioannes78.voica.transcript.SecondPassAsrEngineFactory
 import io.github.ioannes78.voica.transcript.StreamingAsrEngineFactory
 import io.github.ioannes78.voica.transcript.TokenSource
@@ -260,18 +261,20 @@ class TranscriptionCoordinator(
                     totalSampleCount = totalSampleCount,
                     models = models,
                 )
-            transcriptionId = transcriptionRepository.create(request)
+            val createdTranscriptionId = transcriptionRepository.create(request)
+            transcriptionId = createdTranscriptionId
 
-            val progressListener: suspend (TranscriptionProgress) -> Unit = { progress ->
-                transitionForProgress(transcriptionId, progress.phase)
-                mutableState.value =
-                    TranscriptionRunState.Running(
-                        recordingId = recordingId,
-                        transcriptionId = transcriptionId,
-                        mode = mode,
-                        progress = progress,
-                    )
-            }
+            val progressListener =
+                ProgressListener { progress ->
+                    transitionForProgress(createdTranscriptionId, progress.phase)
+                    mutableState.value =
+                        TranscriptionRunState.Running(
+                            recordingId = recordingId,
+                            transcriptionId = createdTranscriptionId,
+                            mode = mode,
+                            progress = progress,
+                        )
+                }
 
             val completed =
                 when (mode) {
@@ -320,14 +323,14 @@ class TranscriptionCoordinator(
                 }
 
             transcriptionRepository.persistCompleted(
-                transcriptionId = transcriptionId,
+                transcriptionId = createdTranscriptionId,
                 segments = completed.segments.map(::toWrite),
             )
 
             mutableState.value =
                 TranscriptionRunState.Completed(
                     recordingId = recordingId,
-                    transcriptionId = transcriptionId,
+                    transcriptionId = createdTranscriptionId,
                     mode = mode,
                     segments = completed.segments,
                     warning = completed.warning,
