@@ -35,16 +35,18 @@ The production URL is:
 
 https://raw.githubusercontent.com/ioannes78/voica-model-channel/main/manifests/production.json
 
-Before tests D–H, the independent public repository `ioannes78/voica-model-channel`
-must exist and its production manifest must contain approved packages for:
+The independent public repository `ioannes78/voica-model-channel` now exists, but it
+must first be initialized with a commit and then publish a validated production manifest.
+Before tests D–H, that production manifest must contain approved packages for:
 
 - Small Bilingual Zipformer first-pass ASR
 - CT-Transformer zh-en punctuation
 - SenseVoice 2024 int8 second-pass ASR
 - Silero VAD baseline / managed override metadata
 
-Until that repository is published, update checks may report a network / 404 failure and
-Fast / High Quality transcription must report missing models rather than crash.
+Until `manifests/production.json` is published from that repository, update checks may
+report a network / 404 failure and Fast / High Quality transcription must report missing
+models rather than crash.
 
 ## D. Manual model download / integrity / activation
 
