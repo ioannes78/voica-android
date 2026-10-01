@@ -104,9 +104,9 @@ data class ModelDescriptor(
     val criticalUpdate: Boolean = false,
 ) {
     init {
-        require(modelId.isNotBlank())
+        require(SAFE_PATH_SEGMENT_REGEX.matches(modelId))
         require(displayName.isNotBlank())
-        require(version.isNotBlank())
+        require(SAFE_PATH_SEGMENT_REGEX.matches(version))
         require(revision >= 1L)
         require(runtimeId.isNotBlank())
         require(languages.isNotEmpty())
@@ -196,3 +196,4 @@ interface ModelManager {
 }
 
 internal val SHA256_REGEX = Regex("^[0-9a-fA-F]{64}$")
+internal val SAFE_PATH_SEGMENT_REGEX = Regex("^[A-Za-z0-9._-]+$")
