@@ -119,6 +119,28 @@ fun ModelManagerCard(
                             }
                         }
                     },
+                    onActivate = {
+                        val descriptor = availability.descriptor
+                        scope.launch {
+                            try {
+                                modelManager.confirmInstalledVersion(
+                                    modelId = descriptor.modelId,
+                                    version = descriptor.version,
+                                    revision = descriptor.revision,
+                                )
+                                reload()
+                                message = descriptor.displayName + " 验证成功并已启用"
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                reload()
+                                message =
+                                    descriptor.displayName +
+                                        " 运行库验证失败：" +
+                                        (error.message ?: error::class.java.simpleName)
+                            }
+                        }
+                    },
                     onCancel = {
                         scope.launch {
                             modelManager.cancelInstall(
@@ -137,6 +159,7 @@ private fun ModelAvailabilityRow(
     availability: ModelAvailability,
     operation: ModelOperationStatus?,
     onInstall: () -> Unit,
+    onActivate: () -> Unit,
     onCancel: () -> Unit,
 ) {
     val descriptor = availability.descriptor
@@ -168,9 +191,12 @@ private fun ModelAvailabilityRow(
 
         if (downloadedCandidateReady) {
             Text(
-                "已下载并校验 · 等待运行库验证后启用",
+                "已下载并校验 · 尚未启用",
                 style = MaterialTheme.typography.bodySmall,
             )
+            Button(onClick = onActivate) {
+                Text("验证并启用")
+            }
         } else if (availability.updateAvailable) {
             Text(
                 "有新版本可用",

@@ -158,6 +158,69 @@ class DefaultModelManagerTest {
     }
 
     @Test
+    fun failedCandidateValidationDoesNotChangeActiveVersion() = runBlocking {
+        val baselineBytes = "baseline".toByteArray()
+        val updateBytes = "update".toByteArray()
+        val baseline =
+            descriptor(
+                version = "baseline",
+                revision = 1,
+                bytes = baselineBytes,
+                sourceType = ModelSourceType.BUILTIN_WITH_OVERRIDE,
+                builtinAssetPath = "models/baseline.bin",
+                downloadable = false,
+                modelId = "silero",
+                kind = ModelKind.VAD,
+            )
+        val remote =
+            baseline.copy(
+                version = "v2",
+                revision = 2,
+                packageFormat = ModelPackageFormat.SINGLE_FILE,
+                downloadUrl = "https://example.invalid/v2.bin",
+                downloadSizeBytes = updateBytes.size.toLong(),
+                installedSizeBytes = updateBytes.size.toLong(),
+                packageSha256 = sha256(updateBytes),
+                files =
+                    listOf(
+                        ModelFileDescriptor(
+                            relativePath = "model.bin",
+                            sizeBytes = updateBytes.size.toLong(),
+                            sha256 = sha256(updateBytes),
+                        ),
+                    ),
+            )
+        val manager =
+            manager(
+                bundled = catalog(baseline),
+                remoteProvider = ModelCatalogProvider { catalog(remote) },
+                downloader =
+                    FakeDownloader(
+                        mapOf("https://example.invalid/v2.bin" to updateBytes),
+                    ),
+                validator =
+                    ModelCandidateValidator { _, _ ->
+                        error("native smoke failed")
+                    },
+            )
+
+        manager.checkForUpdates(true)
+        manager.install("silero", "v2", 2)
+
+        try {
+            manager.confirmInstalledVersion("silero", "v2", 2)
+            throw AssertionError("failed smoke validation must block activation")
+        } catch (_: IllegalStateException) {
+            // expected
+        }
+
+        val availability = manager.availability("silero")!!
+        assertEquals("baseline", availability.activeVersion)
+        assertEquals(1L, availability.activeRevision)
+        assertEquals(ModelState.LOAD_FAILED, availability.state)
+    }
+
+    @Test
     fun remoteCatalogCannotRegressBundledModelRevision() = runBlocking {
         val bundled = catalog(descriptor("v2", 2, "two".toByteArray()))
         val remote = catalog(descriptor("v1", 1, "one".toByteArray()))
@@ -180,6 +243,7 @@ class DefaultModelManagerTest {
         bundled: ModelCatalog,
         remoteProvider: ModelCatalogProvider?,
         downloader: ModelPackageDownloader,
+        validator: ModelCandidateValidator = ModelCandidateValidator { _, _ -> },
     ) =
         DefaultModelManager(
             bundledCatalog = bundled,
@@ -195,6 +259,7 @@ class DefaultModelManagerTest {
             storage = ModelStorage(File(root, "models")),
             packageDirectory = File(root, "packages"),
             downloader = downloader,
+            candidateValidator = validator,
         )
 
     private fun catalog(descriptor: ModelDescriptor) =

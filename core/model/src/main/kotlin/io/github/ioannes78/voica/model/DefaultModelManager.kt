@@ -21,6 +21,7 @@ class DefaultModelManager(
     private val downloader: ModelPackageDownloader = HttpModelPackageDownloader(),
     private val extractor: ModelPackageExtractor = ModelPackageExtractor(),
     private val useRegistry: ModelUseRegistry = ModelUseRegistry(),
+    private val candidateValidator: ModelCandidateValidator,
 ) : ModelManager {
     private val packages = packageDirectory.canonicalFile
     private val catalogMutex = Mutex()
@@ -216,11 +217,36 @@ class DefaultModelManager(
             require(descriptor.compatibilityWith(environment).compatible) {
                 "model is incompatible with this device/app/runtime"
             }
-            storage.confirmGood(descriptor)
+            val installed =
+                storage.installedVersion(descriptor)
+                    ?: error("model candidate is not installed or failed integrity verification")
             updateOperation(
                 modelId,
-                ModelOperationStatus(state = ModelState.INSTALLED),
+                ModelOperationStatus(state = ModelState.VERIFYING),
             )
+            try {
+                candidateValidator.validate(
+                    descriptor = descriptor,
+                    installedDirectory = installed.directory,
+                )
+                storage.confirmGood(descriptor)
+                updateOperation(
+                    modelId,
+                    ModelOperationStatus(state = ModelState.INSTALLED),
+                )
+            } catch (cancelled: CancellationException) {
+                clearOperation(modelId)
+                throw cancelled
+            } catch (error: Throwable) {
+                updateOperation(
+                    modelId,
+                    ModelOperationStatus(
+                        state = ModelState.LOAD_FAILED,
+                        errorMessage = error.message ?: error::class.java.simpleName,
+                    ),
+                )
+                throw error
+            }
         }
     }
 

@@ -200,6 +200,13 @@ fun interface ModelCatalogProvider {
     suspend fun load(force: Boolean): ModelCatalog
 }
 
+fun interface ModelCandidateValidator {
+    suspend fun validate(
+        descriptor: ModelDescriptor,
+        installedDirectory: java.io.File,
+    )
+}
+
 interface ModelManager {
     val operations: StateFlow<Map<String, ModelOperationStatus>>
 
