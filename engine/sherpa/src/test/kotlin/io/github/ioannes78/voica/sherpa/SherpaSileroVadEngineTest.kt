@@ -54,22 +54,24 @@ class SherpaSileroVadEngineTest {
     }
 
     @Test(expected = IllegalArgumentException::class)
-    fun rejectsPcmSourceWhoseDeclaredLengthDoesNotMatchReads() = runBlocking {
-        val engine =
-            SherpaSileroVadEngine(
-                model = vadDescriptor(),
-                modelLocation = SherpaVadModelLocation.File("/tmp/silero.onnx"),
-                settings = SileroVadSettings(),
-                sessionFactory = NativeVadSessionFactory { _, _ -> FakeVadSession() },
-                pcmChunkSamples = 4_000,
-            )
+    fun rejectsPcmSourceWhoseDeclaredLengthDoesNotMatchReads() {
+        runBlocking {
+            val engine =
+                SherpaSileroVadEngine(
+                    model = vadDescriptor(),
+                    modelLocation = SherpaVadModelLocation.File("/tmp/silero.onnx"),
+                    settings = SileroVadSettings(),
+                    sessionFactory = NativeVadSessionFactory { _, _ -> FakeVadSession() },
+                    pcmChunkSamples = 4_000,
+                )
 
-        engine.analyze(
-            FakePcmSource(
-                totalSampleCount = 16_001L,
-                actualSamples = 16_000L,
-            ),
-        )
+            engine.analyze(
+                FakePcmSource(
+                    totalSampleCount = 16_001L,
+                    actualSamples = 16_000L,
+                ),
+            )
+        }
     }
 
     private fun vadDescriptor() =
