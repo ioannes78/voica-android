@@ -1,5 +1,6 @@
 package io.github.ioannes78.voica.ui.model
 
+import android.app.Application
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,6 +11,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,8 +23,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.ModelUpdateController
+import io.github.ioannes78.voica.VoicaModelChannel
 import io.github.ioannes78.voica.model.ModelAvailability
 import io.github.ioannes78.voica.model.ModelManager
 import io.github.ioannes78.voica.model.ModelOperationStatus
@@ -36,12 +40,21 @@ fun ModelManagerCard(
     modelUpdateController: ModelUpdateController,
 ) {
     val scope = rememberCoroutineScope()
+    val application =
+        LocalContext.current.applicationContext as Application
+    val debugChannelEnabled =
+        VoicaModelChannel.isDebuggable(application)
     val operations by modelManager.operations.collectAsState()
     val updateSettings by modelUpdateController.settings.collectAsState()
     val updateState by modelUpdateController.state.collectAsState()
     var models by remember { mutableStateOf<List<ModelAvailability>>(emptyList()) }
     var checking by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
+    var debugManifestUrl by remember {
+        mutableStateOf(
+            VoicaModelChannel.configuredDebugManifestUrl(application).orEmpty(),
+        )
+    }
 
     suspend fun reload() {
         val catalog = modelManager.catalog()
@@ -68,6 +81,73 @@ fun ModelManagerCard(
                 "APK 仅内置 Silero VAD 基线；ASR、标点和高质量模型由受控模型通道提供。",
                 style = MaterialTheme.typography.bodySmall,
             )
+
+            if (debugChannelEnabled) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        "Stage 8 候选模型验收（Debug）",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Text(
+                        "仅用于未合并候选清单的真机验收。正式版始终固定 production；修改后需完全退出并重新打开 App 才会生效。",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    OutlinedTextField(
+                        value = debugManifestUrl,
+                        onValueChange = { debugManifestUrl = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text("候选 production.json URL") },
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Button(
+                            onClick = {
+                                try {
+                                    VoicaModelChannel.setDebugManifestUrl(
+                                        application = application,
+                                        manifestUrl =
+                                            debugManifestUrl.trim().takeIf { it.isNotEmpty() },
+                                    )
+                                    debugManifestUrl =
+                                        VoicaModelChannel
+                                            .configuredDebugManifestUrl(application)
+                                            .orEmpty()
+                                    message =
+                                        "候选模型清单已保存；完全退出并重新打开 App 后生效"
+                                } catch (error: Exception) {
+                                    message =
+                                        "候选模型清单无效：" +
+                                            (error.message ?: error::class.java.simpleName)
+                                }
+                            },
+                        ) {
+                            Text("保存候选清单")
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                VoicaModelChannel.setDebugManifestUrl(
+                                    application = application,
+                                    manifestUrl = null,
+                                )
+                                debugManifestUrl = ""
+                                message =
+                                    "已恢复 production；完全退出并重新打开 App 后生效"
+                            },
+                        ) {
+                            Text("恢复 production")
+                        }
+                    }
+                    Text(
+                        "下次启动清单：" +
+                            VoicaModelChannel.resolveManifestUrl(application),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
