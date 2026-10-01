@@ -1,143 +1,134 @@
 # Voica Stage 8 Real-Device Test Checklist
 
-Status: candidate acceptance checklist — do not Freeze Stage 8 until all required items pass and the user explicitly confirms.
+状态：**PASSED / 用户明确验收通过**
 
-Candidate:
-- versionCode: 21
-- versionName: 0.8.0-stage8-alpha2
-- ABI: arm64-v8a
-- sherpa-onnx runtime: 1.13.8
-- Room schema: 2
+日期：2026-10-02
 
-## A. Installation / migration / regression
+最终 QA 候选：
 
-1. Upgrade-install over the accepted Stage 7 APK.
-   - Existing local recordings remain present.
-   - Existing verified canonical WAV assets remain playable.
-   - Existing Stage 7 playback seek/speed/lifecycle behavior remains normal.
-2. Cold install on a clean device also starts normally.
-3. Connect QS668/CB08, refresh file list, download a recording and confirm the existing BLE / download / canonical-audio path still works.
-4. Start device recording while local playback is active and confirm playback still pauses as required by Stage 7.
+- versionCode：23
+- base versionName：`0.8.0-stage8-alpha4`
+- QA versionName：`0.8.0-stage8-alpha4-qa`
+- QA Application ID：`io.github.ioannes78.voica.qa`
+- ABI：arm64-v8a
+- sherpa-onnx：1.13.8
+- Room schema：2
+- implementation HEAD：`189ea18dd11a45227d541b133c4795e38ffa85ea`
+- candidate CI：`36920166807` / #248 — **success**
 
-## B. Local AI runtime / built-in VAD
+## A. Runtime / regression
 
-5. Settings -> local AI runtime -> run the sherpa-onnx native-load probe.
-   - Expected: available / success.
-6. Settings -> local models.
-   - Built-in Silero VAD is shown as installed/active.
-   - Automatic model checks are enabled by default.
-   - Silero small-model automatic updates are enabled by default.
-   - ASR / punctuation / SenseVoice must never auto-download merely because an update exists.
+真机确认：
 
-## C. Model-channel prerequisite
+- sherpa-onnx native load 成功。
+- Stage 1–7 BLE、设备文件、本地库、播放、seek/倍速、设备录音互锁未发现 Stage 8 回归。
+- 连续多条短录音转写后 App 保持可用。
+- 转写取消、重试、进程中断恢复、模型删除保护按预期工作。
 
-The production URL is:
+## B. 模型通道与模型验收
 
-https://raw.githubusercontent.com/ioannes78/voica-model-channel/main/manifests/production.json
+production URL：
 
-The independent public repository `ioannes78/voica-model-channel` is initialized and
-the production manifest is live with the Silero baseline. Downloadable models are
-promoted one at a time only after candidate validation. Before final tests D–H, the
-production manifest must contain approved packages for:
+`https://raw.githubusercontent.com/ioannes78/voica-model-channel/main/manifests/production.json`
 
-- Small Bilingual Zipformer first-pass ASR
-- CT-Transformer zh-en punctuation
-- SenseVoice 2024 int8 second-pass ASR
-- Silero VAD baseline / managed override metadata
+最终 production model-channel：
 
-Before each candidate PR is merged, use the Debug-only candidate control with that
-workflow's prerelease `production.json` URL, fully restart the App, and validate the
-candidate. Restore production after the candidate PR is merged. Release builds cannot
-use this override.
+- main commit：`2817873b74d87ff1d4bfa54266e082ede450ba06`
+- manifest validation CI：#13 — **success**
+- manifest digest：`ceff5a281acd1166a75e53c9112dd88e93c9e0266d6a545651159a97ebc0154b`
 
-## D. Manual model download / integrity / activation
+已按顺序完成 candidate → 真机 → merge：
 
-Candidate order is sequential so every later candidate manifest is generated from the
-already-approved production baseline:
+1. Small Bilingual r1
+2. CT-Transformer punctuation r1
+3. SenseVoice 2024 int8 r1
 
-1. Small Bilingual r1 candidate -> validate -> merge.
-2. CT-Transformer punctuation r1 candidate -> validate -> merge.
-3. SenseVoice 2024 int8 r1 candidate -> validate -> merge.
+真机确认当前 production 可识别并使用：
 
-For each candidate, paste its prerelease `production.json` URL into
-Settings -> Stage 8 候选模型验收（Debug）, save it, fully exit and reopen Voica,
-then perform the relevant checks below.
+- Silero VAD int8 — 2025-07-11
+- Small Bilingual Zipformer zh-en — 2023-02-16
+- CT-Transformer zh-en punctuation int8 — 2024-04-12
+- SenseVoice zh-en-ja-ko-yue int8 — 2024-07-17
 
-7. Download Small Bilingual.
-   - Progress is a real byte count / percentage.
-   - Cancel during download; partial package is removed and state returns to a retryable state.
-   - Retry and complete download.
-   - SHA/package/file verification succeeds.
-   - Candidate remains inactive until "验证并启用" is used.
-   - Native smoke validation succeeds before the active version changes.
-8. Repeat for CT-Transformer punctuation.
-9. Repeat for SenseVoice second-pass ASR.
-10. Confirm downloaded model delete, retry and rollback controls:
-    - A model used by an active transcription cannot be deleted.
-    - Deleting an inactive candidate works.
-    - Silero downloaded override can roll back to the APK built-in baseline.
-    - A failed candidate never replaces the previous active model.
+候选验收结束后已恢复 production；最终 Stage 8 不依赖临时 candidate manifest。
 
-## E. Fast local transcription
+## C. 大模型下载与修复验收
 
-11. Choose a short Mandarin recording with verified canonical WAV and tap "快速转写".
-    - Phase sequence is meaningful: preparing -> VAD -> first pass -> punctuation -> persisting.
-    - Percentages are real for phases that have a denominator; no fabricated overall percent.
-    - Final text is stored and shown read-only.
-    - Chinese punctuation includes at least normal comma / full stop / question / exclamation behavior where appropriate.
-12. Test a recording containing Mandarin + English words/acronyms/numbers.
-13. Test clear pauses / silence between phrases.
-    - VAD segmentation must not lose speech around boundaries.
-14. Open "查看转写".
-    - Segment times are based on canonical absolute sample indices.
-    - Existing playback timeline is unchanged.
+Alpha2 暴露问题：
 
-## F. High Quality two-pass transcription
+- CT-Transformer 下载曾在约 94% / 98% / 99% / 94% 附近出现 UI 无响应并退出。
+- 旧实现异常后重新下载会从 0 开始。
 
-15. Run "高质量转写" on the same short Mandarin sample.
-    - SenseVoice second pass loads only for the HQ task.
-    - Final text is persisted as an independent Transcription version; the Fast version is not overwritten.
-16. Run mixed zh-en content and compare the displayed HQ result with Fast.
-    - This is a functional check only; Stage 8 does not define a subjective WER threshold.
-17. If second-pass or punctuation processing fails recoverably, the UI must show the fallback / failure state without corrupting a previously completed transcription.
+Alpha3 修复并真机通过：
 
-## G. Cancellation / retry / process lifecycle
+- 下载进度节流。
+- recoverable failure 保留 `.part`。
+- HTTP Range 断点续传。
+- 用户主动取消确定性删除 `.part`。
+- package SHA、TAR.BZ2/ZIP 解包、installed-file SHA、promotion、native smoke 后台化。
+- VERIFYING UI 与可继续下载状态。
+- CT-Transformer 与更大的 SenseVoice 均完成真实下载、解包、校验、激活，未复现原卡死。
 
-18. Cancel during VAD.
-    - Task becomes CANCELLED.
-    - PCM/model resources and exact revision leases are released.
-19. Cancel during first-pass ASR.
-20. Cancel during second-pass ASR.
-21. Force-stop the app during an active transcription, then reopen.
-    - The old active DB row is reconciled to INTERRUPTED.
-    - It must not remain falsely "running".
-22. Retry after failure/cancellation.
-    - A new Transcription version is created; the prior attempt remains historical evidence.
+## D. Fast 转写
 
-## H. Memory / stability
+真机通过：
 
-23. Run several short transcriptions back-to-back.
-    - At most one high-load transcription runs at a time.
-    - App remains responsive and does not retain all models permanently.
-24. While transcription is active, open Settings and attempt to delete its model revision.
-    - Deletion is blocked.
-25. Confirm playback and BLE connection remain usable after transcription completes.
+`Silero VAD → Small Bilingual → CT-Transformer → persistence`
 
-## I. Deferred long-recording acceptance
+观察到：
 
-Automated tests cover virtual 30 / 60 / 120 minute sources with bounded 4,096-sample reads,
-Long absolute sample indices, cancellation and no whole-file PCM allocation.
+- 中文转写正常。
+- 时间段正常显示。
+- 最终文本存在合理中文标点。
+- 结果可重新打开。
+- mixed zh/en/数字功能检查通过。
 
-Formal real-device 30 min / 1 h / 2 h stress acceptance remains deferred to Stage 13,
-consistent with the Stage 7 freeze boundary.
+## E. High Quality 转写
 
-## Acceptance gate
+真机通过：
 
-Stage 8 may be frozen only after:
+`Silero VAD → Small Bilingual first pass → SenseVoice second pass → CT-Transformer final punctuation → persistence`
 
-- CI is green on the exact candidate commit.
-- The candidate APK is installed and tests A–H applicable to the device are completed.
-- The production model channel is live and all three downloadable model classes pass
-  download + integrity + native smoke activation.
-- No Stage 1–7 regression is found.
-- The user explicitly says the Stage 8 real-device tests passed.
+观察到：
+
+- SenseVoice 2024-07-17 native smoke 与实际 HQ 转写通过。
+- 高质量任务完成并显示 timestamped final segments。
+- `TranscriptionRunState.Completed` 只在 `persistCompleted()` 成功后发布，因此完成 UI 同时证明最终数据库持久化完成。
+
+## F. 独立转写版本
+
+Alpha4 补齐最终 UI 验收入口：
+
+- 同一录音可同时保留 FAST 与 HIGH_QUALITY COMPLETED 版本。
+- “转写版本”显示模式、完成时间、分段数、最新/当前查看。
+- 点击任一版本加载其自己的 segment 文本。
+- 数据库回归测试确认两条记录 UUID 不同、segment 独立、不互相覆盖。
+
+用户最终确认：
+
+**“Stage 8 真机测试通过”**
+
+## G. 自动化与长录音债务
+
+已自动化覆盖：
+
+- virtual 30 / 60 / 120 minute source
+- bounded 4,096-sample reads
+- Long absolute sample indices
+- cancellation
+- no whole-file PCM allocation
+- Room 1 → 2 migration
+- model package/file integrity
+- Fast/HQ pipeline contracts
+- FAST/HIGH_QUALITY independent-version regression
+
+仍明确延期到 Stage 13：
+
+- 真实 30 min 长录音压力
+- 真实 1 h 长录音压力
+- 真实 2 h 长录音压力
+- 长转写 RAM/CPU/温度/ADB meminfo soak
+
+## Acceptance
+
+Stage 8 所有本阶段要求的真机门禁已完成，用户已明确验收通过，可以 Freeze/Handoff 并合并 main。

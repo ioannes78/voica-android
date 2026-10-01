@@ -8,7 +8,7 @@ Voica 是全新 Android 工程，不从 `voice-card-android` 继承任何代码�
 
 ## 2. 当前已落地模块
 
-Stage 7 当前物理模块：
+Stage 8 当前物理模块：
 
 ```
 :app
@@ -16,10 +16,15 @@ Stage 7 当前物理模块：
 │  └─ :core:protocol
 ├─ :core:database
 ├─ :core:audio
-└─ :engine:opus
+├─ :core:model
+├─ :core:transcript
+├─ :engine:opus
 │  └─ :core:audio
-└─ :engine:playback
-   └─ :core:audio
+├─ :engine:playback
+│  └─ :core:audio
+└─ :engine:sherpa
+   ├─ :core:model
+   └─ :core:transcript
 ```
 
 ### `:core:protocol`
@@ -824,3 +829,100 @@ Stage 10：
 `PlaybackSnapshot.positionSampleIndex + seekToSample + discontinuityGeneration`
 
 两条链共享 16 kHz canonical absolute sample coordinate。
+
+
+## Stage 8 — 本地 AI、模型管理与转写版本架构
+
+### 模型边界
+
+`:core:model` 定义模型 catalog、版本、能力、source、下载/校验/激活/回滚契约；`:engine:sherpa` 负责 sherpa-onnx 的 VAD / streaming ASR / second-pass ASR / punctuation 适配。
+
+正式 catalog 固定读取：
+
+`https://raw.githubusercontent.com/ioannes78/voica-model-channel/main/manifests/production.json`
+
+Debug/QA 可临时使用 `candidate-*/production.json` 做未合并候选验收；release/non-debug 不接受该 override。
+
+### Stage 8 冻结模型
+
+- Silero VAD int8 2025-07-11：APK built-in baseline / override-capable
+- Small Bilingual Zipformer zh-en 2023-02-16：streaming first pass
+- CT-Transformer zh-en punctuation int8 2024-04-12
+- SenseVoice zh-en-ja-ko-yue int8 2024-07-17：High Quality second pass
+
+### 文件转写链
+
+Fast：
+
+```
+PcmSourceResolver
+  ↓
+canonical PCM 16k mono PCM16
+  ↓
+Silero VAD
+  ↓
+SpeechSegment (absolute sample index)
+  ↓
+Small Bilingual streaming ASR
+  ↓
+CT-Transformer punctuation
+  ↓
+TranscriptionRepository.persistCompleted()
+```
+
+High Quality：
+
+```
+canonical PCM
+  ↓
+Silero VAD
+  ↓
+Small Bilingual first pass
+  ↓
+SenseVoice second pass
+  ↓
+punctuation finalization
+  ↓
+TranscriptionRepository.persistCompleted()
+```
+
+### Room v2 / 版本语义
+
+Room schema = 2。
+
+每次转写先创建新的 `TranscriptionEntity` UUID。FAST 与 HIGH_QUALITY 各自保存 model lineage、segment、token；后一次转写不得覆盖前一次。
+
+`observeVersions(recordingId)` 返回同一录音历史版本；UI 的“转写版本”允许按完成时间查看 FAST/HIGH_QUALITY 的独立结果。
+
+### 大模型安装链
+
+```
+HTTPS download
+  ↓
+.part + byte progress
+  ↓
+HTTP Range resume
+  ↓
+package size/SHA
+  ↓
+staging extract
+  ↓
+per-file size/SHA
+  ↓
+atomic promotion
+  ↓
+native sherpa smoke
+  ↓
+confirm good / activation
+```
+
+大文件 SHA、TAR.BZ2/ZIP 解包、installed-file verification、native smoke 均在后台 dispatcher 执行，禁止阻塞 Compose 主线程。
+
+### QA 签名轨道
+
+为避免 GitHub Hosted Runner 临时 debug keystore 导致测试 APK 签名漂移，Stage 8 冻结独立 QA build type：
+
+- Application ID：`io.github.ioannes78.voica.qa`
+- 固定 test-only QA signing identity
+- CI 强制校验证书 digest
+- QA key 不得用于 production release
