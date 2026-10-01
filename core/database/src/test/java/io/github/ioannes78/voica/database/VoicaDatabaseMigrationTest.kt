@@ -89,6 +89,16 @@ class VoicaDatabaseMigrationTest {
                 MIGRATION_1_2,
             )
         try {
+            // MigrationTestHelper exposes a raw SupportSQLiteDatabase. Room enables
+            // foreign keys on production connections; mirror that here before
+            // validating the full recording -> transcription -> segment -> token
+            // cascade chain.
+            migrated.execSQL("PRAGMA foreign_keys = ON")
+            migrated.query("PRAGMA foreign_keys").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(1, cursor.getInt(0))
+            }
+
             migrated.query(
                 """
                 SELECT displayName, state
@@ -130,6 +140,9 @@ class VoicaDatabaseMigrationTest {
                 assertEquals("asset-canonical", cursor.getString(1))
             }
 
+            assertEquals(0, migrated.countRows("recordings"))
+            assertEquals(0, migrated.countRows("audio_assets"))
+            assertEquals(0, migrated.countRows("audio_derivations"))
             assertEquals(0, migrated.countRows("transcriptions"))
             assertEquals(0, migrated.countRows("transcript_segments"))
             assertEquals(0, migrated.countRows("transcript_tokens"))
