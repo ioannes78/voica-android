@@ -30,6 +30,26 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    signingConfigs {
+        create("qa") {
+            // Public, test-only QA signing identity. Never use this key for production.
+            storeFile = rootProject.file("ci/voica-qa.jks")
+            storePassword = "voica-qa-test"
+            keyAlias = "voica-qa"
+            keyPassword = "voica-qa-test"
+        }
+    }
+
+    buildTypes {
+        create("qa") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".qa"
+            versionNameSuffix = "-qa"
+            signingConfig = signingConfigs.getByName("qa")
+            matchingFallbacks += listOf("debug")
+        }
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
