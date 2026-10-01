@@ -69,16 +69,14 @@ jobs:
           :app:assembleDebug
           --stacktrace
 
-      # Stage 8 migration gate: expose the schema generated from the unchanged
-      # Stage 7 Room entities before any database entity is modified.
-      - name: Export Room v1 schema evidence
+      # Stage 8 migration gate: Room must keep its exported schemas in sync.
+      - name: Verify committed Room schemas
         shell: bash
         run: |
-          schema="core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/1.json"
-          test -f "$schema"
-          echo "ROOM_SCHEMA_V1_BEGIN"
-          cat "$schema"
-          echo "ROOM_SCHEMA_V1_END"
+          schema_dir="core/database/schemas"
+          test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/1.json"
+          git diff --exit-code -- "$schema_dir"
+          test -z "$(git status --porcelain --untracked-files=all -- "$schema_dir")"
 
       # Low-cost default: PR builds do not upload artifacts.
       # Add [APK] to the PR title only when an explicit real-device candidate is needed.
