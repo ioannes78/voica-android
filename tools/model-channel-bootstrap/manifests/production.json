@@ -1,0 +1,62 @@
+{
+  "catalogVersion": 1,
+  "manifestVersion": 1,
+  "channel": "production",
+  "publishedAt": "2026-10-01T00:00:00Z",
+  "manifestDigest": "6ae367fec7cc493ddf55ff8125cd15254f00aa02dc2a8a1398cb46ca7d427d40",
+  "signature": null,
+  "keyId": null,
+  "models": [
+    {
+      "modelId": "silero-vad-int8",
+      "kind": "VAD",
+      "displayName": "Silero VAD int8",
+      "version": "2025-07-11",
+      "revision": 1,
+      "runtimeId": "sherpa-onnx",
+      "runtimeVersionMin": "1.13.8",
+      "runtimeVersionMax": null,
+      "languages": ["und"],
+      "capabilities": {
+        "supportsStreaming": false,
+        "supportsPartial": false,
+        "supportsTokenTiming": false,
+        "supportsLanguageDetection": false,
+        "supportsConfidence": false,
+        "supportsInverseTextNormalization": false,
+        "supportsSecondPass": false,
+        "supportsHotwords": false
+      },
+      "sourceType": "BUILTIN_WITH_OVERRIDE",
+      "builtinAssetPath": "models/silero/silero_vad.int8.onnx",
+      "download": null,
+      "installedSizeBytes": 212860,
+      "files": [
+        {
+          "relativePath": "silero_vad.int8.onnx",
+          "sizeBytes": 212860,
+          "sha256": "c36d490aff5ab924ca6c7aeec4d8f6bd3d22db6fa17611b9c5b17eae58ac3a20",
+          "packagePath": "silero_vad.int8.onnx"
+        }
+      ],
+      "compatibility": {
+        "abis": ["arm64-v8a"],
+        "minSdk": 26,
+        "appVersionMin": 20,
+        "appVersionMax": null
+      },
+      "license": {
+        "id": "MIT",
+        "url": "https://github.com/snakers4/silero-vad/blob/master/LICENSE",
+        "attribution": "Silero VAD / sherpa-onnx exported int8 model",
+        "redistributionPolicy": "VOICA_MIRROR_ALLOWED"
+      },
+      "sourceUrl": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.int8.onnx",
+      "homepage": "https://github.com/snakers4/silero-vad",
+      "releaseChannel": "production",
+      "autoUpdateEligible": true,
+      "deprecated": false,
+      "criticalUpdate": false
+    }
+  ]
+}
