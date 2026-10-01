@@ -205,6 +205,48 @@ fun ModelManagerCard(
                             }
                         }
                     },
+                    onRollback = {
+                        scope.launch {
+                            try {
+                                modelManager.rollback(
+                                    availability.descriptor.modelId,
+                                )
+                                reload()
+                                message =
+                                    availability.descriptor.displayName +
+                                        " 已回滚"
+                            } catch (error: Exception) {
+                                message =
+                                    availability.descriptor.displayName +
+                                        " 回滚失败：" +
+                                        (error.message ?: error::class.java.simpleName)
+                            }
+                        }
+                    },
+                    onDelete = {
+                        val version = availability.installedVersion
+                        val revision = availability.installedRevision
+                        if (version != null && revision != null) {
+                            scope.launch {
+                                try {
+                                    modelManager.removeDownloadedVersion(
+                                        modelId = availability.descriptor.modelId,
+                                        version = version,
+                                        revision = revision,
+                                    )
+                                    reload()
+                                    message =
+                                        availability.descriptor.displayName +
+                                            " 已删除"
+                                } catch (error: Exception) {
+                                    message =
+                                        availability.descriptor.displayName +
+                                            " 删除失败：" +
+                                            (error.message ?: error::class.java.simpleName)
+                                }
+                            }
+                        }
+                    },
                     onCancel = {
                         scope.launch {
                             modelManager.cancelInstall(
@@ -224,6 +266,8 @@ private fun ModelAvailabilityRow(
     operation: ModelOperationStatus?,
     onInstall: () -> Unit,
     onActivate: () -> Unit,
+    onRollback: () -> Unit,
+    onDelete: () -> Unit,
     onCancel: () -> Unit,
 ) {
     val descriptor = availability.descriptor
@@ -231,6 +275,21 @@ private fun ModelAvailabilityRow(
         availability.availableRevision != null &&
             availability.installedRevision == availability.availableRevision &&
             availability.activeRevision != availability.availableRevision
+    val hasDownloadedInstalledVersion =
+        availability.installedRevision != null &&
+            (
+                availability.builtinRevision == null ||
+                    availability.installedRevision != availability.builtinRevision
+                )
+    val canRollback =
+        availability.activeRevision != null &&
+            (
+                availability.previousRevision != null ||
+                    (
+                        availability.builtinRevision != null &&
+                            availability.activeRevision != availability.builtinRevision
+                        )
+                )
 
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -258,8 +317,13 @@ private fun ModelAvailabilityRow(
                 "已下载并校验 · 尚未启用",
                 style = MaterialTheme.typography.bodySmall,
             )
-            Button(onClick = onActivate) {
-                Text("验证并启用")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onActivate) {
+                    Text("验证并启用")
+                }
+                OutlinedButton(onClick = onDelete) {
+                    Text("删除候选")
+                }
             }
         } else if (availability.updateAvailable) {
             Text(
@@ -290,12 +354,41 @@ private fun ModelAvailabilityRow(
         } else if (
             !downloadedCandidateReady &&
             descriptor.downloadUrl != null &&
-            (availability.state == ModelState.NOT_INSTALLED ||
-                availability.updateAvailable)
+            (
+                availability.state == ModelState.NOT_INSTALLED ||
+                    availability.state == ModelState.LOAD_FAILED ||
+                    availability.state == ModelState.CORRUPTED ||
+                    availability.updateAvailable
+                )
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onInstall) {
-                    Text(if (availability.updateAvailable) "下载更新" else "下载")
+                    Text(
+                        when {
+                            availability.state == ModelState.LOAD_FAILED ||
+                                availability.state == ModelState.CORRUPTED ->
+                                "重试下载"
+                            availability.updateAvailable -> "下载更新"
+                            else -> "下载"
+                        },
+                    )
+                }
+            }
+        }
+
+        if (!downloadedCandidateReady &&
+            (canRollback || hasDownloadedInstalledVersion)
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (canRollback) {
+                    OutlinedButton(onClick = onRollback) {
+                        Text("回滚")
+                    }
+                }
+                if (hasDownloadedInstalledVersion) {
+                    OutlinedButton(onClick = onDelete) {
+                        Text("删除模型")
+                    }
                 }
             }
         }

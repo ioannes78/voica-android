@@ -142,6 +142,8 @@ class DefaultModelManager(
             availableRevision = effective.revision,
             activeVersion = activeVersion,
             activeRevision = activeRevision,
+            previousVersion = activation.previousVersion,
+            previousRevision = activation.previousRevision,
             updateAvailable =
                 activeRevision != null && effective.revision > activeRevision,
         )
@@ -305,6 +307,24 @@ class DefaultModelManager(
             check(!useRegistry.isInUse(modelId, version, revision)) {
                 "model version is currently in use"
             }
+
+            val activation = storage.activationState(modelId)
+            val removingActive =
+                activation.activeVersion == version &&
+                    activation.activeRevision == revision
+
+            if (removingActive) {
+                val hasPrevious =
+                    activation.previousVersion != null &&
+                        activation.previousRevision != null
+                if (hasPrevious) {
+                    storage.rollback(modelId)
+                    storage.clearPrevious(modelId)
+                } else {
+                    storage.clearActivation(modelId)
+                }
+            }
+
             storage.removeVersion(modelId, version, revision)
             clearOperation(modelId)
         }

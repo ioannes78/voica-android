@@ -184,6 +184,8 @@ data class ModelAvailability(
     val availableRevision: Long? = null,
     val activeVersion: String? = null,
     val activeRevision: Long? = null,
+    val previousVersion: String? = null,
+    val previousRevision: Long? = null,
     val updateAvailable: Boolean = false,
 )
 

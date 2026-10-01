@@ -281,6 +281,17 @@ class ModelStorage(
         return ModelActivationState(null, null, null, null)
     }
 
+    fun clearPrevious(modelId: String): ModelActivationState {
+        val current = activationState(modelId)
+        val cleared =
+            current.copy(
+                previousVersion = null,
+                previousRevision = null,
+            )
+        writeActivationState(modelId, cleared)
+        return cleared
+    }
+
     fun rollback(modelId: String): ModelActivationState {
         val current = activationState(modelId)
         val previousVersion = current.previousVersion
