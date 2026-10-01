@@ -65,6 +65,7 @@ jobs:
           :engine:opus:assembleDebug
           :engine:playback:testDebugUnitTest
           :engine:playback:assembleDebug
+          :app:testDebugUnitTest
           :app:assembleDebug
           --stacktrace
 

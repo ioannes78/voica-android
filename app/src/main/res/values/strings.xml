@@ -7,7 +7,7 @@
     <string name="stage5_subtitle">设备录音下载与可靠落盘</string>
     <string name="stage6_subtitle">本地录音库与 Opus/WAV 音频链路</string>
     <string name="stage7_subtitle">播放器与精确时间轴</string>
-    <string name="version_label">0.7.0 Stage 7 Alpha 1</string>
+    <string name="version_label">0.7.0 Stage 7 Alpha 2</string>
     <string name="tab_device">设备</string>
     <string name="tab_local_files">本地</string>
     <string name="tab_settings">设置</string>

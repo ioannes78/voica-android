@@ -15,6 +15,8 @@ import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 class VoicaApplication : Application() {
@@ -103,6 +105,24 @@ class AppContainer(
 
     init {
         ProcessLifecycleOwner.get().lifecycle.addObserver(processLifecycleObserver)
+
+        applicationScope.launch {
+            combine(
+                deviceRepository.recordingState,
+                playbackController.stateFlow,
+            ) { recordingState, playbackState ->
+                RecordingPlaybackInterlockPolicy.shouldPause(
+                    recordingState = recordingState,
+                    playbackState = playbackState,
+                )
+            }
+                .distinctUntilChanged()
+                .collect { shouldPause ->
+                    if (shouldPause) {
+                        playbackController.pause()
+                    }
+                }
+        }
 
         applicationScope.launch(Dispatchers.IO) {
             recordingLibraryRepository.importLegacyStage5IfNeeded()
