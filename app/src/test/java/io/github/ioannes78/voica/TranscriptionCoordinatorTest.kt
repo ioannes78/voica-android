@@ -70,8 +70,9 @@ class TranscriptionCoordinatorTest {
     private lateinit var scope: CoroutineScope
 
     @Before
-    fun setUp() = runBlocking {
-        val context = ApplicationProvider.getApplicationContext<Context>()
+    fun setUp() {
+        runBlocking {
+            val context = ApplicationProvider.getApplicationContext<Context>()
         database =
             Room.inMemoryDatabaseBuilder(
                 context,
@@ -97,6 +98,7 @@ class TranscriptionCoordinatorTest {
                 updatedAtMs = 1L,
             ),
         )
+        }
     }
 
     @After
