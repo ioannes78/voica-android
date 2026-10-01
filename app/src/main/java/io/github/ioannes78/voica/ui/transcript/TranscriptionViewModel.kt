@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.ioannes78.voica.TranscriptionCoordinator
 import io.github.ioannes78.voica.TranscriptionRunState
 import io.github.ioannes78.voica.database.TranscriptionRepository
+import io.github.ioannes78.voica.database.TranscriptionStateValue
 import io.github.ioannes78.voica.transcript.TranscriptSegment
 import io.github.ioannes78.voica.transcript.TranscriptionMode
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,6 +30,15 @@ data class TranscriptDocument(
     val segments: List<TranscriptDisplaySegment>,
 )
 
+data class TranscriptVersionSummary(
+    val recordingId: String,
+    val transcriptionId: String,
+    val mode: String,
+    val completedAtMs: Long,
+    val segmentCount: Int,
+    val latest: Boolean,
+)
+
 class TranscriptionViewModel(
     private val coordinator: TranscriptionCoordinator,
     private val repository: TranscriptionRepository,
@@ -37,6 +47,12 @@ class TranscriptionViewModel(
 
     private val mutableDocument = MutableStateFlow<TranscriptDocument?>(null)
     val document: StateFlow<TranscriptDocument?> = mutableDocument.asStateFlow()
+
+    private val mutableVersions = MutableStateFlow<List<TranscriptVersionSummary>>(emptyList())
+    val versions: StateFlow<List<TranscriptVersionSummary>> = mutableVersions.asStateFlow()
+
+    private val mutableVersionsRecordingId = MutableStateFlow<String?>(null)
+    val versionsRecordingId: StateFlow<String?> = mutableVersionsRecordingId.asStateFlow()
 
     private val mutableNotice = MutableStateFlow<String?>(null)
     val notice: StateFlow<String?> = mutableNotice.asStateFlow()
@@ -52,6 +68,9 @@ class TranscriptionViewModel(
                             mode = state.mode.name,
                             segments = state.segments.map(::toDisplay),
                         )
+                    if (mutableVersionsRecordingId.value == state.recordingId) {
+                        loadVersions(state.recordingId)
+                    }
                 }
             }
         }
@@ -69,12 +88,20 @@ class TranscriptionViewModel(
         coordinator.cancel()
     }
 
-    fun viewLatest(recordingId: String) {
+    fun viewVersions(recordingId: String) {
         viewModelScope.launch {
-            val transcription =
-                repository.observeLatestCompleted(recordingId).first()
-            if (transcription == null) {
-                mutableNotice.value = "这条录音还没有已完成的转写结果"
+            mutableDocument.value = null
+            loadVersions(recordingId)
+        }
+    }
+
+    fun selectVersion(transcriptionId: String) {
+        viewModelScope.launch {
+            val transcription = repository.find(transcriptionId)
+            if (transcription == null ||
+                transcription.state != TranscriptionStateValue.COMPLETED
+            ) {
+                mutableNotice.value = "转写版本不存在或尚未完成"
                 return@launch
             }
             val segments =
@@ -89,7 +116,7 @@ class TranscriptionViewModel(
                     }
             mutableDocument.value =
                 TranscriptDocument(
-                    recordingId = recordingId,
+                    recordingId = transcription.recordingId,
                     transcriptionId = transcription.id,
                     mode = transcription.mode,
                     segments = segments,
@@ -99,6 +126,35 @@ class TranscriptionViewModel(
     }
 
     fun clearNotice() {
+        mutableNotice.value = null
+    }
+
+    private suspend fun loadVersions(recordingId: String) {
+        val completed =
+            repository.observeVersions(recordingId)
+                .first()
+                .filter { it.state == TranscriptionStateValue.COMPLETED }
+
+        if (completed.isEmpty()) {
+            mutableVersionsRecordingId.value = recordingId
+            mutableVersions.value = emptyList()
+            mutableNotice.value = "这条录音还没有已完成的转写结果"
+            return
+        }
+
+        mutableVersionsRecordingId.value = recordingId
+        mutableVersions.value =
+            completed.mapIndexed { index, transcription ->
+                TranscriptVersionSummary(
+                    recordingId = transcription.recordingId,
+                    transcriptionId = transcription.id,
+                    mode = transcription.mode,
+                    completedAtMs =
+                        transcription.completedAtMs ?: transcription.updatedAtMs,
+                    segmentCount = repository.loadSegments(transcription.id).size,
+                    latest = index == 0,
+                )
+            }
         mutableNotice.value = null
     }
 

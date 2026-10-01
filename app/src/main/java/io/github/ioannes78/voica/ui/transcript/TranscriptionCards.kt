@@ -18,6 +18,9 @@ import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.TranscriptionRunState
 import io.github.ioannes78.voica.transcript.TranscriptionMode
 import io.github.ioannes78.voica.transcript.TranscriptionPhase
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 @Composable
@@ -131,6 +134,64 @@ fun TranscriptionStatusCard(
 }
 
 @Composable
+fun TranscriptVersionListCard(
+    versions: List<TranscriptVersionSummary>,
+    recordingName: String?,
+    selectedTranscriptionId: String?,
+    onSelect: (String) -> Unit,
+) {
+    if (versions.isEmpty()) return
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                stringResource(R.string.transcript_versions_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            recordingName?.let {
+                Text(it, style = MaterialTheme.typography.titleSmall)
+            }
+            versions.forEach { version ->
+                val modeText = modeLabel(version.mode)
+                val latestText = stringResource(R.string.transcript_versions_latest)
+                val selectedText = stringResource(R.string.transcript_versions_selected)
+                val label =
+                    buildString {
+                        append(modeText)
+                        if (version.latest) {
+                            append(" · ")
+                            append(latestText)
+                        }
+                        if (version.transcriptionId == selectedTranscriptionId) {
+                            append(" · ")
+                            append(selectedText)
+                        }
+                    }
+                OutlinedButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { onSelect(version.transcriptionId) },
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(label)
+                        Text(
+                            stringResource(
+                                R.string.transcript_versions_meta,
+                                formatCompletedAt(version.completedAtMs),
+                                version.segmentCount,
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun TranscriptDocumentHeader(
     document: TranscriptDocument,
     recordingName: String?,
@@ -221,11 +282,20 @@ private fun phaseLabel(phase: TranscriptionPhase): String =
             stringResource(R.string.transcription_phase_persisting)
     }
 
+private fun formatCompletedAt(epochMs: Long): String =
+    Instant.ofEpochMilli(epochMs)
+        .atZone(ZoneId.systemDefault())
+        .toLocalDateTime()
+        .format(COMPLETED_AT_FORMAT)
+
 private fun formatSampleRange(
     start: Long,
     end: Long,
 ): String =
     formatSampleTime(start) + " – " + formatSampleTime(end)
+
+private val COMPLETED_AT_FORMAT: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 
 private fun formatSampleTime(sampleIndex: Long): String {
     val seconds = sampleIndex.toDouble() / 16_000.0

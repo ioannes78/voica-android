@@ -135,6 +135,68 @@ class TranscriptionRepositoryTest {
     }
 
     @Test
+    fun fastAndHighQualityVersionsRemainIndependent() = runBlocking {
+        val fastId = repository.create(request(mode = TranscriptionModeValue.FAST))
+        repository.transition(fastId, TranscriptionStateValue.VAD_ANALYZING)
+        repository.transition(fastId, TranscriptionStateValue.FIRST_PASS_TRANSCRIBING)
+        repository.transition(fastId, TranscriptionStateValue.PUNCTUATING)
+        repository.persistCompleted(
+            transcriptionId = fastId,
+            segments =
+                listOf(
+                    TranscriptSegmentWrite(
+                        segmentIndex = 0,
+                        startSampleIndex = 0,
+                        endSampleIndexExclusive = 8_000,
+                        firstPassRawText = "快速版本",
+                        secondPassRawText = null,
+                        finalText = "快速版本。",
+                        detectedLanguage = "zh",
+                        confidence = null,
+                        tokens = emptyList(),
+                    ),
+                ),
+        )
+
+        val highQualityId =
+            repository.create(request(mode = TranscriptionModeValue.HIGH_QUALITY))
+        repository.transition(highQualityId, TranscriptionStateValue.VAD_ANALYZING)
+        repository.transition(highQualityId, TranscriptionStateValue.FIRST_PASS_TRANSCRIBING)
+        repository.transition(highQualityId, TranscriptionStateValue.SECOND_PASS_TRANSCRIBING)
+        repository.transition(highQualityId, TranscriptionStateValue.PUNCTUATING)
+        repository.persistCompleted(
+            transcriptionId = highQualityId,
+            segments =
+                listOf(
+                    TranscriptSegmentWrite(
+                        segmentIndex = 0,
+                        startSampleIndex = 0,
+                        endSampleIndexExclusive = 8_000,
+                        firstPassRawText = "快速版本",
+                        secondPassRawText = "高质量版本",
+                        finalText = "高质量版本。",
+                        detectedLanguage = "zh",
+                        confidence = null,
+                        tokens = emptyList(),
+                    ),
+                ),
+        )
+
+        val versions = repository.observeVersions("rec-1").first()
+        assertEquals(2, versions.size)
+        assertEquals(highQualityId, versions[0].id)
+        assertEquals(TranscriptionModeValue.HIGH_QUALITY, versions[0].mode)
+        assertEquals(fastId, versions[1].id)
+        assertEquals(TranscriptionModeValue.FAST, versions[1].mode)
+        assertTrue(fastId != highQualityId)
+        assertEquals("快速版本。", repository.loadSegments(fastId).single().finalText)
+        assertEquals(
+            "高质量版本。",
+            repository.loadSegments(highQualityId).single().finalText,
+        )
+    }
+
+    @Test
     fun invalidStateJumpIsRejected() = runBlocking {
         val id = repository.create(request(mode = TranscriptionModeValue.HIGH_QUALITY))
 

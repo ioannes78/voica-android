@@ -71,6 +71,7 @@ import io.github.ioannes78.voica.ui.playback.PlaybackViewModel
 import io.github.ioannes78.voica.ui.recording.RecordingCard
 import io.github.ioannes78.voica.ui.transcript.TranscriptDocumentHeader
 import io.github.ioannes78.voica.ui.transcript.TranscriptSegmentCard
+import io.github.ioannes78.voica.ui.transcript.TranscriptVersionListCard
 import io.github.ioannes78.voica.ui.transcript.TranscriptionStatusCard
 import io.github.ioannes78.voica.ui.transcript.TranscriptionViewModel
 import io.github.ioannes78.voica.ui.model.ModelManagerCard
@@ -386,6 +387,8 @@ private fun LocalFilesScreen(
     val playback by playbackViewModel.snapshot.collectAsState()
     val transcriptionState by transcriptionViewModel.runState.collectAsState()
     val transcriptDocument by transcriptionViewModel.document.collectAsState()
+    val transcriptVersions by transcriptionViewModel.versions.collectAsState()
+    val transcriptVersionsRecordingId by transcriptionViewModel.versionsRecordingId.collectAsState()
     val transcriptionNotice by transcriptionViewModel.notice.collectAsState()
     val playbackName =
         recordings.firstOrNull { it.id == playback.recordingId }?.displayName
@@ -401,6 +404,8 @@ private fun LocalFilesScreen(
         recordings.firstOrNull { it.id == transcriptionRecordingId }?.displayName
     val transcriptRecordingName =
         recordings.firstOrNull { it.id == transcriptDocument?.recordingId }?.displayName
+    val transcriptVersionsRecordingName =
+        recordings.firstOrNull { it.id == transcriptVersionsRecordingId }?.displayName
     val transcriptionBusy = transcriptionState is TranscriptionRunState.Running
 
     LazyColumn(
@@ -447,6 +452,17 @@ private fun LocalFilesScreen(
             }
         }
 
+        if (transcriptVersions.isNotEmpty()) {
+            item {
+                TranscriptVersionListCard(
+                    versions = transcriptVersions,
+                    recordingName = transcriptVersionsRecordingName,
+                    selectedTranscriptionId = transcriptDocument?.transcriptionId,
+                    onSelect = transcriptionViewModel::selectVersion,
+                )
+            }
+        }
+
         transcriptDocument?.let { document ->
             item {
                 TranscriptDocumentHeader(
@@ -472,7 +488,7 @@ private fun LocalFilesScreen(
                 transcriptionBusy = transcriptionBusy,
                 onTranscribeFast = transcriptionViewModel::startFast,
                 onTranscribeHighQuality = transcriptionViewModel::startHighQuality,
-                onViewTranscript = transcriptionViewModel::viewLatest,
+                onViewTranscript = transcriptionViewModel::viewVersions,
             )
         }
     }
