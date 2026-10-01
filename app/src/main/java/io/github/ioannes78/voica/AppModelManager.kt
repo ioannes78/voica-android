@@ -2,6 +2,7 @@ package io.github.ioannes78.voica
 
 import android.app.Application
 import android.os.Build
+import androidx.core.content.pm.PackageInfoCompat
 import io.github.ioannes78.voica.model.DecodingModelCatalogProvider
 import io.github.ioannes78.voica.model.DefaultModelManager
 import io.github.ioannes78.voica.model.HttpsModelCatalogTextSource
@@ -29,6 +30,14 @@ fun createVoicaModelManager(
             .use { it.readText() }
     val bundledCatalog = ModelCatalogCodec.decode(bundledCatalogText)
 
+    val packageInfo =
+        application.packageManager.getPackageInfo(
+            application.packageName,
+            0,
+        )
+    val appVersionCode =
+        PackageInfoCompat.getLongVersionCode(packageInfo).toInt()
+
     return DefaultModelManager(
         bundledCatalog = bundledCatalog,
         remoteCatalogProvider =
@@ -43,7 +52,7 @@ fun createVoicaModelManager(
                 runtimeVersion = SherpaRuntime.RUNTIME_VERSION,
                 abi = Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a",
                 sdkInt = Build.VERSION.SDK_INT,
-                appVersionCode = BuildConfig.VERSION_CODE,
+                appVersionCode = appVersionCode,
             ),
         storage = ModelStorage(File(application.noBackupFilesDir, "models")),
         packageDirectory = File(application.cacheDir, "model-packages"),
