@@ -9,8 +9,10 @@ import io.github.ioannes78.voica.audio.PcmSourceResolver
 import io.github.ioannes78.voica.ble.DefaultDeviceRepository
 import io.github.ioannes78.voica.ble.DeviceRepository
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
+import io.github.ioannes78.voica.database.TranscriptionRepository
 import io.github.ioannes78.voica.database.VoicaDatabase
 import io.github.ioannes78.voica.playback.AndroidPlaybackController
+import io.github.ioannes78.voica.model.ModelUseRegistry
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -59,6 +61,38 @@ class AppContainer(
 
     val audioSourceResolver: AudioSourceResolver = roomAudioSourceResolver
     val pcmSourceResolver: PcmSourceResolver = roomAudioSourceResolver
+
+    val modelUseRegistry = ModelUseRegistry()
+    val modelManager =
+        createVoicaModelManager(
+            application = application,
+            useRegistry = modelUseRegistry,
+        )
+
+    val modelUpdateSettingsStore =
+        SharedPreferencesModelUpdateSettingsStore(application)
+    val modelUpdateController =
+        ModelUpdateController(
+            modelManager = modelManager,
+            settingsStore = modelUpdateSettingsStore,
+        )
+
+    val transcriptionRepository =
+        TranscriptionRepository(recordingDatabase)
+
+    val transcriptionCoordinator =
+        TranscriptionCoordinator(
+            scope = applicationScope,
+            pcmSourceResolver = pcmSourceResolver,
+            transcriptionRepository = transcriptionRepository,
+            loadCanonicalLineage = recordingLibraryRepository::loadCanonicalTranscriptionLineage,
+            modelManager = modelManager,
+            modelUseRegistry = modelUseRegistry,
+            engineProvider =
+                SherpaStage8TranscriptionEngineProvider(
+                    assetManager = application.assets,
+                ),
+        )
 
     val playbackController =
         AndroidPlaybackController(
@@ -124,11 +158,20 @@ class AppContainer(
                 }
         }
 
+        if (modelUpdateSettingsStore.settings.value.automaticChecksEnabled) {
+            applicationScope.launch(Dispatchers.IO) {
+                runCatching {
+                    modelUpdateController.checkForUpdates(force = false)
+                }
+            }
+        }
+
         applicationScope.launch(Dispatchers.IO) {
             recordingLibraryRepository.importLegacyStage5IfNeeded()
             recordingLibraryRepository.normalizeStandardDeviceDisplayNames()
             recordingLibraryRepository.reconcilePendingDeletes()
             canonicalAudioCoordinator.reconcileOnStartup()
+            transcriptionCoordinator.reconcileOnStartup()
         }
     }
 }

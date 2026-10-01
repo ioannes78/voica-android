@@ -1,0 +1,15 @@
+{
+  "modelId": "silero-vad-int8",
+  "file": "silero_vad.int8.onnx",
+  "sourceProject": "k2-fsa/sherpa-onnx",
+  "sourceReleaseTag": "asr-models",
+  "sourceAssetId": 271935990,
+  "sourceUrl": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.int8.onnx",
+  "sourceAssetUpdatedAt": "2025-07-11T07:04:39Z",
+  "sizeBytes": 212860,
+  "sha256": "c36d490aff5ab924ca6c7aeec4d8f6bd3d22db6fa17611b9c5b17eae58ac3a20",
+  "sampleRateHz": 16000,
+  "quantization": "int8",
+  "licenseId": "MIT",
+  "upstreamProject": "snakers4/silero-vad"
+}

@@ -11,6 +11,7 @@ on:
       - "settings.gradle.kts"
       - "build.gradle.kts"
       - ".github/workflows/android-ci.yml"
+      - "ci/**"
       - "docs/STAGE_*.md"
   workflow_dispatch:
 
@@ -62,12 +63,39 @@ jobs:
           :core:ble:testDebugUnitTest
           :core:database:testDebugUnitTest
           :core:audio:test
+          :core:model:test
+          :core:transcript:test
           :engine:opus:assembleDebug
           :engine:playback:testDebugUnitTest
           :engine:playback:assembleDebug
+          :engine:sherpa:testDebugUnitTest
+          :engine:sherpa:assembleDebug
           :app:testDebugUnitTest
-          :app:assembleDebug
+          :app:assembleQa
           --stacktrace
+
+      - name: Verify stable QA signing identity
+        shell: bash
+        run: |
+          expected_cert_sha256="3df9c619ad0d06f2fabb24232420bf056ca2d8ea9413e7f776669a591974f288"
+          apk="app/build/outputs/apk/qa/app-qa.apk"
+          signer="$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner"
+
+          test -f "$apk"
+          actual_cert_sha256="$("$signer" verify --print-certs "$apk" |
+            sed -n 's/^Signer #1 certificate SHA-256 digest: //p' |
+            tr '[:upper:]' '[:lower:]')"
+          test "$actual_cert_sha256" = "$expected_cert_sha256"
+
+      # Stage 8 migration gate: committed Room v1/v2 schemas must stay in sync.
+      - name: Verify committed Room schemas
+        shell: bash
+        run: |
+          schema_dir="core/database/schemas"
+          test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/1.json"
+          test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/2.json"
+          git diff --exit-code -- "$schema_dir"
+          test -z "$(git status --porcelain --untracked-files=all -- "$schema_dir")"
 
       # Low-cost default: PR builds do not upload artifacts.
       # Add [APK] to the PR title only when an explicit real-device candidate is needed.
@@ -75,7 +103,7 @@ jobs:
         if: ${{ success() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[APK]'))) }}
         uses: actions/upload-artifact@v4
         with:
-          name: Voica-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: Voica-qa-apk
+          path: app/build/outputs/apk/qa/app-qa.apk
           if-no-files-found: error
           retention-days: 3

@@ -7,7 +7,8 @@
     <string name="stage5_subtitle">设备录音下载与可靠落盘</string>
     <string name="stage6_subtitle">本地录音库与 Opus/WAV 音频链路</string>
     <string name="stage7_subtitle">播放器与精确时间轴</string>
-    <string name="version_label">0.7.0 Stage 7 Alpha 2</string>
+    <string name="stage8_subtitle">本地 ASR + VAD + 标点 + 模型管理</string>
+    <string name="version_label">0.8.0 Stage 8 Alpha 4 QA</string>
     <string name="tab_device">设备</string>
     <string name="tab_local_files">本地</string>
     <string name="tab_settings">设置</string>
@@ -199,6 +200,34 @@
     <string name="local_file_delete_message">此操作仅删除手机中的文件，不会删除录音设备中的录音。</string>
     <string name="local_file_delete_confirm">删除本地文件</string>
 
+    <string name="transcription_start_fast">快速转写</string>
+    <string name="transcription_start_high_quality">高质量转写</string>
+    <string name="transcription_view_latest">转写版本</string>
+    <string name="transcription_status_title">本地转写</string>
+    <string name="transcription_mode_fast">快速模式</string>
+    <string name="transcription_mode_high_quality">高质量模式</string>
+    <string name="transcription_phase_preparing">正在准备标准音频与模型…</string>
+    <string name="transcription_phase_vad">正在分析语音区间…</string>
+    <string name="transcription_phase_first_pass">正在进行第一遍识别…</string>
+    <string name="transcription_phase_second_pass">正在进行高质量第二遍识别…</string>
+    <string name="transcription_phase_punctuation">正在恢复标点…</string>
+    <string name="transcription_phase_persisting">正在保存转写结果…</string>
+    <string name="transcription_progress_percent">%1$d%%</string>
+    <string name="transcription_cancel">取消转写</string>
+    <string name="transcription_completed">%1$s已完成</string>
+    <string name="transcription_completed_with_fallback">已完成，但部分步骤使用降级结果：%1$s</string>
+    <string name="transcription_failed">转写失败：%1$s</string>
+    <string name="transcription_missing_models">缺少模型：%1$s。请到设置页检查、下载并验证启用。</string>
+    <string name="transcription_cancelled">转写已取消</string>
+    <string name="transcript_versions_title">转写版本</string>
+    <string name="transcript_versions_latest">最新</string>
+    <string name="transcript_versions_selected">当前查看</string>
+    <string name="transcript_versions_meta">%1$s · %2$d 个语音片段</string>
+    <string name="transcript_result_title">转写结果</string>
+    <string name="transcript_result_mode">模式：%1$s</string>
+    <string name="transcript_result_segments">共 %1$d 个语音片段</string>
+    <string name="transcript_empty_segment">（该片段未识别到文字）</string>
+
     <string name="state_unavailable">当前设备不支持蓝牙低功耗。</string>
     <string name="state_permission_required">等待蓝牙权限</string>
     <string name="state_bluetooth_off">蓝牙已关闭</string>
@@ -226,9 +255,15 @@
     <string name="diagnostics_title">BLE Diagnostics</string>
     <string name="diagnostics_recent_log">最近通信日志</string>
 
-    <string name="settings_title">Stage 6 设置</string>
+    <string name="settings_title">设置</string>
     <string name="settings_language">默认语言</string>
     <string name="settings_language_value">简体中文</string>
     <string name="settings_scope">当前范围</string>
-    <string name="settings_scope_value">BLE 连接 + 录音控制 + OPUS/WAV 选择下载 + Room 本地录音库 + 标准 16 kHz PCM16 WAV</string>
+    <string name="settings_scope_value">BLE + 本地录音库 + 精确播放时间轴 + Stage 8 本地 AI 基础</string>
+    <string name="settings_local_ai_runtime">本地 AI 运行库</string>
+    <string name="settings_sherpa_runtime_version">sherpa-onnx %1$s · arm64-v8a · CPU</string>
+    <string name="settings_sherpa_runtime_test">测试运行库</string>
+    <string name="settings_sherpa_runtime_testing">测试中…</string>
+    <string name="settings_sherpa_runtime_available">运行库加载成功</string>
+    <string name="settings_sherpa_runtime_unavailable">运行库加载失败</string>
 </resources>

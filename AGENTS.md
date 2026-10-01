@@ -4,15 +4,15 @@
 
 当前 `ioannes78/voica-android` 仓库是 Voica 项目实现状态的唯一事实来源。
 
-当前已冻结基线：**Stage 7**
+当前已冻结基线：**Stage 8**
 
-Stage 7 Freeze/Handoff：
+Stage 8 Freeze/Handoff：
 
-- `docs/STAGE_7_FREEZE.md`
-- `docs/STAGE_7_HANDOFF.md`
-- `docs/STAGE_7_TEST.md`
+- `docs/STAGE_8_FREEZE.md`
+- `docs/STAGE_8_HANDOFF.md`
+- `docs/STAGE_8_TEST.md`
 
-下一阶段：**Stage 8 — 本地 ASR + VAD + 标点 + 模型管理**
+下一阶段：**Stage 9 — 说话人分离**
 
 协议与行为参考：
 
@@ -71,7 +71,7 @@ Stage 7 Freeze/Handoff：
 
 ## 五、Android 技术基线
 
-Stage 3 冻结：
+当前技术基线：
 
 - Kotlin：2.4.20
 - Android Gradle Plugin：9.4.0
@@ -82,8 +82,12 @@ Stage 3 冻结：
 - minSdk：26
 - Compose BOM：2026.09.00
 - Application ID：`io.github.ioannes78.voica`
-- versionCode：19
-- versionName：`0.7.0-stage7-alpha2`
+- QA Application ID：`io.github.ioannes78.voica.qa`
+- versionCode：23
+- versionName：`0.8.0-stage8-alpha4`
+- sherpa-onnx：1.13.8
+- Room schema：2
+- ABI：arm64-v8a
 - 默认产品语言：简体中文
 
 当前物理模块：
@@ -93,8 +97,11 @@ Stage 3 冻结：
 - `:core:ble`
 - `:core:database`
 - `:core:audio`
+- `:core:model`
+- `:core:transcript`
 - `:engine:opus`
 - `:engine:playback`
+- `:engine:sherpa`
 
 依赖主方向：
 
@@ -103,8 +110,11 @@ app
 ├─ core:ble → core:protocol
 ├─ core:database
 ├─ core:audio
+├─ core:model
+├─ core:transcript
 ├─ engine:opus → core:audio
-└─ engine:playback → core:audio
+├─ engine:playback → core:audio
+└─ engine:sherpa → core:model / core:transcript
 ```
 
 ## 六、Stage 2 已冻结 BLE 事实
@@ -237,6 +247,30 @@ app
 - Stage 10 必须通过 PlaybackSnapshot.positionSampleIndex / seekToSample / discontinuityGeneration 做文字同步。
 - Room schema 仍为 version 1。
 - 真实 30min/1h/2h、2h 综合稳定性与 meminfo 未在 Stage 7 真机执行，统一作为 Stage 13 测试债务。
+
+
+## 九-C、Stage 8 已冻结本地 AI / 转写事实
+
+后续 Stage 不得无新证据改变：
+
+- sherpa-onnx Android runtime 固定为 1.13.8，Stage 8 目标 ABI 为 arm64-v8a。
+- Room schema 已从 version 1 显式迁移到 version 2；转写、segment、token 使用独立表并保留历史版本。
+- 本地转写统一使用 Stage 7 canonical PCM：16 kHz / mono / PCM16_LE / absolute canonical sample index。
+- Silero VAD int8 为 APK 内置基线，sourceType 为 BUILTIN_WITH_OVERRIDE；远程 override 失败时仍可回退到内置基线。
+- first-pass / future Stage 16 streaming ASR 使用 Small Bilingual Zipformer zh-en 2023-02-16。
+- punctuation 使用 CT-Transformer zh-en int8 2024-04-12。
+- High Quality second-pass 使用 SenseVoice zh-en-ja-ko-yue int8 2024-07-17。
+- Fast pipeline：VAD → Small Bilingual → CT-Transformer → atomic persistence。
+- High Quality pipeline：VAD → Small Bilingual first pass → SenseVoice second pass → CT-Transformer fallback/final punctuation → atomic persistence。
+- 每次转写创建新的 Transcription 版本；FAST 与 HIGH_QUALITY 不覆盖彼此。
+- “转写版本”UI 可列出并切换同一录音的所有已完成版本。
+- 模型安装必须 package SHA/file SHA 校验、staging、atomic promotion、native smoke 后才能激活。
+- 大模型下载支持 .part 保留与 HTTP Range 断点续传；用户主动取消会确定性删除 .part。
+- package SHA、TAR.BZ2/ZIP 解包、installed-file SHA、native smoke 均不得阻塞 Compose 主线程。
+- 正式/普通 App 固定读取 production model manifest；Debug/QA candidate override 仅用于未合并候选验收。
+- production manifest 当前包含 Silero、Small Bilingual、CT-Transformer、SenseVoice 四模型。
+- QA APK 使用固定测试签名与 `io.github.ioannes78.voica.qa`，仅用于真机验收，不得用于生产发布。
+- 真实 30min/1h/2h 长录音压力仍作为 Stage 13 测试债务；Stage 8 已有 virtual 30/60/120min bounded-read 自动化覆盖。
 
 ## 十、架构规则
 

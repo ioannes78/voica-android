@@ -1,6 +1,6 @@
 # Voica Android 全项目 Stage 开发路线图
 
-当前状态：**Stage 7 已完成、用户验收通过并冻结；下一阶段为 Stage 8。**
+当前状态：**Stage 8 已完成、用户验收通过并冻结；下一阶段为 Stage 9。**
 
 整个 Voica 路线均为全新独立实现，不得从 `voice-card-android` 复制、迁移、继承、cherry-pick 或机械改写任何代码。
 
@@ -244,11 +244,39 @@
 
 ## Stage 8 — 本地 ASR + VAD + 标点 + 模型管理
 
+状态：**已完成 / 已真机验收 / 已冻结**
+
+完成内容：
+
+- sherpa-onnx 1.13.8 Android runtime，arm64-v8a
+- Silero VAD int8 APK 内置基线 + managed override
+- Small Bilingual Zipformer zh-en 作为 first-pass / streaming ASR
+- CT-Transformer zh-en int8 标点恢复
+- SenseVoice 2024 int8 High Quality second pass
+- Room 1 → 2 显式迁移
+- Transcription / Segment / Token 持久化与状态机
+- FAST / HIGH_QUALITY 独立版本，不互相覆盖
+- “转写版本”列表与版本切换查看
+- 模型下载、SHA 校验、staging、atomic promotion、rollback、exact revision lease
+- HTTP Range 断点续传与后台校验/解包
+- 独立 `ioannes78/voica-model-channel` production/candidate 发布链
+- 固定 production manifest；Debug/QA candidate override 只用于未合并候选验收
+- 固定签名 QA 测试轨道
+- virtual 30/60/120min bounded-read 自动化；真实长录音压力仍留 Stage 13
+
 处理链：
 
-`16 kHz PCM → VAD → SpeechSegment → ASR → 标点能力判断 → PunctuationEngine（必要时）→ Timed Transcript`
+`16 kHz canonical PCM → Silero VAD → Small Bilingual → CT-Transformer → Timed Transcript`
 
-不把 VAD 锁死在 WebRTC；WebRTC、Silero、sherpa-onnx 通过 Android 实测后选择。
+High Quality：
+
+`16 kHz canonical PCM → Silero VAD → Small Bilingual first pass → SenseVoice second pass → punctuation finalization → persisted transcript`
+
+冻结文档：
+
+- `docs/STAGE_8_TEST.md`
+- `docs/STAGE_8_FREEZE.md`
+- `docs/STAGE_8_HANDOFF.md`
 
 ## Stage 9 — 说话人分离
 

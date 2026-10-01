@@ -14,8 +14,11 @@ android {
         applicationId = "io.github.ioannes78.voica"
         minSdk = 26
         targetSdk = 37
-        versionCode = 19
-        versionName = "0.7.0-stage7-alpha2"
+        versionCode = 23
+        versionName = "0.8.0-stage8-alpha4"
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     buildFeatures {
@@ -25,6 +28,26 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    signingConfigs {
+        create("qa") {
+            // Public, test-only QA signing identity. Never use this key for production.
+            storeFile = rootProject.file("ci/voica-qa.jks")
+            storePassword = "voica-qa-test"
+            keyAlias = "voica-qa"
+            keyPassword = "voica-qa-test"
+        }
+    }
+
+    buildTypes {
+        create("qa") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".qa"
+            versionNameSuffix = "-qa"
+            signingConfig = signingConfigs.getByName("qa")
+            matchingFallbacks += listOf("debug")
+        }
     }
 
     packaging {
@@ -45,8 +68,11 @@ dependencies {
     implementation(project(":core:ble"))
     implementation(project(":core:database"))
     implementation(project(":core:audio"))
+    implementation(project(":core:model"))
+    implementation(project(":core:transcript"))
     implementation(project(":engine:opus"))
     implementation(project(":engine:playback"))
+    implementation(project(":engine:sherpa"))
     implementation("androidx.core:core-ktx:1.19.1")
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
@@ -64,4 +90,8 @@ dependencies {
 
     testImplementation(kotlin("test-junit"))
     testImplementation("junit:junit:4.13.2")
+    testImplementation("androidx.test:core:1.7.0")
+    testImplementation("androidx.room:room-runtime:2.8.5")
+    testImplementation("androidx.room:room-ktx:2.8.5")
+    testImplementation("org.robolectric:robolectric:4.17")
 }
