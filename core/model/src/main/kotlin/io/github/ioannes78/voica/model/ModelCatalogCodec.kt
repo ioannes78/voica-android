@@ -82,6 +82,9 @@ object ModelCatalogCodec {
                         relativePath = file.requiredString("relativePath"),
                         sizeBytes = file.requiredLong("sizeBytes"),
                         sha256 = file.requiredString("sha256"),
+                        packagePath =
+                            file.optionalString("packagePath")
+                                ?: file.requiredString("relativePath"),
                     )
                 },
             abis =

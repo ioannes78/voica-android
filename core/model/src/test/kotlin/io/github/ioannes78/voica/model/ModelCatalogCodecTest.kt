@@ -53,7 +53,8 @@ class ModelCatalogCodecTest {
                         {
                           "relativePath": "encoder.int8.onnx",
                           "sizeBytes": 456,
-                          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                          "packagePath": "bundle/encoder.int8.onnx"
                         }
                       ],
                       "compatibility": {
@@ -83,6 +84,10 @@ class ModelCatalogCodecTest {
         assertEquals(3, catalog.manifestVersion)
         assertEquals(1L, catalog.models.single().revision)
         assertEquals(ModelPackageFormat.ZIP, catalog.models.single().packageFormat)
+        assertEquals(
+            "bundle/encoder.int8.onnx",
+            catalog.models.single().files.single().packagePath,
+        )
         assertTrue(catalog.models.single().capabilities.supportsStreaming)
     }
 }

@@ -47,11 +47,11 @@ data class ModelFileDescriptor(
     val relativePath: String,
     val sizeBytes: Long,
     val sha256: String,
+    val packagePath: String = relativePath,
 ) {
     init {
-        require(relativePath.isNotBlank())
-        require(!relativePath.startsWith("/"))
-        require(".." !in relativePath.split('/'))
+        require(isSafeRelativePath(relativePath))
+        require(isSafeRelativePath(packagePath))
         require(sizeBytes >= 0L)
         require(SHA256_REGEX.matches(sha256.lowercase()))
     }
@@ -197,3 +197,10 @@ interface ModelManager {
 
 internal val SHA256_REGEX = Regex("^[0-9a-fA-F]{64}$")
 internal val SAFE_PATH_SEGMENT_REGEX = Regex("^[A-Za-z0-9._-]+$")
+
+internal fun isSafeRelativePath(path: String): Boolean =
+    path.isNotBlank() &&
+        !path.startsWith("/") &&
+        !path.startsWith("\\") &&
+        ":" !in path &&
+        ".." !in path.replace('\\', '/').split('/')
