@@ -81,7 +81,7 @@ class ModelCatalogCodecTest {
             )
 
         assertEquals(3, catalog.manifestVersion)
-        assertEquals(1, catalog.models.single().revision)
+        assertEquals(1L, catalog.models.single().revision)
         assertEquals(ModelPackageFormat.ZIP, catalog.models.single().packageFormat)
         assertTrue(catalog.models.single().capabilities.supportsStreaming)
     }
