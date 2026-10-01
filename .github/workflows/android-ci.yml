@@ -62,6 +62,8 @@ jobs:
           :core:ble:testDebugUnitTest
           :core:database:testDebugUnitTest
           :core:audio:test
+          :core:model:test
+          :core:transcript:test
           :engine:opus:assembleDebug
           :engine:playback:testDebugUnitTest
           :engine:playback:assembleDebug
