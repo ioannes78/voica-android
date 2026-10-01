@@ -52,7 +52,7 @@ object ModelCatalogCodec {
     }
 
     private fun decodeModel(obj: JsonObject): ModelDescriptor {
-        val download = obj["download"]?.jsonObject
+        val download = obj["download"] as? JsonObject
         val compatibility = obj.requiredObject("compatibility")
         val license = obj.requiredObject("license")
         val capabilities = obj.requiredObject("capabilities")
