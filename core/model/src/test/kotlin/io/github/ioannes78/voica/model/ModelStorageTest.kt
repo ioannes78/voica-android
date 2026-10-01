@@ -99,12 +99,12 @@ class ModelStorageTest {
     @Test
     fun modelLeaseTracksUseAndIsIdempotentOnClose() {
         val registry = ModelUseRegistry()
-        val lease = registry.acquire("asr", "v1")
+        val lease = registry.acquire("asr", "v1", 1)
 
-        assertTrue(registry.isInUse("asr", "v1"))
+        assertTrue(registry.isInUse("asr", "v1", 1))
         lease.close()
         lease.close()
-        assertFalse(registry.isInUse("asr", "v1"))
+        assertFalse(registry.isInUse("asr", "v1", 1))
     }
 
     private fun prepareStaging(
