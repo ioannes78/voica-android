@@ -1,6 +1,6 @@
 # Voica Android 全项目 Stage 开发路线图
 
-当前状态：**Stage 6 已完成、真机验收通过并冻结；下一阶段为 Stage 7。**
+当前状态：**Stage 7 已完成、用户验收通过并冻结；下一阶段为 Stage 8。**
 
 整个 Voica 路线均为全新独立实现，不得从 `voice-card-android` 复制、迁移、继承、cherry-pick 或机械改写任何代码。
 
@@ -221,14 +221,26 @@
 
 ## Stage 7 — 播放器 + 精确时间轴
 
-内容：
+状态：**已完成 / 已用户验收 / 已冻结**
 
-- 播放/暂停
-- 精确 seek
-- 当前时间/总时长
-- 倍速
-- 长录音和快速连续 seek
-- 为转写同步暴露稳定时间接口
+完成内容：
+
+- canonical WAV / AudioTrack MODE_STREAM 播放
+- absolute 16 kHz PCM sample timeline
+- 精确 sample seek 与 rapid seek latest-wins
+- presented-position tracking
+- 当前时间 / 总时长
+- 0.5× / 0.75× / 1.0× / 1.25× / 1.5× / 2.0×
+- Audio Focus / Bluetooth route / noisy / app lifecycle
+- device recording → local playback pause 互锁
+- Stage 8 PcmSource 与 Stage 10 PlaybackSnapshot 时间契约
+- 30/60/120min virtual source 与 2h rapid seek 自动化专项
+
+验收说明：
+
+- Bluetooth / Audio Focus 专项 1–7 真机通过
+- 真实 30min / 1h / 2h、2h 综合稳定性、ADB meminfo 未真机执行
+- 上述长录音真机测试债务转入 Stage 13
 
 ## Stage 8 — 本地 ASR + VAD + 标点 + 模型管理
 
@@ -281,7 +293,7 @@ BLE soak、多文件/大文件/断连下载、1h/2h 音频、长转写、RAM/CPU
 - 多文件、大文件及 1h/2h 录音下载压力测试
 - 录音控制继续高于文件下载优先级
 
-Stage 6 不实现 Foreground Service；Stage 6 维持 App 进入后台时主动取消当前 BLE 文件传输。
+Stage 7 仍不实现 Foreground Service；BLE 后台可靠下载与真实 1h/2h 长时资源压力继续由 Stage 13 负责。
 
 ## Stage 14 — Voica V1.0 Release Freeze
 

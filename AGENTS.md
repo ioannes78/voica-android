@@ -4,17 +4,15 @@
 
 当前 `ioannes78/voica-android` 仓库是 Voica 项目实现状态的唯一事实来源。
 
-当前已冻结基线：**Stage 6**
+当前已冻结基线：**Stage 7**
 
-Stage 6 Freeze/Handoff：
+Stage 7 Freeze/Handoff：
 
-- `docs/STAGE_6_FREEZE.md`
-- `docs/STAGE_6_HANDOFF.md`
-- `docs/STAGE_6_TEST.md`
-- `docs/STAGE_6_PROTOCOL_FINDINGS.md`
-- `docs/STAGE_6_REAL_DEVICE_FINDINGS.md`
+- `docs/STAGE_7_FREEZE.md`
+- `docs/STAGE_7_HANDOFF.md`
+- `docs/STAGE_7_TEST.md`
 
-下一阶段：**Stage 7 — 播放器 + 精确时间轴**
+下一阶段：**Stage 8 — 本地 ASR + VAD + 标点 + 模型管理**
 
 协议与行为参考：
 
@@ -84,8 +82,8 @@ Stage 3 冻结：
 - minSdk：26
 - Compose BOM：2026.09.00
 - Application ID：`io.github.ioannes78.voica`
-- versionCode：17
-- versionName：`0.6.0-stage6-alpha3`
+- versionCode：19
+- versionName：`0.7.0-stage7-alpha2`
 - 默认产品语言：简体中文
 
 当前物理模块：
@@ -96,6 +94,7 @@ Stage 3 冻结：
 - `:core:database`
 - `:core:audio`
 - `:engine:opus`
+- `:engine:playback`
 
 依赖主方向：
 
@@ -104,7 +103,8 @@ app
 ├─ core:ble → core:protocol
 ├─ core:database
 ├─ core:audio
-└─ engine:opus → core:audio
+├─ engine:opus → core:audio
+└─ engine:playback → core:audio
 ```
 
 ## 六、Stage 2 已冻结 BLE 事实
@@ -217,6 +217,26 @@ app
 - 原始设备音频必须保留；派生 canonical 可重建。
 - Stage 7 通过 `AudioSourceResolver`，Stage 8 通过 `PcmSourceResolver/PcmSource` 使用音频，不得绕过边界。
 - Stage 6 不实现后台/锁屏持续下载；可靠后台下载在 Stage 13 使用 Foreground Service 实现。
+
+## 九-B、Stage 7 已冻结播放器与时间轴事实
+
+后续 Stage 不得无新证据改变：
+
+- 只播放 verified CANONICAL_WAV；raw OPUS/DEVICE_WAV 不直接作为播放主链。
+- absolute canonical PCM sample index 是唯一媒体时间真值。
+- canonical profile 固定 16000 Hz / mono / PCM16_LE / 2 bytes per frame。
+- WAV seek 必须使用真实 pcmDataOffsetBytes，不得假定 44B header。
+- 公开 position 使用 presented sample，而不是 source/submitted cursor。
+- AudioTimestamp 优先，playback head fallback 必须处理 32-bit wrap。
+- seek 使用 Long sample；rapid seek 必须 latest-wins。
+- 六档倍速固定 0.5/0.75/1.0/1.25/1.5/2.0，pitch=1.0。
+- Audio Focus LOSS pause 且不自动恢复；CAN_DUCK 在 Stage 7 选择 pause。
+- App background pause；返回 foreground 不因 background 自动恢复。
+- device Recording 或新鲜 START/RESUME hardware edge 必须暂停本地 playback；录音结束不得自动恢复。
+- Stage 8 必须通过 PcmSourceResolver/PcmSource 复用 absolute sample timeline。
+- Stage 10 必须通过 PlaybackSnapshot.positionSampleIndex / seekToSample / discontinuityGeneration 做文字同步。
+- Room schema 仍为 version 1。
+- 真实 30min/1h/2h、2h 综合稳定性与 meminfo 未在 Stage 7 真机执行，统一作为 Stage 13 测试债务。
 
 ## 十、架构规则
 
