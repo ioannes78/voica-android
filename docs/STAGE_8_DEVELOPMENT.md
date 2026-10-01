@@ -36,3 +36,16 @@ Implementation gates:
 - Added `:engine:sherpa` pinned to sherpa-onnx v1.13.8.
 - App is pinned to arm64-v8a for the Stage 8 native runtime.
 - Added a Settings-page native-load probe for the first Stage 8 real-device runtime gate.
+
+## Runtime gate result
+
+- Real-device Stage 8 alpha1 runtime probe passed.
+- sherpa-onnx v1.13.8 native library loaded successfully on the test device.
+- Stage 8B runtime gate is closed.
+
+## Stage 8C contracts
+
+- Added `:core:model` for model identity, capability, source, update, integrity and ModelManager contracts.
+- Added `:core:transcript` for VAD, streaming ASR, second-pass ASR, punctuation, progress and transcript timeline contracts.
+- File ASR and future Stage 16 live ASR share `StreamingAsrSession`.
+- Token timing remains optional and maps onto the Stage 7 absolute canonical sample timeline; fabricated character timing is forbidden.
