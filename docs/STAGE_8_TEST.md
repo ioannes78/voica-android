@@ -3,8 +3,8 @@
 Status: candidate acceptance checklist — do not Freeze Stage 8 until all required items pass and the user explicitly confirms.
 
 Candidate:
-- versionCode: 20
-- versionName: 0.8.0-stage8-alpha1
+- versionCode: 21
+- versionName: 0.8.0-stage8-alpha2
 - ABI: arm64-v8a
 - sherpa-onnx runtime: 1.13.8
 - Room schema: 2
@@ -35,20 +35,33 @@ The production URL is:
 
 https://raw.githubusercontent.com/ioannes78/voica-model-channel/main/manifests/production.json
 
-The independent public repository `ioannes78/voica-model-channel` now exists, but it
-must first be initialized with a commit and then publish a validated production manifest.
-Before tests D–H, that production manifest must contain approved packages for:
+The independent public repository `ioannes78/voica-model-channel` is initialized and
+the production manifest is live with the Silero baseline. Downloadable models are
+promoted one at a time only after candidate validation. Before final tests D–H, the
+production manifest must contain approved packages for:
 
 - Small Bilingual Zipformer first-pass ASR
 - CT-Transformer zh-en punctuation
 - SenseVoice 2024 int8 second-pass ASR
 - Silero VAD baseline / managed override metadata
 
-Until `manifests/production.json` is published from that repository, update checks may
-report a network / 404 failure and Fast / High Quality transcription must report missing
-models rather than crash.
+Before each candidate PR is merged, use the Debug-only candidate control with that
+workflow's prerelease `production.json` URL, fully restart the App, and validate the
+candidate. Restore production after the candidate PR is merged. Release builds cannot
+use this override.
 
 ## D. Manual model download / integrity / activation
+
+Candidate order is sequential so every later candidate manifest is generated from the
+already-approved production baseline:
+
+1. Small Bilingual r1 candidate -> validate -> merge.
+2. CT-Transformer punctuation r1 candidate -> validate -> merge.
+3. SenseVoice 2024 int8 r1 candidate -> validate -> merge.
+
+For each candidate, paste its prerelease `production.json` URL into
+Settings -> Stage 8 候选模型验收（Debug）, save it, fully exit and reopen Voica,
+then perform the relevant checks below.
 
 7. Download Small Bilingual.
    - Progress is a real byte count / percentage.

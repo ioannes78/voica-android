@@ -71,26 +71,20 @@ The bootstrap also contains pinned, deterministic candidate builders for:
 The SenseVoice source is the official 2024-07-17 int8-only archive, not the much
 larger archive that also carries the fp32 model.
 
-## Repository initialization
+## Repository status
 
-The public repository `ioannes78/voica-model-channel` now exists, but it still has
-zero commits. GitHub must create its first commit once (for example, "Add a README")
-before the connected contents API can write files into it.
+The public repository `ioannes78/voica-model-channel` is initialized and is now the
+authoritative implementation. This directory remains a bootstrap/reference snapshot;
+do not overwrite the live model-channel repository from it.
 
-After that first commit, copy the complete bootstrap tree:
-
-- `manifests/production.json`
-- `scripts/prepare-small-bilingual.sh`
-- `scripts/prepare-punctuation.sh`
-- `scripts/prepare-sensevoice.sh`
-- `scripts/validate-production-manifest.py`
-- all workflows under `.github/workflows/`
+The live repository has a stricter human-gated flow: Small Bilingual is published as
+a slim prerelease package, while CT-Transformer and SenseVoice keep their pinned
+official upstream archives. Every candidate workflow also publishes a prerelease
+`production.json` for Debug Android validation before its manifest PR is merged.
 
 The initial production manifest intentionally contains only the Silero baseline.
-A downloadable candidate must not enter `production.json` until its package/file
-integrity checks and Android native smoke test are recorded. The manifest validation
-workflow verifies the models-array digest, SHA-256 fields, HTTPS download URLs and
-duplicate model IDs before production changes are merged.
+A downloadable candidate must not enter production until its package/file integrity
+checks, native smoke activation and relevant real-device transcription test pass.
 
 The Android app currently reads:
 

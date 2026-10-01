@@ -8,7 +8,7 @@
     <string name="stage6_subtitle">本地录音库与 Opus/WAV 音频链路</string>
     <string name="stage7_subtitle">播放器与精确时间轴</string>
     <string name="stage8_subtitle">本地 ASR + VAD + 标点 + 模型管理</string>
-    <string name="version_label">0.8.0 Stage 8 Alpha 1</string>
+    <string name="version_label">0.8.0 Stage 8 Alpha 2</string>
     <string name="tab_device">设备</string>
     <string name="tab_local_files">本地</string>
     <string name="tab_settings">设置</string>

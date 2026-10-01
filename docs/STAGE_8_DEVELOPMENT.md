@@ -84,24 +84,23 @@ Implementation gates:
 
 ## Model-channel delivery status
 
-- The independent public repository `ioannes78/voica-model-channel` now exists.
-- It currently has zero commits, so GitHub has not created `main` content yet and the
-  Android production manifest URL still cannot serve a file.
-- The connected GitHub contents API cannot create the repository's first commit; one
-  initial commit must be created once from the GitHub UI before automated bootstrap.
-- The complete bootstrap is maintained under `tools/model-channel-bootstrap/`:
-  initial Silero-only production manifest, manifest validator, Small Bilingual,
-  CT-Transformer and SenseVoice candidate builders, and their GitHub Actions workflows.
-- The generic Android first-pass package uses the documented encoder-int8 /
-  decoder-fp32 / joiner-int8 / tokens combination; RK35xx accelerator assets remain
+- The independent public repository `ioannes78/voica-model-channel` is initialized
+  and is now the authoritative model-distribution repository.
+- Its `main/manifests/production.json` is live and intentionally contains only the
+  APK-bundled Silero VAD baseline until downloadable candidates pass real-device gates.
+- Model-channel validation CI #2 passed at commit
+  `f353a6f799db738588007eba342c124379050147`.
+- Small Bilingual uses a deterministic slim ZIP with the documented encoder-int8 /
+  decoder-fp32 / joiner-int8 / tokens combination. RK35xx accelerator assets remain
   out of scope for the generic Android CPU path.
-- CT-Transformer uses the official 2024-04-12 int8 release asset pinned by byte size
-  and SHA-256.
-- SenseVoice uses the official 2024-07-17 int8-only release asset (not the fp32+int8
-  archive), also pinned by byte size and SHA-256.
-- Final Stage 8 model-channel acceptance still requires: first repository commit,
-  bootstrap copy, candidate CI, package/file hashes in the production manifest,
-  Android download + native smoke activation, and a human-gated production merge.
+- CT-Transformer 2024-04-12 int8 and SenseVoice 2024-07-17 int8-only use pinned
+  official upstream TAR_BZ2 packages with exact byte size and SHA-256.
+- Candidate workflows publish a prerelease `production.json` before opening/updating
+  the human-gated manifest PR. A Debug Voica APK can therefore validate the exact
+  unmerged candidate catalog before production publication.
+- Final Stage 8 model-channel acceptance still requires each candidate workflow run,
+  Android download + package/file integrity verification, native smoke activation,
+  relevant transcription acceptance, and only then human merge into production.
 
 
 ## Stage 8O long-duration and production ASR package verification
@@ -144,3 +143,17 @@ Implementation gates:
   production-manifest validator workflow.
 - These bootstrap-only files are outside the Android PR CI path filter; the latest
   Android code/test baseline remains CI #232 until an Android/docs path changes.
+
+
+## Stage 8R candidate-channel acceptance loop
+
+- Added a Debug-only candidate manifest override. Release/non-debug builds always use
+  the fixed production manifest and ignore any stored override.
+- Debug candidate URLs are restricted to HTTPS release assets under
+  `ioannes78/voica-model-channel/releases/download/.../production.json`.
+- Changing the candidate URL requires a full App restart because ModelManager is
+  application-scoped and resolves its catalog source at startup.
+- Settings is now vertically scrollable so model download/activate/rollback controls
+  remain reachable on small screens.
+- Stage 8 full acceptance candidate is versionCode 21 /
+  `0.8.0-stage8-alpha2`.
