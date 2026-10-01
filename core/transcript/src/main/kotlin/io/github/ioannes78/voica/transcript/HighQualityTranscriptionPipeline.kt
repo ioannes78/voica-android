@@ -144,7 +144,13 @@ class HighQualityTranscriptionPipeline(
             "canonical PCM sample count changed before second pass"
         }
 
-        val engine = secondPassAsrEngineFactory.open()
+        val engine =
+            try {
+                secondPassAsrEngineFactory.open()
+            } catch (error: Throwable) {
+                source.close()
+                throw error
+            }
         require(engine.capabilities.supportsSecondPass) {
             "high-quality transcription requires a second-pass ASR engine"
         }
