@@ -49,3 +49,12 @@ Implementation gates:
 - Added `:core:transcript` for VAD, streaming ASR, second-pass ASR, punctuation, progress and transcript timeline contracts.
 - File ASR and future Stage 16 live ASR share `StreamingAsrSession`.
 - Token timing remains optional and maps onto the Stage 7 absolute canonical sample timeline; fabricated character timing is forbidden.
+
+## Stage 8G / 8H progress
+
+- Room v2 is frozen with explicit `MIGRATION_1_2`; JVM migration tests preserve Stage 7 recording/audio data and validate transcript foreign-key cascades.
+- `PcmSource.totalSampleCount` is now the single authoritative denominator for VAD/file-ASR progress.
+- Added `SherpaSileroVadEngine` using sherpa VAD sample offsets directly as canonical absolute sample indices.
+- VAD contract tests passed CI #183 after correcting a JUnit4 test-signature issue; VAD production logic was unchanged by that fix.
+- Vendored the pinned k2-fsa `silero_vad.int8.onnx` baseline into `:engine:sherpa` assets only after verifying 212,860 bytes and SHA-256 `c36d490aff5ab924ca6c7aeec4d8f6bd3d22db6fa17611b9c5b17eae58ac3a20`.
+- Built-in Silero remains `BUILTIN_WITH_OVERRIDE`: a future managed confirmed-good version may override it, while the APK asset remains the fallback.
