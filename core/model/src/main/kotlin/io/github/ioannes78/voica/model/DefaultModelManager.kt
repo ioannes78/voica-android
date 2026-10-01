@@ -60,17 +60,17 @@ class DefaultModelManager(
                     modelId = modelId,
                     version = activeVersion,
                     revision = activeRevision,
-                ) ?: return null
+                ) ?: return@withContext null
             return@withContext ActiveModel(
                 descriptor = snapshot.descriptor,
                 manifestDigest = snapshot.manifestDigest,
                 installedDirectory =
                     storage.activeDirectory(modelId)
-                        ?: return null,
+                        ?: return@withContext null,
             )
         }
 
-        val builtin = bundledCatalog.model(modelId) ?: return null
+        val builtin = bundledCatalog.model(modelId) ?: return@withContext null
         val builtinAvailable =
             builtin.sourceType == ModelSourceType.BUILTIN ||
                 builtin.sourceType == ModelSourceType.BUILTIN_WITH_OVERRIDE
@@ -348,24 +348,26 @@ class DefaultModelManager(
                 "model version is currently in use"
             }
 
-            val activation = storage.activationState(modelId)
-            val removingActive =
-                activation.activeVersion == version &&
-                    activation.activeRevision == revision
+            withContext(blockingDispatcher) {
+                val activation = storage.activationState(modelId)
+                val removingActive =
+                    activation.activeVersion == version &&
+                        activation.activeRevision == revision
 
-            if (removingActive) {
-                val hasPrevious =
-                    activation.previousVersion != null &&
-                        activation.previousRevision != null
-                if (hasPrevious) {
-                    storage.rollback(modelId)
-                    storage.clearPrevious(modelId)
-                } else {
-                    storage.clearActivation(modelId)
+                if (removingActive) {
+                    val hasPrevious =
+                        activation.previousVersion != null &&
+                            activation.previousRevision != null
+                    if (hasPrevious) {
+                        storage.rollback(modelId)
+                        storage.clearPrevious(modelId)
+                    } else {
+                        storage.clearActivation(modelId)
+                    }
                 }
-            }
 
-            storage.removeVersion(modelId, version, revision)
+                storage.removeVersion(modelId, version, revision)
+            }
             clearOperation(modelId)
         }
     }
@@ -373,7 +375,10 @@ class DefaultModelManager(
     override suspend fun rollback(modelId: String) {
         val mutex = modelMutexes.computeIfAbsent(modelId) { Mutex() }
         mutex.withLock {
-            val state = storage.activationState(modelId)
+            val state =
+                withContext(blockingDispatcher) {
+                    storage.activationState(modelId)
+                }
             val activeVersion = state.activeVersion
             val activeRevision = state.activeRevision
             if (activeVersion != null && activeRevision != null) {
@@ -388,7 +393,9 @@ class DefaultModelManager(
                         builtin.sourceType == ModelSourceType.BUILTIN_WITH_OVERRIDE)
 
             try {
-                storage.rollback(modelId)
+                withContext(blockingDispatcher) {
+                    storage.rollback(modelId)
+                }
             } catch (error: IllegalStateException) {
                 if (!hasBuiltinFallback ||
                     activeVersion == null ||
@@ -396,7 +403,9 @@ class DefaultModelManager(
                 ) {
                     throw error
                 }
-                storage.clearActivation(modelId)
+                withContext(blockingDispatcher) {
+                    storage.clearActivation(modelId)
+                }
             }
             clearOperation(modelId)
         }
