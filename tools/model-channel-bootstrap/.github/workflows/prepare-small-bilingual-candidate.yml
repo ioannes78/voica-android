@@ -1,0 +1,32 @@
+name: Prepare Small Bilingual Candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Voica model revision
+        required: true
+        default: "1"
+
+permissions:
+  contents: read
+
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build deterministic slim package
+        env:
+          REVISION: ${{ inputs.revision }}
+        run: bash scripts/prepare-small-bilingual.sh
+
+      - name: Upload candidate package and metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: small-bilingual-candidate-r${{ inputs.revision }}
+          path: |
+            dist/*.zip
+            dist/candidate-small-bilingual.json
+          if-no-files-found: error
