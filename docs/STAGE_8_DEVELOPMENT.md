@@ -95,3 +95,16 @@ Implementation gates:
 - Final Stage 8 model-channel acceptance requires: repository creation, candidate CI,
   real package SHA/file SHA manifest entries, Android download + native smoke activation,
   and a human-gated production manifest merge.
+
+
+## Stage 8O long-duration and production ASR package correction
+
+- Added pure-JVM virtual 30/60/120 minute pipeline tests. They exercise the full VAD -> first-pass ASR -> punctuation path with fixed 4,096-sample reads, absolute Long sample indices and no whole-file PCM allocation.
+- Added cancellation coverage during a virtual 120-minute VAD scan; cancellation must close VAD/PCM resources and must not open ASR or punctuation engines.
+- Official sherpa-onnx Small Bilingual int8 examples use the int8 encoder and joiner with the fp32 decoder. Voica therefore freezes the production Fast ASR layout as:
+  - `encoder.int8.onnx`
+  - `decoder.onnx`
+  - `joiner.int8.onnx`
+  - `tokens.txt`
+- The upstream model sizes are approximately 41 MB + 14 MB + 3.1 MB plus tokens, so the Voica model-channel candidate should be expected to be roughly 58–60 MB before/around packaging, not the earlier ~48 MB estimate.
+- Rockchip RK356x/RK3576/RK3588 ~50 MB release assets are accelerator-specific and are not valid substitutes for the generic Android arm64 CPU package.
