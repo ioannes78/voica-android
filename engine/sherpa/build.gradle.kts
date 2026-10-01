@@ -29,6 +29,11 @@ kotlin {
 }
 
 dependencies {
+    implementation(project(":core:audio"))
+    implementation(project(":core:model"))
+    implementation(project(":core:transcript"))
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
+
     api("com.github.k2-fsa.sherpa-onnx:sherpa-onnx:v1.13.8")
 
     testImplementation(kotlin("test-junit"))
