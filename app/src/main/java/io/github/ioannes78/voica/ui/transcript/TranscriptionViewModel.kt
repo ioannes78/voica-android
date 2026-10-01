@@ -107,6 +107,7 @@ class TranscriptionViewModel(
         mode: TranscriptionMode,
     ) {
         mutableNotice.value = null
+        mutableDocument.value = null
         if (!coordinator.start(recordingId, mode)) {
             mutableNotice.value = "已有转写任务正在运行，请先完成或取消当前任务"
         }

@@ -38,6 +38,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.ioannes78.voica.CanonicalAudioCoordinator
 import io.github.ioannes78.voica.R
+import io.github.ioannes78.voica.TranscriptionCoordinator
+import io.github.ioannes78.voica.TranscriptionRunState
 import io.github.ioannes78.voica.audio.PlaybackController
 import io.github.ioannes78.voica.ble.BleDiagnostics
 import io.github.ioannes78.voica.ble.BleError
@@ -54,6 +56,7 @@ import io.github.ioannes78.voica.ble.RecordingFreshness
 import io.github.ioannes78.voica.ble.RemoteDeleteDiagnostics
 import io.github.ioannes78.voica.ble.RangeProbeDiagnostics
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
+import io.github.ioannes78.voica.database.TranscriptionRepository
 import io.github.ioannes78.voica.protocol.BatteryState
 import io.github.ioannes78.voica.protocol.RecordingStatus
 import io.github.ioannes78.voica.model.ModelManager
@@ -63,6 +66,10 @@ import io.github.ioannes78.voica.ui.files.LocalRecordingsCard
 import io.github.ioannes78.voica.ui.playback.PlaybackCard
 import io.github.ioannes78.voica.ui.playback.PlaybackViewModel
 import io.github.ioannes78.voica.ui.recording.RecordingCard
+import io.github.ioannes78.voica.ui.transcript.TranscriptDocumentHeader
+import io.github.ioannes78.voica.ui.transcript.TranscriptSegmentCard
+import io.github.ioannes78.voica.ui.transcript.TranscriptionStatusCard
+import io.github.ioannes78.voica.ui.transcript.TranscriptionViewModel
 import io.github.ioannes78.voica.ui.model.ModelManagerCard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -75,6 +82,8 @@ fun VoicaApp(
     canonicalAudioCoordinator: CanonicalAudioCoordinator,
     playbackController: PlaybackController,
     modelManager: ModelManager,
+    transcriptionCoordinator: TranscriptionCoordinator,
+    transcriptionRepository: TranscriptionRepository,
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val deviceViewModel: DeviceViewModel = viewModel(
@@ -98,6 +107,18 @@ fun VoicaApp(
             PlaybackViewModel.Factory(
                 playbackController,
                 recordingLibraryRepository,
+            )
+        },
+    )
+
+    val transcriptionViewModel: TranscriptionViewModel = viewModel(
+        factory = remember(
+            transcriptionCoordinator,
+            transcriptionRepository,
+        ) {
+            TranscriptionViewModel.Factory(
+                transcriptionCoordinator,
+                transcriptionRepository,
             )
         },
     )
@@ -132,6 +153,7 @@ fun VoicaApp(
                 padding,
                 deviceViewModel,
                 playbackViewModel,
+                transcriptionViewModel,
             )
             else -> SettingsScreen(padding, modelManager)
         }
@@ -183,7 +205,7 @@ private fun DeviceScreen(
                 style = MaterialTheme.typography.headlineLarge,
             )
             Text(
-                stringResource(R.string.stage7_subtitle),
+                stringResource(R.string.stage8_subtitle),
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
@@ -350,11 +372,28 @@ private fun LocalFilesScreen(
     padding: PaddingValues,
     viewModel: DeviceViewModel,
     playbackViewModel: PlaybackViewModel,
+    transcriptionViewModel: TranscriptionViewModel,
 ) {
     val recordings by viewModel.libraryRecordings.collectAsState(initial = emptyList())
     val playback by playbackViewModel.snapshot.collectAsState()
+    val transcriptionState by transcriptionViewModel.runState.collectAsState()
+    val transcriptDocument by transcriptionViewModel.document.collectAsState()
+    val transcriptionNotice by transcriptionViewModel.notice.collectAsState()
     val playbackName =
         recordings.firstOrNull { it.id == playback.recordingId }?.displayName
+    val transcriptionRecordingId =
+        when (val state = transcriptionState) {
+            TranscriptionRunState.Idle -> null
+            is TranscriptionRunState.Running -> state.recordingId
+            is TranscriptionRunState.Completed -> state.recordingId
+            is TranscriptionRunState.Failed -> state.recordingId
+            is TranscriptionRunState.Cancelled -> state.recordingId
+        }
+    val transcriptionRecordingName =
+        recordings.firstOrNull { it.id == transcriptionRecordingId }?.displayName
+    val transcriptRecordingName =
+        recordings.firstOrNull { it.id == transcriptDocument?.recordingId }?.displayName
+    val transcriptionBusy = transcriptionState is TranscriptionRunState.Running
 
     LazyColumn(
         modifier = Modifier
@@ -386,6 +425,34 @@ private fun LocalFilesScreen(
                 )
             }
         }
+
+        if (transcriptionState !is TranscriptionRunState.Idle ||
+            transcriptionNotice != null
+        ) {
+            item {
+                TranscriptionStatusCard(
+                    state = transcriptionState,
+                    recordingName = transcriptionRecordingName,
+                    notice = transcriptionNotice,
+                    onCancel = transcriptionViewModel::cancel,
+                )
+            }
+        }
+
+        transcriptDocument?.let { document ->
+            item {
+                TranscriptDocumentHeader(
+                    document = document,
+                    recordingName = transcriptRecordingName,
+                )
+            }
+            items(
+                items = document.segments,
+                key = { segment -> segment.segmentIndex },
+            ) { segment ->
+                TranscriptSegmentCard(segment)
+            }
+        }
         item {
             LocalRecordingsCard(
                 recordings = recordings,
@@ -394,6 +461,10 @@ private fun LocalFilesScreen(
                 onDeleteLocal = playbackViewModel::deleteRecording,
                 onGenerateCanonical = viewModel::generateCanonicalAudio,
                 onCancelCanonical = viewModel::cancelCanonicalAudio,
+                transcriptionBusy = transcriptionBusy,
+                onTranscribeFast = transcriptionViewModel::startFast,
+                onTranscribeHighQuality = transcriptionViewModel::startHighQuality,
+                onViewTranscript = transcriptionViewModel::viewLatest,
             )
         }
     }

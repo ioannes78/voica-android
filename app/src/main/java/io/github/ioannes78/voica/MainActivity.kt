@@ -31,6 +31,8 @@ class MainActivity : ComponentActivity() {
                     canonicalAudioCoordinator = canonicalAudioCoordinator,
                     playbackController = appContainer.playbackController,
                     modelManager = appContainer.modelManager,
+                    transcriptionCoordinator = appContainer.transcriptionCoordinator,
+                    transcriptionRepository = appContainer.transcriptionRepository,
                 )
             }
         }

@@ -51,6 +51,10 @@ fun LocalRecordingsCard(
     onDeleteLocal: (String) -> Unit,
     onGenerateCanonical: (String) -> Unit,
     onCancelCanonical: (String) -> Unit,
+    transcriptionBusy: Boolean,
+    onTranscribeFast: (String) -> Unit,
+    onTranscribeHighQuality: (String) -> Unit,
+    onViewTranscript: (String) -> Unit,
 ) {
     var pendingDelete by remember { mutableStateOf<RecordingLibraryItem?>(null) }
     var pendingRename by remember { mutableStateOf<RecordingLibraryItem?>(null) }
@@ -131,6 +135,10 @@ fun LocalRecordingsCard(
                         onDelete = { pendingDelete = item },
                         onGenerateCanonical = { onGenerateCanonical(item.id) },
                         onCancelCanonical = { onCancelCanonical(item.id) },
+                        transcriptionBusy = transcriptionBusy,
+                        onTranscribeFast = { onTranscribeFast(item.id) },
+                        onTranscribeHighQuality = { onTranscribeHighQuality(item.id) },
+                        onViewTranscript = { onViewTranscript(item.id) },
                     )
                     if (index != sortedRecordings.lastIndex) {
                         HorizontalDivider()
@@ -220,6 +228,10 @@ private fun RecordingRow(
     onDelete: () -> Unit,
     onGenerateCanonical: () -> Unit,
     onCancelCanonical: () -> Unit,
+    transcriptionBusy: Boolean,
+    onTranscribeFast: () -> Unit,
+    onTranscribeHighQuality: () -> Unit,
+    onViewTranscript: () -> Unit,
 ) {
     val profileDerivations = item.derivations.filter {
         it.profileId == CanonicalPcmProfile.PROFILE_ID
@@ -301,8 +313,27 @@ private fun RecordingRow(
         )
 
         if (canonicalReady) {
-            OutlinedButton(onClick = onPlay) {
-                Text(stringResource(R.string.playback_play))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onPlay) {
+                    Text(stringResource(R.string.playback_play))
+                }
+                OutlinedButton(onClick = onViewTranscript) {
+                    Text(stringResource(R.string.transcription_view_latest))
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    enabled = !transcriptionBusy,
+                    onClick = onTranscribeFast,
+                ) {
+                    Text(stringResource(R.string.transcription_start_fast))
+                }
+                OutlinedButton(
+                    enabled = !transcriptionBusy,
+                    onClick = onTranscribeHighQuality,
+                ) {
+                    Text(stringResource(R.string.transcription_start_high_quality))
+                }
             }
         }
 
