@@ -53,17 +53,44 @@ a distinct candidate revision after Android accuracy/stability validation.
 Do not substitute the ~49 MB RK356x/RK3588 release assets. Those are Rockchip-targeted
 packages and are not the generic Android arm64 CPU package used by Voica.
 
+## Additional Stage 8 candidates
+
+The bootstrap also contains pinned, deterministic candidate builders for:
+
+- CT-Transformer zh-en int8 punctuation:
+  - release asset id `264954276`
+  - pinned archive size `64717756` bytes
+  - pinned SHA-256 `c0d5aa5f8eeb686032345e180bedf39319dc2e0556781c6264bcadba8328a6e1`
+  - installed payload: `model.int8.onnx`
+- SenseVoice 2024 int8 second-pass ASR:
+  - release asset id `288366523`
+  - pinned archive size `163002883` bytes
+  - pinned SHA-256 `7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e`
+  - installed payload: `model.int8.onnx` + `tokens.txt`
+
+The SenseVoice source is the official 2024-07-17 int8-only archive, not the much
+larger archive that also carries the fp32 model.
+
 ## Repository initialization
 
-After the empty `voica-model-channel` repository is created, copy:
+The public repository `ioannes78/voica-model-channel` now exists, but it still has
+zero commits. GitHub must create its first commit once (for example, "Add a README")
+before the connected contents API can write files into it.
 
+After that first commit, copy the complete bootstrap tree:
+
+- `manifests/production.json`
 - `scripts/prepare-small-bilingual.sh`
-- `.github/workflows/prepare-small-bilingual-candidate.yml`
+- `scripts/prepare-punctuation.sh`
+- `scripts/prepare-sensevoice.sh`
+- `scripts/validate-production-manifest.py`
+- all workflows under `.github/workflows/`
 
-Then add `manifests/production.json`. The production manifest must always include
-the Silero baseline entry expected by the app plus any downloadable ASR,
-punctuation, and second-pass entries. A candidate package must not enter
-`production.json` until its real-device smoke test is recorded.
+The initial production manifest intentionally contains only the Silero baseline.
+A downloadable candidate must not enter `production.json` until its package/file
+integrity checks and Android native smoke test are recorded. The manifest validation
+workflow verifies the models-array digest, SHA-256 fields, HTTPS download URLs and
+duplicate model IDs before production changes are merged.
 
 The Android app currently reads:
 
