@@ -370,6 +370,8 @@ private fun ModelAvailabilityRow(
                             availability.activeRevision != availability.builtinRevision
                         )
                 )
+    val retainedDownloadedBytes = operation?.downloadedBytes
+    val retainedTotalBytes = operation?.totalBytes
 
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -450,15 +452,15 @@ private fun ModelAvailabilityRow(
             }
         } else if (
             operation?.state == ModelState.LOAD_FAILED &&
-            operation.downloadedBytes != null &&
-            operation.totalBytes != null &&
-            operation.downloadedBytes > 0L
+            retainedDownloadedBytes != null &&
+            retainedTotalBytes != null &&
+            retainedDownloadedBytes > 0L
         ) {
             Text(
                 "已保留 " +
-                    formatBytes(operation.downloadedBytes) +
+                    formatBytes(retainedDownloadedBytes) +
                     " / " +
-                    formatBytes(operation.totalBytes) +
+                    formatBytes(retainedTotalBytes) +
                     "，可继续下载",
                 style = MaterialTheme.typography.bodySmall,
             )
