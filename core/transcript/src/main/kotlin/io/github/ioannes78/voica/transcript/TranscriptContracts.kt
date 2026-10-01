@@ -211,6 +211,7 @@ fun relativeSecondsToAbsoluteSampleIndex(
 fun mapRelativeTokensToAbsolute(
     tokens: List<RelativeTimedToken>,
     segment: SpeechSegment,
+    source: TokenSource = TokenSource.FIRST_PASS,
 ): List<TranscriptToken> {
     var previousStart: Long? = null
     return tokens.map { token ->
@@ -237,7 +238,7 @@ fun mapRelativeTokensToAbsolute(
             text = token.text,
             startSampleIndex = start,
             endSampleIndexExclusive = end,
-            source = TokenSource.FIRST_PASS,
+            source = source,
         )
     }
 }
