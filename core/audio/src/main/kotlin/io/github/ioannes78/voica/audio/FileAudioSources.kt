@@ -55,6 +55,7 @@ class CanonicalWavPcmSource(
 
     override val sampleRateHz: Int = CanonicalPcmProfile.SAMPLE_RATE_HZ
     override val channelCount: Int = CanonicalPcmProfile.CHANNEL_COUNT
+    override val totalSampleCount: Long = info.frameCount
 
     override suspend fun read(
         target: ShortArray,

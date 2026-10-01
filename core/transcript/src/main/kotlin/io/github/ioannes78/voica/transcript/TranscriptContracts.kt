@@ -148,7 +148,6 @@ interface VadEngine : Closeable {
 
     suspend fun analyze(
         source: PcmSource,
-        totalSampleCount: Long,
         progressListener: ProgressListener? = null,
     ): List<SpeechSegment>
 }

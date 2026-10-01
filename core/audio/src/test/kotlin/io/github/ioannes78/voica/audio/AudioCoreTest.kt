@@ -88,6 +88,7 @@ class AudioCoreTest {
             }
 
             CanonicalWavPcmSource(file).use { source ->
+                assertEquals(5L, source.totalSampleCount)
                 val first = ShortArray(3)
                 val firstRead = kotlinx.coroutines.runBlocking { source.read(first) }!!
                 assertEquals(0L, firstRead.startSampleIndex)

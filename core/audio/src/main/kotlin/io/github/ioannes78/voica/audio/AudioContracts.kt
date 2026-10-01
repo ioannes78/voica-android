@@ -74,6 +74,7 @@ interface PcmSourceResolver {
 interface PcmSource : Closeable {
     val sampleRateHz: Int
     val channelCount: Int
+    val totalSampleCount: Long
 
     /**
      * Reads signed PCM16 little-endian samples into [target].
