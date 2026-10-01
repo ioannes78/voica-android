@@ -281,9 +281,13 @@ class DefaultModelManager(
     }
 
     override suspend fun cancelInstall(modelId: String) {
-        installJobs[modelId]?.cancel(
+        val job = installJobs[modelId] ?: return
+        job.cancel(
             CancellationException("model install cancelled"),
         )
+        if (job !== currentCoroutineContext()[Job]) {
+            job.join()
+        }
     }
 
     override suspend fun confirmInstalledVersion(
