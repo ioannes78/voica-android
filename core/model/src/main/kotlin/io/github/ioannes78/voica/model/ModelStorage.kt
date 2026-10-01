@@ -199,6 +199,26 @@ class ModelStorage(
         )
     }
 
+    fun installedVersion(descriptor: ModelDescriptor): InstalledModelVersion? {
+        val directory =
+            versionDirectory(
+                descriptor.modelId,
+                descriptor.version,
+                descriptor.revision,
+            )
+        if (!directory.isDirectory) return null
+        if (verifyDirectory(descriptor, directory) != ModelVerificationResult.Valid) {
+            return null
+        }
+        return InstalledModelVersion(
+            modelId = descriptor.modelId,
+            version = descriptor.version,
+            revision = descriptor.revision,
+            directory = directory,
+            confirmedGood = confirmedMarker(directory).isFile,
+        )
+    }
+
     fun activeDirectory(modelId: String): File? {
         val state = activationState(modelId)
         val version = state.activeVersion ?: return null

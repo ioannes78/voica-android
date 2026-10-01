@@ -1,5 +1,7 @@
 package io.github.ioannes78.voica.model
 
+import kotlinx.coroutines.flow.StateFlow
+
 enum class ModelKind {
     ASR_STREAMING,
     ASR_SECOND_PASS,
@@ -169,28 +171,63 @@ data class ModelAvailability(
     val descriptor: ModelDescriptor,
     val state: ModelState,
     val builtinVersion: String? = null,
+    val builtinRevision: Long? = null,
     val installedVersion: String? = null,
     val installedRevision: Long? = null,
     val availableVersion: String? = null,
     val availableRevision: Long? = null,
     val activeVersion: String? = null,
+    val activeRevision: Long? = null,
     val updateAvailable: Boolean = false,
 )
 
+data class ModelOperationStatus(
+    val state: ModelState,
+    val downloadedBytes: Long? = null,
+    val totalBytes: Long? = null,
+    val errorMessage: String? = null,
+) {
+    init {
+        require(downloadedBytes == null || downloadedBytes >= 0L)
+        require(totalBytes == null || totalBytes >= 0L)
+        if (downloadedBytes != null && totalBytes != null) {
+            require(downloadedBytes <= totalBytes)
+        }
+    }
+}
+
+fun interface ModelCatalogProvider {
+    suspend fun load(force: Boolean): ModelCatalog
+}
+
 interface ModelManager {
+    val operations: StateFlow<Map<String, ModelOperationStatus>>
+
     suspend fun catalog(): ModelCatalog
 
     suspend fun availability(modelId: String): ModelAvailability?
 
     suspend fun checkForUpdates(force: Boolean = false): ModelCatalog
 
-    suspend fun install(modelId: String, version: String)
+    suspend fun install(
+        modelId: String,
+        version: String,
+        revision: Long,
+    )
 
     suspend fun cancelInstall(modelId: String)
 
-    suspend fun confirmInstalledVersion(modelId: String, version: String)
+    suspend fun confirmInstalledVersion(
+        modelId: String,
+        version: String,
+        revision: Long,
+    )
 
-    suspend fun removeDownloadedVersion(modelId: String, version: String)
+    suspend fun removeDownloadedVersion(
+        modelId: String,
+        version: String,
+        revision: Long,
+    )
 
     suspend fun rollback(modelId: String)
 }
