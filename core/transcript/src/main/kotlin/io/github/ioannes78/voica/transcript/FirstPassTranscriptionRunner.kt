@@ -102,7 +102,13 @@ internal class FirstPassTranscriptionRunner(
             "canonical PCM sample count changed between VAD and ASR"
         }
 
-        val engine = asrEngineFactory.open()
+        val engine =
+            try {
+                asrEngineFactory.open()
+            } catch (error: Throwable) {
+                source.close()
+                throw error
+            }
         require(engine.capabilities.supportsStreaming) {
             "first-pass transcription requires a streaming ASR engine"
         }
