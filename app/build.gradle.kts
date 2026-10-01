@@ -49,6 +49,7 @@ dependencies {
     implementation(project(":core:database"))
     implementation(project(":core:audio"))
     implementation(project(":core:model"))
+    implementation(project(":core:transcript"))
     implementation(project(":engine:opus"))
     implementation(project(":engine:playback"))
     implementation(project(":engine:sherpa"))

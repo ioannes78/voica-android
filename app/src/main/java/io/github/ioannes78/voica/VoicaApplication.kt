@@ -9,6 +9,7 @@ import io.github.ioannes78.voica.audio.PcmSourceResolver
 import io.github.ioannes78.voica.ble.DefaultDeviceRepository
 import io.github.ioannes78.voica.ble.DeviceRepository
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
+import io.github.ioannes78.voica.database.TranscriptionRepository
 import io.github.ioannes78.voica.database.VoicaDatabase
 import io.github.ioannes78.voica.playback.AndroidPlaybackController
 import io.github.ioannes78.voica.model.ModelUseRegistry
@@ -66,6 +67,23 @@ class AppContainer(
         createVoicaModelManager(
             application = application,
             useRegistry = modelUseRegistry,
+        )
+
+    val transcriptionRepository =
+        TranscriptionRepository(recordingDatabase)
+
+    val transcriptionCoordinator =
+        TranscriptionCoordinator(
+            scope = applicationScope,
+            pcmSourceResolver = pcmSourceResolver,
+            transcriptionRepository = transcriptionRepository,
+            loadCanonicalLineage = recordingLibraryRepository::loadCanonicalTranscriptionLineage,
+            modelManager = modelManager,
+            modelUseRegistry = modelUseRegistry,
+            engineProvider =
+                SherpaStage8TranscriptionEngineProvider(
+                    assetManager = application.assets,
+                ),
         )
 
     val playbackController =
@@ -137,6 +155,7 @@ class AppContainer(
             recordingLibraryRepository.normalizeStandardDeviceDisplayNames()
             recordingLibraryRepository.reconcilePendingDeletes()
             canonicalAudioCoordinator.reconcileOnStartup()
+            transcriptionCoordinator.reconcileOnStartup()
         }
     }
 }
