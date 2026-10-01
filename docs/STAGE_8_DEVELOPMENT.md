@@ -84,17 +84,24 @@ Implementation gates:
 
 ## Model-channel delivery status
 
-- The independent repository `ioannes78/voica-model-channel` does not yet exist.
-- Therefore the Android production URL intentionally cannot deliver downloadable
-  ASR/punctuation/second-pass models yet; Stage 8 must not be frozen in that state.
-- A bootstrap template is maintained under `tools/model-channel-bootstrap/`.
-- The generic Android first-pass package must be produced by slimming the documented
-  upstream Small Bilingual int8 model to encoder/decoder/joiner/tokens. The ~49 MB
-  RK35xx assets published upstream in 2026 are hardware-specific and are not substitutes
-  for the generic Android CPU package.
-- Final Stage 8 model-channel acceptance requires: repository creation, candidate CI,
-  real package SHA/file SHA manifest entries, Android download + native smoke activation,
-  and a human-gated production manifest merge.
+- The independent public repository `ioannes78/voica-model-channel` now exists.
+- It currently has zero commits, so GitHub has not created `main` content yet and the
+  Android production manifest URL still cannot serve a file.
+- The connected GitHub contents API cannot create the repository's first commit; one
+  initial commit must be created once from the GitHub UI before automated bootstrap.
+- The complete bootstrap is maintained under `tools/model-channel-bootstrap/`:
+  initial Silero-only production manifest, manifest validator, Small Bilingual,
+  CT-Transformer and SenseVoice candidate builders, and their GitHub Actions workflows.
+- The generic Android first-pass package uses the documented encoder-int8 /
+  decoder-fp32 / joiner-int8 / tokens combination; RK35xx accelerator assets remain
+  out of scope for the generic Android CPU path.
+- CT-Transformer uses the official 2024-04-12 int8 release asset pinned by byte size
+  and SHA-256.
+- SenseVoice uses the official 2024-07-17 int8-only release asset (not the fp32+int8
+  archive), also pinned by byte size and SHA-256.
+- Final Stage 8 model-channel acceptance still requires: first repository commit,
+  bootstrap copy, candidate CI, package/file hashes in the production manifest,
+  Android download + native smoke activation, and a human-gated production merge.
 
 
 ## Stage 8O long-duration and production ASR package verification
@@ -124,3 +131,16 @@ Implementation gates:
 - Long-duration 30/60/120 minute synthetic tests now advance the absolute sample
   cursor without repeatedly filling zero PCM buffers, preserving the same bounded-read
   assertions with lower CI CPU cost.
+
+
+## Stage 8Q model-channel bootstrap hardening
+
+- Android PR CI #232 passed at commit `da7039e6b727ee529daad2c1528a6e58daea252a`
+  after the bootstrap-catalog regression test was changed to read the committed asset
+  directly rather than relying on Robolectric asset packaging.
+- Added deterministic candidate builders and manual-dispatch workflows for
+  CT-Transformer punctuation and SenseVoice 2024 int8.
+- Added an initial Silero-only production manifest template plus an independent
+  production-manifest validator workflow.
+- These bootstrap-only files are outside the Android PR CI path filter; the latest
+  Android code/test baseline remains CI #232 until an Android/docs path changes.
