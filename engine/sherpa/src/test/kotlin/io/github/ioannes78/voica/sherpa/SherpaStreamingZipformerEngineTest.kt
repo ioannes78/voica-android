@@ -198,7 +198,7 @@ class SherpaStreamingZipformerEngineTest {
     private fun fakeFiles() =
         ZipformerModelFiles(
             encoder = File("/tmp/encoder.int8.onnx"),
-            decoder = File("/tmp/decoder.onnx"),
+            decoder = File("/tmp/decoder.int8.onnx"),
             joiner = File("/tmp/joiner.int8.onnx"),
             tokens = File("/tmp/tokens.txt"),
         )

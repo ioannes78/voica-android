@@ -97,14 +97,15 @@ Implementation gates:
   and a human-gated production manifest merge.
 
 
-## Stage 8O long-duration and production ASR package correction
+## Stage 8O long-duration and production ASR package verification
 
 - Added pure-JVM virtual 30/60/120 minute pipeline tests. They exercise the full VAD -> first-pass ASR -> punctuation path with fixed 4,096-sample reads, absolute Long sample indices and no whole-file PCM allocation.
 - Added cancellation coverage during a virtual 120-minute VAD scan; cancellation must close VAD/PCM resources and must not open ASR or punctuation engines.
-- Official sherpa-onnx Small Bilingual int8 examples use the int8 encoder and joiner with the fp32 decoder. Voica therefore freezes the production Fast ASR layout as:
-  - `encoder.int8.onnx`
-  - `decoder.onnx`
-  - `joiner.int8.onnx`
+- Re-verified the exact sherpa-onnx Small Bilingual zh-en 2023-02-16 int8 layout against the model-specific upstream documentation. The correct generic CPU files are:
+  - `encoder.int8.onnx` (renamed from `encoder-epoch-99-avg-1.int8.onnx`)
+  - `decoder.int8.onnx` (renamed from `decoder-epoch-99-avg-1.int8.onnx`)
+  - `joiner.int8.onnx` (renamed from `joiner-epoch-99-avg-1.int8.onnx`)
   - `tokens.txt`
-- The upstream model sizes are approximately 41 MB + 14 MB + 3.1 MB plus tokens, so the Voica model-channel candidate should be expected to be roughly 58–60 MB before/around packaging, not the earlier ~48 MB estimate.
+- The upstream model-specific documentation lists the int8 components at approximately 41 MB + 3.4 MB + 3.1 MB plus about 55 KB of tokens, so the installed Voica first-pass payload remains roughly 47–48 MB before filesystem overhead.
+- Do not infer this model's decoder layout from other Zipformer releases. Several newer or different Zipformer models use an fp32 `decoder.onnx`, but that is not the documented int8 layout for Small Bilingual zh-en 2023-02-16.
 - Rockchip RK356x/RK3576/RK3588 ~50 MB release assets are accelerator-specific and are not valid substitutes for the generic Android arm64 CPU package.

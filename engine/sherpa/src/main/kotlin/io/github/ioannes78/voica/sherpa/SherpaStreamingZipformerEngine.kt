@@ -22,7 +22,7 @@ import kotlin.math.roundToLong
 
 object SmallBilingualZipformerLayout {
     const val ENCODER = "encoder.int8.onnx"
-    const val DECODER = "decoder.onnx"
+    const val DECODER = "decoder.int8.onnx"
     const val JOINER = "joiner.int8.onnx"
     const val TOKENS = "tokens.txt"
 
