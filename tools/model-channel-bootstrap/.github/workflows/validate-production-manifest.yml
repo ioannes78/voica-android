@@ -1,0 +1,26 @@
+name: Validate Production Manifest
+
+on:
+  pull_request:
+    paths:
+      - "manifests/**"
+      - "scripts/validate-production-manifest.py"
+      - ".github/workflows/validate-production-manifest.yml"
+  push:
+    branches: [ main ]
+    paths:
+      - "manifests/**"
+      - "scripts/validate-production-manifest.py"
+      - ".github/workflows/validate-production-manifest.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate production catalog
+        run: python3 scripts/validate-production-manifest.py manifests/production.json
