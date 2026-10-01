@@ -12,12 +12,17 @@ import androidx.room.RoomDatabase
         AudioDerivationEntity::class,
         LibraryMetaEntity::class,
         MigrationDiagnosticEntity::class,
+        TranscriptionEntity::class,
+        TranscriptSegmentEntity::class,
+        TranscriptTokenEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class VoicaDatabase : RoomDatabase() {
     abstract fun recordingDao(): RecordingDao
+
+    abstract fun transcriptionDao(): TranscriptionDao
 
     companion object {
         const val DATABASE_NAME = "voica-recordings.db"
@@ -27,6 +32,8 @@ abstract class VoicaDatabase : RoomDatabase() {
                 context.applicationContext,
                 VoicaDatabase::class.java,
                 DATABASE_NAME,
-            ).build()
+            )
+                .addMigrations(MIGRATION_1_2)
+                .build()
     }
 }
