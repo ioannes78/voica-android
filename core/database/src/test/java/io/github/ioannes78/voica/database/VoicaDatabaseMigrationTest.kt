@@ -140,9 +140,6 @@ class VoicaDatabaseMigrationTest {
                 assertEquals("asset-canonical", cursor.getString(1))
             }
 
-            assertEquals(0, migrated.countRows("recordings"))
-            assertEquals(0, migrated.countRows("audio_assets"))
-            assertEquals(0, migrated.countRows("audio_derivations"))
             assertEquals(0, migrated.countRows("transcriptions"))
             assertEquals(0, migrated.countRows("transcript_segments"))
             assertEquals(0, migrated.countRows("transcript_tokens"))
@@ -200,6 +197,9 @@ class VoicaDatabaseMigrationTest {
 
             migrated.execSQL("DELETE FROM recordings WHERE id = 'rec-1'")
 
+            assertEquals(0, migrated.countRows("recordings"))
+            assertEquals(0, migrated.countRows("audio_assets"))
+            assertEquals(0, migrated.countRows("audio_derivations"))
             assertEquals(0, migrated.countRows("transcriptions"))
             assertEquals(0, migrated.countRows("transcript_segments"))
             assertEquals(0, migrated.countRows("transcript_tokens"))
