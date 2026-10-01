@@ -46,56 +46,140 @@ class HttpModelPackageDownloader(
         require(expectedBytes == null || expectedBytes >= 0L)
 
         destinationPart.parentFile?.mkdirs()
-        if (destinationPart.exists()) destinationPart.delete()
+        if (expectedBytes != null && destinationPart.length() > expectedBytes) {
+            destinationPart.delete()
+        }
+
+        var existingBytes =
+            destinationPart.takeIf { it.isFile }?.length() ?: 0L
+
+        if (expectedBytes != null && existingBytes == expectedBytes) {
+            progressListener?.onProgress(
+                ModelDownloadProgress(
+                    downloadedBytes = existingBytes,
+                    totalBytes = expectedBytes,
+                ),
+            )
+            return@withContext
+        }
 
         val connection = URL(url).openConnection() as HttpURLConnection
         connection.instanceFollowRedirects = true
         connection.connectTimeout = CONNECT_TIMEOUT_MS
         connection.readTimeout = READ_TIMEOUT_MS
         connection.requestMethod = "GET"
+        if (existingBytes > 0L) {
+            connection.setRequestProperty("Range", "bytes=${existingBytes}-")
+        }
 
         try {
             connection.connect()
             check(connection.url.protocol.equals("https", ignoreCase = true)) {
                 "model download redirect left HTTPS"
             }
+
             val code = connection.responseCode
-            check(code in 200..299) { "model download HTTP $code" }
+            val resumed =
+                existingBytes > 0L &&
+                    code == HttpURLConnection.HTTP_PARTIAL
+
+            if (resumed) {
+                val contentRange = connection.getHeaderField("Content-Range")
+                val expectedPrefix = "bytes ${existingBytes}-"
+                check(
+                    contentRange != null &&
+                        contentRange.startsWith(expectedPrefix),
+                ) { "model download returned invalid Content-Range" }
+            } else {
+                check(code in 200..299) { "model download HTTP $code" }
+                if (existingBytes > 0L) {
+                    destinationPart.delete()
+                    existingBytes = 0L
+                }
+            }
 
             val total =
                 expectedBytes
-                    ?: connection.contentLengthLong.takeIf { it >= 0L }
-            var downloaded = 0L
+                    ?: connection.contentLengthLong
+                        .takeIf { it >= 0L }
+                        ?.let { length ->
+                            if (resumed) existingBytes + length else length
+                        }
+
+            var downloaded = existingBytes
+            val emitter =
+                DownloadProgressEmitter(
+                    listener = progressListener,
+                    totalBytes = total,
+                )
+            emitter.emit(downloaded, force = true)
 
             BufferedInputStream(connection.inputStream, BUFFER_BYTES).use { input ->
-                FileOutputStream(destinationPart).buffered(BUFFER_BYTES).use { output ->
-                    val buffer = ByteArray(BUFFER_BYTES)
-                    while (true) {
-                        currentCoroutineContext().ensureActive()
-                        val read = input.read(buffer)
-                        if (read < 0) break
-                        if (read == 0) continue
-                        output.write(buffer, 0, read)
-                        downloaded += read
-                        check(expectedBytes == null || downloaded <= expectedBytes) {
-                            "download exceeded manifest size"
+                FileOutputStream(destinationPart, resumed)
+                    .buffered(BUFFER_BYTES)
+                    .use { output ->
+                        val buffer = ByteArray(BUFFER_BYTES)
+                        while (true) {
+                            currentCoroutineContext().ensureActive()
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            if (read == 0) continue
+                            output.write(buffer, 0, read)
+                            downloaded += read
+                            if (expectedBytes != null &&
+                                downloaded > expectedBytes
+                            ) {
+                                destinationPart.delete()
+                                error("download exceeded manifest size")
+                            }
+                            emitter.emit(downloaded)
                         }
-                        progressListener?.onProgress(
-                            ModelDownloadProgress(downloaded, total),
-                        )
+                        output.flush()
                     }
-                    output.flush()
-                }
             }
 
             check(expectedBytes == null || downloaded == expectedBytes) {
                 "download size mismatch: expected $expectedBytes, got $downloaded"
             }
-        } catch (error: Throwable) {
-            destinationPart.delete()
-            throw error
+            emitter.emit(downloaded, force = true)
         } finally {
             connection.disconnect()
+        }
+    }
+
+    private class DownloadProgressEmitter(
+        private val listener: ModelDownloadProgressListener?,
+        private val totalBytes: Long?,
+    ) {
+        private var lastBytes = Long.MIN_VALUE
+        private var lastNanos = 0L
+
+        suspend fun emit(
+            downloadedBytes: Long,
+            force: Boolean = false,
+        ) {
+            val target = listener ?: return
+            val now = System.nanoTime()
+            val enoughBytes =
+                lastBytes == Long.MIN_VALUE ||
+                    downloadedBytes - lastBytes >= PROGRESS_STEP_BYTES
+            val enoughTime =
+                lastNanos == 0L ||
+                    now - lastNanos >= PROGRESS_INTERVAL_NANOS
+            val complete =
+                totalBytes != null &&
+                    downloadedBytes >= totalBytes
+
+            if (force || complete || enoughBytes || enoughTime) {
+                target.onProgress(
+                    ModelDownloadProgress(
+                        downloadedBytes = downloadedBytes,
+                        totalBytes = totalBytes,
+                    ),
+                )
+                lastBytes = downloadedBytes
+                lastNanos = now
+            }
         }
     }
 
@@ -103,6 +187,8 @@ class HttpModelPackageDownloader(
         const val CONNECT_TIMEOUT_MS = 15_000
         const val READ_TIMEOUT_MS = 30_000
         const val BUFFER_BYTES = 64 * 1024
+        const val PROGRESS_STEP_BYTES = 512L * 1024L
+        const val PROGRESS_INTERVAL_NANOS = 250_000_000L
     }
 }
 
@@ -131,7 +217,8 @@ class ModelPackageExtractor {
         require(stagingDirectory.isDirectory)
         val format = descriptor.packageFormat
             ?: error("descriptor has no package format")
-        val expectedByPackagePath = descriptor.files.associateBy { normalize(it.packagePath) }
+        val expectedByPackagePath =
+            descriptor.files.associateBy { normalize(it.packagePath) }
 
         when (format) {
             ModelPackageFormat.SINGLE_FILE -> {
@@ -146,7 +233,9 @@ class ModelPackageExtractor {
             }
 
             ModelPackageFormat.ZIP ->
-                ZipInputStream(BufferedInputStream(FileInputStream(packageFile))).use { zip ->
+                ZipInputStream(
+                    BufferedInputStream(FileInputStream(packageFile)),
+                ).use { zip ->
                     while (true) {
                         val entry = zip.nextEntry ?: break
                         if (!entry.isDirectory) {
@@ -190,11 +279,6 @@ class ModelPackageExtractor {
                     }
                 }
         }
-
-        check(
-            ModelStorage(stagingDirectory.parentFile.parentFile)
-                .verifyDirectory(descriptor, stagingDirectory) == ModelVerificationResult.Valid,
-        ) { "extracted model files failed verification" }
     }
 
     private fun copyExpected(
@@ -223,7 +307,12 @@ class ModelPackageExtractor {
             val buffer = ByteArray(BUFFER_BYTES)
             while (written < expected.sizeBytes) {
                 val remaining = expected.sizeBytes - written
-                val read = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+                val read =
+                    input.read(
+                        buffer,
+                        0,
+                        minOf(buffer.size.toLong(), remaining).toInt(),
+                    )
                 check(read > 0) { "archive entry shorter than manifest" }
                 output.write(buffer, 0, read)
                 written += read

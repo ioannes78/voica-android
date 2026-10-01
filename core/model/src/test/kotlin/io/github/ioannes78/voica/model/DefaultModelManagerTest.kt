@@ -1,6 +1,7 @@
 package io.github.ioannes78.voica.model
 
 import java.io.File
+import java.io.FileOutputStream
 import java.nio.file.Files
 import java.security.MessageDigest
 import java.util.concurrent.CancellationException
@@ -283,6 +284,42 @@ class DefaultModelManagerTest {
     }
 
     @Test
+    fun recoverableDownloadFailureKeepsPartialPackageForResume() = runBlocking {
+        val bytes = "0123456789".toByteArray()
+        val descriptor = descriptor("v1", 1, bytes)
+        val downloader = PartialThenResumeDownloader(bytes)
+        val manager =
+            manager(
+                bundled = catalog(descriptor),
+                remoteProvider = null,
+                downloader = downloader,
+            )
+
+        try {
+            manager.install("asr", "v1", 1)
+            throw AssertionError("first attempt must fail")
+        } catch (_: IllegalStateException) {
+            // expected
+        }
+
+        val partial =
+            File(root, "packages")
+                .listFiles()
+                ?.singleOrNull { it.extension == "part" }
+                ?: throw AssertionError("partial package must be retained")
+        assertEquals(5L, partial.length())
+        val failed = manager.operations.value["asr"]!!
+        assertEquals(ModelState.LOAD_FAILED, failed.state)
+        assertEquals(5L, failed.downloadedBytes)
+
+        manager.install("asr", "v1", 1)
+
+        assertEquals(5L, downloader.secondAttemptExistingBytes)
+        assertEquals(ModelState.INSTALLED, manager.availability("asr")!!.state)
+        assertTrue(File(root, "packages").listFiles().isNullOrEmpty())
+    }
+
+    @Test
     fun failedCandidateValidationDoesNotChangeActiveVersion() = runBlocking {
         val baselineBytes = "baseline".toByteArray()
         val updateBytes = "update".toByteArray()
@@ -477,6 +514,39 @@ class DefaultModelManagerTest {
                     downloadedBytes = bytes.size.toLong(),
                     totalBytes = expectedBytes,
                 ),
+            )
+        }
+    }
+
+    private class PartialThenResumeDownloader(
+        private val bytes: ByteArray,
+    ) : ModelPackageDownloader {
+        private var attempts = 0
+        var secondAttemptExistingBytes: Long? = null
+
+        override suspend fun download(
+            url: String,
+            destinationPart: File,
+            expectedBytes: Long?,
+            progressListener: ModelDownloadProgressListener?,
+        ) {
+            attempts += 1
+            destinationPart.parentFile?.mkdirs()
+            if (attempts == 1) {
+                destinationPart.writeBytes(bytes.copyOfRange(0, 5))
+                progressListener?.onProgress(
+                    ModelDownloadProgress(5L, expectedBytes),
+                )
+                error("temporary network failure")
+            }
+
+            secondAttemptExistingBytes = destinationPart.length()
+            val start = destinationPart.length().toInt()
+            FileOutputStream(destinationPart, true).use { output ->
+                output.write(bytes, start, bytes.size - start)
+            }
+            progressListener?.onProgress(
+                ModelDownloadProgress(bytes.size.toLong(), expectedBytes),
             )
         }
     }

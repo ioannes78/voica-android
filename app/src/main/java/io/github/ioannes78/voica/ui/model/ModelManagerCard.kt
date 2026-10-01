@@ -392,6 +392,17 @@ private fun ModelAvailabilityRow(
             style = MaterialTheme.typography.bodySmall,
         )
 
+        if (
+            availability.builtinRevision != null &&
+            availability.activeRevision == availability.builtinRevision &&
+            !availability.updateAvailable
+        ) {
+            Text(
+                "APK 内置基线 · 已是最新版本；暂无远程更新",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+
         if (downloadedCandidateReady) {
             Text(
                 "已下载并校验 · 尚未启用",
@@ -412,7 +423,13 @@ private fun ModelAvailabilityRow(
             )
         }
 
-        if (operation?.state == ModelState.DOWNLOADING) {
+        if (operation?.state == ModelState.VERIFYING) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Text(
+                "正在后台校验、解包并准备模型…",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        } else if (operation?.state == ModelState.DOWNLOADING) {
             val downloaded = operation.downloadedBytes
             val total = operation.totalBytes
             if (downloaded != null && total != null && total > 0L) {
@@ -430,6 +447,23 @@ private fun ModelAvailabilityRow(
             }
             OutlinedButton(onClick = onCancel) {
                 Text("取消下载")
+            }
+        } else if (
+            operation?.state == ModelState.LOAD_FAILED &&
+            operation.downloadedBytes != null &&
+            operation.totalBytes != null &&
+            operation.downloadedBytes > 0L
+        ) {
+            Text(
+                "已保留 " +
+                    formatBytes(operation.downloadedBytes) +
+                    " / " +
+                    formatBytes(operation.totalBytes) +
+                    "，可继续下载",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Button(onClick = onInstall) {
+                Text("继续下载")
             }
         } else if (
             !downloadedCandidateReady &&

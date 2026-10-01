@@ -3,7 +3,10 @@ package io.github.ioannes78.voica.model
 import java.io.File
 import java.util.concurrent.CancellationException
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -11,6 +14,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 class DefaultModelManager(
     private val bundledCatalog: ModelCatalog,
@@ -22,6 +26,7 @@ class DefaultModelManager(
     private val extractor: ModelPackageExtractor = ModelPackageExtractor(),
     private val useRegistry: ModelUseRegistry = ModelUseRegistry(),
     private val candidateValidator: ModelCandidateValidator,
+    private val blockingDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ModelManager {
     private val packages = packageDirectory.canonicalFile
     private val catalogMutex = Mutex()
@@ -43,7 +48,8 @@ class DefaultModelManager(
     override suspend fun catalog(): ModelCatalog =
         remoteCatalog ?: bundledCatalog
 
-    override suspend fun activeModel(modelId: String): ActiveModel? {
+    override suspend fun activeModel(modelId: String): ActiveModel? =
+        withContext(blockingDispatcher) {
         val activation = storage.activationState(modelId)
         val activeVersion = activation.activeVersion
         val activeRevision = activation.activeRevision
@@ -55,7 +61,7 @@ class DefaultModelManager(
                     version = activeVersion,
                     revision = activeRevision,
                 ) ?: return null
-            return ActiveModel(
+            return@withContext ActiveModel(
                 descriptor = snapshot.descriptor,
                 manifestDigest = snapshot.manifestDigest,
                 installedDirectory =
@@ -68,8 +74,8 @@ class DefaultModelManager(
         val builtinAvailable =
             builtin.sourceType == ModelSourceType.BUILTIN ||
                 builtin.sourceType == ModelSourceType.BUILTIN_WITH_OVERRIDE
-        if (!builtinAvailable) return null
-        return ActiveModel(
+        if (!builtinAvailable) return@withContext null
+        return@withContext ActiveModel(
             descriptor = builtin,
             manifestDigest = bundledCatalog.manifestDigest,
             installedDirectory = null,
@@ -91,8 +97,11 @@ class DefaultModelManager(
         val builtin = bundledCatalog.model(modelId)
         val compatibility = effective.compatibilityWith(environment)
         val operation = operations.value[modelId]
-        val activation = storage.activationState(modelId)
-        val exactInstalled = storage.installedVersion(effective)
+        val (activation, exactInstalled) =
+            withContext(blockingDispatcher) {
+                storage.activationState(modelId) to
+                    storage.installedVersion(effective)
+            }
 
         val builtinAvailable =
             builtin != null &&
@@ -184,6 +193,7 @@ class DefaultModelManager(
                         descriptor.version + ".part",
                 )
             var staging: File? = null
+            var installCompleted = false
 
             try {
                 updateOperation(
@@ -205,40 +215,66 @@ class DefaultModelManager(
                     ),
                 )
 
-                extractor.verifyPackage(descriptor, packagePart)
-                staging = storage.createStagingDirectory(descriptor)
-                extractor.extract(descriptor, packagePart, staging)
-                storage.promoteVerifiedStaging(
-                    descriptor = descriptor,
-                    stagingDirectory = staging,
-                    manifestDigest = manifestDigest,
-                )
-                staging = null
+                withContext(blockingDispatcher) {
+                    extractor.verifyPackage(descriptor, packagePart)
+                    staging = storage.createStagingDirectory(descriptor)
+                    extractor.extract(
+                        descriptor = descriptor,
+                        packageFile = packagePart,
+                        stagingDirectory = checkNotNull(staging),
+                    )
+                    storage.promoteVerifiedStaging(
+                        descriptor = descriptor,
+                        stagingDirectory = checkNotNull(staging),
+                        manifestDigest = manifestDigest,
+                    )
+                    staging = null
+                }
+                installCompleted = true
 
                 updateOperation(
                     modelId,
                     ModelOperationStatus(state = ModelState.INSTALLED),
                 )
             } catch (cancelled: CancellationException) {
+                withContext(NonCancellable + blockingDispatcher) {
+                    packagePart.delete()
+                }
                 clearOperation(modelId)
                 throw cancelled
             } catch (error: Throwable) {
+                val integrityFailure = isIntegrityFailure(error)
+                if (integrityFailure) {
+                    withContext(blockingDispatcher) {
+                        packagePart.delete()
+                    }
+                }
+                val retainedBytes =
+                    withContext(blockingDispatcher) {
+                        packagePart.takeIf { it.isFile }?.length()
+                    }
                 updateOperation(
                     modelId,
                     ModelOperationStatus(
                         state =
-                            if (isIntegrityFailure(error)) {
+                            if (integrityFailure) {
                                 ModelState.CORRUPTED
                             } else {
                                 ModelState.LOAD_FAILED
                             },
+                        downloadedBytes = retainedBytes,
+                        totalBytes = descriptor.downloadSizeBytes,
                         errorMessage = error.message ?: error::class.java.simpleName,
                     ),
                 )
                 throw error
             } finally {
-                packagePart.delete()
-                staging?.deleteRecursively()
+                withContext(NonCancellable + blockingDispatcher) {
+                    if (installCompleted) {
+                        packagePart.delete()
+                    }
+                    staging?.deleteRecursively()
+                }
                 installJobs.remove(modelId, currentJob)
             }
         }
@@ -258,25 +294,29 @@ class DefaultModelManager(
         val mutex = modelMutexes.computeIfAbsent(modelId) { Mutex() }
         mutex.withLock {
             val snapshot =
-                storage.installedSnapshot(modelId, version, revision)
-                    ?: error("model candidate metadata is missing or failed integrity verification")
+                withContext(blockingDispatcher) {
+                    storage.installedSnapshot(modelId, version, revision)
+                } ?: error("model candidate metadata is missing or failed integrity verification")
             val descriptor = snapshot.descriptor
             require(descriptor.compatibilityWith(environment).compatible) {
                 "model is incompatible with this device/app/runtime"
             }
             val installed =
-                storage.installedVersion(descriptor)
-                    ?: error("model candidate is not installed or failed integrity verification")
+                withContext(blockingDispatcher) {
+                    storage.installedVersion(descriptor)
+                } ?: error("model candidate is not installed or failed integrity verification")
             updateOperation(
                 modelId,
                 ModelOperationStatus(state = ModelState.VERIFYING),
             )
             try {
-                candidateValidator.validate(
-                    descriptor = descriptor,
-                    installedDirectory = installed.directory,
-                )
-                storage.confirmGood(descriptor)
+                withContext(blockingDispatcher) {
+                    candidateValidator.validate(
+                        descriptor = descriptor,
+                        installedDirectory = installed.directory,
+                    )
+                    storage.confirmGood(descriptor)
+                }
                 updateOperation(
                     modelId,
                     ModelOperationStatus(state = ModelState.INSTALLED),
