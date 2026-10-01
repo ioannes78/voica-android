@@ -126,6 +126,63 @@ class DefaultModelManagerTest {
     }
 
     @Test
+    fun rollbackFromDownloadedOverrideReturnsToBuiltinBaseline() = runBlocking {
+        val baseline =
+            descriptor(
+                version = "baseline",
+                revision = 1,
+                bytes = "builtin".toByteArray(),
+                sourceType = ModelSourceType.BUILTIN_WITH_OVERRIDE,
+                builtinAssetPath = "models/silero.onnx",
+                downloadable = false,
+                modelId = "silero",
+                kind = ModelKind.VAD,
+            )
+        val updateBytes = "silero-v2".toByteArray()
+        val remote =
+            baseline.copy(
+                version = "v2",
+                revision = 2,
+                packageFormat = ModelPackageFormat.SINGLE_FILE,
+                downloadUrl = "https://example.invalid/silero-v2.bin",
+                downloadSizeBytes = updateBytes.size.toLong(),
+                installedSizeBytes = updateBytes.size.toLong(),
+                packageSha256 = sha256(updateBytes),
+                files =
+                    listOf(
+                        ModelFileDescriptor(
+                            relativePath = "model.bin",
+                            sizeBytes = updateBytes.size.toLong(),
+                            sha256 = sha256(updateBytes),
+                        ),
+                    ),
+            )
+        val manager =
+            manager(
+                bundled = catalog(baseline),
+                remoteProvider = ModelCatalogProvider { catalog(remote) },
+                downloader =
+                    FakeDownloader(
+                        mapOf(
+                            "https://example.invalid/silero-v2.bin" to updateBytes,
+                        ),
+                    ),
+            )
+
+        manager.checkForUpdates(true)
+        manager.install("silero", "v2", 2)
+        manager.confirmInstalledVersion("silero", "v2", 2)
+        assertEquals("v2", manager.availability("silero")!!.activeVersion)
+
+        manager.rollback("silero")
+
+        val rolledBack = manager.availability("silero")!!
+        assertEquals("baseline", rolledBack.activeVersion)
+        assertEquals(1L, rolledBack.activeRevision)
+        assertTrue(rolledBack.updateAvailable)
+    }
+
+    @Test
     fun cancellationDeletesPartialPackageAndClearsTransientOperation() = runBlocking {
         val descriptor = descriptor("v1", 1, "model".toByteArray())
         val downloader = BlockingDownloader()

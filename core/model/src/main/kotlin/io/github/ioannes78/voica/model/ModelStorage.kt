@@ -227,6 +227,15 @@ class ModelStorage(
         return directory.takeIf { it.isDirectory && confirmedMarker(it).isFile }
     }
 
+    fun clearActivation(modelId: String): ModelActivationState {
+        require(SAFE_PATH_SEGMENT_REGEX.matches(modelId))
+        val file = stateFile(modelId)
+        if (file.exists()) {
+            check(file.delete()) { "failed to clear model activation state" }
+        }
+        return ModelActivationState(null, null, null, null)
+    }
+
     fun rollback(modelId: String): ModelActivationState {
         val current = activationState(modelId)
         val previousVersion = current.previousVersion

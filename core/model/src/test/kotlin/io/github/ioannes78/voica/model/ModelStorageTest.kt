@@ -59,6 +59,23 @@ class ModelStorageTest {
     }
 
     @Test
+    fun clearActivationLeavesInstalledCandidateButNoActiveOverride() {
+        val storage = ModelStorage(root)
+        val descriptor = descriptor(version = "v1", revision = 1)
+        storage.promoteVerifiedStaging(
+            descriptor,
+            prepareStaging(storage, descriptor, "one"),
+        )
+        storage.confirmGood(descriptor)
+
+        storage.clearActivation(descriptor.modelId)
+
+        assertNull(storage.activeDirectory(descriptor.modelId))
+        assertNotNull(storage.installedVersion(descriptor))
+        assertNull(storage.activationState(descriptor.modelId).activeVersion)
+    }
+
+    @Test
     fun sizeOrShaMismatchBlocksPromotion() {
         val storage = ModelStorage(root)
         val descriptor = descriptor(version = "v1", revision = 1)

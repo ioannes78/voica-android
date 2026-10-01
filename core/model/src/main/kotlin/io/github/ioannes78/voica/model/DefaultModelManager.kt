@@ -276,7 +276,23 @@ class DefaultModelManager(
                     "active model version is currently in use"
                 }
             }
-            storage.rollback(modelId)
+            val builtin = bundledCatalog.model(modelId)
+            val hasBuiltinFallback =
+                builtin != null &&
+                    (builtin.sourceType == ModelSourceType.BUILTIN ||
+                        builtin.sourceType == ModelSourceType.BUILTIN_WITH_OVERRIDE)
+
+            try {
+                storage.rollback(modelId)
+            } catch (error: IllegalStateException) {
+                if (!hasBuiltinFallback ||
+                    activeVersion == null ||
+                    activeRevision == null
+                ) {
+                    throw error
+                }
+                storage.clearActivation(modelId)
+            }
             clearOperation(modelId)
         }
     }
