@@ -32,6 +32,7 @@ class DefaultModelManager(
     private val catalogMutex = Mutex()
     private val modelMutexes = ConcurrentHashMap<String, Mutex>()
     private val installJobs = ConcurrentHashMap<String, Job>()
+    private val installPartFiles = ConcurrentHashMap<String, File>()
     private val _operations =
         MutableStateFlow<Map<String, ModelOperationStatus>>(emptyMap())
 
@@ -192,6 +193,9 @@ class DefaultModelManager(
                         descriptor.revision + "-" +
                         descriptor.version + ".part",
                 )
+            check(installPartFiles.putIfAbsent(modelId, packagePart) == null) {
+                "model install package is already tracked"
+            }
             var staging: File? = null
             var installCompleted = false
 
@@ -275,6 +279,7 @@ class DefaultModelManager(
                     }
                     staging?.deleteRecursively()
                 }
+                installPartFiles.remove(modelId, packagePart)
                 installJobs.remove(modelId, currentJob)
             }
         }
@@ -282,11 +287,16 @@ class DefaultModelManager(
 
     override suspend fun cancelInstall(modelId: String) {
         val job = installJobs[modelId] ?: return
+        val packagePart = installPartFiles[modelId]
         job.cancel(
             CancellationException("model install cancelled"),
         )
         if (job !== currentCoroutineContext()[Job]) {
             job.join()
+            withContext(NonCancellable + blockingDispatcher) {
+                packagePart?.delete()
+            }
+            clearOperation(modelId)
         }
     }
 
