@@ -56,6 +56,9 @@ class HttpModelPackageDownloader(
 
         try {
             connection.connect()
+            check(connection.url.protocol.equals("https", ignoreCase = true)) {
+                "model download redirect left HTTPS"
+            }
             val code = connection.responseCode
             check(code in 200..299) { "model download HTTP $code" }
 
