@@ -300,9 +300,43 @@ High Quality：
 - 中文会议摘要、结论、待办、决策和问题
 - 默认只上传文字
 
-## Stage 12 — 产品 UI / UX 完整化
+## Stage 12 — 产品 UI / UX 完整化 + 本地录音库增强
 
-Material 3、Dark Mode、Loading/Error/Empty State、中文文案统一。
+### UI / UX 完整化
+
+- Material 3 视觉体系统一
+- Dark Mode
+- Device / 本地录音 / 转写 / 会议纪要 / 设置页面层级与信息架构统一
+- 按钮、卡片、列表、间距、Typography 与状态组件统一
+- Loading / Error / Empty State 完整化
+- 中文文案、提示、确认与错误信息统一
+- 适配不同 Android 屏幕尺寸与长列表交互
+
+### 本地录音库增强
+
+在 Stage 6 已冻结的 Room 本地录音库基础上增强，不重新建立第二套文件库。
+
+- 搜索：按录音名称、时间及可用元数据搜索
+- 排序 / 筛选：录制时间、下载时间、名称、大小、转写状态等
+- 文件夹 / 标签：使用 Room 中的逻辑组织信息，不通过随意移动 app-private 原始音频破坏资产引用关系
+- 收藏：录音收藏/取消收藏与收藏筛选
+- 多选模式
+- 批量删除：明确二次确认；保持 Recording / AudioAsset / AudioDerivation / Transcription 级联一致性
+- 批量导出
+- 手机音频导入：使用 Android Storage Access Framework / 系统文件选择器；导入后进入 Voica 本地录音库并按现有 canonical audio pipeline 校验/转换
+- 导出到 Downloads：使用 Android 合规的系统存储接口，不直接依赖任意外部存储路径
+- 分享：通过 Android Sharesheet 分享音频文件；具体可用目标由系统和已安装 App 决定
+- 存储空间管理：显示 Voica 原始录音、canonical 派生音频、模型与可清理临时缓存占用
+- 清理策略：优先清理可重建派生文件/临时文件，不静默删除用户原始录音
+- 原始文件保护：DEVICE_OPUS / DEVICE_WAV 与用户导入原文件继续作为可追溯资产保存，除非用户明确删除
+- 导入/导出失败、低存储空间、权限/URI 失效等状态必须可恢复并向用户明确说明
+
+### Stage 12 边界
+
+- Stage 12 负责本地录音库的产品化管理与系统文件导入/导出体验。
+- 不在 Stage 12 实现 BLE 后台/锁屏持续下载、长文件断连恢复或 Foreground Service；这些仍属于 Stage 13。
+- 不在 Stage 12 改写 Stage 8 的转写历史版本语义，也不破坏 absolute canonical PCM sample index 时间轴。
+- 不把 Stage 19 的云同步、跨设备录音库、账号协作提前到 Stage 12。
 
 ## Stage 13 — 稳定性与长录音专项
 
