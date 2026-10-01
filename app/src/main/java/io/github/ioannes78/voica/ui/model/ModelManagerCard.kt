@@ -10,6 +10,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -21,6 +22,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import io.github.ioannes78.voica.ModelUpdateController
 import io.github.ioannes78.voica.model.ModelAvailability
 import io.github.ioannes78.voica.model.ModelManager
 import io.github.ioannes78.voica.model.ModelOperationStatus
@@ -31,9 +33,12 @@ import kotlinx.coroutines.launch
 @Composable
 fun ModelManagerCard(
     modelManager: ModelManager,
+    modelUpdateController: ModelUpdateController,
 ) {
     val scope = rememberCoroutineScope()
     val operations by modelManager.operations.collectAsState()
+    val updateSettings by modelUpdateController.settings.collectAsState()
+    val updateState by modelUpdateController.state.collectAsState()
     var models by remember { mutableStateOf<List<ModelAvailability>>(emptyList()) }
     var checking by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -63,16 +68,60 @@ fun ModelManagerCard(
                 "APK 仅内置 Silero VAD 基线；ASR、标点和高质量模型由受控模型通道提供。",
                 style = MaterialTheme.typography.bodySmall,
             )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("自动检查模型更新")
+                    Text(
+                        "默认开启；仅检查 production 清单。",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(
+                    checked = updateSettings.automaticChecksEnabled,
+                    onCheckedChange =
+                        modelUpdateController::setAutomaticChecksEnabled,
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Silero 小模型自动升级")
+                    Text(
+                        "自动下载、校验、运行库 smoke test 后切换；ASR/标点/SenseVoice 仍需手动确认。",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(
+                    checked =
+                        updateSettings.automaticSmallModelUpdatesEnabled,
+                    onCheckedChange =
+                        modelUpdateController::setAutomaticSmallModelUpdatesEnabled,
+                )
+            }
             Button(
-                enabled = !checking,
+                enabled = !checking && !updateState.checking,
                 onClick = {
                     checking = true
                     message = null
                     scope.launch {
                         try {
-                            modelManager.checkForUpdates(force = true)
+                            modelUpdateController.checkForUpdates(force = true)
                             reload()
-                            message = "模型更新检查完成"
+                            val autoUpdated =
+                                modelUpdateController.state.value
+                                    .automaticallyUpdatedModelIds
+                            message =
+                                if (autoUpdated.isEmpty()) {
+                                    "模型更新检查完成"
+                                } else {
+                                    "模型更新检查完成；Silero 已自动验证并启用新版本"
+                                }
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (error: Exception) {
@@ -85,11 +134,26 @@ fun ModelManagerCard(
                     }
                 },
             ) {
-                Text(if (checking) "检查中…" else "检查模型更新")
+                Text(
+                    if (checking || updateState.checking) {
+                        "检查中…"
+                    } else {
+                        "检查模型更新"
+                    },
+                )
             }
 
             message?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall)
+            }
+
+            updateState.errorMessage?.let { error ->
+                if (message == null) {
+                    Text(
+                        "自动检查失败：" + error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             }
 
             models.forEach { availability ->

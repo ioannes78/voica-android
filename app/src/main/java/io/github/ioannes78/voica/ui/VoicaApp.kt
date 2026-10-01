@@ -37,6 +37,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.ioannes78.voica.CanonicalAudioCoordinator
+import io.github.ioannes78.voica.ModelUpdateController
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.TranscriptionCoordinator
 import io.github.ioannes78.voica.TranscriptionRunState
@@ -82,6 +83,7 @@ fun VoicaApp(
     canonicalAudioCoordinator: CanonicalAudioCoordinator,
     playbackController: PlaybackController,
     modelManager: ModelManager,
+    modelUpdateController: ModelUpdateController,
     transcriptionCoordinator: TranscriptionCoordinator,
     transcriptionRepository: TranscriptionRepository,
 ) {
@@ -155,7 +157,11 @@ fun VoicaApp(
                 playbackViewModel,
                 transcriptionViewModel,
             )
-            else -> SettingsScreen(padding, modelManager)
+            else -> SettingsScreen(
+                padding = padding,
+                modelManager = modelManager,
+                modelUpdateController = modelUpdateController,
+            )
         }
     }
 }
@@ -1091,6 +1097,7 @@ private fun formatCapacity(kb: Long?): String {
 private fun SettingsScreen(
     padding: PaddingValues,
     modelManager: ModelManager,
+    modelUpdateController: ModelUpdateController,
 ) {
     val scope = rememberCoroutineScope()
     var runtimeProbeRunning by remember { mutableStateOf(false) }
@@ -1170,6 +1177,9 @@ private fun SettingsScreen(
                 }
             }
         }
-        ModelManagerCard(modelManager = modelManager)
+        ModelManagerCard(
+            modelManager = modelManager,
+            modelUpdateController = modelUpdateController,
+        )
     }
 }

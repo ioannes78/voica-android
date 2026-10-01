@@ -69,6 +69,14 @@ class AppContainer(
             useRegistry = modelUseRegistry,
         )
 
+    val modelUpdateSettingsStore =
+        SharedPreferencesModelUpdateSettingsStore(application)
+    val modelUpdateController =
+        ModelUpdateController(
+            modelManager = modelManager,
+            settingsStore = modelUpdateSettingsStore,
+        )
+
     val transcriptionRepository =
         TranscriptionRepository(recordingDatabase)
 
@@ -148,6 +156,14 @@ class AppContainer(
                         playbackController.pause()
                     }
                 }
+        }
+
+        if (modelUpdateSettingsStore.settings.value.automaticChecksEnabled) {
+            applicationScope.launch(Dispatchers.IO) {
+                runCatching {
+                    modelUpdateController.checkForUpdates(force = false)
+                }
+            }
         }
 
         applicationScope.launch(Dispatchers.IO) {
