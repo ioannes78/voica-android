@@ -1,16 +1,22 @@
 package io.github.ioannes78.voica
 
 import android.app.Application
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import io.github.ioannes78.voica.audio.AudioSourceResolver
 import io.github.ioannes78.voica.audio.PcmSourceResolver
 import io.github.ioannes78.voica.ble.DefaultDeviceRepository
 import io.github.ioannes78.voica.ble.DeviceRepository
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.database.VoicaDatabase
+import io.github.ioannes78.voica.playback.AndroidPlaybackController
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 class VoicaApplication : Application() {
@@ -54,6 +60,28 @@ class AppContainer(
     val audioSourceResolver: AudioSourceResolver = roomAudioSourceResolver
     val pcmSourceResolver: PcmSourceResolver = roomAudioSourceResolver
 
+    val playbackController =
+        AndroidPlaybackController(
+            context = application,
+            sourceResolver = audioSourceResolver,
+            scope = applicationScope,
+        )
+
+    private val processLifecycleObserver =
+        object : DefaultLifecycleObserver {
+            override fun onStart(owner: LifecycleOwner) {
+                applicationScope.launch {
+                    playbackController.setAppForeground(true)
+                }
+            }
+
+            override fun onStop(owner: LifecycleOwner) {
+                applicationScope.launch {
+                    playbackController.setAppForeground(false)
+                }
+            }
+        }
+
     private val deviceAudioAssetValidator =
         DeviceAudioAssetValidator(
             repository = recordingLibraryRepository,
@@ -76,6 +104,26 @@ class AppContainer(
         )
 
     init {
+        ProcessLifecycleOwner.get().lifecycle.addObserver(processLifecycleObserver)
+
+        applicationScope.launch {
+            combine(
+                deviceRepository.recordingState,
+                playbackController.stateFlow,
+            ) { recordingState, playbackState ->
+                RecordingPlaybackInterlockPolicy.shouldPause(
+                    recordingState = recordingState,
+                    playbackState = playbackState,
+                )
+            }
+                .distinctUntilChanged()
+                .collect { shouldPause ->
+                    if (shouldPause) {
+                        playbackController.pause()
+                    }
+                }
+        }
+
         applicationScope.launch(Dispatchers.IO) {
             recordingLibraryRepository.importLegacyStage5IfNeeded()
             recordingLibraryRepository.normalizeStandardDeviceDisplayNames()

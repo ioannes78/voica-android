@@ -9,6 +9,7 @@ import io.github.ioannes78.voica.audio.PcmSourceResolver
 import io.github.ioannes78.voica.audio.PlaybackAudioSource
 import io.github.ioannes78.voica.audio.PlaybackAudioSourceDescriptor
 import io.github.ioannes78.voica.audio.WavParseResult
+import io.github.ioannes78.voica.audio.WavPcmInfo
 import io.github.ioannes78.voica.audio.WavPcmParser
 import io.github.ioannes78.voica.database.AudioAssetRole
 import io.github.ioannes78.voica.database.AudioIntegrityState
@@ -34,16 +35,22 @@ class RoomAudioSourceResolver(
         val handle = withContext(ioDispatcher) {
             FileSeekableAudioHandle(resolved.file)
         }
+        val wav = resolved.wavInfo
         return PlaybackAudioSource(
             descriptor = PlaybackAudioSourceDescriptor(
                 recordingId = recordingId,
                 assetId = resolved.asset.assetId,
                 container = AudioContainerKind.WAV,
-                durationUs = resolved.durationUs,
-                sampleRateHz = resolved.sampleRateHz,
-                channelCount = resolved.channelCount,
+                durationUs = wav.durationUs,
+                sampleRateHz = wav.sampleRateHz,
+                channelCount = wav.channelCount,
                 seekable = true,
                 lengthBytes = resolved.asset.sizeBytes,
+                bitsPerSample = wav.bitsPerSample,
+                pcmDataOffsetBytes = wav.dataOffset,
+                pcmDataSizeBytes = wav.dataSizeBytes,
+                bytesPerFrame = wav.blockAlign,
+                totalSampleCount = wav.frameCount,
             ),
             handle = handle,
         )
@@ -87,9 +94,7 @@ class RoomAudioSourceResolver(
         return ResolvedCanonicalAsset(
             asset = asset,
             file = file,
-            durationUs = info.durationUs,
-            sampleRateHz = info.sampleRateHz,
-            channelCount = info.channelCount,
+            wavInfo = info,
         )
     }
 
@@ -125,9 +130,7 @@ class RoomAudioSourceResolver(
     private data class ResolvedCanonicalAsset(
         val asset: RecordingAsset,
         val file: File,
-        val durationUs: Long,
-        val sampleRateHz: Int,
-        val channelCount: Int,
+        val wavInfo: WavPcmInfo,
     )
 
     private companion object {

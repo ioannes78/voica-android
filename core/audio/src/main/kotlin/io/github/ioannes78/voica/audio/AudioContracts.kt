@@ -35,6 +35,11 @@ data class PlaybackAudioSourceDescriptor(
     val channelCount: Int?,
     val seekable: Boolean,
     val lengthBytes: Long,
+    val bitsPerSample: Int? = null,
+    val pcmDataOffsetBytes: Long? = null,
+    val pcmDataSizeBytes: Long? = null,
+    val bytesPerFrame: Int? = null,
+    val totalSampleCount: Long? = null,
 )
 
 interface SeekableAudioHandle : Closeable {
@@ -81,8 +86,53 @@ interface PcmSource : Closeable {
     ): PcmReadResult?
 }
 
+/**
+ * Converts an absolute PCM sample index to media time using integer arithmetic.
+ *
+ * The returned value is floor(sampleIndex * 1_000_000 / sampleRateHz). Media
+ * time is always derived from the absolute sample timeline, never the reverse.
+ */
 fun sampleIndexToTimeUs(sampleIndex: Long, sampleRateHz: Int): Long {
     require(sampleIndex >= 0L)
     require(sampleRateHz > 0)
-    return sampleIndex * 1_000_000L / sampleRateHz
+    val wholeSeconds = sampleIndex / sampleRateHz
+    val remainderSamples = sampleIndex % sampleRateHz
+    return Math.addExact(
+        Math.multiplyExact(wholeSeconds, 1_000_000L),
+        remainderSamples * 1_000_000L / sampleRateHz,
+    )
+}
+
+/**
+ * Converts media time to an absolute PCM sample index using floor semantics.
+ */
+fun timeUsToSampleIndex(timeUs: Long, sampleRateHz: Int): Long {
+    require(timeUs >= 0L)
+    require(sampleRateHz > 0)
+    val wholeSeconds = timeUs / 1_000_000L
+    val remainderUs = timeUs % 1_000_000L
+    return Math.addExact(
+        Math.multiplyExact(wholeSeconds, sampleRateHz.toLong()),
+        remainderUs * sampleRateHz / 1_000_000L,
+    )
+}
+
+fun clampSampleIndex(sampleIndex: Long, totalSampleCount: Long): Long {
+    require(totalSampleCount >= 0L)
+    return sampleIndex.coerceIn(0L, totalSampleCount)
+}
+
+fun sampleIndexToPcmByteOffset(
+    sampleIndex: Long,
+    totalSampleCount: Long,
+    pcmDataOffsetBytes: Long,
+    bytesPerFrame: Int,
+): Long {
+    require(pcmDataOffsetBytes >= 0L)
+    require(bytesPerFrame > 0)
+    val clamped = clampSampleIndex(sampleIndex, totalSampleCount)
+    return Math.addExact(
+        pcmDataOffsetBytes,
+        Math.multiplyExact(clamped, bytesPerFrame.toLong()),
+    )
 }

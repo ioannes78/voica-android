@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.ioannes78.voica.CanonicalAudioCoordinator
 import io.github.ioannes78.voica.R
+import io.github.ioannes78.voica.audio.PlaybackController
 import io.github.ioannes78.voica.ble.BleDiagnostics
 import io.github.ioannes78.voica.ble.BleError
 import io.github.ioannes78.voica.ble.BleScanDevice
@@ -56,6 +57,8 @@ import io.github.ioannes78.voica.protocol.BatteryState
 import io.github.ioannes78.voica.protocol.RecordingStatus
 import io.github.ioannes78.voica.ui.files.DeviceFilesCard
 import io.github.ioannes78.voica.ui.files.LocalRecordingsCard
+import io.github.ioannes78.voica.ui.playback.PlaybackCard
+import io.github.ioannes78.voica.ui.playback.PlaybackViewModel
 import io.github.ioannes78.voica.ui.recording.RecordingCard
 
 @Composable
@@ -63,6 +66,7 @@ fun VoicaApp(
     repository: DeviceRepository,
     recordingLibraryRepository: RecordingLibraryRepository,
     canonicalAudioCoordinator: CanonicalAudioCoordinator,
+    playbackController: PlaybackController,
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val deviceViewModel: DeviceViewModel = viewModel(
@@ -75,6 +79,17 @@ fun VoicaApp(
                 repository,
                 recordingLibraryRepository,
                 canonicalAudioCoordinator,
+            )
+        },
+    )
+    val playbackViewModel: PlaybackViewModel = viewModel(
+        factory = remember(
+            playbackController,
+            recordingLibraryRepository,
+        ) {
+            PlaybackViewModel.Factory(
+                playbackController,
+                recordingLibraryRepository,
             )
         },
     )
@@ -105,7 +120,11 @@ fun VoicaApp(
     ) { padding ->
         when (selectedTab) {
             0 -> DeviceScreen(padding, deviceViewModel)
-            1 -> LocalFilesScreen(padding, deviceViewModel)
+            1 -> LocalFilesScreen(
+                padding,
+                deviceViewModel,
+                playbackViewModel,
+            )
             else -> SettingsScreen(padding)
         }
     }
@@ -156,7 +175,7 @@ private fun DeviceScreen(
                 style = MaterialTheme.typography.headlineLarge,
             )
             Text(
-                stringResource(R.string.stage6_subtitle),
+                stringResource(R.string.stage7_subtitle),
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
@@ -322,8 +341,12 @@ private fun DeviceScreen(
 private fun LocalFilesScreen(
     padding: PaddingValues,
     viewModel: DeviceViewModel,
+    playbackViewModel: PlaybackViewModel,
 ) {
     val recordings by viewModel.libraryRecordings.collectAsState(initial = emptyList())
+    val playback by playbackViewModel.snapshot.collectAsState()
+    val playbackName =
+        recordings.firstOrNull { it.id == playback.recordingId }?.displayName
 
     LazyColumn(
         modifier = Modifier
@@ -342,11 +365,25 @@ private fun LocalFilesScreen(
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
+        if (playback.recordingId != null) {
+            item {
+                PlaybackCard(
+                    snapshot = playback,
+                    recordingName = playbackName,
+                    onPlay = playbackViewModel::play,
+                    onPause = playbackViewModel::pause,
+                    onSeek = playbackViewModel::seekToSample,
+                    onSpeed = playbackViewModel::setSpeed,
+                    onRetry = playbackViewModel::retryCurrent,
+                )
+            }
+        }
         item {
             LocalRecordingsCard(
                 recordings = recordings,
+                onPlay = playbackViewModel::loadAndPlay,
                 onRename = viewModel::renameLocalRecording,
-                onDeleteLocal = viewModel::deleteLibraryRecording,
+                onDeleteLocal = playbackViewModel::deleteRecording,
                 onGenerateCanonical = viewModel::generateCanonicalAudio,
                 onCancelCanonical = viewModel::cancelCanonicalAudio,
             )

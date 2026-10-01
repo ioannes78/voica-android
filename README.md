@@ -64,7 +64,8 @@ Voica 是面向 QS668 / CB08 AI 录音卡的 Android 原生客户端。
 - Stage 4：已完成 / 已真机验收 / 已冻结
 - Stage 5：已完成 / 已真机验收 / 已冻结
 - Stage 6：已完成 / 已真机验收 / 已冻结
-- 下一阶段：**Stage 7 — 播放器 + 精确时间轴**
+- Stage 7：已完成 / 已用户验收 / 已冻结
+- 下一阶段：**Stage 8 — 本地 ASR + VAD + 标点 + 模型管理**
 
 Stage 2 已建立：
 
@@ -165,8 +166,28 @@ Stage 6 已建立：
 - [Stage 6 Handoff](docs/STAGE_6_HANDOFF.md)
 - [Stage 6 协议与音频发现](docs/STAGE_6_PROTOCOL_FINDINGS.md)
 - [Stage 6 真机发现](docs/STAGE_6_REAL_DEVICE_FINDINGS.md)
+- [Stage 7 测试](docs/STAGE_7_TEST.md)
+- [Stage 7 Freeze](docs/STAGE_7_FREEZE.md)
+- [Stage 7 Handoff](docs/STAGE_7_HANDOFF.md)
 - [开发规则](AGENTS.md)
 
 ## License
 
 Voica 项目许可证尚未确定。
+
+
+## Stage 7 已建立
+
+- 新增 `:engine:playback`
+- verified CANONICAL_WAV → AudioTrack MODE_STREAM
+- absolute 16 kHz PCM sample index 作为唯一媒体时间
+- 真实 RIFF data offset 的 sample seek
+- presented position tracking
+- AudioTimestamp / playbackHead fallback
+- 32-bit playback head wrap
+- 六档倍速且 pitch=1.0
+- Audio Focus / noisy / Bluetooth route / app lifecycle
+- 单一 PlayerCard
+- device recording → local playback 自动暂停
+- Stage 8 / Stage 10 稳定 sample timeline contract
+- 真实长录音 30min/1h/2h 压力测试债务转入 Stage 13

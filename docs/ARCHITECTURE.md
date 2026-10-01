@@ -8,7 +8,7 @@ Voica 是全新 Android 工程，不从 `voice-card-android` 继承任何代码�
 
 ## 2. 当前已落地模块
 
-Stage 6 当前物理模块：
+Stage 7 当前物理模块：
 
 ```
 :app
@@ -17,6 +17,8 @@ Stage 6 当前物理模块：
 ├─ :core:database
 ├─ :core:audio
 └─ :engine:opus
+│  └─ :core:audio
+└─ :engine:playback
    └─ :core:audio
 ```
 
@@ -719,3 +721,106 @@ PcmSource 固定：
 - 本地库位于 App private `noBackupFilesDir/recordings`
 - Stage 6 后台时取消 BLE 文件传输
 - Stage 13 才引入 Foreground Service 可靠后台下载
+
+
+## Stage 7 — 播放器与精确时间轴架构
+
+### Playback 主链
+
+```
+Recording ID
+      ↓
+AudioSourceResolver
+      ↓
+Verified CANONICAL_WAV
+      ↓
+PlaybackAudioSourceDescriptor
+      ├─ pcmDataOffsetBytes
+      ├─ pcmDataSizeBytes
+      ├─ bytesPerFrame
+      └─ totalSampleCount
+      ↓
+SeekableAudioHandle.readAt()
+      ↓
+absolute sampleIndex → byteOffset
+      ↓
+bounded PCM streaming
+      ↓
+AudioTrack MODE_STREAM
+      ↓
+AudioTimestamp / playbackHead fallback
+      ↓
+presentedSampleIndex
+      ↓
+PlaybackSnapshot
+      ↓
+PlaybackViewModel / Compose PlayerCard
+```
+
+### 唯一媒体时间
+
+Stage 7 冻结：
+
+`absolute canonical PCM sample index`
+
+为 Voica 唯一媒体时间真值。
+
+固定 canonical profile：
+
+- 16000 Hz
+- mono
+- PCM16 little-endian
+- 2 bytes/frame
+
+`timeUs`、UI Slider 比例和 wall clock 都是派生值。
+
+### Position 与 Seek
+
+播放器区分：
+
+- source cursor
+- submitted sample
+- presented sample
+
+公开 position 使用 presented sample。
+
+Seek 基于：
+
+`pcmDataOffsetBytes + sampleIndex * bytesPerFrame`
+
+不得假定 WAV header 为 44 bytes。
+
+Seek/load/restart/rebase 通过 generation/discontinuity 防止旧 callback 污染新时间轴。
+
+### 生命周期与音频焦点
+
+- LOSS → pause / no auto-resume
+- transient loss → policy-controlled resume
+- CAN_DUCK → Stage 7 选择 pause
+- noisy output → pause
+- app background → pause
+- Stage 7 不提供 MediaSession/Foreground Service/background playback
+
+### 设备录音互锁
+
+AppContainer 同时观察 DeviceRepository recording state 与 PlaybackController state。
+
+当设备进入 Recording 或收到新鲜 START/RESUME hardware edge：
+
+`Playing → Paused`
+
+录音结束后不自动恢复播放。
+
+BLE 依赖不进入 `:engine:playback`。
+
+### Stage 8 / 10 边界
+
+Stage 8：
+
+`PcmSourceResolver → PcmSource → absolute sample index`
+
+Stage 10：
+
+`PlaybackSnapshot.positionSampleIndex + seekToSample + discontinuityGeneration`
+
+两条链共享 16 kHz canonical absolute sample coordinate。

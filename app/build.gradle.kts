@@ -14,8 +14,8 @@ android {
         applicationId = "io.github.ioannes78.voica"
         minSdk = 26
         targetSdk = 37
-        versionCode = 17
-        versionName = "0.6.0-stage6-alpha3"
+        versionCode = 19
+        versionName = "0.7.0-stage7-alpha2"
     }
 
     buildFeatures {
@@ -46,10 +46,12 @@ dependencies {
     implementation(project(":core:database"))
     implementation(project(":core:audio"))
     implementation(project(":engine:opus"))
+    implementation(project(":engine:playback"))
     implementation("androidx.core:core-ktx:1.19.1")
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.10.0")
+    implementation("androidx.lifecycle:lifecycle-process:2.10.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
@@ -59,4 +61,7 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
     debugImplementation("androidx.compose.ui:ui-tooling")
+
+    testImplementation(kotlin("test-junit"))
+    testImplementation("junit:junit:4.13.2")
 }
