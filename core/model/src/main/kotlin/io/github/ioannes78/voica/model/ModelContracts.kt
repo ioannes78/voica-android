@@ -15,6 +15,12 @@ enum class ModelSourceType {
     BUILTIN_WITH_OVERRIDE,
 }
 
+enum class ModelPackageFormat {
+    ZIP,
+    TAR_BZ2,
+    SINGLE_FILE,
+}
+
 enum class ModelUpdatePolicy {
     MANUAL,
     AUTO_SMALL_MODELS,
@@ -67,12 +73,15 @@ data class ModelDescriptor(
     val kind: ModelKind,
     val displayName: String,
     val version: String,
+    val revision: Long,
     val runtimeId: String,
     val runtimeVersionMin: String?,
     val runtimeVersionMax: String?,
     val languages: Set<String>,
     val capabilities: ModelCapabilities,
     val sourceType: ModelSourceType,
+    val builtinAssetPath: String?,
+    val packageFormat: ModelPackageFormat?,
     val downloadUrl: String?,
     val mirrors: List<String> = emptyList(),
     val downloadSizeBytes: Long?,
@@ -98,6 +107,7 @@ data class ModelDescriptor(
         require(modelId.isNotBlank())
         require(displayName.isNotBlank())
         require(version.isNotBlank())
+        require(revision >= 1L)
         require(runtimeId.isNotBlank())
         require(languages.isNotEmpty())
         require(installedSizeBytes >= 0L)
@@ -105,10 +115,22 @@ data class ModelDescriptor(
         require(licenseId.isNotBlank())
         require(sourceUrl.isNotBlank())
         require(releaseChannel.isNotBlank())
-        if (sourceType == ModelSourceType.MANAGED_DOWNLOAD) {
-            require(!downloadUrl.isNullOrBlank())
+        require(files.isNotEmpty())
+
+        if (sourceType == ModelSourceType.BUILTIN ||
+            sourceType == ModelSourceType.BUILTIN_WITH_OVERRIDE
+        ) {
+            require(!builtinAssetPath.isNullOrBlank())
+        }
+
+        if (!downloadUrl.isNullOrBlank()) {
+            require(packageFormat != null)
             require(downloadSizeBytes != null && downloadSizeBytes >= 0L)
             require(packageSha256 != null && SHA256_REGEX.matches(packageSha256.lowercase()))
+        }
+
+        if (sourceType == ModelSourceType.MANAGED_DOWNLOAD) {
+            require(!downloadUrl.isNullOrBlank())
         }
     }
 }
@@ -138,6 +160,7 @@ data class ModelCatalog(
 data class InstalledModel(
     val modelId: String,
     val version: String,
+    val revision: Long,
     val sourceType: ModelSourceType,
     val confirmedGood: Boolean,
 )
@@ -147,7 +170,9 @@ data class ModelAvailability(
     val state: ModelState,
     val builtinVersion: String? = null,
     val installedVersion: String? = null,
+    val installedRevision: Long? = null,
     val availableVersion: String? = null,
+    val availableRevision: Long? = null,
     val activeVersion: String? = null,
     val updateAvailable: Boolean = false,
 )
@@ -163,9 +188,11 @@ interface ModelManager {
 
     suspend fun cancelInstall(modelId: String)
 
+    suspend fun confirmInstalledVersion(modelId: String, version: String)
+
     suspend fun removeDownloadedVersion(modelId: String, version: String)
 
     suspend fun rollback(modelId: String)
 }
 
-private val SHA256_REGEX = Regex("^[0-9a-fA-F]{64}$")
+internal val SHA256_REGEX = Regex("^[0-9a-fA-F]{64}$")
