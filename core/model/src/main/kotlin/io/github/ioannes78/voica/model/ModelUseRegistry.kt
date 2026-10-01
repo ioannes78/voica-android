@@ -9,8 +9,10 @@ class ModelUseRegistry {
     fun acquire(
         modelId: String,
         version: String,
+        revision: Long,
     ): ModelLease {
-        val key = ModelUseKey(modelId, version)
+        require(revision >= 1L)
+        val key = ModelUseKey(modelId, version, revision)
         counts[key] = (counts[key] ?: 0) + 1
         return ModelLease {
             release(key)
@@ -21,7 +23,9 @@ class ModelUseRegistry {
     fun isInUse(
         modelId: String,
         version: String,
-    ): Boolean = (counts[ModelUseKey(modelId, version)] ?: 0) > 0
+        revision: Long,
+    ): Boolean =
+        (counts[ModelUseKey(modelId, version, revision)] ?: 0) > 0
 
     @Synchronized
     private fun release(key: ModelUseKey) {
@@ -32,6 +36,7 @@ class ModelUseRegistry {
     private data class ModelUseKey(
         val modelId: String,
         val version: String,
+        val revision: Long,
     )
 }
 
