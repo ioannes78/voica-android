@@ -73,31 +73,31 @@ class TranscriptionCoordinatorTest {
     fun setUp() {
         runBlocking {
             val context = ApplicationProvider.getApplicationContext<Context>()
-        database =
-            Room.inMemoryDatabaseBuilder(
-                context,
-                VoicaDatabase::class.java,
-            )
-                .allowMainThreadQueries()
-                .build()
-        repository = TranscriptionRepository(database)
-        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            database =
+                Room.inMemoryDatabaseBuilder(
+                    context,
+                    VoicaDatabase::class.java,
+                )
+                    .allowMainThreadQueries()
+                    .build()
+            repository = TranscriptionRepository(database)
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-        database.recordingDao().insertRecordingIgnore(
-            RecordingEntity(
-                id = RECORDING_ID,
-                sourceType = RecordingSourceType.DEVICE_DOWNLOAD,
-                sourceRemoteIdentity = "remote-test",
-                sourceDeviceAddress = "AA:BB",
-                originalFilename = "note.wav",
-                displayName = "Note",
-                recordedAtLocalIso = null,
-                deviceReportedDurationMs = 50,
-                downloadedAtMs = 1L,
-                createdAtMs = 1L,
-                updatedAtMs = 1L,
-            ),
-        )
+            database.recordingDao().insertRecordingIgnore(
+                RecordingEntity(
+                    id = RECORDING_ID,
+                    sourceType = RecordingSourceType.DEVICE_DOWNLOAD,
+                    sourceRemoteIdentity = "remote-test",
+                    sourceDeviceAddress = "AA:BB",
+                    originalFilename = "note.wav",
+                    displayName = "Note",
+                    recordedAtLocalIso = null,
+                    deviceReportedDurationMs = 50,
+                    downloadedAtMs = 1L,
+                    createdAtMs = 1L,
+                    updatedAtMs = 1L,
+                ),
+            )
         }
     }
 

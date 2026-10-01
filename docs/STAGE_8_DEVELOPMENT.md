@@ -109,3 +109,18 @@ Implementation gates:
 - Voica follows that documented generic CPU combination for the first production candidate. The installed payload is therefore approximately 41 MB + 14 MB + 3.1 MB plus tokens, roughly 58–60 MB before filesystem overhead.
 - The unproven all-int8 decoder variant may be benchmarked later as a separate revision, but it must not replace the documented baseline without Android native-load and recognition-quality evidence.
 - Rockchip RK356x/RK3576/RK3588 ~50 MB release assets are accelerator-specific and are not valid substitutes for the generic Android arm64 CPU package.
+
+
+## Stage 8P progress
+
+- Added the confirmed App-side update policy: automatic production-manifest checks
+  are enabled by default.
+- Only the built-in/override Silero VAD model is eligible for automatic download,
+  verification, native smoke activation and switching.
+- Small Bilingual ASR, CT-Transformer punctuation and SenseVoice remain explicit
+  user-confirmed downloads/updates even when an update is discovered automatically.
+- Existing transcription jobs keep their exact model revision leases; activation of
+  a newly confirmed model affects only future jobs.
+- Long-duration 30/60/120 minute synthetic tests now advance the absolute sample
+  cursor without repeatedly filling zero PCM buffers, preserving the same bounded-read
+  assertions with lower CI CPU cost.

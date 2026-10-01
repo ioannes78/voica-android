@@ -191,12 +191,9 @@ class LongDurationTranscriptionPipelineTest {
 
             val remaining = totalSampleCount - cursor
             val count = minOf(maxSamples.toLong(), remaining).toInt()
-            java.util.Arrays.fill(
-                target,
-                targetOffset,
-                targetOffset + count,
-                0.toShort(),
-            )
+            // The virtual source is already zero-initialized. Advancing the
+            // absolute sample cursor is sufficient for bounded-read tests and
+            // avoids touching hundreds of millions of synthetic samples.
             val start = cursor
             cursor = Math.addExact(cursor, count.toLong())
             totalReadSamples = Math.addExact(totalReadSamples, count.toLong())
