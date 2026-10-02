@@ -256,9 +256,14 @@ private data class SpeakerAssignment(
 private fun selectPreferredTokens(
     tokens: List<TranscriptToken>,
 ): List<IndexedTranscriptToken> {
-    val indexed = tokens.mapIndexed(::IndexedTranscriptToken)
-    val secondPass = indexed.filter { it.token.source == TokenSource.SECOND_PASS }
-    val firstPass = indexed.filter { it.token.source == TokenSource.FIRST_PASS }
+    val secondPass =
+        tokens
+            .filter { it.source == TokenSource.SECOND_PASS }
+            .mapIndexed(::IndexedTranscriptToken)
+    val firstPass =
+        tokens
+            .filter { it.source == TokenSource.FIRST_PASS }
+            .mapIndexed(::IndexedTranscriptToken)
 
     return when {
         secondPass.any { it.token.startSampleIndex != null } -> secondPass

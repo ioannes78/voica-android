@@ -201,6 +201,8 @@ class TranscriptSpeakerAlignmentTest {
             )
 
         assertEquals(TokenSource.SECOND_PASS, result.spans.single().tokenSource)
+        assertEquals(0, result.spans.single().tokenStartIndex)
+        assertEquals(1, result.spans.single().tokenEndIndexExclusive)
     }
 
     @Test

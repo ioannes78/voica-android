@@ -152,6 +152,28 @@ class DiarizationRepository(
         )
     }
 
+    suspend fun cancelRun(runId: String) {
+        terminateRun(
+            runId = runId,
+            state = DiarizationStateValue.CANCELLED,
+            errorCode = "USER_CANCELLED",
+            errorMessage = "diarization cancelled by user",
+        )
+    }
+
+    suspend fun failRunRecoverable(
+        runId: String,
+        errorCode: String,
+        errorMessage: String?,
+    ) {
+        terminateRun(
+            runId = runId,
+            state = DiarizationStateValue.FAILED_RECOVERABLE,
+            errorCode = errorCode,
+            errorMessage = errorMessage,
+        )
+    }
+
     suspend fun persistCompletedRun(
         runId: String,
         speakerCount: Int,
@@ -270,6 +292,28 @@ class DiarizationRepository(
         )
     }
 
+    suspend fun cancelAlignment(alignmentId: String) {
+        terminateAlignment(
+            alignmentId = alignmentId,
+            state = TranscriptSpeakerAlignmentStateValue.CANCELLED,
+            errorCode = "USER_CANCELLED",
+            errorMessage = "speaker alignment cancelled by user",
+        )
+    }
+
+    suspend fun failAlignmentRecoverable(
+        alignmentId: String,
+        errorCode: String,
+        errorMessage: String?,
+    ) {
+        terminateAlignment(
+            alignmentId = alignmentId,
+            state = TranscriptSpeakerAlignmentStateValue.FAILED_RECOVERABLE,
+            errorCode = errorCode,
+            errorMessage = errorMessage,
+        )
+    }
+
     suspend fun persistCompletedAlignment(
         alignmentId: String,
         spans: List<TranscriptSpeakerSpanWrite>,
@@ -357,6 +401,57 @@ class DiarizationRepository(
                     nowMs = nowMs(),
                 ),
         )
+
+    private suspend fun terminateRun(
+        runId: String,
+        state: String,
+        errorCode: String,
+        errorMessage: String?,
+    ) {
+        require(state in RUN_FAILURE_STATES)
+        val current = dao.findRun(runId) ?: error("diarization run not found")
+        if (current.state == state) return
+        require(current.state in DiarizationStateValue.ACTIVE) {
+            "terminal diarization transition requires an active run"
+        }
+        val now = nowMs()
+        check(
+            dao.updateRunState(
+                runId = runId,
+                state = state,
+                startedAtMs = current.startedAtMs ?: now,
+                updatedAtMs = now,
+                completedAtMs = now,
+                errorCode = errorCode,
+                errorMessage = errorMessage,
+            ) == 1,
+        )
+    }
+
+    private suspend fun terminateAlignment(
+        alignmentId: String,
+        state: String,
+        errorCode: String,
+        errorMessage: String?,
+    ) {
+        require(state in ALIGNMENT_FAILURE_STATES)
+        val current = dao.findAlignment(alignmentId) ?: error("speaker alignment not found")
+        if (current.state == state) return
+        require(current.state in TranscriptSpeakerAlignmentStateValue.ACTIVE) {
+            "terminal alignment transition requires an active alignment"
+        }
+        val now = nowMs()
+        check(
+            dao.updateAlignmentState(
+                alignmentId = alignmentId,
+                state = state,
+                updatedAtMs = now,
+                completedAtMs = now,
+                errorCode = errorCode,
+                errorMessage = errorMessage,
+            ) == 1,
+        )
+    }
 
     private fun validateRunRequest(request: NewDiarizationRunRequest) {
         require(request.recordingId.isNotBlank())
