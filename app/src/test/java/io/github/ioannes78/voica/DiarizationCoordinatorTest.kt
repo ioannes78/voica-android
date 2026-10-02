@@ -77,8 +77,9 @@ class DiarizationCoordinatorTest {
     private lateinit var scope: CoroutineScope
 
     @Before
-    fun setUp() = runBlocking {
-        val context = ApplicationProvider.getApplicationContext<Context>()
+    fun setUp() {
+        runBlocking {
+            val context = ApplicationProvider.getApplicationContext<Context>()
         database =
             Room.inMemoryDatabaseBuilder(
                 context,
@@ -103,8 +104,10 @@ class DiarizationCoordinatorTest {
                 downloadedAtMs = 1L,
                 createdAtMs = 1L,
                 updatedAtMs = 1L,
-            ),
-        )
+                ),
+            )
+            Unit
+        }
     }
 
     @After
