@@ -280,10 +280,20 @@ High Quality：
 
 ## Stage 9 — 说话人分离
 
-- DiarizationEngine
-- Speaker ID
-- 长录音分块
-- 时间段归一化与同 Speaker 合并
+- 继续使用 Stage 8 Silero VAD 做 speech / non-speech gating
+- pyannote segmentation 3.0 INT8 做 speaker activity / speaker change / overlap segmentation
+- **CAM++ INT8 作为唯一主线 speaker embedding production candidate**
+- CAM++ FP32 只作为量化精度/embedding 回归参考，不作为用户可选模型或运行时自动 fallback
+- sherpa-onnx 1.13.8 + FastClustering，Stage 9 不新增第二套推理 runtime
+- DiarizationEngine / SpeakerTurn / DiarizationRun 独立契约
+- 60s chunk + 10s overlap 初始 bounded-memory 长录音策略
+- cross-chunk speaker stitching，禁止直接持久化 chunk-local speaker label
+- absolute sample timeline 上的 token-level transcript speaker alignment
+- overlap / ambiguous attribution 显式保留，不复制同一个 token 给多个 speaker
+- Room v2 → v3 additive migration；不保存 voiceprint / embedding vector
+- Speaker 1 / Speaker 2 等录音内匿名身份与当前 run 局部重命名
+- CAM++ INT8 必须通过 FP32→INT8 embedding regression、diarization regression 与 Android RTF/PSS/thermal 真机门禁后才能进入 production manifest
+- 若 INT8 在目标 Android 上出现明显性能倒退或精度退化，不得静默切回 FP32 并冻结 Stage 9；先修量化/执行路径后重新验收
 
 ## Stage 10 — 转写时间轴 + 播放同步
 
