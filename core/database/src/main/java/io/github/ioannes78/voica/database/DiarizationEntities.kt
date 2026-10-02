@@ -28,6 +28,23 @@ object DiarizationStateValue {
     )
 }
 
+object TranscriptSpeakerAlignmentStateValue {
+    const val PREPARING = "PREPARING"
+    const val ALIGNING = "ALIGNING"
+    const val PERSISTING = "PERSISTING"
+    const val COMPLETED = "COMPLETED"
+    const val CANCELLED = "CANCELLED"
+    const val INTERRUPTED = "INTERRUPTED"
+    const val FAILED_RECOVERABLE = "FAILED_RECOVERABLE"
+    const val FAILED_PERMANENT = "FAILED_PERMANENT"
+
+    val ACTIVE = listOf(
+        PREPARING,
+        ALIGNING,
+        PERSISTING,
+    )
+}
+
 object SpeakerAssignmentQualityValue {
     const val ASSIGNED = "ASSIGNED"
     const val ASSIGNED_WITH_OVERLAP = "ASSIGNED_WITH_OVERLAP"

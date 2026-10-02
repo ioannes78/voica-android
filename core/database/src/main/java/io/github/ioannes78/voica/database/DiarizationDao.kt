@@ -72,6 +72,9 @@ interface DiarizationDao {
     )
     fun observeAlignments(transcriptionId: String): Flow<List<TranscriptSpeakerAlignmentEntity>>
 
+    @Query("SELECT * FROM transcript_speaker_alignments WHERE id = :alignmentId LIMIT 1")
+    suspend fun findAlignment(alignmentId: String): TranscriptSpeakerAlignmentEntity?
+
     @Query(
         """
         SELECT * FROM transcript_speaker_spans
@@ -105,6 +108,26 @@ interface DiarizationDao {
 
     @Query(
         """
+        UPDATE transcript_speaker_alignments
+        SET state = :state,
+            updatedAtMs = :updatedAtMs,
+            completedAtMs = :completedAtMs,
+            errorCode = :errorCode,
+            errorMessage = :errorMessage
+        WHERE id = :alignmentId
+        """,
+    )
+    suspend fun updateAlignmentState(
+        alignmentId: String,
+        state: String,
+        updatedAtMs: Long,
+        completedAtMs: Long?,
+        errorCode: String?,
+        errorMessage: String?,
+    ): Int
+
+    @Query(
+        """
         UPDATE diarization_speakers
         SET displayName = :displayName
         WHERE id = :speakerId
@@ -113,6 +136,22 @@ interface DiarizationDao {
     suspend fun updateSpeakerDisplayName(
         speakerId: String,
         displayName: String?,
+    ): Int
+
+    @Query(
+        """
+        UPDATE transcript_speaker_alignments
+        SET state = 'INTERRUPTED',
+            updatedAtMs = :nowMs,
+            completedAtMs = :nowMs,
+            errorCode = 'PROCESS_INTERRUPTED',
+            errorMessage = 'previous transcript speaker alignment was interrupted before completion'
+        WHERE state IN (:activeStates)
+        """,
+    )
+    suspend fun markActiveAlignmentsInterrupted(
+        activeStates: List<String>,
+        nowMs: Long,
     ): Int
 
     @Query(
