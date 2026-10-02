@@ -74,19 +74,6 @@ jobs:
           :app:assembleQa
           --stacktrace
 
-      - name: Stage 9 schema diagnostic
-        if: ${{ always() }}
-        shell: bash
-        run: |
-          schema="core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/3.json"
-          if test -f "$schema"; then
-            echo "STAGE9_ROOM_SCHEMA_BEGIN"
-            cat "$schema"
-            echo "STAGE9_ROOM_SCHEMA_END"
-          else
-            echo "Stage 9 Room schema was not generated"
-          fi
-
       - name: Verify stable QA signing identity
         shell: bash
         run: |
@@ -100,13 +87,14 @@ jobs:
             tr '[:upper:]' '[:lower:]')"
           test "$actual_cert_sha256" = "$expected_cert_sha256"
 
-      # Stage 8 migration gate: committed Room v1/v2 schemas must stay in sync.
+      # Stage 9 migration gate: committed Room v1/v2/v3 schemas must stay in sync.
       - name: Verify committed Room schemas
         shell: bash
         run: |
           schema_dir="core/database/schemas"
           test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/1.json"
           test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/2.json"
+          test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/3.json"
           git diff --exit-code -- "$schema_dir"
           test -z "$(git status --porcelain --untracked-files=all -- "$schema_dir")"
 
