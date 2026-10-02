@@ -125,6 +125,10 @@ object ModelCatalogCodec {
             autoUpdateEligible = obj.requiredBoolean("autoUpdateEligible"),
             deprecated = obj.optionalBoolean("deprecated") ?: false,
             criticalUpdate = obj.optionalBoolean("criticalUpdate") ?: false,
+            speakerRole =
+                obj.optionalString("speakerRole")?.let {
+                    enumValueOf<SpeakerModelRole>(it)
+                },
         )
     }
 
