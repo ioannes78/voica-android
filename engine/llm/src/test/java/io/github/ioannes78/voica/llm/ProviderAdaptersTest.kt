@@ -153,17 +153,12 @@ class ProviderAdaptersTest {
         }
 
     @Test
-    fun siliconFlowReasoningOnlyResponseRetriesOnceWithThinkingDisabled() =
+    fun siliconFlowStructuredOutputStartsWithThinkingDisabled() =
         runTest {
             val transport =
                 FakeTransport(
                     ArrayDeque(
                         listOf(
-                            LlmHttpResponse(
-                                200,
-                                """{"choices":[{"message":{"content":"","reasoning_content":"long reasoning"},"finish_reason":"length"}]}""",
-                                emptyMap(),
-                            ),
                             LlmHttpResponse(
                                 200,
                                 """{"choices":[{"message":{"content":"{\"schemaVersion\":1}"},"finish_reason":"stop"}]}""",
@@ -187,8 +182,8 @@ class ProviderAdaptersTest {
                 provider.generate(
                     siliconFlowProfile,
                     LlmGenerationRequest(
-                        requestId = "sf-reasoning-retry",
-                        model = "deepseek-ai/DeepSeek-R1",
+                        requestId = "sf-structured-no-thinking",
+                        model = "Qwen/Qwen3-32B",
                         systemInstruction = "Summarize.",
                         taskInstruction = "Return JSON.",
                         transcriptPayload = "synthetic",
@@ -198,29 +193,20 @@ class ProviderAdaptersTest {
                 ).getOrThrow()
 
             assertEquals("""{"schemaVersion":1}""", result.content)
-            assertEquals(2, transport.requests.size)
-            assertFalse(
-                transport.requests[0].second.body.orEmpty()
-                    .contains("\"enable_thinking\":false"),
-            )
+            assertEquals(1, transport.requests.size)
             assertTrue(
-                transport.requests[1].second.body.orEmpty()
+                transport.requests.single().second.body.orEmpty()
                     .contains("\"enable_thinking\":false"),
             )
         }
 
     @Test
-    fun volcengineReasoningOnlyResponseRetriesOnceWithThinkingDisabled() =
+    fun volcengineStructuredOutputStartsWithThinkingDisabled() =
         runTest {
             val transport =
                 FakeTransport(
                     ArrayDeque(
                         listOf(
-                            LlmHttpResponse(
-                                200,
-                                """{"choices":[{"message":{"content":"","reasoning_content":"long reasoning"},"finish_reason":"length"}]}""",
-                                emptyMap(),
-                            ),
                             LlmHttpResponse(
                                 200,
                                 """{"choices":[{"message":{"content":"{\"schemaVersion\":1}"},"finish_reason":"stop"}]}""",
@@ -244,7 +230,7 @@ class ProviderAdaptersTest {
                 provider.generate(
                     volcengineProfile,
                     LlmGenerationRequest(
-                        requestId = "volcengine-reasoning-retry",
+                        requestId = "volcengine-structured-no-thinking",
                         model = "deepseek-v4-1-flash-260910",
                         systemInstruction = "Summarize.",
                         taskInstruction = "Return JSON.",
@@ -255,13 +241,9 @@ class ProviderAdaptersTest {
                 ).getOrThrow()
 
             assertEquals("""{"schemaVersion":1}""", result.content)
-            assertEquals(2, transport.requests.size)
-            assertFalse(
-                transport.requests[0].second.body.orEmpty()
-                    .contains("\"thinking\""),
-            )
+            assertEquals(1, transport.requests.size)
             assertTrue(
-                transport.requests[1].second.body.orEmpty()
+                transport.requests.single().second.body.orEmpty()
                     .contains("\"thinking\":{\"type\":\"disabled\"}"),
             )
         }
