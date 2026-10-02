@@ -1,7 +1,7 @@
 package io.github.ioannes78.voica.ai
 
 object SummaryPromptFactory {
-    const val PROMPT_VERSION = 1
+    const val PROMPT_VERSION = 2
     const val RESULT_SCHEMA_VERSION = 1
 
     val systemInstruction: String =
@@ -13,6 +13,9 @@ object SummaryPromptFactory {
         Distinguish explicit transcript statements from AI synthesis and unconfirmed claims.
         Never invent timestamps. Evidence must use only the supplied stable source refs such as S00001.
         Preserve uncertainty, speaker ambiguity, overlap, and unresolved points instead of forcing certainty.
+        Unless the user customization explicitly requests another output language, write all human-readable summary content in Simplified Chinese, including title, overview, section labels, item text, and human-readable attribute values.
+        Preserve proper nouns, product names, acronyms, code, identifiers, quoted source wording, and technical terms when translating them would reduce accuracy.
+        Do not translate JSON keys, enum values, schema literals, or evidence refs.
         Output only one JSON object matching the supplied schema.
         """.trimIndent()
 
@@ -55,7 +58,8 @@ object SummaryPromptFactory {
                 append(". ")
             }
             append(
-                "For every TRANSCRIPT_STATED item include at least one evidenceRef. " +
+                "Default output language is Simplified Chinese unless the user customization explicitly requests another language. " +
+                    "For every TRANSCRIPT_STATED item include at least one evidenceRef. " +
                     "AI_SYNTHESIS and UNCONFIRMED may cite evidence when available. " +
                     "Do not manufacture source refs.",
             )
@@ -78,6 +82,7 @@ object SummaryPromptFactory {
 
     fun repairInstruction(): String =
         "Repair the supplied invalid model output into exactly one JSON object matching the schema. " +
+            "Keep all human-readable summary content in Simplified Chinese unless the original user customization explicitly requested another language. " +
             "Do not add facts or evidence refs that are not already present in the supplied data."
 
     val resultSchemaJson: String =
