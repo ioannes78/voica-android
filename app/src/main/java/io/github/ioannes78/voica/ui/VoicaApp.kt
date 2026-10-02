@@ -16,9 +16,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Bluetooth
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -85,6 +90,7 @@ import io.github.ioannes78.voica.ui.files.DeviceFilesCard
 import io.github.ioannes78.voica.ui.files.LocalRecordingsCard
 import io.github.ioannes78.voica.ui.playback.PlaybackCard
 import io.github.ioannes78.voica.ui.playback.PlaybackViewModel
+import io.github.ioannes78.voica.ui.recording.GlobalRecordingStatusBar
 import io.github.ioannes78.voica.ui.recording.RecordingCard
 import io.github.ioannes78.voica.ui.transcript.TranscriptDocumentHeader
 import io.github.ioannes78.voica.ui.transcript.TranscriptFollowMode
@@ -93,6 +99,8 @@ import io.github.ioannes78.voica.ui.transcript.TranscriptSegmentCard
 import io.github.ioannes78.voica.ui.transcript.TranscriptVersionListCard
 import io.github.ioannes78.voica.ui.transcript.TranscriptionStatusCard
 import io.github.ioannes78.voica.ui.transcript.TranscriptionViewModel
+import io.github.ioannes78.voica.ui.theme.ThemeSettingsCard
+import io.github.ioannes78.voica.ui.theme.ThemeSettingsStore
 import io.github.ioannes78.voica.ui.model.ModelManagerCard
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
@@ -119,6 +127,7 @@ fun VoicaApp(
     providerProfileStore: ProviderProfileStore,
     providerConfigurationRepository: ProviderConfigurationRepository,
     providerAdapterRegistry: ProviderAdapterRegistry,
+    themeSettingsStore: ThemeSettingsStore,
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val deviceViewModel: DeviceViewModel = viewModel(
@@ -202,25 +211,33 @@ fun VoicaApp(
         },
     )
 
+    val globalRecording by deviceViewModel.recordingState.collectAsState()
+
     Scaffold(
+        topBar = {
+            GlobalRecordingStatusBar(
+                state = globalRecording,
+                onClick = { selectedTab = 0 },
+            )
+        },
         bottomBar = {
             NavigationBar {
                 NavigationBarItem(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    icon = { Text("蓝") },
+                    icon = { Icon(Icons.Outlined.Bluetooth, contentDescription = null) },
                     label = { Text(stringResource(R.string.tab_device)) },
                 )
                 NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    icon = { Text("文") },
-                    label = { Text(stringResource(R.string.tab_local_files)) },
+                    icon = { Icon(Icons.Outlined.Folder, contentDescription = null) },
+                    label = { Text(stringResource(R.string.tab_library)) },
                 )
                 NavigationBarItem(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
-                    icon = { Text("设") },
+                    icon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
                     label = { Text(stringResource(R.string.tab_settings)) },
                 )
             }
@@ -243,6 +260,7 @@ fun VoicaApp(
                 modelManager = modelManager,
                 modelUpdateController = modelUpdateController,
                 providerSettingsViewModel = providerSettingsViewModel,
+                themeSettingsStore = themeSettingsStore,
             )
         }
     }
@@ -293,7 +311,7 @@ private fun DeviceScreen(
                 style = MaterialTheme.typography.headlineLarge,
             )
             Text(
-                stringResource(R.string.stage11_subtitle),
+                stringResource(R.string.stage12_subtitle),
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
@@ -1395,6 +1413,7 @@ private fun SettingsScreen(
     modelManager: ModelManager,
     modelUpdateController: ModelUpdateController,
     providerSettingsViewModel: ProviderSettingsViewModel,
+    themeSettingsStore: ThemeSettingsStore,
 ) {
     val scope = rememberCoroutineScope()
     var runtimeProbeRunning by remember { mutableStateOf(false) }
@@ -1475,6 +1494,7 @@ private fun SettingsScreen(
                 }
             }
         }
+        ThemeSettingsCard(store = themeSettingsStore)
         ProviderSettingsCard(
             viewModel = providerSettingsViewModel,
         )
