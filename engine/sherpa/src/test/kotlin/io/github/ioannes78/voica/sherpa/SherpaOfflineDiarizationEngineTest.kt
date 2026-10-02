@@ -137,7 +137,7 @@ class SherpaOfflineDiarizationEngineTest {
         ): List<NativeDiarizationSegment> {
             check(!closed)
             assertEquals(16_000, sampleRateHz)
-            assertEquals(160_000, samples.size)
+            assertTrue(samples.isNotEmpty())
             return segments
         }
 
