@@ -29,8 +29,9 @@ object SummaryResultCodec {
         raw: String,
         allowedEvidenceRefs: Set<String>,
     ): AiSummaryResult {
+        val normalized = normalizeJsonObject(raw)
         val root =
-            runCatching { json.parseToJsonElement(raw).jsonObject }
+            runCatching { json.parseToJsonElement(normalized).jsonObject }
                 .getOrElse {
                     throw SummaryStructuredOutputException("summary output is not a JSON object")
                 }
@@ -136,6 +137,25 @@ object SummaryResultCodec {
             overview = overview,
             sections = sections,
         )
+    }
+
+    internal fun normalizeJsonObject(raw: String): String {
+        val trimmed = raw.trim()
+        if (!trimmed.startsWith("```")) return trimmed
+
+        val firstLineEnd = trimmed.indexOf('\n')
+        if (firstLineEnd < 0) return trimmed
+        val opening = trimmed.substring(0, firstLineEnd).trim()
+        if (
+            opening != "```" &&
+            !opening.equals("```json", ignoreCase = true)
+        ) {
+            return trimmed
+        }
+
+        val remainder = trimmed.substring(firstLineEnd + 1).trim()
+        if (!remainder.endsWith("```")) return trimmed
+        return remainder.removeSuffix("```").trim()
     }
 
     fun encode(result: AiSummaryResult): String =
