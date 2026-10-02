@@ -77,7 +77,7 @@ data class DiarizationSpeakerTurn(
         require(speakerIndex >= 0)
         require(startSampleIndex >= 0L)
         require(endSampleIndexExclusive > startSampleIndex)
-        require(confidence == null || (confidence.isFinite() && confidence in 0f..1f))
+        require(confidence == null || (confidence.isFinite() && confidence in -1f..1f))
     }
 
     val sampleCount: Long
