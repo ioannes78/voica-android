@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stage12_subtitle">UI/UX 产品化与本地内容管理</string>
+    <string name="tab_library">录音库</string>
+
+    <string name="global_recording_active">正在录音 · %1$s</string>
+    <string name="global_recording_paused">录音已暂停 · %1$s</string>
+    <string name="global_recording_open">查看</string>
+
+    <string name="recording_ready_title">准备录音</string>
+    <string name="recording_active_title">正在录音</string>
+    <string name="recording_paused_title">录音已暂停</string>
+    <string name="recording_unknown_title">录音状态</string>
+    <string name="recording_stop">停止</string>
+    <string name="recording_details_title">录音信息</string>
+
+    <string name="theme_settings_title">主题与显示</string>
+    <string name="theme_mode_title">显示模式</string>
+    <string name="theme_mode_system">跟随系统</string>
+    <string name="theme_mode_light">浅色</string>
+    <string name="theme_mode_dark">深色</string>
+    <string name="theme_palette_title">配色风格</string>
+    <string name="theme_palette_mint">Voica 青绿</string>
+    <string name="theme_palette_blue">Voica 蓝</string>
+    <string name="theme_palette_purple">Voica 紫</string>
+    <string name="theme_custom_accent_title">自定义强调色</string>
+    <string name="theme_custom_accent_hint">#RRGGBB</string>
+    <string name="theme_custom_accent_error">请输入有效的 6 位十六进制颜色，例如 #57D4B2。</string>
+    <string name="theme_custom_accent_apply">应用自定义颜色</string>
+    <string name="theme_settings_note">背景、正文、错误和警告等语义色由 Voica 自动保持可读性。</string>
+</resources>
