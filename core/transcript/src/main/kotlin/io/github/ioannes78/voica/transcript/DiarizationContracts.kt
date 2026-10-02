@@ -127,6 +127,15 @@ fun interface DiarizationProgressListener {
     suspend fun onProgress(progress: DiarizationProgress)
 }
 
+interface SpeakerEmbeddingEngine : Closeable {
+    val model: ModelDescriptor
+
+    suspend fun embed(
+        samples: ShortArray,
+        sampleRateHz: Int = DiarizationConfig.CANONICAL_SAMPLE_RATE_HZ,
+    ): FloatArray
+}
+
 interface DiarizationEngine : Closeable {
     val segmentationModel: ModelDescriptor
     val embeddingModel: ModelDescriptor
