@@ -50,6 +50,24 @@ class DiarizationWindowPlannerTest {
     }
 
     @Test
+    fun virtualThirtySixtyAndOneTwentyMinuteInputsStayBounded() {
+        val config = DiarizationConfig()
+        listOf(30L, 60L, 120L).forEach { minutes ->
+            val total = minutes * 60L * 16_000L
+            val windows =
+                planDiarizationWindows(
+                    speechSegments = listOf(SpeechSegment(0L, total)),
+                    totalSampleCount = total,
+                    config = config,
+                )
+
+            assertTrue(windows.isNotEmpty())
+            assertTrue(windows.all { it.sampleCount <= config.chunkSizeSamples })
+            assertTrue(windows.maxOf { it.sampleCount } <= 60L * 16_000L)
+        }
+    }
+
+    @Test
     fun sparseSpeechDoesNotCreateWindowAcrossLongSilence() {
         val windows =
             planDiarizationWindows(
