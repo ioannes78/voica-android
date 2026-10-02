@@ -293,6 +293,8 @@ High Quality：
 - overlap / ambiguous attribution 显式保留，不复制同一个 token 给多个 speaker
 - Room v2 → v3 additive migration；不保存 voiceprint / embedding vector
 - Speaker 1 / Speaker 2 等录音内匿名身份与当前 run 局部重命名
+- **直接 FAST/HQ 转写默认自动串行执行说话人分离与 Speaker 文本对齐；无需用户预先手动运行说话人分离**
+- 独立“说话人分离”动作仅用于补做、重跑、模型专项测试或已有转写的后处理
 - ERes2Net Base 必须通过 native load、diarization regression 与 Android RTF/PSS/thermal 真机门禁后才能进入 production manifest
 - CAM++ / CAM++ INT8 / TitaNet / ERes2NetV2 不作为 Stage 9 runtime fallback；若 ERes2Net Base 真机不达标，重新评估模型路线后再继续 Freeze
 

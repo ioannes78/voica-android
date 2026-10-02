@@ -8,7 +8,7 @@
     <string name="stage6_subtitle">本地录音库与 Opus/WAV 音频链路</string>
     <string name="stage7_subtitle">播放器与精确时间轴</string>
     <string name="stage8_subtitle">本地 ASR + VAD + 标点 + 说话人分离</string>
-    <string name="version_label">0.9.0 Stage 9 Alpha 1 QA</string>
+    <string name="version_label">0.9.0 Stage 9 Alpha 2 QA</string>
     <string name="tab_device">设备</string>
     <string name="tab_local_files">本地</string>
     <string name="tab_settings">设置</string>
@@ -202,6 +202,7 @@
 
     <string name="transcription_start_fast">快速转写</string>
     <string name="transcription_start_high_quality">高质量转写</string>
+    <string name="transcription_auto_diarization_hint">直接转写会在完成后自动继续说话人分离；下方按钮仅用于单独补做或重跑。</string>
     <string name="transcription_view_latest">转写版本</string>
     <string name="transcription_status_title">本地转写</string>
     <string name="transcription_mode_fast">快速模式</string>
@@ -229,7 +230,7 @@
     <string name="transcript_empty_segment">（该片段未识别到文字）</string>
 
 
-    <string name="diarization_start">说话人分离</string>
+    <string name="diarization_start">单独说话人分离</string>
     <string name="diarization_status_title">说话人分离</string>
     <string name="diarization_phase_preparing">正在准备标准音频与模型…</string>
     <string name="diarization_phase_vad">正在分析语音区间…</string>

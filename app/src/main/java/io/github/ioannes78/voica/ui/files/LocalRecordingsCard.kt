@@ -341,6 +341,10 @@ private fun RecordingRow(
                     Text(stringResource(R.string.transcription_start_high_quality))
                 }
             }
+            Text(
+                stringResource(R.string.transcription_auto_diarization_hint),
+                style = MaterialTheme.typography.bodySmall,
+            )
             OutlinedButton(
                 enabled = !transcriptionBusy && !diarizationBusy,
                 onClick = onDiarize,
