@@ -20,8 +20,12 @@ import androidx.room.RoomDatabase
         SpeakerTurnEntity::class,
         TranscriptSpeakerAlignmentEntity::class,
         TranscriptSpeakerSpanEntity::class,
+        AiSummaryEntity::class,
+        AiCustomTemplateEntity::class,
+        AiSummaryEvidenceEntity::class,
+        AiSummaryChunkEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class VoicaDatabase : RoomDatabase() {
@@ -30,6 +34,8 @@ abstract class VoicaDatabase : RoomDatabase() {
     abstract fun transcriptionDao(): TranscriptionDao
 
     abstract fun diarizationDao(): DiarizationDao
+
+    abstract fun aiSummaryDao(): AiSummaryDao
 
     companion object {
         const val DATABASE_NAME = "voica-recordings.db"
@@ -40,7 +46,7 @@ abstract class VoicaDatabase : RoomDatabase() {
                 VoicaDatabase::class.java,
                 DATABASE_NAME,
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build()
     }
 }
