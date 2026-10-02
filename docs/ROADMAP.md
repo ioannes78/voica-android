@@ -1,6 +1,6 @@
 # Voica Android 全项目 Stage 开发路线图
 
-当前状态：**Stage 10 已完成、用户验收通过并冻结；下一阶段为 Stage 11。**
+当前状态：**Stage 11 已完成、用户验收通过并冻结；下一阶段为 Stage 12。**
 
 整个 Voica 路线均为全新独立实现，不得从 `voice-card-android` 复制、迁移、继承、cherry-pick 或机械改写任何代码。
 
@@ -344,6 +344,32 @@ High Quality：
 - `docs/STAGE_10_HANDOFF.md`
 
 ## Stage 11 — AI 智能总结 / 内容理解
+
+状态：**已完成 / 已真机验收 / 已冻结**
+
+完成内容包括：
+
+- Room v4 AI Summary/template/evidence/checkpoint additive persistence
+- `:core:ai` 与 `:engine:llm` 独立模块边界
+- SMART / PRESET / CUSTOM 三种总结模式
+- 多 Provider Profile、本地默认 Provider、模型发现与 synthetic connection test
+- OpenAI / Gemini / Grok / DeepSeek / 火山 / 硅基流动 / OpenRouter 等 Provider 契约与适配
+- Android Keystore + AES-GCM 保存 API Key，密钥不进入 Room/summary lineage
+- structured transcript + stable evidenceRef + strict schema/evidence validation
+- 长转写 token budget + hierarchical map/reduce + Room checkpoint
+- interrupted/cancel/retry 语义
+- 默认简体中文 Summary 输出
+- OpenRouter 大模型目录搜索选择器
+- SiliconFlow Qwen3-32B 与 Volcengine DeepSeek V4.1 Flash structured-output compatibility
+- xAI/Grok 中文输出真机修复
+- QA `0.11.5-stage11-qa-fix5` 真机验收通过
+
+冻结文档：
+
+- `docs/STAGE_11_TEST.md`
+- `docs/STAGE_11_FREEZE.md`
+- `docs/STAGE_11_HANDOFF.md`
+
 
 Stage 11 不把 Voica 限定为“会议录音”。AI 总结面向会议、访谈、课堂/培训、工作汇报、项目讨论、销售沟通、个人语音笔记、头脑风暴等多种录音内容。
 
