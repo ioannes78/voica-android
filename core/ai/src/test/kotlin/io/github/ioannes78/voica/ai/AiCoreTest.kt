@@ -102,6 +102,28 @@ class AiCoreTest {
     }
 
     @Test
+    fun summaryPromptDefaultsHumanReadableOutputToSimplifiedChinese() {
+        val prompt =
+            SummaryPromptFactory.taskInstruction(
+                mode = AiSummaryMode.SMART,
+                template = SummaryTemplateCatalog.smart(),
+                partial = false,
+            )
+
+        assertEquals(2, SummaryPromptFactory.PROMPT_VERSION)
+        assertTrue(
+            SummaryPromptFactory.systemInstruction.contains(
+                "write all human-readable summary content in Simplified Chinese",
+            ),
+        )
+        assertTrue(prompt.contains("Default output language is Simplified Chinese"))
+        assertTrue(
+            SummaryPromptFactory.repairInstruction()
+                .contains("human-readable summary content in Simplified Chinese"),
+        )
+    }
+
+    @Test
     fun structuredTranscriptRejectsOutOfRangeEvidence() {
         val bad =
             runCatching {
