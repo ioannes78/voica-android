@@ -21,6 +21,7 @@ import io.github.ioannes78.voica.llm.ProviderAdapterRegistry
 import io.github.ioannes78.voica.llm.ProviderConfigurationRepository
 import io.github.ioannes78.voica.llm.UrlConnectionLlmHttpTransport
 import io.github.ioannes78.voica.playback.AndroidPlaybackController
+import io.github.ioannes78.voica.ui.theme.SharedPreferencesThemeSettingsStore
 import io.github.ioannes78.voica.model.ModelUseRegistry
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
@@ -80,6 +81,8 @@ class AppContainer(
 
     val modelUpdateSettingsStore =
         SharedPreferencesModelUpdateSettingsStore(application)
+    val themeSettingsStore =
+        SharedPreferencesThemeSettingsStore(application)
     val modelUpdateController =
         ModelUpdateController(
             modelManager = modelManager,
