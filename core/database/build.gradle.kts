@@ -41,6 +41,8 @@ ksp {
 dependencies {
     val roomVersion = "2.8.5"
 
+    implementation(project(":core:ai"))
+
     implementation("androidx.room:room-runtime:$roomVersion")
     implementation("androidx.room:room-ktx:$roomVersion")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")

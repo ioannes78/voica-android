@@ -4,14 +4,22 @@ import android.app.Application
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
+import io.github.ioannes78.voica.ai.AiSummaryEngine
 import io.github.ioannes78.voica.audio.AudioSourceResolver
 import io.github.ioannes78.voica.audio.PcmSourceResolver
 import io.github.ioannes78.voica.ble.DefaultDeviceRepository
 import io.github.ioannes78.voica.ble.DeviceRepository
+import io.github.ioannes78.voica.database.AiSummaryRepository
 import io.github.ioannes78.voica.database.DiarizationRepository
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
+import io.github.ioannes78.voica.database.StructuredTranscriptInputBuilder
 import io.github.ioannes78.voica.database.TranscriptionRepository
 import io.github.ioannes78.voica.database.VoicaDatabase
+import io.github.ioannes78.voica.llm.AndroidKeystoreCredentialStore
+import io.github.ioannes78.voica.llm.AppPrivateProviderProfileStore
+import io.github.ioannes78.voica.llm.ProviderAdapterRegistry
+import io.github.ioannes78.voica.llm.ProviderConfigurationRepository
+import io.github.ioannes78.voica.llm.UrlConnectionLlmHttpTransport
 import io.github.ioannes78.voica.playback.AndroidPlaybackController
 import io.github.ioannes78.voica.model.ModelUseRegistry
 import java.io.File
@@ -83,6 +91,34 @@ class AppContainer(
 
     val diarizationRepository =
         DiarizationRepository(recordingDatabase)
+
+    val aiSummaryRepository =
+        AiSummaryRepository(recordingDatabase)
+    val structuredTranscriptInputBuilder =
+        StructuredTranscriptInputBuilder(recordingDatabase)
+    val providerCredentialStore =
+        AndroidKeystoreCredentialStore(application)
+    val providerProfileStore =
+        AppPrivateProviderProfileStore(application)
+    val providerConfigurationRepository =
+        ProviderConfigurationRepository(
+            profileStore = providerProfileStore,
+            credentialStore = providerCredentialStore,
+        )
+    val providerAdapterRegistry =
+        ProviderAdapterRegistry(
+            transport = UrlConnectionLlmHttpTransport(),
+            credentials = providerCredentialStore,
+        )
+    val aiSummaryCoordinator =
+        AiSummaryCoordinator(
+            scope = applicationScope,
+            repository = aiSummaryRepository,
+            inputBuilder = structuredTranscriptInputBuilder,
+            profileStore = providerProfileStore,
+            providerRegistry = providerAdapterRegistry,
+            engine = AiSummaryEngine(),
+        )
 
     val transcriptionCoordinator =
         TranscriptionCoordinator(
@@ -192,6 +228,7 @@ class AppContainer(
             canonicalAudioCoordinator.reconcileOnStartup()
             transcriptionCoordinator.reconcileOnStartup()
             diarizationCoordinator.reconcileOnStartup()
+            aiSummaryRepository.reconcileInterruptedOnStartup()
         }
     }
 }

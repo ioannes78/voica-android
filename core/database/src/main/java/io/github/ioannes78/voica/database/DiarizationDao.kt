@@ -77,6 +77,18 @@ interface DiarizationDao {
 
     @Query(
         """
+        SELECT * FROM transcript_speaker_alignments
+        WHERE transcriptionId = :transcriptionId AND state = 'COMPLETED'
+        ORDER BY completedAtMs DESC, createdAtMs DESC
+        LIMIT 1
+        """,
+    )
+    suspend fun loadLatestCompletedAlignment(
+        transcriptionId: String,
+    ): TranscriptSpeakerAlignmentEntity?
+
+    @Query(
+        """
         SELECT * FROM transcript_speaker_spans
         WHERE alignmentId = :alignmentId
         ORDER BY spanIndex ASC

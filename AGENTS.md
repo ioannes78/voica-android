@@ -4,15 +4,15 @@
 
 当前 `ioannes78/voica-android` 仓库是 Voica 项目实现状态的唯一事实来源。
 
-当前已冻结基线：**Stage 10**
+当前已冻结基线：**Stage 11**
 
-Stage 10 Freeze/Handoff：
+Stage 11 Freeze/Handoff：
 
-- `docs/STAGE_10_FREEZE.md`
-- `docs/STAGE_10_HANDOFF.md`
-- `docs/STAGE_10_TEST.md`
+- `docs/STAGE_11_FREEZE.md`
+- `docs/STAGE_11_HANDOFF.md`
+- `docs/STAGE_11_TEST.md`
 
-下一阶段：**Stage 11 — AI 智能总结 / 内容理解**
+下一阶段：**Stage 12 — 产品 UI / UX 完整化 + 本地内容管理**
 
 协议与行为参考：
 
@@ -83,10 +83,10 @@ Stage 10 Freeze/Handoff：
 - Compose BOM：2026.09.00
 - Application ID：`io.github.ioannes78.voica`
 - QA Application ID：`io.github.ioannes78.voica.qa`
-- versionCode：26
-- versionName：`0.10.0-stage10-alpha1`
+- versionCode：32
+- versionName：`0.11.5-stage11-qa-fix5`
 - sherpa-onnx：1.13.8
-- Room schema：3
+- Room schema：4
 - ABI：arm64-v8a
 - 默认产品语言：简体中文
 
@@ -99,9 +99,11 @@ Stage 10 Freeze/Handoff：
 - `:core:audio`
 - `:core:model`
 - `:core:transcript`
+- `:core:ai`
 - `:engine:opus`
 - `:engine:playback`
 - `:engine:sherpa`
+- `:engine:llm`
 
 依赖主方向：
 
@@ -330,6 +332,29 @@ app
 - Room schema 保持 v3；Stage 10 仅增加按 transcriptionId 批量读取 token，不引入 migration。
 - Stage 10 已通过 30/60/120 分钟 virtual timeline 自动化；这不等于真实 30min/1h/2h 真机 soak，后者继续属于 Stage 13。
 - Stage 10 真机功能验收已通过；不得把本次验收扩张为未执行的长录音 PSS/CPU/thermal 定量结论。
+
+## 九-F、Stage 11 已冻结 AI Summary / Provider 事实
+
+后续 Stage 不得无新证据改变：
+
+- 默认 AI 总结链固定为 `selected Transcription → StructuredTranscriptInput → TextLlmProvider → validated AI Summary`。
+- 普通“AI 总结”默认只上传转写文本与必要结构化 metadata，不上传原始录音。
+- AI 生成内容不得反写成 ASR timing 事实；evidenceRef 必须可回链到真实 transcript/speaker source range。
+- Room schema 已从 v3 additive migration 到 v4；AI Summary/template/evidence/checkpoint 持久化进入 Room，API Key 不进入 Room。
+- API Key 使用 Android Keystore + AES-GCM；Provider Profile 支持多配置和默认 Provider。
+- Text LLM Provider 与 ASR Provider 分离；Audio LLM 只冻结能力契约，完整直接音频理解仍属于 Stage 19。
+- Provider presets/contract 包括 OpenAI、Google Gemini/AI Studio、Google Vertex contract、xAI/Grok、DeepSeek、阿里云百炼、火山引擎/豆包、硅基流动、智谱 GLM、Kimi、OpenRouter、Custom OpenAI-compatible。
+- Provider 支持时可自动获取模型；始终保留手动模型 ID fallback；大模型目录使用 searchable picker。
+- 连接测试使用 synthetic content，不上传真实 transcript；已选模型时必须实际 probe 所选模型。
+- native json_schema 可用时优先使用；json_object fallback 也必须把完整 Summary schema 明确提供给模型，再执行本地严格 schema/evidence validation。
+- SiliconFlow/Volcengine structured summary 默认关闭 thinking/reasoning，避免推理过程耗尽最终 JSON 输出预算。
+- 单层 ```json code fence 仅作为兼容包装剥离，不得因此放宽 schema/evidence 安全规则。
+- Prompt version 2；除非用户明确要求其他语言，人类可读 AI Summary 默认输出简体中文。
+- 同一 Transcription 可生成多个 Summary version，不覆盖旧结果。
+- 长文本使用 token budget + direct 或 hierarchical map/reduce；支持 Room checkpoint、cancel、interrupted 后继续。
+- 进程重启后不得自动静默重发云端 LLM 请求。
+- Stage 11 真机已验证 Grok 中文输出、火山 DeepSeek V4.1 Flash 与硅基流动 Qwen3-32B 的结构化总结修复。
+- OpenRouter HTTP 429 属于 Provider rate-limit/quota 类状态，不得伪装成连接成功。
 
 ## 十、架构规则
 

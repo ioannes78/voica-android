@@ -14,8 +14,8 @@ android {
         applicationId = "io.github.ioannes78.voica"
         minSdk = 26
         targetSdk = 37
-        versionCode = 26
-        versionName = "0.10.0-stage10-alpha1"
+        versionCode = 32
+        versionName = "0.11.5-stage11-qa-fix5"
         ndk {
             abiFilters += "arm64-v8a"
         }
@@ -67,18 +67,21 @@ dependencies {
     implementation(project(":core:protocol"))
     implementation(project(":core:ble"))
     implementation(project(":core:database"))
+    implementation(project(":core:ai"))
     implementation(project(":core:audio"))
     implementation(project(":core:model"))
     implementation(project(":core:transcript"))
     implementation(project(":engine:opus"))
     implementation(project(":engine:playback"))
     implementation(project(":engine:sherpa"))
+    implementation(project(":engine:llm"))
     implementation("androidx.core:core-ktx:1.19.1")
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.10.0")
     implementation("androidx.lifecycle:lifecycle-process:2.10.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
 
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     implementation(composeBom)
