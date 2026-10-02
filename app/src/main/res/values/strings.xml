@@ -7,8 +7,8 @@
     <string name="stage5_subtitle">设备录音下载与可靠落盘</string>
     <string name="stage6_subtitle">本地录音库与 Opus/WAV 音频链路</string>
     <string name="stage7_subtitle">播放器与精确时间轴</string>
-    <string name="stage8_subtitle">本地 ASR + VAD + 标点 + 模型管理</string>
-    <string name="version_label">0.8.0 Stage 8 Alpha 4 QA</string>
+    <string name="stage8_subtitle">本地 ASR + VAD + 标点 + 说话人分离</string>
+    <string name="version_label">0.9.0 Stage 9 Alpha 1 QA</string>
     <string name="tab_device">设备</string>
     <string name="tab_local_files">本地</string>
     <string name="tab_settings">设置</string>
@@ -228,6 +228,34 @@
     <string name="transcript_result_segments">共 %1$d 个语音片段</string>
     <string name="transcript_empty_segment">（该片段未识别到文字）</string>
 
+
+    <string name="diarization_start">说话人分离</string>
+    <string name="diarization_status_title">说话人分离</string>
+    <string name="diarization_phase_preparing">正在准备标准音频与模型…</string>
+    <string name="diarization_phase_vad">正在分析语音区间…</string>
+    <string name="diarization_phase_diarization">正在识别说话人区间…</string>
+    <string name="diarization_phase_stitching">正在合并长录音说话人身份…</string>
+    <string name="diarization_phase_alignment">正在对齐转写文字与说话人…</string>
+    <string name="diarization_phase_persisting">正在保存说话人分离结果…</string>
+    <string name="diarization_progress_percent">%1$d%%</string>
+    <string name="diarization_cancel">取消说话人分离</string>
+    <string name="diarization_completed">说话人分离已完成 · %1$d 位说话人</string>
+    <string name="diarization_failed">说话人分离失败：%1$s</string>
+    <string name="diarization_missing_models">缺少模型：%1$s。请到设置页下载并验证 Stage 9 说话人模型。</string>
+    <string name="diarization_open_model_settings">前往模型设置</string>
+    <string name="diarization_retry">重试说话人分离</string>
+    <string name="diarization_cancelled">说话人分离已取消</string>
+    <string name="diarization_transcript_applied">当前转写已应用说话人分离结果</string>
+    <string name="diarization_speakers_title">说话人</string>
+    <string name="diarization_speaker_default">说话人 %1$d</string>
+    <string name="diarization_speaker_rename">重命名</string>
+    <string name="diarization_speaker_rename_title">重命名说话人 %1$d</string>
+    <string name="diarization_speaker_name_label">显示名称；留空可恢复默认名称</string>
+    <string name="diarization_speaker_save">保存</string>
+    <string name="diarization_speaker_overlap_ambiguous">重叠语音 · 说话人待确认</string>
+    <string name="diarization_speaker_unresolved">说话人未确定</string>
+    <string name="diarization_overlap_note">该文字时间段包含重叠语音</string>
+
     <string name="state_unavailable">当前设备不支持蓝牙低功耗。</string>
     <string name="state_permission_required">等待蓝牙权限</string>
     <string name="state_bluetooth_off">蓝牙已关闭</string>
@@ -259,7 +287,7 @@
     <string name="settings_language">默认语言</string>
     <string name="settings_language_value">简体中文</string>
     <string name="settings_scope">当前范围</string>
-    <string name="settings_scope_value">BLE + 本地录音库 + 精确播放时间轴 + Stage 8 本地 AI 基础</string>
+    <string name="settings_scope_value">BLE + 本地录音库 + 精确播放时间轴 + Stage 9 本地转写与说话人分离</string>
     <string name="settings_local_ai_runtime">本地 AI 运行库</string>
     <string name="settings_sherpa_runtime_version">sherpa-onnx %1$s · arm64-v8a · CPU</string>
     <string name="settings_sherpa_runtime_test">测试运行库</string>

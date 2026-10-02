@@ -78,7 +78,7 @@ fun ModelManagerCard(
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
-                "APK 仅内置 Silero VAD 基线；ASR、标点和高质量模型由受控模型通道提供。",
+                "APK 仅内置 Silero VAD 基线；ASR、标点、高质量与说话人模型由受控模型通道提供。",
                 style = MaterialTheme.typography.bodySmall,
             )
 
@@ -87,7 +87,7 @@ fun ModelManagerCard(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
-                        "Stage 8 候选模型验收（Debug）",
+                        "Stage 8/9 候选模型验收（Debug）",
                         style = MaterialTheme.typography.titleSmall,
                     )
                     Text(
@@ -173,7 +173,7 @@ fun ModelManagerCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Silero 小模型自动升级")
                     Text(
-                        "自动下载、校验、运行库 smoke test 后切换；ASR/标点/SenseVoice 仍需手动确认。",
+                        "自动下载、校验、运行库 smoke test 后切换；ASR、标点、SenseVoice 与说话人模型仍需手动确认。",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }

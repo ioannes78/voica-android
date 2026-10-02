@@ -39,6 +39,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.ioannes78.voica.CanonicalAudioCoordinator
+import io.github.ioannes78.voica.DiarizationCoordinator
+import io.github.ioannes78.voica.DiarizationRunState
 import io.github.ioannes78.voica.ModelUpdateController
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.TranscriptionCoordinator
@@ -58,12 +60,15 @@ import io.github.ioannes78.voica.ble.RecordingCommandState
 import io.github.ioannes78.voica.ble.RecordingFreshness
 import io.github.ioannes78.voica.ble.RemoteDeleteDiagnostics
 import io.github.ioannes78.voica.ble.RangeProbeDiagnostics
+import io.github.ioannes78.voica.database.DiarizationRepository
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.database.TranscriptionRepository
 import io.github.ioannes78.voica.protocol.BatteryState
 import io.github.ioannes78.voica.protocol.RecordingStatus
 import io.github.ioannes78.voica.model.ModelManager
 import io.github.ioannes78.voica.sherpa.SherpaRuntime
+import io.github.ioannes78.voica.ui.diarization.DiarizationStatusCard
+import io.github.ioannes78.voica.ui.diarization.DiarizationViewModel
 import io.github.ioannes78.voica.ui.files.DeviceFilesCard
 import io.github.ioannes78.voica.ui.files.LocalRecordingsCard
 import io.github.ioannes78.voica.ui.playback.PlaybackCard
@@ -89,6 +94,8 @@ fun VoicaApp(
     modelUpdateController: ModelUpdateController,
     transcriptionCoordinator: TranscriptionCoordinator,
     transcriptionRepository: TranscriptionRepository,
+    diarizationCoordinator: DiarizationCoordinator,
+    diarizationRepository: DiarizationRepository,
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val deviceViewModel: DeviceViewModel = viewModel(
@@ -116,14 +123,24 @@ fun VoicaApp(
         },
     )
 
+    val diarizationViewModel: DiarizationViewModel = viewModel(
+        factory = remember(diarizationCoordinator) {
+            DiarizationViewModel.Factory(diarizationCoordinator)
+        },
+    )
+
     val transcriptionViewModel: TranscriptionViewModel = viewModel(
         factory = remember(
             transcriptionCoordinator,
             transcriptionRepository,
+            diarizationCoordinator,
+            diarizationRepository,
         ) {
             TranscriptionViewModel.Factory(
                 transcriptionCoordinator,
                 transcriptionRepository,
+                diarizationCoordinator,
+                diarizationRepository,
             )
         },
     )
@@ -159,6 +176,8 @@ fun VoicaApp(
                 deviceViewModel,
                 playbackViewModel,
                 transcriptionViewModel,
+                diarizationViewModel,
+                onOpenSettings = { selectedTab = 2 },
             )
             else -> SettingsScreen(
                 padding = padding,
@@ -382,6 +401,8 @@ private fun LocalFilesScreen(
     viewModel: DeviceViewModel,
     playbackViewModel: PlaybackViewModel,
     transcriptionViewModel: TranscriptionViewModel,
+    diarizationViewModel: DiarizationViewModel,
+    onOpenSettings: () -> Unit,
 ) {
     val recordings by viewModel.libraryRecordings.collectAsState(initial = emptyList())
     val playback by playbackViewModel.snapshot.collectAsState()
@@ -390,6 +411,8 @@ private fun LocalFilesScreen(
     val transcriptVersions by transcriptionViewModel.versions.collectAsState()
     val transcriptVersionsRecordingId by transcriptionViewModel.versionsRecordingId.collectAsState()
     val transcriptionNotice by transcriptionViewModel.notice.collectAsState()
+    val diarizationState by diarizationViewModel.runState.collectAsState()
+    val diarizationNotice by diarizationViewModel.notice.collectAsState()
     val playbackName =
         recordings.firstOrNull { it.id == playback.recordingId }?.displayName
     val transcriptionRecordingId =
@@ -407,6 +430,17 @@ private fun LocalFilesScreen(
     val transcriptVersionsRecordingName =
         recordings.firstOrNull { it.id == transcriptVersionsRecordingId }?.displayName
     val transcriptionBusy = transcriptionState is TranscriptionRunState.Running
+    val diarizationRecordingId =
+        when (val state = diarizationState) {
+            DiarizationRunState.Idle -> null
+            is DiarizationRunState.Running -> state.recordingId
+            is DiarizationRunState.Completed -> state.recordingId
+            is DiarizationRunState.Failed -> state.recordingId
+            is DiarizationRunState.Cancelled -> state.recordingId
+        }
+    val diarizationRecordingName =
+        recordings.firstOrNull { it.id == diarizationRecordingId }?.displayName
+    val diarizationBusy = diarizationState is DiarizationRunState.Running
 
     LazyColumn(
         modifier = Modifier
@@ -452,6 +486,21 @@ private fun LocalFilesScreen(
             }
         }
 
+        if (diarizationState !is DiarizationRunState.Idle ||
+            diarizationNotice != null
+        ) {
+            item {
+                DiarizationStatusCard(
+                    state = diarizationState,
+                    recordingName = diarizationRecordingName,
+                    notice = diarizationNotice,
+                    onCancel = diarizationViewModel::cancel,
+                    onRetry = diarizationViewModel::retry,
+                    onOpenSettings = onOpenSettings,
+                )
+            }
+        }
+
         if (transcriptVersions.isNotEmpty()) {
             item {
                 TranscriptVersionListCard(
@@ -468,11 +517,12 @@ private fun LocalFilesScreen(
                 TranscriptDocumentHeader(
                     document = document,
                     recordingName = transcriptRecordingName,
+                    onRenameSpeaker = transcriptionViewModel::renameSpeaker,
                 )
             }
             items(
                 items = document.segments,
-                key = { segment -> segment.segmentIndex },
+                key = { segment -> segment.displayIndex },
             ) { segment ->
                 TranscriptSegmentCard(segment)
             }
@@ -486,8 +536,10 @@ private fun LocalFilesScreen(
                 onGenerateCanonical = viewModel::generateCanonicalAudio,
                 onCancelCanonical = viewModel::cancelCanonicalAudio,
                 transcriptionBusy = transcriptionBusy,
+                diarizationBusy = diarizationBusy,
                 onTranscribeFast = transcriptionViewModel::startFast,
                 onTranscribeHighQuality = transcriptionViewModel::startHighQuality,
+                onDiarize = diarizationViewModel::start,
                 onViewTranscript = transcriptionViewModel::viewVersions,
             )
         }

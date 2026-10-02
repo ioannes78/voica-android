@@ -8,6 +8,7 @@ import io.github.ioannes78.voica.audio.AudioSourceResolver
 import io.github.ioannes78.voica.audio.PcmSourceResolver
 import io.github.ioannes78.voica.ble.DefaultDeviceRepository
 import io.github.ioannes78.voica.ble.DeviceRepository
+import io.github.ioannes78.voica.database.DiarizationRepository
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.database.TranscriptionRepository
 import io.github.ioannes78.voica.database.VoicaDatabase
@@ -80,6 +81,9 @@ class AppContainer(
     val transcriptionRepository =
         TranscriptionRepository(recordingDatabase)
 
+    val diarizationRepository =
+        DiarizationRepository(recordingDatabase)
+
     val transcriptionCoordinator =
         TranscriptionCoordinator(
             scope = applicationScope,
@@ -90,6 +94,21 @@ class AppContainer(
             modelUseRegistry = modelUseRegistry,
             engineProvider =
                 SherpaStage8TranscriptionEngineProvider(
+                    assetManager = application.assets,
+                ),
+        )
+
+    val diarizationCoordinator =
+        DiarizationCoordinator(
+            scope = applicationScope,
+            pcmSourceResolver = pcmSourceResolver,
+            diarizationRepository = diarizationRepository,
+            transcriptionRepository = transcriptionRepository,
+            loadCanonicalLineage = recordingLibraryRepository::loadCanonicalTranscriptionLineage,
+            modelManager = modelManager,
+            modelUseRegistry = modelUseRegistry,
+            engineProvider =
+                SherpaStage9DiarizationEngineProvider(
                     assetManager = application.assets,
                 ),
         )
@@ -172,6 +191,7 @@ class AppContainer(
             recordingLibraryRepository.reconcilePendingDeletes()
             canonicalAudioCoordinator.reconcileOnStartup()
             transcriptionCoordinator.reconcileOnStartup()
+            diarizationCoordinator.reconcileOnStartup()
         }
     }
 }
