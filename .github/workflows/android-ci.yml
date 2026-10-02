@@ -62,6 +62,7 @@ jobs:
           :core:protocol:test
           :core:ble:testDebugUnitTest
           :core:database:testDebugUnitTest
+          :core:ai:test
           :core:audio:test
           :core:model:test
           :core:transcript:test
@@ -87,7 +88,19 @@ jobs:
             tr '[:upper:]' '[:lower:]')"
           test "$actual_cert_sha256" = "$expected_cert_sha256"
 
-      # Stage 9 migration gate: committed Room v1/v2/v3 schemas must stay in sync.
+      # Stage 11 migration development: capture the compiler-exported v4 schema
+      # before the committed-schema gate so the authoritative file can be added
+      # without hand-writing Room's identity hash.
+      - name: Capture Room v4 schema
+        if: ${{ hashFiles('core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/4.json') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: room-schema-v4
+          path: core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/4.json
+          if-no-files-found: error
+          retention-days: 1
+
+      # Stage 11 migration gate: committed Room v1/v2/v3/v4 schemas must stay in sync.
       - name: Verify committed Room schemas
         shell: bash
         run: |
@@ -95,6 +108,7 @@ jobs:
           test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/1.json"
           test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/2.json"
           test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/3.json"
+          test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/4.json"
           git diff --exit-code -- "$schema_dir"
           test -z "$(git status --porcelain --untracked-files=all -- "$schema_dir")"
 
