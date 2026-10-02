@@ -62,6 +62,7 @@ object ModelDescriptorSnapshotCodec {
             setProperty("autoUpdateEligible", d.autoUpdateEligible.toString())
             setProperty("deprecated", d.deprecated.toString())
             setProperty("criticalUpdate", d.criticalUpdate.toString())
+            d.speakerRole?.let { setProperty("speakerRole", it.name) }
         }
     }
 
@@ -131,6 +132,10 @@ object ModelDescriptorSnapshotCodec {
                 autoUpdateEligible = properties.requiredBoolean("autoUpdateEligible"),
                 deprecated = properties.requiredBoolean("deprecated"),
                 criticalUpdate = properties.requiredBoolean("criticalUpdate"),
+                speakerRole =
+                    properties.optional("speakerRole")?.let {
+                        enumValueOf<SpeakerModelRole>(it)
+                    },
             )
 
         return ModelDescriptorSnapshot(
