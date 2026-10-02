@@ -30,12 +30,11 @@ data class TranscriptEvidenceSeed(
     val sourceId: String,
     val speakerId: String?,
     val speakerDisplayName: String?,
+    val startSampleIndex: Long,
+    val endSampleIndexExclusive: Long,
     val assignmentQuality: String? = null,
     val overlap: Boolean = false,
     val ambiguous: Boolean = false,
-    val startSampleIndex: Long,
-
-    val endSampleIndexExclusive: Long,
 )
 
 class EvidenceResolver(
