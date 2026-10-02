@@ -9,6 +9,7 @@ import io.github.ioannes78.voica.ai.ProviderErrorCode
 import io.github.ioannes78.voica.ai.ProviderFailure
 import io.github.ioannes78.voica.ai.ProviderModel
 import io.github.ioannes78.voica.ai.ProviderProfile
+import io.github.ioannes78.voica.ai.ProviderPresetIds
 import io.github.ioannes78.voica.ai.TextLlmProvider
 import java.util.UUID
 import kotlinx.serialization.json.JsonElement
@@ -133,7 +134,7 @@ class OpenAiCompatibleTextLlmProvider(
             require(request.model.isNotBlank())
             val key = requireCredential(credentials, profile)
             val caps = capabilities(profile)
-            val body = buildRequestBody(request, caps)
+            val body = buildRequestBody(request, caps, profile.presetId)
             val response =
                 transport.execute(
                     requestId = request.requestId,
@@ -170,6 +171,7 @@ class OpenAiCompatibleTextLlmProvider(
     private fun buildRequestBody(
         request: LlmGenerationRequest,
         caps: ProviderCapabilities,
+        presetId: String,
     ): String {
         val schema =
             request.structuredOutputSchema
@@ -216,7 +218,13 @@ class OpenAiCompatibleTextLlmProvider(
                     )
                 },
             )
-            request.maxOutputTokens?.let { put("max_tokens", it) }
+            request.maxOutputTokens?.let { value ->
+                if (presetId == ProviderPresetIds.OPENAI) {
+                    put("max_completion_tokens", value)
+                } else {
+                    put("max_tokens", value)
+                }
+            }
             when {
                 schema != null ->
                     put(

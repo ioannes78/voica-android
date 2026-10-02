@@ -200,6 +200,51 @@ class ProviderAdaptersTest {
             assertTrue(transport.requests[1].second.body.orEmpty().contains("responseJsonSchema"))
         }
 
+
+    @Test
+    fun openAiPresetUsesCurrentCompletionTokenParameter() =
+        runTest {
+            val transport =
+                FakeTransport(
+                    ArrayDeque(
+                        listOf(
+                            LlmHttpResponse(
+                                200,
+                                """{"choices":[{"message":{"content":"{}"}}]}""",
+                                emptyMap(),
+                            ),
+                        ),
+                    ),
+                )
+            val provider =
+                OpenAiCompatibleTextLlmProvider(
+                    transport,
+                    FakeCredentials("secret"),
+                )
+            val openAiProfile =
+                profile(
+                    presetId = ProviderPresetIds.OPENAI,
+                    baseUrl = "https://api.openai.com/v1",
+                )
+
+            provider.generate(
+                openAiProfile,
+                LlmGenerationRequest(
+                    requestId = "openai-token-param",
+                    model = "gpt-test",
+                    systemInstruction = "test",
+                    taskInstruction = "test",
+                    transcriptPayload = "test",
+                    structuredOutputSchema = null,
+                    maxOutputTokens = 123,
+                ),
+            )
+
+            val body = transport.requests.single().second.body.orEmpty()
+            assertTrue(body.contains("max_completion_tokens"))
+            assertFalse(body.contains("\"max_tokens\""))
+        }
+
     @Test
     fun cancelDelegatesToTransport() {
         val transport = FakeTransport(ArrayDeque())
