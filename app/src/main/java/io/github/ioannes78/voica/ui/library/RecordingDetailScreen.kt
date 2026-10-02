@@ -567,27 +567,27 @@ private fun TranscriptionActionsCard(
                         Text(stringResource(R.string.local_standard_audio_generate))
                     }
                 }
-                return@Column
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    enabled = !transcriptionBusy && !diarizationBusy,
-                    onClick = onFast,
-                ) {
-                    Text(stringResource(R.string.transcription_start_fast))
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        enabled = !transcriptionBusy && !diarizationBusy,
+                        onClick = onFast,
+                    ) {
+                        Text(stringResource(R.string.transcription_start_fast))
+                    }
+                    OutlinedButton(
+                        enabled = !transcriptionBusy && !diarizationBusy,
+                        onClick = onHighQuality,
+                    ) {
+                        Text(stringResource(R.string.transcription_start_high_quality))
+                    }
                 }
                 OutlinedButton(
                     enabled = !transcriptionBusy && !diarizationBusy,
-                    onClick = onHighQuality,
+                    onClick = onDiarize,
                 ) {
-                    Text(stringResource(R.string.transcription_start_high_quality))
+                    Text(stringResource(R.string.diarization_start))
                 }
-            }
-            OutlinedButton(
-                enabled = !transcriptionBusy && !diarizationBusy,
-                onClick = onDiarize,
-            ) {
-                Text(stringResource(R.string.diarization_start))
             }
         }
     }
