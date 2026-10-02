@@ -1,29 +1,38 @@
 package io.github.ioannes78.voica.llm
 
-import io.github.ioannes78.voica.ai.ProviderPresetIds
-import io.github.ioannes78.voica.ai.ProviderProfile
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderProfilePersistenceContractTest {
     @Test
-    fun blankDefaultModelIsAValidProviderProfileState() {
-        val profile =
-            ProviderProfile(
-                providerProfileId = "profile-blank-model",
-                presetId = ProviderPresetIds.SILICONFLOW,
-                displayName = "硅基流动",
-                baseUrl = "https://api.siliconflow.cn/v1",
-                credentialRef = "credential-blank-model",
-                defaultModel = "",
-                timeoutMs = 60_000,
-                manualContextWindowTokens = null,
-                capabilityOverrides = null,
-                enabled = true,
-            )
+    fun blankDefaultModelRemainsValidWhenProfileIsReloaded() {
+        val profileJson =
+            buildJsonObject {
+                put("defaultModel", "")
+            }
 
-        assertEquals("", profile.defaultModel)
-        assertTrue(profile.baseUrl.startsWith("https://"))
+        assertEquals("", decodePersistedDefaultModel(profileJson))
+    }
+
+    @Test
+    fun missingDefaultModelFromEarlyStage11ProfileRecoversAsBlank() {
+        val profileJson = buildJsonObject {}
+
+        assertEquals("", decodePersistedDefaultModel(profileJson))
+    }
+
+    @Test
+    fun selectedDefaultModelIsPreserved() {
+        val profileJson =
+            buildJsonObject {
+                put("defaultModel", "Qwen/Qwen3-8B")
+            }
+
+        assertEquals(
+            "Qwen/Qwen3-8B",
+            decodePersistedDefaultModel(profileJson),
+        )
     }
 }
