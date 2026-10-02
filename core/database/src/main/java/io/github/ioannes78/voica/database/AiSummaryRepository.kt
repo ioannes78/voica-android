@@ -21,6 +21,15 @@ data class NewAiSummaryRequest(
     val sourceLineageSnapshot: String,
 )
 
+data class SaveAiCustomTemplateRequest(
+    val id: String? = null,
+    val name: String,
+    val schemaVersion: Int = 1,
+    val sectionsConfigJson: String,
+    val focus: String?,
+    val userInstruction: String?,
+)
+
 data class AiSummaryEvidenceWrite(
     val summaryItemId: String,
     val sourceRef: String,
@@ -47,6 +56,38 @@ class AiSummaryRepository(
         dao.observeForTranscription(transcriptionId)
 
     suspend fun find(summaryId: String): AiSummaryEntity? = dao.findSummary(summaryId)
+
+    fun observeCustomTemplates(): Flow<List<AiCustomTemplateEntity>> =
+        dao.observeCustomTemplates()
+
+    suspend fun findCustomTemplate(templateId: String): AiCustomTemplateEntity? =
+        dao.findCustomTemplate(templateId)
+
+    suspend fun saveCustomTemplate(request: SaveAiCustomTemplateRequest): String {
+        require(request.name.isNotBlank())
+        require(request.schemaVersion >= 1)
+        require(request.sectionsConfigJson.isNotBlank())
+        require(request.userInstruction == null || request.userInstruction.length <= 4_000)
+        val now = nowMs()
+        val id = request.id?.takeIf { it.isNotBlank() } ?: newId()
+        val existing = dao.findCustomTemplate(id)
+        dao.upsertCustomTemplate(
+            AiCustomTemplateEntity(
+                id = id,
+                name = request.name.trim().take(120),
+                schemaVersion = request.schemaVersion,
+                sectionsConfigJson = request.sectionsConfigJson,
+                focus = request.focus?.trim()?.take(2_000),
+                userInstruction = request.userInstruction?.trim()?.take(4_000),
+                createdAtMs = existing?.createdAtMs ?: now,
+                updatedAtMs = now,
+            ),
+        )
+        return id
+    }
+
+    suspend fun deleteCustomTemplate(templateId: String): Boolean =
+        dao.deleteCustomTemplate(templateId) == 1
 
     suspend fun create(request: NewAiSummaryRequest): String {
         require(request.recordingId.isNotBlank())
@@ -186,6 +227,16 @@ class AiSummaryRepository(
 
     suspend fun loadEvidence(summaryId: String): List<AiSummaryEvidenceEntity> =
         dao.loadEvidence(summaryId)
+
+    suspend fun resumeInterrupted(summaryId: String): Boolean =
+        dao.resumeInterrupted(summaryId, nowMs()) == 1
+
+    suspend fun findChunk(
+        summaryId: String,
+        level: Int,
+        chunkIndex: Int,
+    ): AiSummaryChunkEntity? =
+        dao.findChunk(summaryId, level, chunkIndex)
 
     suspend fun loadChunks(summaryId: String): List<AiSummaryChunkEntity> =
         dao.loadChunks(summaryId)

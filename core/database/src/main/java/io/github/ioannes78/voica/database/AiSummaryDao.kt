@@ -61,6 +61,21 @@ interface AiSummaryDao {
 
     @Query(
         """
+        SELECT * FROM ai_summary_chunks
+        WHERE aiSummaryId = :summaryId
+          AND level = :level
+          AND chunkIndex = :chunkIndex
+        LIMIT 1
+        """,
+    )
+    suspend fun findChunk(
+        summaryId: String,
+        level: Int,
+        chunkIndex: Int,
+    ): AiSummaryChunkEntity?
+
+    @Query(
+        """
         UPDATE ai_summaries
         SET status = :status,
             startedAtMs = COALESCE(startedAtMs, :startedAtMs),
@@ -110,6 +125,23 @@ interface AiSummaryDao {
     @Query(
         """
         UPDATE ai_summaries
+        SET status = 'PREPARING',
+            startedAtMs = :nowMs,
+            updatedAtMs = :nowMs,
+            completedAtMs = NULL,
+            errorCode = NULL,
+            sanitizedErrorMessage = NULL
+        WHERE id = :summaryId AND status = 'INTERRUPTED'
+        """,
+    )
+    suspend fun resumeInterrupted(
+        summaryId: String,
+        nowMs: Long,
+    ): Int
+
+    @Query(
+        """
+        UPDATE ai_summaries
         SET status = 'INTERRUPTED',
             updatedAtMs = :nowMs,
             completedAtMs = :nowMs,
@@ -130,6 +162,9 @@ interface AiSummaryDao {
         """,
     )
     fun observeCustomTemplates(): Flow<List<AiCustomTemplateEntity>>
+
+    @Query("SELECT * FROM ai_custom_templates WHERE id = :templateId LIMIT 1")
+    suspend fun findCustomTemplate(templateId: String): AiCustomTemplateEntity?
 
     @Query("DELETE FROM ai_custom_templates WHERE id = :templateId")
     suspend fun deleteCustomTemplate(templateId: String): Int

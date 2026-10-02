@@ -20,6 +20,7 @@ data class AiSummaryEngineConfig(
 
 enum class AiSummaryEnginePhase {
     PREPARING,
+    ANALYZING,
     MAPPING,
     REDUCING,
     VALIDATING,
@@ -36,6 +37,7 @@ data class AiSummaryEngineRequest(
     val profile: ProviderProfile,
     val mode: AiSummaryMode,
     val template: SummaryTemplateSpec,
+    val checkpointStore: SummaryCheckpointStore? = null,
 )
 
 data class AiSummaryEngineOutput(
@@ -58,7 +60,7 @@ class AiSummaryEngine(
     suspend fun generate(
         provider: TextLlmProvider,
         request: AiSummaryEngineRequest,
-        onProgress: (AiSummaryEngineProgress) -> Unit = {},
+        onProgress: suspend (AiSummaryEngineProgress) -> Unit = {},
     ): AiSummaryEngineOutput {
         onProgress(AiSummaryEngineProgress(AiSummaryEnginePhase.PREPARING))
         val capabilities = provider.capabilities(request.profile)
@@ -84,6 +86,7 @@ class AiSummaryEngine(
                     safetyMarginTokens = config.safetyMarginTokens,
                 ),
             )
+        onProgress(AiSummaryEngineProgress(AiSummaryEnginePhase.ANALYZING))
 
         val accumulator = UsageAccumulator()
         var providerCalls = 0
@@ -146,7 +149,7 @@ class AiSummaryEngine(
                         )
                     }
                 if (parsed.isSuccess) {
-                    return ParsedCall(parsed.getOrThrow(), response.content)
+                    return ParsedCall(parsed.getOrThrow())
                 }
                 if (config.maxRepairAttempts == 0) {
                     throw parsed.exceptionOrNull()!!
@@ -182,14 +185,50 @@ class AiSummaryEngine(
                 providerCalls++
                 accumulator.add(repaired.usage)
                 return ParsedCall(
-                    result =
-                        SummaryResultCodec.decode(
-                            repaired.content,
-                            allowedEvidenceRefs,
-                        ),
-                    raw = repaired.content,
+                    SummaryResultCodec.decode(
+                        repaired.content,
+                        allowedEvidenceRefs,
+                    ),
                 )
             }
+        }
+
+        suspend fun loadCheckpoint(
+            level: Int,
+            chunkIndex: Int,
+            digest: String,
+            allowedEvidenceRefs: Set<String>,
+        ): AiSummaryResult? =
+            request.checkpointStore
+                ?.load(level, chunkIndex, digest)
+                ?.let { raw ->
+                    runCatching {
+                        SummaryResultCodec.decode(raw, allowedEvidenceRefs)
+                    }.getOrNull()
+                }
+
+        suspend fun saveCheckpoint(
+            level: Int,
+            chunkIndex: Int,
+            digest: String,
+            result: AiSummaryResult,
+            sourceStartOrdinal: Int,
+            sourceEndOrdinalExclusive: Int,
+            startSampleIndex: Long,
+            endSampleIndexExclusive: Long,
+        ) {
+            request.checkpointStore?.save(
+                SummaryCheckpointRecord(
+                    level = level,
+                    chunkIndex = chunkIndex,
+                    sourceStartOrdinal = sourceStartOrdinal,
+                    sourceEndOrdinalExclusive = sourceEndOrdinalExclusive,
+                    startSampleIndex = startSampleIndex,
+                    endSampleIndexExclusive = endSampleIndexExclusive,
+                    inputDigest = digest,
+                    structuredResultJson = SummaryResultCodec.encode(result),
+                ),
+            )
         }
 
         try {
@@ -227,7 +266,13 @@ class AiSummaryEngine(
                     input = request.input,
                     targetChunkTokens = targetChunkTokens,
                 )
-            val partials = mutableListOf<AiSummaryResult>()
+            val nodes = mutableListOf<SummaryNode>()
+            val mapTask =
+                SummaryPromptFactory.taskInstruction(
+                    mode = request.mode,
+                    template = request.template,
+                    partial = true,
+                )
             onProgress(
                 AiSummaryEngineProgress(
                     AiSummaryEnginePhase.MAPPING,
@@ -236,18 +281,42 @@ class AiSummaryEngine(
                 ),
             )
             chunks.forEachIndexed { index, chunk ->
-                val partial =
-                    call(
-                        task =
-                            SummaryPromptFactory.taskInstruction(
-                                mode = request.mode,
-                                template = request.template,
-                                partial = true,
-                            ),
+                val digest =
+                    SummaryCheckpointDigest.compute(
+                        model = request.profile.defaultModel,
+                        taskInstruction = mapTask,
+                        payload = chunk.payload,
+                    )
+                val result =
+                    loadCheckpoint(
+                        level = 0,
+                        chunkIndex = index,
+                        digest = digest,
+                        allowedEvidenceRefs = chunk.evidenceRefs,
+                    ) ?: call(
+                        task = mapTask,
                         dataPayload = chunk.payload,
                         allowedEvidenceRefs = chunk.evidenceRefs,
+                    ).result.also { generated ->
+                        saveCheckpoint(
+                            level = 0,
+                            chunkIndex = index,
+                            digest = digest,
+                            result = generated,
+                            sourceStartOrdinal = chunk.sourceStartOrdinal,
+                            sourceEndOrdinalExclusive = chunk.sourceEndOrdinalExclusive,
+                            startSampleIndex = chunk.startSampleIndex,
+                            endSampleIndexExclusive = chunk.endSampleIndexExclusive,
+                        )
+                    }
+                nodes +=
+                    SummaryNode(
+                        result = result,
+                        sourceStartOrdinal = chunk.sourceStartOrdinal,
+                        sourceEndOrdinalExclusive = chunk.sourceEndOrdinalExclusive,
+                        startSampleIndex = chunk.startSampleIndex,
+                        endSampleIndexExclusive = chunk.endSampleIndexExclusive,
                     )
-                partials += partial.result
                 onProgress(
                     AiSummaryEngineProgress(
                         AiSummaryEnginePhase.MAPPING,
@@ -257,7 +326,8 @@ class AiSummaryEngine(
                 )
             }
 
-            var level = partials.toList()
+            var level = nodes.toList()
+            var reductionLevel = 1
             while (level.size > 1) {
                 onProgress(
                     AiSummaryEngineProgress(
@@ -267,32 +337,70 @@ class AiSummaryEngine(
                     ),
                 )
                 val groups = groupForReduction(level, targetChunkTokens)
-                val next = mutableListOf<AiSummaryResult>()
+                val next = mutableListOf<SummaryNode>()
                 var completed = 0
-                groups.forEach { group ->
-                    if (group.size == 1) {
-                        next += group.single()
-                    } else {
-                        val allowed =
-                            group.asSequence()
-                                .flatMap { SummaryResultCodec.evidenceRefs(it).asSequence() }
-                                .toCollection(LinkedHashSet())
-                        val reductionPayload =
-                            group.mapIndexed { index, result ->
-                                "CHILD_SUMMARY_" + (index + 1) + "\n" +
-                                    SummaryResultCodec.encode(result)
-                            }.joinToString("\n\n")
-                        next +=
-                            call(
-                                task =
-                                    SummaryPromptFactory.reduceInstruction(
-                                        mode = request.mode,
-                                        template = request.template,
-                                    ),
-                                dataPayload = reductionPayload,
-                                allowedEvidenceRefs = allowed,
-                            ).result
-                    }
+                groups.forEachIndexed { groupIndex, group ->
+                    val node =
+                        if (group.size == 1) {
+                            group.single()
+                        } else {
+                            val allowed =
+                                group.asSequence()
+                                    .flatMap {
+                                        SummaryResultCodec.evidenceRefs(it.result).asSequence()
+                                    }
+                                    .toCollection(LinkedHashSet())
+                            val reductionTask =
+                                SummaryPromptFactory.reduceInstruction(
+                                    mode = request.mode,
+                                    template = request.template,
+                                )
+                            val reductionPayload =
+                                group.mapIndexed { index, child ->
+                                    "CHILD_SUMMARY_" + (index + 1) + "\n" +
+                                        SummaryResultCodec.encode(child.result)
+                                }.joinToString("\n\n")
+                            val digest =
+                                SummaryCheckpointDigest.compute(
+                                    model = request.profile.defaultModel,
+                                    taskInstruction = reductionTask,
+                                    payload = reductionPayload,
+                                )
+                            val sourceStart = group.minOf { it.sourceStartOrdinal }
+                            val sourceEnd = group.maxOf { it.sourceEndOrdinalExclusive }
+                            val sampleStart = group.minOf { it.startSampleIndex }
+                            val sampleEnd = group.maxOf { it.endSampleIndexExclusive }
+                            val result =
+                                loadCheckpoint(
+                                    level = reductionLevel,
+                                    chunkIndex = groupIndex,
+                                    digest = digest,
+                                    allowedEvidenceRefs = allowed,
+                                ) ?: call(
+                                    task = reductionTask,
+                                    dataPayload = reductionPayload,
+                                    allowedEvidenceRefs = allowed,
+                                ).result.also { generated ->
+                                    saveCheckpoint(
+                                        level = reductionLevel,
+                                        chunkIndex = groupIndex,
+                                        digest = digest,
+                                        result = generated,
+                                        sourceStartOrdinal = sourceStart,
+                                        sourceEndOrdinalExclusive = sourceEnd,
+                                        startSampleIndex = sampleStart,
+                                        endSampleIndexExclusive = sampleEnd,
+                                    )
+                                }
+                            SummaryNode(
+                                result = result,
+                                sourceStartOrdinal = sourceStart,
+                                sourceEndOrdinalExclusive = sourceEnd,
+                                startSampleIndex = sampleStart,
+                                endSampleIndexExclusive = sampleEnd,
+                            )
+                        }
+                    next += node
                     completed += group.size
                     onProgress(
                         AiSummaryEngineProgress(
@@ -303,9 +411,10 @@ class AiSummaryEngine(
                     )
                 }
                 level = next
+                reductionLevel++
             }
 
-            val result = level.single()
+            val result = level.single().result
             return AiSummaryEngineOutput(
                 result = result,
                 structuredPayloadJson = SummaryResultCodec.encode(result),
@@ -320,27 +429,27 @@ class AiSummaryEngine(
     }
 
     private fun groupForReduction(
-        results: List<AiSummaryResult>,
+        nodes: List<SummaryNode>,
         targetTokens: Int,
-    ): List<List<AiSummaryResult>> {
-        if (results.size <= 1) return listOf(results)
-        val groups = mutableListOf<MutableList<AiSummaryResult>>()
-        var current = mutableListOf<AiSummaryResult>()
+    ): List<List<SummaryNode>> {
+        if (nodes.size <= 1) return listOf(nodes)
+        val groups = mutableListOf<MutableList<SummaryNode>>()
+        var current = mutableListOf<SummaryNode>()
         var currentTokens = 0
-        results.forEach { result ->
-            val tokens = estimator.estimate(SummaryResultCodec.encode(result))
+        nodes.forEach { node ->
+            val tokens = estimator.estimate(SummaryResultCodec.encode(node.result))
             if (current.isNotEmpty() && currentTokens + tokens > targetTokens) {
                 groups += current
                 current = mutableListOf()
                 currentTokens = 0
             }
-            current += result
+            current += node
             currentTokens += tokens
         }
         if (current.isNotEmpty()) groups += current
 
-        if (groups.size == results.size) {
-            return results.chunked(2)
+        if (groups.size == nodes.size) {
+            return nodes.chunked(2)
         }
         return groups
     }
@@ -350,7 +459,14 @@ class AiSummaryEngine(
 
     private data class ParsedCall(
         val result: AiSummaryResult,
-        val raw: String,
+    )
+
+    private data class SummaryNode(
+        val result: AiSummaryResult,
+        val sourceStartOrdinal: Int,
+        val sourceEndOrdinalExclusive: Int,
+        val startSampleIndex: Long,
+        val endSampleIndexExclusive: Long,
     )
 
     private class UsageAccumulator {

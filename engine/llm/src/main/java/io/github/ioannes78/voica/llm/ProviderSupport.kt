@@ -46,6 +46,9 @@ internal fun ProviderProfile.validatedBaseUrl(): String {
     if (uri.userInfo != null) {
         throw invalidConfiguration("credentials are not allowed in provider URL")
     }
+    if (uri.query != null) {
+        throw invalidConfiguration("provider URL query is not allowed")
+    }
     if (uri.fragment != null) {
         throw invalidConfiguration("provider URL fragment is not allowed")
     }
