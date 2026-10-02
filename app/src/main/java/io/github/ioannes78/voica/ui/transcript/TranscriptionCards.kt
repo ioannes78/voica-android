@@ -1,5 +1,7 @@
 package io.github.ioannes78.voica.ui.transcript
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -20,10 +23,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.TranscriptionRunState
+import io.github.ioannes78.voica.transcript.TextProjectionQuality
 import io.github.ioannes78.voica.transcript.TranscriptionMode
 import io.github.ioannes78.voica.transcript.TranscriptionPhase
 import java.time.Instant
@@ -318,8 +326,64 @@ fun TranscriptDocumentHeader(
 }
 
 @Composable
-fun TranscriptSegmentCard(segment: TranscriptDisplaySegment) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+fun TranscriptSegmentCard(
+    segment: TranscriptDisplaySegment,
+    isActive: Boolean,
+    activeCueId: String?,
+    syncEnabled: Boolean,
+    onSeek: (Long) -> Unit,
+) {
+    val activeCue =
+        remember(segment.stableId, activeCueId) {
+            segment.cues.firstOrNull { cue ->
+                cue.id == activeCueId &&
+                    cue.projectionQuality == TextProjectionQuality.EXACT
+            }
+        }
+    val displayText =
+        segment.text.ifBlank {
+            stringResource(R.string.transcript_empty_segment)
+        }
+    val tokenHighlightColor = MaterialTheme.colorScheme.primaryContainer
+    val annotatedText =
+        buildAnnotatedString {
+            append(displayText)
+            if (
+                segment.text.isNotBlank() &&
+                activeCue != null &&
+                activeCue.textStartOffset in 0..segment.text.length &&
+                activeCue.textEndOffsetExclusive in 0..segment.text.length &&
+                activeCue.textEndOffsetExclusive > activeCue.textStartOffset
+            ) {
+                addStyle(
+                    SpanStyle(background = tokenHighlightColor),
+                    start = activeCue.textStartOffset,
+                    end = activeCue.textEndOffsetExclusive,
+                )
+            }
+        }
+    var textLayout by remember(segment.stableId) {
+        mutableStateOf<TextLayoutResult?>(null)
+    }
+
+    Card(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable(
+                    enabled = syncEnabled,
+                    onClick = { onSeek(segment.startSampleIndex) },
+                ),
+        colors =
+            CardDefaults.cardColors(
+                containerColor =
+                    if (isActive) {
+                        MaterialTheme.colorScheme.secondaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surface
+                    },
+            ),
+    ) {
         Column(
             modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -340,6 +404,12 @@ fun TranscriptSegmentCard(segment: TranscriptDisplaySegment) {
                             stringResource(R.string.diarization_speaker_unresolved)
                     },
                     style = MaterialTheme.typography.titleSmall,
+                    color =
+                        if (isActive) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
                 )
                 if (segment.overlap && !segment.ambiguous) {
                     Text(
@@ -356,10 +426,31 @@ fun TranscriptSegmentCard(segment: TranscriptDisplaySegment) {
                 style = MaterialTheme.typography.labelMedium,
             )
             Text(
-                segment.text.ifBlank {
-                    stringResource(R.string.transcript_empty_segment)
-                },
+                text = annotatedText,
                 style = MaterialTheme.typography.bodyMedium,
+                onTextLayout = { textLayout = it },
+                modifier =
+                    Modifier.pointerInput(
+                        segment.stableId,
+                        activeCueId,
+                        syncEnabled,
+                    ) {
+                        detectTapGestures { position ->
+                            if (!syncEnabled) return@detectTapGestures
+                            val offset =
+                                textLayout
+                                    ?.getOffsetForPosition(position)
+                                    ?: return@detectTapGestures
+                            val cue =
+                                segment.cues.firstOrNull { candidate ->
+                                    candidate.projectionQuality ==
+                                        TextProjectionQuality.EXACT &&
+                                        offset >= candidate.textStartOffset &&
+                                        offset < candidate.textEndOffsetExclusive
+                                }
+                            onSeek(cue?.startSampleIndex ?: segment.startSampleIndex)
+                        }
+                    },
             )
         }
     }

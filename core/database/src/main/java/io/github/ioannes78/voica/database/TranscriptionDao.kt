@@ -74,6 +74,21 @@ interface TranscriptionDao {
 
     @Query(
         """
+        SELECT transcript_tokens.* FROM transcript_tokens
+        INNER JOIN transcript_segments
+            ON transcript_segments.id = transcript_tokens.transcriptSegmentId
+        WHERE transcript_segments.transcriptionId = :transcriptionId
+        ORDER BY transcript_segments.segmentIndex ASC,
+                 transcript_tokens.source ASC,
+                 transcript_tokens.tokenIndex ASC
+        """,
+    )
+    suspend fun loadTokensForTranscription(
+        transcriptionId: String,
+    ): List<TranscriptTokenEntity>
+
+    @Query(
+        """
         UPDATE transcriptions
         SET state = :state,
             startedAtMs = COALESCE(startedAtMs, :startedAtMs),

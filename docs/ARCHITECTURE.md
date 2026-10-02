@@ -8,7 +8,7 @@ Voica 是全新 Android 工程，不从 `voice-card-android` 继承任何代码�
 
 ## 2. 当前已落地模块
 
-Stage 8 当前物理模块：
+Stage 10 当前物理模块：
 
 ```
 :app
@@ -1040,3 +1040,68 @@ Stage 9 Freeze production speaker models：
 Candidate release URL 仅用于未合并候选 QA；Stage 9 production 不依赖 candidate URL。
 
 
+
+
+## 11. Stage 10 转写时间轴与播放同步
+
+Stage 10 不创建新的持久化 Timeline 表。Timeline 是基于 Room v3 的 Transcription/Segment/Token 与 SpeakerSpan 的只读派生模型。
+
+核心边界：
+
+- `:core:audio`：Playback sample/source identity contract
+- `:engine:playback`：presented sample、seek、speed、discontinuity，不感知 transcript
+- `:core:database`：Room v3 与批量 token 读取
+- `:core:transcript`：finalText projection、Timeline、position mapper
+- `:app`：版本加载、lineage 校验、播放同步 state、Compose 高亮与 follow arbitration
+
+同步数据流：
+
+```
+Room v3 transcription + segments + tokens + optional speaker spans
+  ↓
+TranscriptTimeline (immutable, per transcriptionId/alignmentId)
+  ↓
+TranscriptTimelinePositionMapper
+  ↑
+PlaybackSnapshot.positionSampleIndex + sourceAssetId + discontinuityGeneration
+  ↓
+activeRowId / activeCueId / activeSpeakerId
+  ↓
+Compose shallow row/span highlight + EXACT token deep highlight
+```
+
+点击反向链：
+
+```
+Transcript row/token click
+  ↓
+absolute target sample
+  ↓
+TranscriptPlaybackCoordinator
+  ↓
+load(recordingId) when needed
+  ↓
+PlaybackController.seekToSample(sample)
+  ↓
+play()
+```
+
+版本与生命周期：
+
+- Timeline generation 绑定 recordingId + transcriptionId + alignmentId。
+- 切换 FAST/HQ/同模式历史版本时不重启音频，使用当前 presented sample 在新 Timeline 重映射。
+- App background 继续沿用 Stage 7 pause 语义；返回 foreground 不自动播放。
+- device recording start 继续触发 local playback pause；录音结束不自动恢复。
+
+滚动仲裁：
+
+- FOLLOWING：active row 变化时必要才滚动。
+- USER_SUSPENDED：用户手动滚动后 viewport 不再被 playback 抢占。
+- “跟随播放”：用户显式恢复 FOLLOWING 并继续按 active row 跟随。
+
+性能约束：
+
+- 每个版本只构建一次 Timeline。
+- 高频 playback tick 不做 Room IO。
+- 顺序播放使用 cursor；随机/反向 seek 使用二分定位。
+- virtual 30/60/120min 测试只验证 Timeline/映射规模，不代表真实长录音资源 soak。

@@ -1,6 +1,6 @@
 # Voica Android 全项目 Stage 开发路线图
 
-当前状态：**Stage 9 已完成、用户验收通过并冻结；下一阶段为 Stage 10。**
+当前状态：**Stage 10 已完成、用户验收通过并冻结；下一阶段为 Stage 11。**
 
 整个 Voica 路线均为全新独立实现，不得从 `voice-card-android` 复制、迁移、继承、cherry-pick 或机械改写任何代码。
 
@@ -315,10 +315,33 @@ High Quality：
 
 ## Stage 10 — 转写时间轴 + 播放同步
 
-- speaker + ASR + 标点整合
-- 点击文字 seek
-- 播放高亮
-- 自动滚动与用户滚动保护
+状态：**已完成 / 已真机验收 / 已冻结**
+
+完成内容：
+
+- absolute canonical PCM sample index 作为唯一 Playback ↔ Transcript 同步时间轴
+- speaker span / transcript segment 派生 Timeline，不建立第二套转写数据库
+- Stage 9 token → finalText projection 抽取为共享纯逻辑
+- EXACT token projection 深色高亮；HEURISTIC/UNAVAILABLE 只做 row/span 浅色高亮
+- FAST FIRST_PASS timed token 与 HQ SECOND_PASS→FIRST_PASS fallback
+- 点击 row/span/segment seek；可靠 timed token 精确 seek；统一走 sample-based seek
+- 点击转写文字后 seek + play
+- playback source/canonical lineage guard，避免旧 canonical asset 错配
+- FAST/HQ/同模式历史版本按 transcriptionId 隔离；切版本保留当前播放 sample
+- speaker-aware row、重叠/ambiguous/unresolved 状态与 rename 刷新
+- 自动滚动仅在 active row 变化时触发
+- 用户手动滚动立即暂停 viewport 跟随；显式“跟随播放”恢复
+- Timeline 一次构建 + 高频轻量 active state；无 50ms Room IO / 全文重建
+- 顺序播放前向 cursor；随机/反向 seek 二分
+- Room schema 保持 v3，仅增加 transcriptionId 批量 token query
+- 30/60/120min virtual timeline 自动化与 20Hz 映射回归
+- QA `0.10.0-stage10-alpha1` 真机验收通过
+
+冻结文档：
+
+- `docs/STAGE_10_TEST.md`
+- `docs/STAGE_10_FREEZE.md`
+- `docs/STAGE_10_HANDOFF.md`
 
 ## Stage 11 — AI 智能总结 / 内容理解
 

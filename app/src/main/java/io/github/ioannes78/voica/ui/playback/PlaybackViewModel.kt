@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.ioannes78.voica.audio.PlaybackController
 import io.github.ioannes78.voica.audio.PlaybackState
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 class PlaybackViewModel(
@@ -13,6 +14,8 @@ class PlaybackViewModel(
     private val recordingLibraryRepository: RecordingLibraryRepository,
 ) : ViewModel() {
     val snapshot = controller.snapshot
+    private val transcriptPlaybackCoordinator = TranscriptPlaybackCoordinator(controller)
+    private var transcriptPlaybackJob: Job? = null
 
     fun loadAndPlay(recordingId: String) {
         viewModelScope.launch {
@@ -42,6 +45,20 @@ class PlaybackViewModel(
 
     fun seekToSample(sampleIndex: Long) {
         viewModelScope.launch { controller.seekToSample(sampleIndex) }
+    }
+
+    fun seekAndPlay(
+        recordingId: String,
+        sampleIndex: Long,
+    ) {
+        transcriptPlaybackJob?.cancel()
+        transcriptPlaybackJob =
+            viewModelScope.launch {
+                transcriptPlaybackCoordinator.playFrom(
+                    recordingId = recordingId,
+                    sampleIndex = sampleIndex,
+                )
+            }
     }
 
     fun setSpeed(speed: Float) {

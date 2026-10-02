@@ -10,9 +10,14 @@ import io.github.ioannes78.voica.TranscriptionCoordinator
 import io.github.ioannes78.voica.TranscriptionRunState
 import io.github.ioannes78.voica.database.DiarizationRepository
 import io.github.ioannes78.voica.database.DiarizationStateValue
+import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.database.TranscriptSpeakerAlignmentStateValue
 import io.github.ioannes78.voica.database.TranscriptionRepository
 import io.github.ioannes78.voica.database.TranscriptionStateValue
+import io.github.ioannes78.voica.transcript.SpeakerAssignmentQuality
+import io.github.ioannes78.voica.transcript.TimedTextCue
+import io.github.ioannes78.voica.transcript.TranscriptTimeline
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,6 +26,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 data class TranscriptDisplaySegment(
+    val stableId: String,
     val displayIndex: Int,
     val segmentIndex: Int,
     val startSampleIndex: Long,
@@ -32,6 +38,8 @@ data class TranscriptDisplaySegment(
     val speakerAssignmentAvailable: Boolean = false,
     val overlap: Boolean = false,
     val ambiguous: Boolean = false,
+    val assignmentQuality: SpeakerAssignmentQuality? = null,
+    val cues: List<TimedTextCue> = emptyList(),
 )
 
 data class TranscriptSpeakerDisplay(
@@ -48,6 +56,8 @@ data class TranscriptDocument(
     val diarizationRunId: String? = null,
     val alignmentId: String? = null,
     val speakers: List<TranscriptSpeakerDisplay> = emptyList(),
+    val timeline: TranscriptTimeline? = null,
+    val compatiblePlaybackAssetId: String? = null,
 )
 
 data class TranscriptVersionSummary(
@@ -84,6 +94,7 @@ class TranscriptionViewModel(
     private val repository: TranscriptionRepository,
     private val diarizationCoordinator: DiarizationCoordinator,
     private val diarizationRepository: DiarizationRepository,
+    private val recordingLibraryRepository: RecordingLibraryRepository,
 ) : ViewModel() {
     val runState: StateFlow<TranscriptionRunState> = coordinator.state
 
@@ -100,6 +111,8 @@ class TranscriptionViewModel(
     val notice: StateFlow<String?> = mutableNotice.asStateFlow()
 
     private val autoDiarizationRequests = AutoDiarizationRequestTracker()
+    private var documentLoadJob: Job? = null
+    private var documentLoadGeneration = 0L
 
     init {
         viewModelScope.launch {
@@ -108,9 +121,10 @@ class TranscriptionViewModel(
                     is TranscriptionRunState.Completed -> {
                         val autoStartDiarization =
                             autoDiarizationRequests.consumeCompleted(state.recordingId)
-                        loadDocument(
+                        requestDocumentLoad(
                             transcriptionId = state.transcriptionId,
                             autoStartDiarization = autoStartDiarization,
+                            clearCurrent = true,
                         )
                         if (mutableVersionsRecordingId.value == state.recordingId) {
                             loadVersions(state.recordingId)
@@ -137,7 +151,7 @@ class TranscriptionViewModel(
                     is DiarizationRunState.Completed -> {
                         if (mutableDocument.value?.recordingId == state.recordingId) {
                             mutableDocument.value?.transcriptionId?.let { transcriptionId ->
-                                loadDocument(transcriptionId)
+                                requestDocumentLoad(transcriptionId)
                             }
                         }
                     }
@@ -167,7 +181,7 @@ class TranscriptionViewModel(
                 when (state) {
                     is SpeakerAlignmentRunState.Completed -> {
                         if (mutableDocument.value?.transcriptionId == state.transcriptionId) {
-                            loadDocument(state.transcriptionId)
+                            requestDocumentLoad(state.transcriptionId)
                         }
                     }
 
@@ -205,16 +219,17 @@ class TranscriptionViewModel(
     }
 
     fun viewVersions(recordingId: String) {
+        cancelDocumentLoad(clearCurrent = true)
         viewModelScope.launch {
-            mutableDocument.value = null
             loadVersions(recordingId)
         }
     }
 
     fun selectVersion(transcriptionId: String) {
-        viewModelScope.launch {
-            loadDocument(transcriptionId)
-        }
+        requestDocumentLoad(
+            transcriptionId = transcriptionId,
+            clearCurrent = true,
+        )
     }
 
     fun renameSpeaker(
@@ -232,7 +247,7 @@ class TranscriptionViewModel(
                 return@launch
             }
             mutableDocument.value?.transcriptionId?.let { transcriptionId ->
-                loadDocument(transcriptionId)
+                requestDocumentLoad(transcriptionId)
             }
         }
     }
@@ -241,11 +256,46 @@ class TranscriptionViewModel(
         mutableNotice.value = null
     }
 
-    private suspend fun loadDocument(
+    private fun requestDocumentLoad(
         transcriptionId: String,
         autoStartDiarization: Boolean = false,
+        clearCurrent: Boolean = false,
+    ) {
+        documentLoadGeneration += 1L
+        val generation = documentLoadGeneration
+        documentLoadJob?.cancel()
+        if (clearCurrent) {
+            mutableDocument.value = null
+        }
+        documentLoadJob =
+            viewModelScope.launch {
+                loadDocument(
+                    transcriptionId = transcriptionId,
+                    autoStartDiarization = autoStartDiarization,
+                    generation = generation,
+                )
+            }
+    }
+
+    private fun cancelDocumentLoad(clearCurrent: Boolean) {
+        documentLoadGeneration += 1L
+        documentLoadJob?.cancel()
+        documentLoadJob = null
+        if (clearCurrent) {
+            mutableDocument.value = null
+        }
+    }
+
+    private fun isCurrentDocumentLoad(generation: Long): Boolean =
+        generation == documentLoadGeneration
+
+    private suspend fun loadDocument(
+        transcriptionId: String,
+        autoStartDiarization: Boolean,
+        generation: Long,
     ) {
         val transcription = repository.find(transcriptionId)
+        if (!isCurrentDocumentLoad(generation)) return
         if (transcription == null ||
             transcription.state != TranscriptionStateValue.COMPLETED
         ) {
@@ -254,21 +304,40 @@ class TranscriptionViewModel(
         }
 
         val sourceSegments = repository.loadSegments(transcription.id)
+        val sourceTokens = repository.loadTokensForTranscription(transcription.id)
+        if (!isCurrentDocumentLoad(generation)) return
+
+        val baseTimeline =
+            buildTranscriptTimelineFromDatabase(
+                transcription = transcription,
+                segments = sourceSegments,
+                tokens = sourceTokens,
+            )
+        val currentLineage =
+            recordingLibraryRepository.loadCanonicalTranscriptionLineage(
+                recordingId = transcription.recordingId,
+                profileId = transcription.canonicalProfileId,
+            )
+        if (!isCurrentDocumentLoad(generation)) return
+        val compatiblePlaybackAssetId =
+            currentLineage
+                ?.takeIf { lineage ->
+                    lineage.canonicalProfileId == transcription.canonicalProfileId &&
+                        lineage.canonicalSha256.equals(
+                            transcription.sourceCanonicalSha256,
+                            ignoreCase = true,
+                        )
+                }
+                ?.canonicalAssetId
+
         val baseDocument =
             TranscriptDocument(
                 recordingId = transcription.recordingId,
                 transcriptionId = transcription.id,
                 mode = transcription.mode,
-                segments =
-                    sourceSegments.mapIndexed { displayIndex, segment ->
-                        TranscriptDisplaySegment(
-                            displayIndex = displayIndex,
-                            segmentIndex = segment.segmentIndex,
-                            startSampleIndex = segment.startSampleIndex,
-                            endSampleIndexExclusive = segment.endSampleIndexExclusive,
-                            text = segment.finalText,
-                        )
-                    },
+                segments = timelineDisplaySegments(baseTimeline, sourceSegments),
+                timeline = baseTimeline,
+                compatiblePlaybackAssetId = compatiblePlaybackAssetId,
             )
 
         val compatibleRun =
@@ -281,10 +350,11 @@ class TranscriptionViewModel(
                         run.canonicalProfileId == transcription.canonicalProfileId &&
                         run.totalSampleCount == transcription.totalSampleCount
                 }
+        if (!isCurrentDocumentLoad(generation)) return
 
         if (compatibleRun == null) {
             mutableDocument.value = baseDocument
-            if (autoStartDiarization) {
+            if (autoStartDiarization && isCurrentDocumentLoad(generation)) {
                 val started =
                     diarizationCoordinator.start(transcription.recordingId)
                 mutableNotice.value =
@@ -307,12 +377,14 @@ class TranscriptionViewModel(
                     alignment.diarizationRunId == compatibleRun.id &&
                         alignment.state == TranscriptSpeakerAlignmentStateValue.COMPLETED
                 }
+        if (!isCurrentDocumentLoad(generation)) return
 
         if (completedAlignment == null) {
             mutableDocument.value =
                 baseDocument.copy(
                     diarizationRunId = compatibleRun.id,
                 )
+            if (!isCurrentDocumentLoad(generation)) return
             val started =
                 diarizationCoordinator.alignTranscription(
                     transcriptionId = transcription.id,
@@ -331,39 +403,22 @@ class TranscriptionViewModel(
             diarizationRepository
                 .loadSpeakers(compatibleRun.id)
                 .sortedBy { it.speakerOrdinal }
-        val speakersById = speakers.associateBy { it.id }
-        val segmentsById = sourceSegments.associateBy { it.id }
         val spans = diarizationRepository.loadSpans(completedAlignment.id)
+        if (!isCurrentDocumentLoad(generation)) return
 
-        val displaySegments =
-            spans.mapIndexed { displayIndex, span ->
-                val segment =
-                    checkNotNull(segmentsById[span.sourceTranscriptSegmentId]) {
-                        "speaker span references missing transcript segment"
-                    }
-                val speaker = span.speakerId?.let(speakersById::get)
-                TranscriptDisplaySegment(
-                    displayIndex = displayIndex,
-                    segmentIndex = segment.segmentIndex,
-                    startSampleIndex = span.startSampleIndex,
-                    endSampleIndexExclusive = span.endSampleIndexExclusive,
-                    text =
-                        segment.finalText.substring(
-                            span.finalTextStartOffset,
-                            span.finalTextEndOffsetExclusive,
-                        ),
-                    speakerId = speaker?.id,
-                    speakerOrdinal = speaker?.speakerOrdinal,
-                    speakerDisplayName = speaker?.displayName,
-                    speakerAssignmentAvailable = true,
-                    overlap = span.overlap,
-                    ambiguous = span.ambiguous,
-                )
-            }
+        val alignedTimeline =
+            buildTranscriptTimelineFromDatabase(
+                transcription = transcription,
+                segments = sourceSegments,
+                tokens = sourceTokens,
+                alignmentId = completedAlignment.id,
+                spans = spans,
+                speakers = speakers,
+            )
 
         mutableDocument.value =
             baseDocument.copy(
-                segments = displaySegments,
+                segments = timelineDisplaySegments(alignedTimeline, sourceSegments),
                 diarizationRunId = compatibleRun.id,
                 alignmentId = completedAlignment.id,
                 speakers =
@@ -374,6 +429,7 @@ class TranscriptionViewModel(
                             displayName = speaker.displayName,
                         )
                     },
+                timeline = alignedTimeline,
             )
         mutableNotice.value = null
     }
@@ -412,7 +468,7 @@ class TranscriptionViewModel(
         mode: io.github.ioannes78.voica.transcript.TranscriptionMode,
     ) {
         mutableNotice.value = null
-        mutableDocument.value = null
+        cancelDocumentLoad(clearCurrent = true)
         if (coordinator.start(recordingId, mode)) {
             autoDiarizationRequests.markStarted(recordingId)
         } else {
@@ -425,6 +481,7 @@ class TranscriptionViewModel(
         private val repository: TranscriptionRepository,
         private val diarizationCoordinator: DiarizationCoordinator,
         private val diarizationRepository: DiarizationRepository,
+        private val recordingLibraryRepository: RecordingLibraryRepository,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
@@ -433,6 +490,7 @@ class TranscriptionViewModel(
                 repository = repository,
                 diarizationCoordinator = diarizationCoordinator,
                 diarizationRepository = diarizationRepository,
+                recordingLibraryRepository = recordingLibraryRepository,
             ) as T
     }
 }

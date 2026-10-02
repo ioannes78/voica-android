@@ -68,6 +68,11 @@ class TranscriptionRepository(
     suspend fun loadTokens(segmentId: String): List<TranscriptTokenEntity> =
         dao.loadTokens(segmentId)
 
+    suspend fun loadTokensForTranscription(
+        transcriptionId: String,
+    ): List<TranscriptTokenEntity> =
+        dao.loadTokensForTranscription(transcriptionId)
+
     suspend fun find(transcriptionId: String): TranscriptionEntity? =
         dao.findTranscription(transcriptionId)
 

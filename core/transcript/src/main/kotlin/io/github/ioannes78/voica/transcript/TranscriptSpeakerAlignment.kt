@@ -89,10 +89,10 @@ fun alignTranscriptSegmentsToSpeakers(
         }
 
         val textBoundaries =
-            tokenTextBoundaries(
+            projectTokensToFinalText(
                 finalText = segment.finalText,
                 tokens = selected.map { it.token.text },
-            )
+            ).boundaries
 
         val pieces =
             selected.mapIndexedNotNull { position, indexed ->
@@ -353,55 +353,6 @@ private fun assignWholeSegment(
         }
     if (covering.size != 1) return SpeakerAssignment.unresolved()
     return SpeakerAssignment.assigned(covering.single().globalSpeakerIndex)
-}
-
-private fun tokenTextBoundaries(
-    finalText: String,
-    tokens: List<String>,
-): IntArray {
-    require(tokens.isNotEmpty())
-    exactTokenTextBoundaries(finalText, tokens)?.let { return it }
-
-    val weights = tokens.map { it.length.coerceAtLeast(1) }
-    val totalWeight = weights.sumOf { it.toLong() }
-    val boundaries = IntArray(tokens.size + 1)
-    boundaries[0] = 0
-    boundaries[tokens.size] = finalText.length
-
-    var cumulativeWeight = 0L
-    for (index in 1 until tokens.size) {
-        cumulativeWeight += weights[index - 1].toLong()
-        boundaries[index] =
-            ((finalText.length.toLong() * cumulativeWeight) / totalWeight)
-                .toInt()
-                .coerceIn(boundaries[index - 1], finalText.length)
-    }
-    return boundaries
-}
-
-private fun exactTokenTextBoundaries(
-    finalText: String,
-    tokens: List<String>,
-): IntArray? {
-    val starts = IntArray(tokens.size)
-    var cursor = 0
-
-    tokens.forEachIndexed { index, token ->
-        if (token.isEmpty()) return null
-        val found = finalText.indexOf(token, startIndex = cursor)
-        if (found < 0) return null
-        starts[index] = found
-        cursor = found + token.length
-    }
-
-    val boundaries = IntArray(tokens.size + 1)
-    boundaries[0] = 0
-    for (index in 1 until tokens.size) {
-        boundaries[index] = starts[index]
-        if (boundaries[index] < boundaries[index - 1]) return null
-    }
-    boundaries[tokens.size] = finalText.length
-    return boundaries
 }
 
 private fun sameAssignment(
