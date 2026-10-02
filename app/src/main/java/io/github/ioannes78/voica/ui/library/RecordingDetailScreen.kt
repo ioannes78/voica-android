@@ -41,6 +41,8 @@ import io.github.ioannes78.voica.DiarizationRunState
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.TranscriptionRunState
 import io.github.ioannes78.voica.database.AudioAssetRole
+import io.github.ioannes78.voica.database.AudioIntegrityState
+import io.github.ioannes78.voica.database.AudioValidationState
 import io.github.ioannes78.voica.database.RecordingLibraryItem
 import io.github.ioannes78.voica.ui.ai.AiSummaryCard
 import io.github.ioannes78.voica.ui.ai.AiSummaryViewModel
@@ -119,7 +121,11 @@ fun RecordingDetailScreen(
         }
     val transcriptionBusy = transcriptionState is TranscriptionRunState.Running
     val diarizationBusy = diarizationState is DiarizationRunState.Running
-    val canonicalReady = recording.assets.any { it.role == AudioAssetRole.CANONICAL_WAV }
+    val canonicalReady = recording.assets.any {
+        it.role == AudioAssetRole.CANONICAL_WAV &&
+            it.integrityState == AudioIntegrityState.VERIFIED &&
+            it.formatValidationState == AudioValidationState.VALID
+    }
     val activeCanonicalJob = recording.derivations.firstOrNull {
         it.state in ACTIVE_DERIVATION_STATES
     }
@@ -704,7 +710,7 @@ private fun formatBytes(bytes: Long): String {
     return String.format(Locale.US, "%.2f GB", mb / 1024.0)
 }
 
-private const val TRANSCRIPT_ROW_START_INDEX = 7
+private const val TRANSCRIPT_ROW_START_INDEX = 8
 
 private val ACTIVE_DERIVATION_STATES = setOf(
     "PREPARING",
