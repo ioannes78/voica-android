@@ -383,6 +383,32 @@ Stage 11 同时提供三种使用方式：
 
 直接音频分析不得成为 Stage 11 默认总结链路。
 
+### Audio LLM 高级模式契约
+
+Stage 11 先冻结“Audio LLM 直接音频理解”的 Provider 与数据契约，但不要求在 Stage 11 完成全部高级能力。
+
+Audio LLM 与 ASR Provider、Text LLM Provider 必须是三个独立能力层：
+
+- ASR Provider：音频 → 转写
+- Text LLM Provider：结构化转写文本 → 总结/问答
+- Audio LLM Provider：原始/标准化音频 → 直接内容理解
+
+Stage 11 需要为未来 Audio LLM 预留：
+
+- Provider capability discovery：是否接受音频、支持的音频格式、最大时长/大小、是否支持时间戳/说话人/多轮问答
+- Model list / connection test
+- 明确的 AudioUnderstandingProvider 或等效抽象，不复用 CloudAsrEngine 假装 Audio LLM
+- 输入优先使用 Voica 已验证的 canonical audio 或 Provider 明确要求的兼容格式
+- 结果必须转换为 Voica 统一 AI Summary / structured insight 数据结构
+- 每次结果记录 provider / model / input mode / source recording / source transcription（如有）等 lineage
+- UI 必须明确区分“基于转写文本生成”与“直接分析录音”
+- 开始前明确提示：原始/标准化音频将上传给第三方 Audio LLM Provider
+- 默认关闭，不自动上传音频
+- 用户取消后停止上传/请求；不得因为生成总结而静默复用音频做其他云端任务
+- Provider 不支持、文件过大、时长超限或网络失败时，不得自动改为上传到另一个 Provider
+
+Stage 11 可实现最小 capability/configuration 骨架；完整直接音频理解体验统一在 Stage 19 实现。
+
 ### 输出结构
 
 智能总结根据内容动态选择，但基础可组合对象包括：
@@ -475,7 +501,7 @@ Stage 12 统一完成产品层 UI/UX、本地录音库管理、转写/AI 总结�
 - 标签
 - 删除
 - 历史版本查看
-- AI 总结与对应录音、转写版本、使用的总结模式/模板保持明确关联
+- AI 总结与对应录音、转写版本、使用的总结模式/模板以及输入模式（TRANSCRIPT_TEXT / DIRECT_AUDIO）保持明确关联
 - 从 AI 总结跳转到对应转写内容；Stage 10 已有时间轴映射时可继续跳转到相关音频位置
 - 分享时支持按实际总结结构选择章节，例如：仅摘要 / 摘要+决策 / 摘要+待办 / 完整内容
 
@@ -563,9 +589,11 @@ Streaming VAD / ASR、Interim/Stable/Final、两层标点。
 - 网络中断、重连与 fallback
 - ASR Provider 与 LLM Provider 继续解耦
 
-## Stage 19 — 高级 AI 内容助手 + 语义检索
+## Stage 19 — 高级 AI 内容助手 + 语义检索 + Audio LLM
 
-在 Stage 12 本地关键词全文搜索和 Stage 11 AI 智能总结基础上增加跨录音 AI 语义能力：
+在 Stage 12 本地关键词全文搜索和 Stage 11 AI 智能总结基础上增加跨录音 AI 语义能力，并正式实现“Audio LLM 直接音频理解”高级模式。
+
+### 高级 AI 内容能力
 
 - 自动章节
 - 关键词 / 主题提取
@@ -578,6 +606,52 @@ Streaming VAD / ASR、Interim/Stable/Final、两层标点。
 - 跨录音主题聚合
 - 基于录音、转写与 AI 总结的内容知识问答
 - 语义搜索结果必须回链到原始录音 / 转写版本 / AI 总结，不生成不可追溯的孤立答案
+
+### Audio LLM 直接音频理解
+
+提供显式高级入口：直接分析录音（Audio LLM）。
+
+处理链：
+
+`Recording / canonical audio → Audio LLM Provider → structured understanding → AI Summary / insights`
+
+与默认文本总结链并存：
+
+`Recording → ASR → structured transcript → Text LLM → AI Summary`
+
+Audio LLM 模式至少支持：
+
+- 用户主动选择 Audio LLM Provider / Model
+- Provider capability 检查与连接测试
+- 根据 Provider 限制做时长、大小、格式预检
+- 必要时从已验证 canonical audio 生成兼容上传格式，不修改原始录音
+- 上传进度、取消、失败重试
+- 长音频在 Provider 支持范围内的分块/上传策略；不得破坏 absolute canonical PCM timeline
+- 直接生成内容类型、摘要、章节、观点、决策、待办、风险、知识点等结构化结果
+- Provider 支持时保留时间引用 / evidence ranges，并映射回 Voica canonical timeline
+- 可选择“仅 Audio LLM”或“Audio LLM + 已有转写联合分析”
+- 联合分析时必须明确哪些输入发送到云端：音频、转写文本，或两者
+- 同一录音可以保留 Text LLM 与 Audio LLM 的多个独立 AI 总结版本，不能互相覆盖
+- 每个结果保存 provider、model、input mode、template、生成时间、source recording/transcription 等 lineage
+- 允许用户比较“基于转写文本总结”和“直接音频理解”的结果，但不自动指定哪个更正确
+
+### 隐私与成本门禁
+
+Audio LLM 是高级可选模式，默认关闭。
+
+每次首次使用某 Provider/模式时必须明确提示：
+
+- 音频将上传到第三方 Provider
+- 可能产生网络流量和 API 费用
+- Provider 可能有文件大小、时长、区域、保留策略等限制
+- 是否同时上传已有转写文本
+
+不得：
+
+- 因普通“AI 总结”按钮而静默切换到 Audio LLM
+- 因 Text LLM 失败而自动上传音频
+- 将 Audio LLM Provider 与 ASR Provider 视为同一个接口
+- 在用户未确认时上传原始录音
 
 Stage 19 的语义检索不得替代 Stage 12 的离线关键词全文搜索；两者应并存，分别覆盖确定性关键词检索与语义理解场景。
 
