@@ -275,11 +275,10 @@ class AppPrivateProviderProfileStore(
             }
         val output = file.startWrite()
         try {
-            output.writer(Charsets.UTF_8).use { writer ->
-                writer.write(root.toString())
-                writer.flush()
-                file.finishWrite(output)
-            }
+            val writer = output.writer(Charsets.UTF_8)
+            writer.write(root.toString())
+            writer.flush()
+            file.finishWrite(output)
         } catch (error: Throwable) {
             file.failWrite(output)
             throw error
@@ -363,7 +362,8 @@ class AppPrivateProviderProfileStore(
         require(profile.baseUrl.startsWith("https://")) { "provider base URL requires HTTPS" }
         require(profile.credentialRef.isNotBlank())
         require(profile.timeoutMs in 1_000L..300_000L)
-        require(profile.manualContextWindowTokens == null || profile.manualContextWindowTokens > 0)
+        val manualContextWindowTokens = profile.manualContextWindowTokens
+        require(manualContextWindowTokens == null || manualContextWindowTokens > 0)
     }
 
     private fun JsonObject.requiredString(key: String): String =
