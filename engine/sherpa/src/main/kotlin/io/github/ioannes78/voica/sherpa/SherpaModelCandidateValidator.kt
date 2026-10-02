@@ -1,5 +1,7 @@
 package io.github.ioannes78.voica.sherpa
 
+import com.k2fsa.sherpa.onnx.SpeakerEmbeddingExtractor
+import com.k2fsa.sherpa.onnx.SpeakerEmbeddingExtractorConfig
 import io.github.ioannes78.voica.audio.PcmReadResult
 import io.github.ioannes78.voica.audio.PcmSource
 import io.github.ioannes78.voica.model.ModelCandidateValidator
