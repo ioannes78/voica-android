@@ -65,7 +65,11 @@ Voica 是面向 QS668 / CB08 AI 录音卡的 Android 原生客户端。
 - Stage 5：已完成 / 已真机验收 / 已冻结
 - Stage 6：已完成 / 已真机验收 / 已冻结
 - Stage 7：已完成 / 已用户验收 / 已冻结
-- 下一阶段：**Stage 8 — 本地 ASR + VAD + 标点 + 模型管理**
+- Stage 8：已完成 / 已真机验收 / 已冻结
+- Stage 9：已完成 / 已真机验收 / 已冻结
+- Stage 10：已完成 / 已真机验收 / 已冻结
+- Stage 11：已完成 / 已真机验收 / 已冻结
+- 下一阶段：**Stage 12 — 产品 UI / UX 完整化 + 本地内容管理**
 
 Stage 2 已建立：
 
@@ -170,6 +174,21 @@ Stage 6 已建立：
 - [Stage 7 Freeze](docs/STAGE_7_FREEZE.md)
 - [Stage 7 Handoff](docs/STAGE_7_HANDOFF.md)
 - [开发规则](AGENTS.md)
+
+## Stage 11 已建立
+
+- `:core:ai` + `:engine:llm`
+- 结构化转写 → Text LLM → AI Summary
+- SMART / PRESET / CUSTOM 总结模式
+- 多 Provider Profile、模型发现、连接测试
+- Google Gemini / xAI Grok / OpenAI-compatible Provider
+- Android Keystore + AES-GCM API Key 保存
+- strict JSON schema/evidence validation
+- 长文本 map/reduce 与 Room checkpoint
+- 默认简体中文总结
+- Room schema v4
+- AI evidence 可回链 Stage 10 sample timeline
+- Audio LLM 仅保留能力契约，完整直接音频理解在 Stage 19
 
 ## License
 
