@@ -412,8 +412,8 @@ class DiarizationCoordinatorTest {
             embedding: ActiveModel,
         ): DiarizationEngine =
             FakeDiarizationEngine(
-                segmentation = segmentation.descriptor,
-                embedding = embedding.descriptor,
+                segmentationModel = segmentation.descriptor,
+                embeddingModel = embedding.descriptor,
             )
 
         override fun embeddingEngine(model: ActiveModel): SpeakerEmbeddingEngine =
