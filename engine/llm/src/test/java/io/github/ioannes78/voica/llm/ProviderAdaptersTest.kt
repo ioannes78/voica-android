@@ -67,12 +67,146 @@ class ProviderAdaptersTest {
                     FakeCredentials("secret"),
                 )
 
-            val result = provider.testConnection(profile())
+            val result =
+                provider.testConnection(
+                    profile().copy(defaultModel = ""),
+                )
 
             assertTrue(result.success)
             assertEquals(1, transport.requests.size)
             assertEquals("GET", transport.requests.single().second.method)
             assertTrue(transport.requests.single().second.body == null)
+        }
+
+    @Test
+    fun syntheticConnectionProbeUsesPlainTextEvenWhenJsonModeIsSupported() =
+        runTest {
+            val transport =
+                FakeTransport(
+                    ArrayDeque(
+                        listOf(
+                            LlmHttpResponse(
+                                200,
+                                """{"choices":[{"message":{"content":"OK"},"finish_reason":"stop"}]}""",
+                                emptyMap(),
+                            ),
+                        ),
+                    ),
+                )
+            val provider =
+                OpenAiCompatibleTextLlmProvider(
+                    transport,
+                    FakeCredentials("secret"),
+                )
+            val doubaoProfile =
+                profile(
+                    presetId = ProviderPresetIds.VOLCENGINE_DOUBAO,
+                    baseUrl = "https://ark.cn-beijing.volces.com/api/v3",
+                ).copy(
+                    capabilityOverrides =
+                        ProviderCapabilities(
+                            supportsModelDiscovery = false,
+                            supportsJsonObject = true,
+                        ),
+                )
+
+            val result = provider.testConnection(doubaoProfile)
+
+            assertTrue(result.success)
+            val body = transport.requests.single().second.body.orEmpty()
+            assertFalse(body.contains("response_format"))
+            assertTrue(body.contains("Plain text only"))
+        }
+
+    @Test
+    fun selectedModelIsProbedEvenWhenModelDiscoverySucceeds() =
+        runTest {
+            val transport =
+                FakeTransport(
+                    ArrayDeque(
+                        listOf(
+                            LlmHttpResponse(
+                                200,
+                                """{"data":[{"id":"m1","object":"model"}]}""",
+                                emptyMap(),
+                            ),
+                            LlmHttpResponse(
+                                200,
+                                """{"choices":[{"message":{"content":"OK"},"finish_reason":"stop"}]}""",
+                                emptyMap(),
+                            ),
+                        ),
+                    ),
+                )
+            val provider =
+                OpenAiCompatibleTextLlmProvider(
+                    transport,
+                    FakeCredentials("secret"),
+                )
+
+            val result = provider.testConnection(profile())
+
+            assertTrue(result.success)
+            assertEquals(2, transport.requests.size)
+            assertEquals("GET", transport.requests[0].second.method)
+            assertEquals("POST", transport.requests[1].second.method)
+        }
+
+    @Test
+    fun siliconFlowReasoningOnlyResponseRetriesOnceWithThinkingDisabled() =
+        runTest {
+            val transport =
+                FakeTransport(
+                    ArrayDeque(
+                        listOf(
+                            LlmHttpResponse(
+                                200,
+                                """{"choices":[{"message":{"content":"","reasoning_content":"long reasoning"},"finish_reason":"length"}]}""",
+                                emptyMap(),
+                            ),
+                            LlmHttpResponse(
+                                200,
+                                """{"choices":[{"message":{"content":"{\"schemaVersion\":1}"},"finish_reason":"stop"}]}""",
+                                emptyMap(),
+                            ),
+                        ),
+                    ),
+                )
+            val provider =
+                OpenAiCompatibleTextLlmProvider(
+                    transport,
+                    FakeCredentials("secret"),
+                )
+            val siliconFlowProfile =
+                profile(
+                    presetId = ProviderPresetIds.SILICONFLOW,
+                    baseUrl = "https://api.siliconflow.cn/v1",
+                )
+
+            val result =
+                provider.generate(
+                    siliconFlowProfile,
+                    LlmGenerationRequest(
+                        requestId = "sf-reasoning-retry",
+                        model = "deepseek-ai/DeepSeek-R1",
+                        systemInstruction = "Summarize.",
+                        taskInstruction = "Return JSON.",
+                        transcriptPayload = "synthetic",
+                        structuredOutputSchema = """{"type":"object"}""",
+                        maxOutputTokens = 256,
+                    ),
+                ).getOrThrow()
+
+            assertEquals("""{"schemaVersion":1}""", result.content)
+            assertEquals(2, transport.requests.size)
+            assertFalse(
+                transport.requests[0].second.body.orEmpty()
+                    .contains("\"enable_thinking\":false"),
+            )
+            assertTrue(
+                transport.requests[1].second.body.orEmpty()
+                    .contains("\"enable_thinking\":false"),
+            )
         }
 
     @Test

@@ -5,7 +5,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
@@ -36,7 +40,8 @@ fun ProviderSettingsCard(
 ) {
     val state by viewModel.state.collectAsState()
     var providerMenuExpanded by remember { mutableStateOf(false) }
-    var modelMenuExpanded by remember { mutableStateOf(false) }
+    var modelPickerOpen by remember { mutableStateOf(false) }
+    var modelSearch by remember { mutableStateOf("") }
     var showApiKey by remember { mutableStateOf(false) }
 
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -176,39 +181,34 @@ fun ProviderSettingsCard(
             )
 
             if (state.discoveredModels.isNotEmpty()) {
-                Box {
-                    OutlinedButton(
-                        onClick = { modelMenuExpanded = true },
-                        enabled = !state.busy,
-                    ) {
-                        Text(
-                            "从 " + state.discoveredModels.size + " 个模型中选择",
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = modelMenuExpanded,
-                        onDismissRequest = { modelMenuExpanded = false },
-                    ) {
-                        state.discoveredModels.take(100).forEach { model ->
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        model.displayName +
-                                            if (model.id != model.displayName) {
-                                                " · " + model.id
-                                            } else {
-                                                ""
-                                            },
-                                    )
-                                },
-                                onClick = {
-                                    modelMenuExpanded = false
-                                    viewModel.setModel(model.id)
-                                },
-                            )
-                        }
-                    }
+                OutlinedButton(
+                    onClick = {
+                        modelSearch = ""
+                        modelPickerOpen = true
+                    },
+                    enabled = !state.busy,
+                ) {
+                    Text(
+                        "从 " + state.discoveredModels.size + " 个模型中选择",
+                    )
                 }
+                Text(
+                    "模型较多时可搜索名称或 ID；请选择支持文本对话的模型。",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+
+            if (modelPickerOpen) {
+                ModelPickerDialog(
+                    models = state.discoveredModels,
+                    query = modelSearch,
+                    onQueryChange = { modelSearch = it },
+                    onSelect = { modelId ->
+                        viewModel.setModel(modelId)
+                        modelPickerOpen = false
+                    },
+                    onDismiss = { modelPickerOpen = false },
+                )
             }
 
             OutlinedTextField(
@@ -261,4 +261,83 @@ fun ProviderSettingsCard(
             }
         }
     }
+}
+
+
+@Composable
+private fun ModelPickerDialog(
+    models: List<io.github.ioannes78.voica.ai.ProviderModel>,
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val needle = query.trim()
+    val filtered =
+        remember(models, needle) {
+            if (needle.isBlank()) {
+                models
+            } else {
+                models.filter { model ->
+                    model.id.contains(needle, ignoreCase = true) ||
+                        model.displayName.contains(needle, ignoreCase = true)
+                }
+            }
+        }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("选择文本模型") },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    label = { Text("搜索模型名称或 ID") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "显示 " + filtered.size + " / " + models.size,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                LazyColumn(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 480.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    items(
+                        items = filtered,
+                        key = { model -> model.id },
+                    ) { model ->
+                        TextButton(
+                            onClick = { onSelect(model.id) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(model.displayName)
+                                if (model.id != model.displayName) {
+                                    Text(
+                                        model.id,
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("关闭")
+            }
+        },
+    )
 }
