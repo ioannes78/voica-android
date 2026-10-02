@@ -16,6 +16,9 @@ class EvidenceRefGenerator {
                 sourceId = unit.sourceId,
                 speakerId = unit.speakerId,
                 speakerDisplayName = unit.speakerDisplayName,
+                assignmentQuality = unit.assignmentQuality,
+                overlap = unit.overlap,
+                ambiguous = unit.ambiguous,
                 startSampleIndex = unit.startSampleIndex,
                 endSampleIndexExclusive = unit.endSampleIndexExclusive,
             )
@@ -27,7 +30,11 @@ data class TranscriptEvidenceSeed(
     val sourceId: String,
     val speakerId: String?,
     val speakerDisplayName: String?,
+    val assignmentQuality: String? = null,
+    val overlap: Boolean = false,
+    val ambiguous: Boolean = false,
     val startSampleIndex: Long,
+
     val endSampleIndexExclusive: Long,
 )
 

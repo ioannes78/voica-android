@@ -69,6 +69,9 @@ data class EvidenceSourceRef(
     val sourceId: String,
     val speakerId: String?,
     val speakerDisplayName: String?,
+    val assignmentQuality: String?,
+    val overlap: Boolean,
+    val ambiguous: Boolean,
     val startSampleIndex: Long,
     val endSampleIndexExclusive: Long,
 ) {
@@ -115,6 +118,8 @@ data class StructuredTranscriptInput(
         require(canonicalProfileId.isNotBlank())
         require(totalSampleCount >= 0L)
         require(inputMode == AiInputMode.TRANSCRIPT_TEXT)
+        require(units.isNotEmpty()) { "completed transcript must contain text for AI summary" }
+        require(units.map { it.evidence.ref }.toSet().size == units.size) { "duplicate evidence ref" }
         units.forEach { unit ->
             require(unit.evidence.endSampleIndexExclusive <= totalSampleCount)
         }
