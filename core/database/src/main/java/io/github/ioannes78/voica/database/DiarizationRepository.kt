@@ -136,7 +136,7 @@ class DiarizationRepository(
         val current = dao.findRun(runId) ?: error("diarization run not found")
         if (current.state == state) return
         require(isAllowedRunTransition(current.state, state)) {
-            "invalid diarization state transition: \${current.state} -> \$state"
+            "invalid diarization state transition: ${current.state} -> $state"
         }
         val now = nowMs()
         check(
@@ -254,7 +254,7 @@ class DiarizationRepository(
         val current = dao.findAlignment(alignmentId) ?: error("speaker alignment not found")
         if (current.state == state) return
         require(isAllowedAlignmentTransition(current.state, state)) {
-            "invalid alignment state transition: \${current.state} -> \$state"
+            "invalid alignment state transition: ${current.state} -> $state"
         }
         val now = nowMs()
         check(
