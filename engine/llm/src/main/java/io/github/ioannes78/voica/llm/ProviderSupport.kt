@@ -29,17 +29,35 @@ internal fun ProviderProfile.effectiveCapabilities(): ProviderCapabilities =
         ?: ProviderCapabilities()
 
 internal fun ProviderProfile.validatedBaseUrl(): String {
-    require(enabled) { "provider profile is disabled" }
-    val normalized = baseUrl.trim().trimEnd('/')
-    val uri = URI(normalized)
-    require(uri.scheme.equals("https", ignoreCase = true)) {
-        "provider base URL requires HTTPS"
+    if (!enabled) {
+        throw invalidConfiguration("provider profile is disabled")
     }
-    require(!uri.host.isNullOrBlank()) { "provider base URL host is missing" }
-    require(uri.userInfo == null) { "credentials are not allowed in provider URL" }
-    require(uri.fragment == null) { "provider URL fragment is not allowed" }
+    val normalized = baseUrl.trim().trimEnd('/')
+    val uri =
+        runCatching { URI(normalized) }
+            .getOrElse { throw invalidConfiguration("invalid provider URL") }
+    if (!uri.scheme.equals("https", ignoreCase = true)) {
+        throw invalidConfiguration("provider base URL requires HTTPS")
+    }
+    if (uri.host.isNullOrBlank()) {
+        throw invalidConfiguration("provider base URL host is missing")
+    }
+    if (uri.userInfo != null) {
+        throw invalidConfiguration("credentials are not allowed in provider URL")
+    }
+    if (uri.fragment != null) {
+        throw invalidConfiguration("provider URL fragment is not allowed")
+    }
     return normalized
 }
+
+private fun invalidConfiguration(message: String): ProviderCallException =
+    ProviderCallException(
+        ProviderFailure(
+            ProviderErrorCode.INVALID_CONFIGURATION,
+            message,
+        ),
+    )
 
 internal fun joinUrl(
     baseUrl: String,
