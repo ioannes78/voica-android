@@ -61,6 +61,82 @@ class TranscriptPlaybackSyncStateMachineTest {
     }
 
     @Test
+    fun pauseAndSpeedChangesKeepMappingAtPresentedSample() {
+        val machine = TranscriptPlaybackSyncStateMachine()
+        val timeline = timeline("t1", "s1", "a1")
+        machine.bind(
+            timeline = timeline,
+            compatiblePlaybackAssetId = "a1",
+            playback = snapshot("r1", "a1", 6_000L),
+        )
+
+        val paused =
+            machine.update(
+                snapshot(
+                    recordingId = "r1",
+                    assetId = "a1",
+                    position = 6_000L,
+                    state = PlaybackState.PAUSED,
+                    speed = 2.0f,
+                ),
+            )
+
+        assertEquals("segment:s1", paused.activeRowId)
+        assertEquals("segment:s1:FIRST_PASS:0", paused.activeCueId)
+        assertTrue(paused.playbackCompatible)
+    }
+
+    @Test
+    fun discontinuityRemapsImmediatelyAndInvalidatesOldRow() {
+        val machine = TranscriptPlaybackSyncStateMachine()
+        val timeline = twoRowTimeline()
+        machine.bind(
+            timeline = timeline,
+            compatiblePlaybackAssetId = "a1",
+            playback = snapshot("r1", "a1", 2_000L),
+        )
+
+        val afterSeek =
+            machine.update(
+                snapshot(
+                    recordingId = "r1",
+                    assetId = "a1",
+                    position = 20_000L,
+                    discontinuityGeneration = 3L,
+                    durationSampleCount = 32_000L,
+                ),
+            )
+
+        assertEquals("segment:second", afterSeek.activeRowId)
+        assertEquals(3L, afterSeek.discontinuityGeneration)
+    }
+
+    @Test
+    fun completedPositionAtTotalSampleCountHasNoActiveText() {
+        val machine = TranscriptPlaybackSyncStateMachine()
+        val timeline = timeline("t1", "s1", "a1")
+        machine.bind(
+            timeline = timeline,
+            compatiblePlaybackAssetId = "a1",
+            playback = snapshot("r1", "a1", 15_999L),
+        )
+
+        val completed =
+            machine.update(
+                snapshot(
+                    recordingId = "r1",
+                    assetId = "a1",
+                    position = 16_000L,
+                    state = PlaybackState.COMPLETED,
+                ),
+            )
+
+        assertNull(completed.activeRowId)
+        assertNull(completed.activeCueId)
+        assertTrue(completed.playbackCompatible)
+    }
+
+    @Test
     fun manualScrollSuspendsFollowUntilExplicitResume() {
         val machine = TranscriptPlaybackSyncStateMachine()
 
@@ -93,26 +169,55 @@ class TranscriptPlaybackSyncStateMachineTest {
             totalSampleCount = 16_000L,
             segments =
                 listOf(
-                    TimelineTranscriptSegmentInput(
+                    input(
                         id = segmentId,
-                        segment =
-                            TranscriptSegment(
-                                segmentIndex = 0,
-                                startSampleIndex = 0L,
-                                endSampleIndexExclusive = 16_000L,
-                                firstPassRawText = "你好",
-                                finalText = "你好。",
-                                tokens =
-                                    listOf(
-                                        TranscriptToken(
-                                            text = "你好",
-                                            startSampleIndex = 0L,
-                                            endSampleIndexExclusive = 16_000L,
-                                            source = TokenSource.FIRST_PASS,
-                                        ),
-                                    ),
-                            ),
+                        index = 0,
+                        start = 0L,
+                        end = 16_000L,
                     ),
+                ),
+        )
+
+    private fun twoRowTimeline() =
+        buildTranscriptTimeline(
+            recordingId = "r1",
+            transcriptionId = "t1",
+            alignmentId = null,
+            sourceCanonicalAssetId = "a1",
+            sourceCanonicalSha256 = "sha",
+            canonicalProfileId = "canonical",
+            totalSampleCount = 32_000L,
+            segments =
+                listOf(
+                    input("first", 0, 0L, 16_000L),
+                    input("second", 1, 16_000L, 32_000L),
+                ),
+        )
+
+    private fun input(
+        id: String,
+        index: Int,
+        start: Long,
+        end: Long,
+    ) =
+        TimelineTranscriptSegmentInput(
+            id = id,
+            segment =
+                TranscriptSegment(
+                    segmentIndex = index,
+                    startSampleIndex = start,
+                    endSampleIndexExclusive = end,
+                    firstPassRawText = "你好",
+                    finalText = "你好。",
+                    tokens =
+                        listOf(
+                            TranscriptToken(
+                                text = "你好",
+                                startSampleIndex = start,
+                                endSampleIndexExclusive = end,
+                                source = TokenSource.FIRST_PASS,
+                            ),
+                        ),
                 ),
         )
 
@@ -120,12 +225,18 @@ class TranscriptPlaybackSyncStateMachineTest {
         recordingId: String,
         assetId: String,
         position: Long,
+        state: PlaybackState = PlaybackState.PLAYING,
+        speed: Float = 1.0f,
+        discontinuityGeneration: Long = 0L,
+        durationSampleCount: Long = 16_000L,
     ) =
         PlaybackSnapshot(
             recordingId = recordingId,
             sourceAssetId = assetId,
-            state = PlaybackState.PLAYING,
+            state = state,
             positionSampleIndex = position,
-            durationSampleCount = 16_000L,
+            durationSampleCount = durationSampleCount,
+            speed = speed,
+            discontinuityGeneration = discontinuityGeneration,
         )
 }

@@ -176,30 +176,65 @@ class TranscriptTimelinePositionMapper(
                 prefix[index] = maxEnd
             }
         }
+    private val exactCuesByRowId =
+        rows.associate { row ->
+            row.id to
+                row.cues.filter { cue ->
+                    cue.projectionQuality == TextProjectionQuality.EXACT
+                }
+        }
+
+    private var lastPositionSampleIndex: Long? = null
+    private var rowCandidateIndex: Int = -1
+    private var cueRowId: String? = null
+    private var cueCandidateIndex: Int = -1
 
     fun map(positionSampleIndex: Long): TimelinePosition {
+        val previousPosition = lastPositionSampleIndex
+        val forward =
+            previousPosition != null &&
+                positionSampleIndex >= previousPosition
+
         if (
             positionSampleIndex < 0L ||
             positionSampleIndex >= totalSampleCount ||
             rows.isEmpty()
         ) {
+            lastPositionSampleIndex = positionSampleIndex
+            if (!forward) {
+                rowCandidateIndex = -1
+                resetCueCursor()
+            }
             return emptyPosition()
         }
 
-        val row = findActiveRow(positionSampleIndex) ?: return emptyPosition()
+        val row = findActiveRow(positionSampleIndex, forward)
         val cue =
-            row.cues.lastOrNull { cue ->
-                cue.projectionQuality == TextProjectionQuality.EXACT &&
-                    positionSampleIndex >= cue.startSampleIndex &&
-                    positionSampleIndex < cue.endSampleIndexExclusive
+            row?.let { activeRow ->
+                findActiveCue(
+                    row = activeRow,
+                    positionSampleIndex = positionSampleIndex,
+                    forward =
+                        forward &&
+                            cueRowId == activeRow.id,
+                )
             }
 
-        return TimelinePosition(
-            activeRowId = row.id,
-            activeCueId = cue?.id,
-            speakerId = row.speakerId,
-            inTranscriptGap = false,
-        )
+        if (row == null) {
+            resetCueCursor()
+        }
+        lastPositionSampleIndex = positionSampleIndex
+
+        return if (row == null) {
+            emptyPosition()
+        } else {
+            TimelinePosition(
+                activeRowId = row.id,
+                activeCueId = cue?.id,
+                speakerId = row.speakerId,
+                inTranscriptGap = false,
+            )
+        }
     }
 
     private fun emptyPosition() =
@@ -210,7 +245,32 @@ class TranscriptTimelinePositionMapper(
             inTranscriptGap = true,
         )
 
-    private fun findActiveRow(positionSampleIndex: Long): TranscriptTimelineRow? {
+    private fun findActiveRow(
+        positionSampleIndex: Long,
+        forward: Boolean,
+    ): TranscriptTimelineRow? {
+        val candidate =
+            if (forward) {
+                var index = rowCandidateIndex.coerceAtLeast(-1)
+                while (
+                    index + 1 < rows.size &&
+                    rows[index + 1].startSampleIndex <= positionSampleIndex
+                ) {
+                    index += 1
+                }
+                index
+            } else {
+                upperBoundRowStart(positionSampleIndex)
+            }
+
+        rowCandidateIndex = candidate
+        return findContainingRowFromCandidate(
+            candidateIndex = candidate,
+            positionSampleIndex = positionSampleIndex,
+        )
+    }
+
+    private fun upperBoundRowStart(positionSampleIndex: Long): Int {
         var low = 0
         var high = rows.lastIndex
         var candidate = -1
@@ -223,9 +283,14 @@ class TranscriptTimelinePositionMapper(
                 high = mid - 1
             }
         }
-        if (candidate < 0) return null
+        return candidate
+    }
 
-        var index = candidate
+    private fun findContainingRowFromCandidate(
+        candidateIndex: Int,
+        positionSampleIndex: Long,
+    ): TranscriptTimelineRow? {
+        var index = candidateIndex
         while (index >= 0 && prefixMaxEnd[index] > positionSampleIndex) {
             val row = rows[index]
             if (
@@ -237,6 +302,79 @@ class TranscriptTimelinePositionMapper(
             index -= 1
         }
         return null
+    }
+
+    private fun findActiveCue(
+        row: TranscriptTimelineRow,
+        positionSampleIndex: Long,
+        forward: Boolean,
+    ): TimedTextCue? {
+        val cues = exactCuesByRowId[row.id].orEmpty()
+        if (cues.isEmpty()) {
+            cueRowId = row.id
+            cueCandidateIndex = -1
+            return null
+        }
+
+        if (cueRowId != row.id) {
+            cueRowId = row.id
+            cueCandidateIndex = -1
+        }
+
+        val candidate =
+            if (forward) {
+                var index = cueCandidateIndex.coerceAtLeast(-1)
+                while (
+                    index + 1 < cues.size &&
+                    cues[index + 1].startSampleIndex <= positionSampleIndex
+                ) {
+                    index += 1
+                }
+                index
+            } else {
+                upperBoundCueStart(cues, positionSampleIndex)
+            }
+        cueCandidateIndex = candidate
+
+        var index = candidate
+        while (index >= 0) {
+            val cue = cues[index]
+            if (
+                positionSampleIndex >= cue.startSampleIndex &&
+                positionSampleIndex < cue.endSampleIndexExclusive
+            ) {
+                return cue
+            }
+            if (cue.endSampleIndexExclusive <= positionSampleIndex) {
+                break
+            }
+            index -= 1
+        }
+        return null
+    }
+
+    private fun upperBoundCueStart(
+        cues: List<TimedTextCue>,
+        positionSampleIndex: Long,
+    ): Int {
+        var low = 0
+        var high = cues.lastIndex
+        var candidate = -1
+        while (low <= high) {
+            val mid = (low + high).ushr(1)
+            if (cues[mid].startSampleIndex <= positionSampleIndex) {
+                candidate = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+        return candidate
+    }
+
+    private fun resetCueCursor() {
+        cueRowId = null
+        cueCandidateIndex = -1
     }
 }
 

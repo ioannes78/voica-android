@@ -524,6 +524,9 @@ private fun LocalFilesScreen(
             }
         } finally {
             programmaticScroll.set(false)
+            if (listState.isScrollInProgress) {
+                transcriptPlaybackSyncViewModel.suspendFollowing()
+            }
         }
     }
 
