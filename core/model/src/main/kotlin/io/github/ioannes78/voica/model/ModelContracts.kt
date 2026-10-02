@@ -11,6 +11,11 @@ enum class ModelKind {
     ASR_LARGE,
 }
 
+enum class SpeakerModelRole {
+    DIARIZATION_SEGMENTATION,
+    EMBEDDING,
+}
+
 enum class ModelSourceType {
     BUILTIN,
     MANAGED_DOWNLOAD,
@@ -104,6 +109,7 @@ data class ModelDescriptor(
     val autoUpdateEligible: Boolean,
     val deprecated: Boolean = false,
     val criticalUpdate: Boolean = false,
+    val speakerRole: SpeakerModelRole? = null,
 ) {
     init {
         require(SAFE_PATH_SEGMENT_REGEX.matches(modelId))
@@ -118,6 +124,9 @@ data class ModelDescriptor(
         require(sourceUrl.isNotBlank())
         require(releaseChannel.isNotBlank())
         require(files.isNotEmpty())
+        require(speakerRole == null || kind == ModelKind.SPEAKER) {
+            "speakerRole is only valid for SPEAKER models"
+        }
 
         if (sourceType == ModelSourceType.BUILTIN ||
             sourceType == ModelSourceType.BUILTIN_WITH_OVERRIDE
