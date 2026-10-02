@@ -33,6 +33,9 @@ data class DiarizationConfig(
     val vadContextPaddingSamples: Long = CANONICAL_SAMPLE_RATE_HZ / 2L,
     val expectedSpeakerCount: Int? = null,
     val clusteringThreshold: Float? = null,
+    val stitchingCosineThreshold: Float = 0.75F,
+    val stitchingMinimumOverlapSamples: Long = 1_600L,
+    val stitchingMinimumAnchorSamples: Long = 16_000L,
 ) {
     init {
         require(sampleRateHz == CANONICAL_SAMPLE_RATE_HZ) {
@@ -44,6 +47,9 @@ data class DiarizationConfig(
         require(vadContextPaddingSamples >= 0L)
         require(expectedSpeakerCount == null || expectedSpeakerCount > 0)
         require(clusteringThreshold == null || clusteringThreshold.isFinite())
+        require(stitchingCosineThreshold.isFinite() && stitchingCosineThreshold in 0F..1F)
+        require(stitchingMinimumOverlapSamples > 0L)
+        require(stitchingMinimumAnchorSamples > 0L)
     }
 
     companion object {
