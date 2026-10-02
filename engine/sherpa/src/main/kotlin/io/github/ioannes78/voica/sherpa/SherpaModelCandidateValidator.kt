@@ -5,6 +5,7 @@ import io.github.ioannes78.voica.audio.PcmSource
 import io.github.ioannes78.voica.model.ModelCandidateValidator
 import io.github.ioannes78.voica.model.ModelDescriptor
 import io.github.ioannes78.voica.model.ModelKind
+import io.github.ioannes78.voica.model.SpeakerModelRole
 import java.io.File
 
 class SherpaModelCandidateValidator : ModelCandidateValidator {
@@ -24,12 +25,106 @@ class SherpaModelCandidateValidator : ModelCandidateValidator {
                 validateSecondPassAsr(descriptor, installedDirectory)
             ModelKind.PUNCTUATION ->
                 validatePunctuation(descriptor, installedDirectory)
-            ModelKind.SPEAKER,
-            ModelKind.ASR_LARGE,
-            -> error(
-                "no Stage 8 smoke validator for model kind " + descriptor.kind,
-            )
+            ModelKind.SPEAKER ->
+                validateSpeaker(descriptor, installedDirectory)
+            ModelKind.ASR_LARGE ->
+                error("no smoke validator for model kind " + descriptor.kind)
         }
+    }
+
+    private fun validateSpeaker(
+        descriptor: ModelDescriptor,
+        directory: File,
+    ) {
+        when (descriptor.speakerRole) {
+            SpeakerModelRole.EMBEDDING ->
+                validateSpeakerEmbedding(descriptor, directory)
+            SpeakerModelRole.DIARIZATION_SEGMENTATION ->
+                validateSpeakerSegmentationStructure(descriptor, directory)
+            null ->
+                error("speaker model candidate must declare speakerRole")
+        }
+    }
+
+    private fun validateSpeakerSegmentationStructure(
+        descriptor: ModelDescriptor,
+        directory: File,
+    ) {
+        val modelFile = requireSingleOnnx(descriptor, directory)
+        check(modelFile.length() > 0L) {
+            "speaker segmentation ONNX file is empty"
+        }
+        // sherpa-onnx does not expose a standalone Kotlin segmentation session.
+        // Native segmentation validation is therefore completed by the
+        // Stage 9 pyannote + embedding bundle smoke test.
+    }
+
+    private fun validateSpeakerEmbedding(
+        descriptor: ModelDescriptor,
+        directory: File,
+    ) {
+        val modelFile = requireSingleOnnx(descriptor, directory)
+        val extractor =
+            SpeakerEmbeddingExtractor(
+                assetManager = null,
+                config =
+                    SpeakerEmbeddingExtractorConfig(
+                        model = modelFile.absolutePath,
+                        numThreads = SherpaRuntime.DEFAULT_NUM_THREADS,
+                        debug = false,
+                        provider = SherpaRuntime.PROVIDER_CPU,
+                    ),
+            )
+        try {
+            check(extractor.dim() > 0) {
+                "speaker embedding dimension must be positive"
+            }
+            val stream = extractor.createStream()
+            try {
+                stream.acceptWaveform(
+                    SMOKE_SPEAKER_FLOAT_SAMPLES,
+                    16_000,
+                )
+                stream.inputFinished()
+                check(extractor.isReady(stream)) {
+                    "speaker embedding model is not ready for smoke audio"
+                }
+                val embedding = extractor.compute(stream)
+                check(embedding.size == extractor.dim()) {
+                    "speaker embedding output dimension mismatch"
+                }
+                check(embedding.all { it.isFinite() }) {
+                    "speaker embedding contains non-finite values"
+                }
+                check(embedding.any { it != 0F }) {
+                    "speaker embedding must not be all zero"
+                }
+            } finally {
+                stream.release()
+            }
+        } finally {
+            extractor.release()
+        }
+    }
+
+    private fun requireSingleOnnx(
+        descriptor: ModelDescriptor,
+        directory: File,
+    ): File {
+        val relativePath =
+            descriptor.files
+                .map { it.relativePath }
+                .singleOrNull { it.endsWith(".onnx", ignoreCase = true) }
+                ?: error("speaker candidate must contain exactly one ONNX model file")
+        val root = directory.canonicalFile
+        val file = File(root, relativePath).canonicalFile
+        require(file.path.startsWith(root.path + File.separator)) {
+            "speaker model file escapes candidate directory"
+        }
+        require(file.isFile) {
+            "speaker model file is missing: $relativePath"
+        }
+        return file
     }
 
     private suspend fun validateVad(
@@ -162,5 +257,9 @@ class SherpaModelCandidateValidator : ModelCandidateValidator {
 
     private companion object {
         val SMOKE_PCM_SAMPLES = ShortArray(16_000)
+        val SMOKE_SPEAKER_FLOAT_SAMPLES =
+            FloatArray(48_000) { index ->
+                if ((index / 80) % 2 == 0) 0.02F else -0.02F
+            }
     }
 }
