@@ -7,8 +7,8 @@
     <string name="stage5_subtitle">设备录音下载与可靠落盘</string>
     <string name="stage6_subtitle">本地录音库与 Opus/WAV 音频链路</string>
     <string name="stage7_subtitle">播放器与精确时间轴</string>
-    <string name="stage8_subtitle">本地 ASR + VAD + 标点 + 说话人分离</string>
-    <string name="version_label">0.9.0 Stage 9 Alpha 2 QA</string>
+    <string name="stage8_subtitle">本地 ASR + VAD + 标点 + 说话人分离</string>\n    <string name="stage11_subtitle">AI 智能总结 + 文本大模型 Provider</string>
+    <string name="version_label">0.11.0 Stage 11 Alpha 1 QA</string>
     <string name="tab_device">设备</string>
     <string name="tab_local_files">本地</string>
     <string name="tab_settings">设置</string>
@@ -288,7 +288,7 @@
     <string name="settings_language">默认语言</string>
     <string name="settings_language_value">简体中文</string>
     <string name="settings_scope">当前范围</string>
-    <string name="settings_scope_value">BLE + 本地录音库 + 精确播放时间轴 + Stage 9 本地转写与说话人分离</string>
+    <string name="settings_scope_value">BLE + 本地录音库 + 精确播放时间轴 + 本地转写/说话人分离 + Stage 11 AI 智能总结</string>
     <string name="settings_local_ai_runtime">本地 AI 运行库</string>
     <string name="settings_sherpa_runtime_version">sherpa-onnx %1$s · arm64-v8a · CPU</string>
     <string name="settings_sherpa_runtime_test">测试运行库</string>

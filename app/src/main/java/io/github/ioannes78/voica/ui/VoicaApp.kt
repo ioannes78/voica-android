@@ -40,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import io.github.ioannes78.voica.AiSummaryCoordinator
 import io.github.ioannes78.voica.CanonicalAudioCoordinator
 import io.github.ioannes78.voica.DiarizationCoordinator
 import io.github.ioannes78.voica.DiarizationRunState
@@ -62,14 +63,22 @@ import io.github.ioannes78.voica.ble.RecordingCommandState
 import io.github.ioannes78.voica.ble.RecordingFreshness
 import io.github.ioannes78.voica.ble.RemoteDeleteDiagnostics
 import io.github.ioannes78.voica.ble.RangeProbeDiagnostics
+import io.github.ioannes78.voica.database.AiSummaryRepository
 import io.github.ioannes78.voica.database.DiarizationRepository
 import io.github.ioannes78.voica.database.RecordingLibraryItem
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.database.TranscriptionRepository
+import io.github.ioannes78.voica.llm.ProviderAdapterRegistry
+import io.github.ioannes78.voica.llm.ProviderConfigurationRepository
+import io.github.ioannes78.voica.llm.ProviderProfileStore
 import io.github.ioannes78.voica.protocol.BatteryState
 import io.github.ioannes78.voica.protocol.RecordingStatus
 import io.github.ioannes78.voica.model.ModelManager
 import io.github.ioannes78.voica.sherpa.SherpaRuntime
+import io.github.ioannes78.voica.ui.ai.AiSummaryCard
+import io.github.ioannes78.voica.ui.ai.AiSummaryViewModel
+import io.github.ioannes78.voica.ui.ai.ProviderSettingsCard
+import io.github.ioannes78.voica.ui.ai.ProviderSettingsViewModel
 import io.github.ioannes78.voica.ui.diarization.DiarizationStatusCard
 import io.github.ioannes78.voica.ui.diarization.DiarizationViewModel
 import io.github.ioannes78.voica.ui.files.DeviceFilesCard
@@ -105,6 +114,11 @@ fun VoicaApp(
     transcriptionRepository: TranscriptionRepository,
     diarizationCoordinator: DiarizationCoordinator,
     diarizationRepository: DiarizationRepository,
+    aiSummaryCoordinator: AiSummaryCoordinator,
+    aiSummaryRepository: AiSummaryRepository,
+    providerProfileStore: ProviderProfileStore,
+    providerConfigurationRepository: ProviderConfigurationRepository,
+    providerAdapterRegistry: ProviderAdapterRegistry,
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val deviceViewModel: DeviceViewModel = viewModel(
@@ -161,6 +175,33 @@ fun VoicaApp(
         },
     )
 
+    val aiSummaryViewModel: AiSummaryViewModel = viewModel(
+        factory = remember(
+            aiSummaryCoordinator,
+            aiSummaryRepository,
+            providerProfileStore,
+        ) {
+            AiSummaryViewModel.Factory(
+                coordinator = aiSummaryCoordinator,
+                repository = aiSummaryRepository,
+                profileStore = providerProfileStore,
+            )
+        },
+    )
+    val providerSettingsViewModel: ProviderSettingsViewModel = viewModel(
+        factory = remember(
+            providerProfileStore,
+            providerConfigurationRepository,
+            providerAdapterRegistry,
+        ) {
+            ProviderSettingsViewModel.Factory(
+                profileStore = providerProfileStore,
+                configurationRepository = providerConfigurationRepository,
+                providerRegistry = providerAdapterRegistry,
+            )
+        },
+    )
+
     Scaffold(
         bottomBar = {
             NavigationBar {
@@ -194,12 +235,14 @@ fun VoicaApp(
                 transcriptionViewModel,
                 diarizationViewModel,
                 transcriptPlaybackSyncViewModel,
+                aiSummaryViewModel,
                 onOpenSettings = { selectedTab = 2 },
             )
             else -> SettingsScreen(
                 padding = padding,
                 modelManager = modelManager,
                 modelUpdateController = modelUpdateController,
+                providerSettingsViewModel = providerSettingsViewModel,
             )
         }
     }
@@ -250,7 +293,7 @@ private fun DeviceScreen(
                 style = MaterialTheme.typography.headlineLarge,
             )
             Text(
-                stringResource(R.string.stage8_subtitle),
+                stringResource(R.string.stage11_subtitle),
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
@@ -420,6 +463,7 @@ private fun LocalFilesScreen(
     transcriptionViewModel: TranscriptionViewModel,
     diarizationViewModel: DiarizationViewModel,
     transcriptPlaybackSyncViewModel: TranscriptPlaybackSyncViewModel,
+    aiSummaryViewModel: AiSummaryViewModel,
     onOpenSettings: () -> Unit,
 ) {
     val recordings by viewModel.libraryRecordings.collectAsState(initial = emptyList())
@@ -600,11 +644,27 @@ private fun LocalFilesScreen(
 
         item(key = "transcript-header-slot") {
             transcriptDocument?.let { document ->
-                TranscriptDocumentHeader(
-                    document = document,
-                    recordingName = transcriptRecordingName,
-                    onRenameSpeaker = transcriptionViewModel::renameSpeaker,
-                )
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    TranscriptDocumentHeader(
+                        document = document,
+                        recordingName = transcriptRecordingName,
+                        onRenameSpeaker = transcriptionViewModel::renameSpeaker,
+                    )
+                    AiSummaryCard(
+                        transcriptionId = document.transcriptionId,
+                        recordingName = transcriptRecordingName,
+                        viewModel = aiSummaryViewModel,
+                        onOpenSettings = onOpenSettings,
+                        onSeekEvidence = { sampleIndex ->
+                            playbackViewModel.seekAndPlay(
+                                recordingId = document.recordingId,
+                                sampleIndex = sampleIndex,
+                            )
+                        },
+                    )
+                }
             }
         }
 
@@ -1334,6 +1394,7 @@ private fun SettingsScreen(
     padding: PaddingValues,
     modelManager: ModelManager,
     modelUpdateController: ModelUpdateController,
+    providerSettingsViewModel: ProviderSettingsViewModel,
 ) {
     val scope = rememberCoroutineScope()
     var runtimeProbeRunning by remember { mutableStateOf(false) }
@@ -1414,6 +1475,9 @@ private fun SettingsScreen(
                 }
             }
         }
+        ProviderSettingsCard(
+            viewModel = providerSettingsViewModel,
+        )
         ModelManagerCard(
             modelManager = modelManager,
             modelUpdateController = modelUpdateController,

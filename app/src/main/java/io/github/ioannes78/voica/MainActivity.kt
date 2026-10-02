@@ -36,6 +36,12 @@ class MainActivity : ComponentActivity() {
                     transcriptionRepository = appContainer.transcriptionRepository,
                     diarizationCoordinator = appContainer.diarizationCoordinator,
                     diarizationRepository = appContainer.diarizationRepository,
+                    aiSummaryCoordinator = appContainer.aiSummaryCoordinator,
+                    aiSummaryRepository = appContainer.aiSummaryRepository,
+                    providerProfileStore = appContainer.providerProfileStore,
+                    providerConfigurationRepository =
+                        appContainer.providerConfigurationRepository,
+                    providerAdapterRegistry = appContainer.providerAdapterRegistry,
                 )
             }
         }

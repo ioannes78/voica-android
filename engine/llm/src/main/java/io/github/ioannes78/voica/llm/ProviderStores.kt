@@ -382,6 +382,9 @@ class ProviderConfigurationRepository(
     private val profileStore: ProviderProfileStore,
     private val credentialStore: ProviderCredentialStore,
 ) {
+    suspend fun hasCredential(credentialRef: String): Boolean =
+        credentialStore.resolve(credentialRef)?.isNotBlank() == true
+
     suspend fun save(
         profile: ProviderProfile,
         apiKey: String?,
