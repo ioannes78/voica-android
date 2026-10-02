@@ -44,6 +44,7 @@ data class PlaybackError(
 
 data class PlaybackSnapshot(
     val recordingId: String? = null,
+    val sourceAssetId: String? = null,
     val state: PlaybackState = PlaybackState.IDLE,
     val positionSampleIndex: Long = 0L,
     val positionUs: Long = 0L,
