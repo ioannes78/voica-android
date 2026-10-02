@@ -28,8 +28,9 @@ class OpenAiCompatibleTextLlmProvider(
 ) : TextLlmProvider {
     override suspend fun capabilities(profile: ProviderProfile): ProviderCapabilities =
         profile.effectiveCapabilities().let { caps ->
-            if (profile.manualContextWindowTokens != null) {
-                caps.copy(contextWindowTokens = profile.manualContextWindowTokens)
+            val manualContextWindowTokens = profile.manualContextWindowTokens
+            if (manualContextWindowTokens != null) {
+                caps.copy(contextWindowTokens = manualContextWindowTokens)
             } else {
                 caps
             }
