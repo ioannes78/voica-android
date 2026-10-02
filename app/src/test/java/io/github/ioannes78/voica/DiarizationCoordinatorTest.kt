@@ -410,6 +410,17 @@ class DiarizationCoordinatorTest {
                 )
             }
 
+        override suspend fun validateBundle(
+            segmentation: ActiveModel,
+            embedding: ActiveModel,
+        ) {
+            require(
+                segmentation.descriptor.speakerRole ==
+                    SpeakerModelRole.DIARIZATION_SEGMENTATION,
+            )
+            require(embedding.descriptor.speakerRole == SpeakerModelRole.EMBEDDING)
+        }
+
         override fun diarizationEngine(
             segmentation: ActiveModel,
             embedding: ActiveModel,

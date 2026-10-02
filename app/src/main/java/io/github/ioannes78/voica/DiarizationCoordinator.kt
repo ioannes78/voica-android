@@ -20,6 +20,7 @@ import io.github.ioannes78.voica.model.ModelLease
 import io.github.ioannes78.voica.model.ModelManager
 import io.github.ioannes78.voica.model.ModelUseRegistry
 import io.github.ioannes78.voica.model.SpeakerModelRole
+import io.github.ioannes78.voica.sherpa.SherpaDiarizationBundleValidator
 import io.github.ioannes78.voica.sherpa.SherpaOfflineDiarizationEngine
 import io.github.ioannes78.voica.sherpa.SherpaRuntime
 import io.github.ioannes78.voica.sherpa.SherpaSpeakerEmbeddingEngine
@@ -46,6 +47,7 @@ import io.github.ioannes78.voica.transcript.stitchDiarizationChunks
 import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.CancellationException
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -126,6 +128,11 @@ class MissingDiarizationModelsException(
 interface Stage9DiarizationEngineProvider {
     fun vadFactory(model: ActiveModel): VadEngineFactory
 
+    suspend fun validateBundle(
+        segmentation: ActiveModel,
+        embedding: ActiveModel,
+    )
+
     fun diarizationEngine(
         segmentation: ActiveModel,
         embedding: ActiveModel,
@@ -138,9 +145,41 @@ class SherpaStage9DiarizationEngineProvider(
     assetManager: AssetManager,
 ) : Stage9DiarizationEngineProvider {
     private val stage8Provider = SherpaStage8TranscriptionEngineProvider(assetManager)
+    private val bundleValidator = SherpaDiarizationBundleValidator()
+    private val validatedBundles = ConcurrentHashMap.newKeySet<String>()
 
     override fun vadFactory(model: ActiveModel): VadEngineFactory =
         stage8Provider.vadFactory(model)
+
+    override suspend fun validateBundle(
+        segmentation: ActiveModel,
+        embedding: ActiveModel,
+    ) {
+        val segmentationDirectory =
+            segmentation.installedDirectory
+                ?: error("speaker segmentation must be a managed installed model")
+        val embeddingDirectory =
+            embedding.installedDirectory
+                ?: error("speaker embedding must be a managed installed model")
+        val key =
+            listOf(
+                segmentation.descriptor.modelId,
+                segmentation.descriptor.version,
+                segmentation.descriptor.revision.toString(),
+                embedding.descriptor.modelId,
+                embedding.descriptor.version,
+                embedding.descriptor.revision.toString(),
+            ).joinToString("|")
+        if (key in validatedBundles) return
+
+        bundleValidator.validate(
+            segmentationModel = segmentation.descriptor,
+            segmentationDirectory = segmentationDirectory,
+            embeddingModel = embedding.descriptor,
+            embeddingDirectory = embeddingDirectory,
+        )
+        validatedBundles += key
+    }
 
     override fun diarizationEngine(
         segmentation: ActiveModel,
@@ -294,6 +333,11 @@ class DiarizationCoordinator(
                         revision = active.descriptor.revision,
                     )
                 }
+
+            engineProvider.validateBundle(
+                segmentation = models.segmentation,
+                embedding = models.embedding,
+            )
 
             val createdRunId =
                 diarizationRepository.createRun(
