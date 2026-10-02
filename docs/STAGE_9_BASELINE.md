@@ -78,17 +78,30 @@ Stage 9 只新增可选 speaker role metadata，并保持 Stage 8 manifest 向�
 
 ## 4. Stage 9 首轮模型策略
 
-Stage 9 第一轮固定：
+Stage 9 模型主线调整为：
 
 - VAD: Stage 8 Silero VAD
 - speaker segmentation: pyannote segmentation 3.0 INT8
-- embedding candidate A: CAM++ 200k 中文 FP32 ONNX
-- embedding candidate B: ERes2Net Base 200k 中文 FP32 ONNX
-- embedding candidate C: TitaNet Small，仅性能 benchmark / 兜底
+- speaker embedding: CAM++ INT8
 - clustering: sherpa FastClustering
 - runtime: sherpa-onnx 1.13.8
 
-CAM++ INT8 是后续实验 candidate，不作为第一轮 production 硬依赖。
+CAM++ INT8 是 Stage 9 唯一主线 production candidate，不再先做 CAM++ FP32 / ERes2Net / TitaNet 的 production A/B。
+
+CAM++ FP32 仅保留为量化精度与 embedding 行为的参考基线，不作为 App 用户可选模型，也不作为运行时自动 fallback。
+
+INT8 权重不得直接因为第三方已有文件就进入 production。优先从已核验的 CAM++ FP32 上游权重通过可重复的 ONNX INT8 量化流程生成，并记录：
+
+- 上游 FP32 SHA-256
+- 量化工具与版本
+- 量化参数
+- 输出 INT8 SHA-256
+- embedding dimension / finite / norm smoke
+- FP32 ↔ INT8 embedding cosine regression
+- diarization regression
+- Android RTF / Peak PSS / CPU / thermal
+
+目前存在第三方 Pixel 6 / ARM64 / sherpa-onnx 测试显示 dynamic INT8 可能比 FP32 更慢，因此 Stage 9 必须把目标 Android 真机性能验证作为 Freeze 硬门禁。若 INT8 明显更慢、精度明显下降或当前 ORT kernel 对该图不适配，不得静默切回 FP32 后仍宣称 CAM++ INT8 路线完成；应先修正量化方案或执行路径，再重新验收。
 
 Stage 9 第一轮不新增 MNN、NCNN、独立 ONNX Runtime SDK、PyTorch 或 TFLite。
 
@@ -118,9 +131,9 @@ Stage 9 不在数据库持久化 speaker embedding / voiceprint / global speaker
 8. 9H transcript alignment
 9. 9I coordinator/lifecycle
 10. 9J minimal UI
-11. 9K candidate models
-12. 9L Android A/B
-13. 9M optional CAM++ INT8 experiment
+11. 9K CAM++ INT8 candidate package
+12. 9L Android INT8 validation
+13. 9M INT8 accuracy/performance acceptance
 14. 9N regression
 15. user real-device acceptance
 16. Freeze/Handoff/merge
