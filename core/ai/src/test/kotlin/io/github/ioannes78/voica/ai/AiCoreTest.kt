@@ -124,6 +124,21 @@ class AiCoreTest {
     }
 
     @Test
+    fun summaryCodecAcceptsJsonCodeFenceCompatibilityWrapper() {
+        val raw =
+            """
+            ```json
+            {"schemaVersion":1,"contentType":"GENERAL","classificationConfidence":null,"title":"标题","overview":"概述","sections":[]}
+            ```
+            """.trimIndent()
+
+        val decoded = SummaryResultCodec.decode(raw, emptySet())
+
+        assertEquals("标题", decoded.title)
+        assertEquals(AiContentType.GENERAL, decoded.contentType)
+    }
+
+    @Test
     fun structuredTranscriptRejectsOutOfRangeEvidence() {
         val bad =
             runCatching {
