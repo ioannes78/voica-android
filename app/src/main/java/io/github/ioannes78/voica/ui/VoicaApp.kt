@@ -856,49 +856,52 @@ private fun DeviceInfoCard(
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(7.dp),
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text(
-                stringResource(R.string.device_info),
-                style = MaterialTheme.typography.titleLarge,
-            )
-            InfoRow(stringResource(R.string.info_name), info.name ?: "--")
-            InfoRow(stringResource(R.string.info_address), info.address ?: connection.address)
-            InfoRow(stringResource(R.string.info_battery), batteryText(info.battery))
-            InfoRow(
-                stringResource(R.string.info_capacity_remaining),
-                formatCapacity(info.remainingKb),
-            )
-            InfoRow(
-                stringResource(R.string.info_capacity_total),
-                formatCapacity(info.totalKb),
-            )
-            InfoRow(
-                stringResource(R.string.info_firmware),
-                info.firmwareVersion ?: "--",
-            )
-            InfoRow(
-                stringResource(R.string.info_auth),
-                if (info.authAvailable) {
-                    stringResource(R.string.auth_read_ok)
-                } else {
-                    stringResource(R.string.auth_unknown)
-                },
-            )
-            InfoRow(
-                stringResource(R.string.info_mtu),
-                connection.negotiatedMtu.toString(),
-            )
-            InfoRow(
-                stringResource(R.string.info_atomic36),
-                yesNo(connection.capability.atomic36Supported),
-            )
-            InfoRow(
-                stringResource(R.string.info_data168),
-                yesNo(connection.capability.data168Supported),
-            )
-            HorizontalDivider()
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        info.name ?: "CB08 / QS668",
+                        style = MaterialTheme.typography.titleLarge,
+                    )
+                    Text(
+                        info.address ?: connection.address,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text(
+                    stringResource(R.string.device_connected),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                DeviceMetric(
+                    value = batteryText(info.battery),
+                    label = stringResource(R.string.device_metric_battery),
+                    modifier = Modifier.weight(1f),
+                )
+                DeviceMetric(
+                    value = formatCapacity(info.remainingKb),
+                    label = stringResource(R.string.device_metric_remaining),
+                    modifier = Modifier.weight(1f),
+                )
+                DeviceMetric(
+                    value = info.firmwareVersion ?: "--",
+                    label = stringResource(R.string.device_metric_firmware),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onRefresh) {
                     Text(stringResource(R.string.refresh))
@@ -907,9 +910,38 @@ private fun DeviceInfoCard(
                     Text(stringResource(R.string.sync_time))
                 }
             }
-            OutlinedButton(onClick = onDisconnect) {
+            OutlinedButton(
+                onClick = onDisconnect,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
                 Text(stringResource(R.string.disconnect))
             }
+        }
+    }
+}
+
+@Composable
+private fun DeviceMetric(
+    value: String,
+    label: String,
+    modifier: Modifier = Modifier,
+) {
+    Card(modifier = modifier) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            Text(
+                value,
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
