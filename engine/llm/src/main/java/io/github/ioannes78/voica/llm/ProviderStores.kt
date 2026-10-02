@@ -320,8 +320,7 @@ class AppPrivateProviderProfileStore(
             // credentials first and discover/select a model afterwards.
             // Treat older or partially-written Stage 11 profiles the same way
             // so the settings screen can recover without clearing app data.
-            defaultModel =
-                value["defaultModel"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+            defaultModel = decodePersistedDefaultModel(value),
             timeoutMs = value["timeoutMs"]?.jsonPrimitive?.longOrNull ?: 30_000L,
             manualContextWindowTokens =
                 value["manualContextWindowTokens"]?.jsonPrimitive?.intOrNull,
@@ -413,3 +412,7 @@ class ProviderConfigurationRepository(
         credentialStore.delete(profile.credentialRef)
     }
 }
+
+
+internal fun decodePersistedDefaultModel(value: JsonObject): String =
+    value["defaultModel"]?.jsonPrimitive?.contentOrNull.orEmpty()
