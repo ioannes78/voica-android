@@ -52,8 +52,10 @@ fun LocalRecordingsCard(
     onGenerateCanonical: (String) -> Unit,
     onCancelCanonical: (String) -> Unit,
     transcriptionBusy: Boolean,
+    diarizationBusy: Boolean,
     onTranscribeFast: (String) -> Unit,
     onTranscribeHighQuality: (String) -> Unit,
+    onDiarize: (String) -> Unit,
     onViewTranscript: (String) -> Unit,
 ) {
     var pendingDelete by remember { mutableStateOf<RecordingLibraryItem?>(null) }
@@ -136,8 +138,10 @@ fun LocalRecordingsCard(
                         onGenerateCanonical = { onGenerateCanonical(item.id) },
                         onCancelCanonical = { onCancelCanonical(item.id) },
                         transcriptionBusy = transcriptionBusy,
+                        diarizationBusy = diarizationBusy,
                         onTranscribeFast = { onTranscribeFast(item.id) },
                         onTranscribeHighQuality = { onTranscribeHighQuality(item.id) },
+                        onDiarize = { onDiarize(item.id) },
                         onViewTranscript = { onViewTranscript(item.id) },
                     )
                     if (index != sortedRecordings.lastIndex) {
@@ -229,8 +233,10 @@ private fun RecordingRow(
     onGenerateCanonical: () -> Unit,
     onCancelCanonical: () -> Unit,
     transcriptionBusy: Boolean,
+    diarizationBusy: Boolean,
     onTranscribeFast: () -> Unit,
     onTranscribeHighQuality: () -> Unit,
+    onDiarize: () -> Unit,
     onViewTranscript: () -> Unit,
 ) {
     val profileDerivations = item.derivations.filter {
@@ -323,17 +329,27 @@ private fun RecordingRow(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
-                    enabled = !transcriptionBusy,
+                    enabled = !transcriptionBusy && !diarizationBusy,
                     onClick = onTranscribeFast,
                 ) {
                     Text(stringResource(R.string.transcription_start_fast))
                 }
                 OutlinedButton(
-                    enabled = !transcriptionBusy,
+                    enabled = !transcriptionBusy && !diarizationBusy,
                     onClick = onTranscribeHighQuality,
                 ) {
                     Text(stringResource(R.string.transcription_start_high_quality))
                 }
+            }
+            Text(
+                stringResource(R.string.transcription_auto_diarization_hint),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            OutlinedButton(
+                enabled = !transcriptionBusy && !diarizationBusy,
+                onClick = onDiarize,
+            ) {
+                Text(stringResource(R.string.diarization_start))
             }
         }
 

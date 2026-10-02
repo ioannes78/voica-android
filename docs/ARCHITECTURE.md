@@ -926,3 +926,117 @@ confirm good / activation
 - 固定 test-only QA signing identity
 - CI 强制校验证书 digest
 - QA key 不得用于 production release
+
+## Stage 9 — 说话人分离与转写 Speaker 对齐架构
+
+### 正式处理链
+
+```
+verified canonical PCM 16k mono PCM16
+  ↓
+Silero VAD coarse speech gating
+  ↓
+bounded window planner
+  ↓
+Pyannote Segmentation 3.0 INT8
+  ↓
+ERes2Net Base zh-CN 16k embedding
+  ↓
+sherpa FastClustering
+  ↓
+chunk-local turns
+  ↓
+ERes2Net anchor + overlap/temporal stitching
+  ↓
+global run-local SpeakerTurn
+  ↓
+timed transcript token alignment
+  ↓
+TranscriptSpeakerSpan
+```
+
+唯一媒体时间继续是 absolute canonical PCM sample index。
+
+### 长录音内存边界
+
+Stage 9 默认窗口：
+
+- chunk = 60s
+- overlap = 10s
+- step = 50s
+
+`PcmSource` 仍是顺序读取接口。Stage 9 的 window reader 通过保留 overlap tail 完成下一窗口，不要求 random seek，也不把 30/60/120 分钟音频整体展开成 FloatArray。
+
+### Speaker identity
+
+Speaker identity 只在一次 DiarizationRun 内有效。
+
+- chunk-local label 不直接持久化
+- clean single-speaker anchor 用 ERes2Net 生成 embedding
+- stitching 使用 cosine + overlap/temporal evidence
+- 同一 chunk 的两个 local speaker 不允许折叠为同一个 global speaker
+- Speaker ordinal 按本 run 首次全局出现顺序生成
+- embedding 只在运行期内存使用，不写 Room
+- Stage 9 不实现 voiceprint enrollment / 跨录音全局人物身份
+
+### Room v3
+
+Stage 9 additive schema：
+
+- `diarization_runs`
+- `diarization_speakers`
+- `speaker_turns`
+- `transcript_speaker_alignments`
+- `transcript_speaker_spans`
+
+原 Stage 8 `transcriptions / transcript_segments / transcript_tokens` 不被覆盖。
+
+同一 completed diarization run 可以绑定同 canonical lineage 的多个 FAST/HIGH_QUALITY transcription。
+
+### Transcript alignment
+
+优先使用 timed SECOND_PASS token；不存在可用 timed SECOND_PASS 时使用 FIRST_PASS。
+
+要求：
+
+- speaker change 可以在单个 ASR segment 内拆出多个 text span
+- punctuation/ITN 后的 `finalText` 字符必须完整覆盖
+- 去掉 Speaker 标签后应重建原 `finalText`
+- overlap 多 speaker token 默认显式 ambiguous，不做 majority speaker 硬判
+- token 不得复制给多个 speaker
+- 无 timing 且 segment 跨 speaker boundary 时保持 unresolved
+
+### 自动转写编排
+
+Stage 9 Freeze 后的默认产品行为：
+
+```
+FAST/HIGH_QUALITY transcription
+  ↓
+persist transcript
+  ↓
+compatible completed diarization exists?
+  ├─ yes → reuse run → align transcript
+  └─ no  → run diarization → align transcript
+  ↓
+speaker-aware transcript
+```
+
+因此用户不需要先点“说话人分离”。
+
+独立“单独说话人分离”仍保留，用于补做、重跑和专项测试。查看历史转写本身不会强制启动新的重型 diarization。
+
+### Model channel
+
+正式 manifest：
+
+`https://raw.githubusercontent.com/ioannes78/voica-model-channel/main/manifests/production.json`
+
+Stage 9 Freeze production speaker models：
+
+- `pyannote-segmentation-3-int8` / revision 1
+- `3dspeaker-eres2net-base-zh-cn-16k` / revision 1
+
+Candidate release URL 仅用于未合并候选 QA；Stage 9 production 不依赖 candidate URL。
+
+

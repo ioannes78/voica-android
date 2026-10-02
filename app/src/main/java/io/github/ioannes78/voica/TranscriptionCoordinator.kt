@@ -327,6 +327,11 @@ class TranscriptionCoordinator(
                 segments = completed.segments.map(::toWrite),
             )
 
+            leases.asReversed().forEach { lease ->
+                lease.close()
+            }
+            leases = emptyList()
+
             mutableState.value =
                 TranscriptionRunState.Completed(
                     recordingId = recordingId,

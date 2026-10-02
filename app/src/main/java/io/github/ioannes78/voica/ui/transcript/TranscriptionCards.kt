@@ -2,15 +2,23 @@ package io.github.ioannes78.voica.ui.transcript
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -195,7 +203,15 @@ fun TranscriptVersionListCard(
 fun TranscriptDocumentHeader(
     document: TranscriptDocument,
     recordingName: String?,
+    onRenameSpeaker: (speakerId: String, requestedName: String?) -> Unit,
 ) {
+    var pendingSpeaker by remember(document.alignmentId) {
+        mutableStateOf<TranscriptSpeakerDisplay?>(null)
+    }
+    var renameValue by remember(document.alignmentId) {
+        mutableStateOf("")
+    }
+
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -220,7 +236,84 @@ fun TranscriptDocumentHeader(
                 ),
                 style = MaterialTheme.typography.bodySmall,
             )
+
+            if (document.alignmentId != null) {
+                Text(
+                    stringResource(R.string.diarization_transcript_applied),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+
+            if (document.speakers.isNotEmpty()) {
+                Text(
+                    stringResource(R.string.diarization_speakers_title),
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                document.speakers.forEach { speaker ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            speaker.displayName
+                                ?: stringResource(
+                                    R.string.diarization_speaker_default,
+                                    speaker.speakerOrdinal,
+                                ),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        TextButton(
+                            onClick = {
+                                pendingSpeaker = speaker
+                                renameValue = speaker.displayName.orEmpty()
+                            },
+                        ) {
+                            Text(stringResource(R.string.diarization_speaker_rename))
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    pendingSpeaker?.let { speaker ->
+        AlertDialog(
+            onDismissRequest = { pendingSpeaker = null },
+            title = {
+                Text(
+                    stringResource(
+                        R.string.diarization_speaker_rename_title,
+                        speaker.speakerOrdinal,
+                    ),
+                )
+            },
+            text = {
+                OutlinedTextField(
+                    value = renameValue,
+                    onValueChange = { renameValue = it },
+                    singleLine = true,
+                    label = {
+                        Text(stringResource(R.string.diarization_speaker_name_label))
+                    },
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val requested = renameValue
+                        pendingSpeaker = null
+                        onRenameSpeaker(speaker.speakerId, requested)
+                    },
+                ) {
+                    Text(stringResource(R.string.diarization_speaker_save))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingSpeaker = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
     }
 }
 
@@ -231,6 +324,30 @@ fun TranscriptSegmentCard(segment: TranscriptDisplaySegment) {
             modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
+            if (segment.speakerAssignmentAvailable) {
+                Text(
+                    when {
+                        !segment.speakerDisplayName.isNullOrBlank() ->
+                            segment.speakerDisplayName
+                        segment.speakerOrdinal != null ->
+                            stringResource(
+                                R.string.diarization_speaker_default,
+                                segment.speakerOrdinal,
+                            )
+                        segment.ambiguous ->
+                            stringResource(R.string.diarization_speaker_overlap_ambiguous)
+                        else ->
+                            stringResource(R.string.diarization_speaker_unresolved)
+                    },
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                if (segment.overlap && !segment.ambiguous) {
+                    Text(
+                        stringResource(R.string.diarization_overlap_note),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
             Text(
                 formatSampleRange(
                     segment.startSampleIndex,

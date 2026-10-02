@@ -34,6 +34,8 @@ class MainActivity : ComponentActivity() {
                     modelUpdateController = appContainer.modelUpdateController,
                     transcriptionCoordinator = appContainer.transcriptionCoordinator,
                     transcriptionRepository = appContainer.transcriptionRepository,
+                    diarizationCoordinator = appContainer.diarizationCoordinator,
+                    diarizationRepository = appContainer.diarizationRepository,
                 )
             }
         }

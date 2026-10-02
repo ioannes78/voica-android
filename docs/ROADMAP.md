@@ -1,6 +1,6 @@
 # Voica Android 全项目 Stage 开发路线图
 
-当前状态：**Stage 8 已完成、用户验收通过并冻结；下一阶段为 Stage 9。**
+当前状态：**Stage 9 已完成、用户验收通过并冻结；下一阶段为 Stage 10。**
 
 整个 Voica 路线均为全新独立实现，不得从 `voice-card-android` 复制、迁移、继承、cherry-pick 或机械改写任何代码。
 
@@ -280,10 +280,38 @@ High Quality：
 
 ## Stage 9 — 说话人分离
 
-- DiarizationEngine
-- Speaker ID
-- 长录音分块
-- 时间段归一化与同 Speaker 合并
+状态：**已完成 / 已真机验收 / 已冻结**
+
+完成内容：
+
+- 复用 Stage 8 Silero VAD 做 speech / non-speech gating
+- Pyannote Segmentation 3.0 INT8 做 speaker activity/change/overlap segmentation
+- ERes2Net Base zh-CN 16 kHz 作为正式 speaker embedding
+- sherpa-onnx 1.13.8 + FastClustering；未引入第二套推理 runtime
+- Room v2 → v3 additive migration
+- DiarizationRun / Speaker / SpeakerTurn / TranscriptSpeakerAlignment / TranscriptSpeakerSpan 独立持久化
+- 60s chunk + 10s overlap bounded-memory 处理
+- 顺序式 PcmSource window reader；不依赖随机 seek
+- ERes2Net anchor embedding + overlap/temporal evidence 的 cross-chunk stitching
+- absolute canonical sample timeline 上的 token-level speaker alignment
+- SECOND_PASS timed token 优先，FIRST_PASS timed token fallback
+- overlap / ambiguous attribution 显式保留；同一文字不复制给多个 speaker
+- Speaker 1 / Speaker 2 等 run-local 匿名身份和局部重命名
+- FAST/HIGH_QUALITY 可复用同一 completed diarization run
+- **直接 FAST/HQ 转写默认自动串行继续说话人分离与 Speaker 对齐**
+- 独立“单独说话人分离”保留给补做、重跑和模型专项测试
+- 查看历史转写不会强制重新跑重型 diarization
+- exact model revision lease、取消、失败、启动中断 reconciliation
+- Pyannote + ERes2Net bundle smoke 在创建 run 前执行
+- Stage 9 speaker bundle 已从 candidate promotion 到 production model manifest
+- production 正式运行不依赖 candidate URL；Debug candidate override 只用于未来未合并候选验收
+- virtual 30/60/120min bounded-memory 自动化继续覆盖；真实 30min/1h/2h、定量 RTF/PSS/thermal soak 仍留 Stage 13
+
+冻结文档：
+
+- `docs/STAGE_9_TEST.md`
+- `docs/STAGE_9_FREEZE.md`
+- `docs/STAGE_9_HANDOFF.md`
 
 ## Stage 10 — 转写时间轴 + 播放同步
 
