@@ -267,6 +267,113 @@ class ProviderAdaptersTest {
         }
 
     @Test
+    fun siliconFlowStructuredRequestDisablesThinkingAndIncludesFallbackSchema() =
+        runTest {
+            val transport =
+                FakeTransport(
+                    ArrayDeque(
+                        listOf(
+                            LlmHttpResponse(
+                                200,
+                                """{"choices":[{"message":{"content":"{\\\"schemaVersion\\\":1}"},"finish_reason":"stop"}]}""",
+                                emptyMap(),
+                            ),
+                        ),
+                    ),
+                )
+            val provider =
+                OpenAiCompatibleTextLlmProvider(
+                    transport,
+                    FakeCredentials("secret"),
+                )
+            val siliconFlowProfile =
+                profile(
+                    presetId = ProviderPresetIds.SILICONFLOW,
+                    baseUrl = "https://api.siliconflow.cn/v1",
+                ).copy(
+                    capabilityOverrides =
+                        ProviderCapabilities(
+                            supportsModelDiscovery = true,
+                            supportsJsonObject = true,
+                            supportsJsonSchema = false,
+                        ),
+                )
+
+            provider.generate(
+                siliconFlowProfile,
+                LlmGenerationRequest(
+                    requestId = "sf-schema-fallback",
+                    model = "Qwen/Qwen3-32B",
+                    systemInstruction = "Summarize.",
+                    taskInstruction = "Return JSON.",
+                    transcriptPayload = "synthetic",
+                    structuredOutputSchema =
+                        """{"type":"object","required":["schemaVersion"],"properties":{"schemaVersion":{"type":"integer"}}}""",
+                    maxOutputTokens = 256,
+                ),
+            ).getOrThrow()
+
+            val body = transport.requests.single().second.body.orEmpty()
+            assertTrue(body.contains("\"enable_thinking\":false"))
+            assertTrue(body.contains("NATIVE JSON SCHEMA MODE IS NOT AVAILABLE"))
+            assertTrue(body.contains("\\\"required\\\":[\\\"schemaVersion\\\"]"))
+            assertTrue(body.contains("\"response_format\":{\"type\":\"json_object\"}"))
+        }
+
+    @Test
+    fun volcengineStructuredRequestDisablesThinkingAndIncludesFallbackSchema() =
+        runTest {
+            val transport =
+                FakeTransport(
+                    ArrayDeque(
+                        listOf(
+                            LlmHttpResponse(
+                                200,
+                                """{"choices":[{"message":{"content":"{\\\"schemaVersion\\\":1}"},"finish_reason":"stop"}]}""",
+                                emptyMap(),
+                            ),
+                        ),
+                    ),
+                )
+            val provider =
+                OpenAiCompatibleTextLlmProvider(
+                    transport,
+                    FakeCredentials("secret"),
+                )
+            val volcengineProfile =
+                profile(
+                    presetId = ProviderPresetIds.VOLCENGINE_DOUBAO,
+                    baseUrl = "https://ark.cn-beijing.volces.com/api/v3",
+                ).copy(
+                    capabilityOverrides =
+                        ProviderCapabilities(
+                            supportsModelDiscovery = false,
+                            supportsJsonObject = true,
+                            supportsJsonSchema = false,
+                        ),
+                )
+
+            provider.generate(
+                volcengineProfile,
+                LlmGenerationRequest(
+                    requestId = "volc-schema-fallback",
+                    model = "deepseek-v4-1-flash-260910",
+                    systemInstruction = "Summarize.",
+                    taskInstruction = "Return JSON.",
+                    transcriptPayload = "synthetic",
+                    structuredOutputSchema =
+                        """{"type":"object","required":["schemaVersion"],"properties":{"schemaVersion":{"type":"integer"}}}""",
+                    maxOutputTokens = 256,
+                ),
+            ).getOrThrow()
+
+            val body = transport.requests.single().second.body.orEmpty()
+            assertTrue(body.contains("\"thinking\":{\"type\":\"disabled\"}"))
+            assertTrue(body.contains("NATIVE JSON SCHEMA MODE IS NOT AVAILABLE"))
+            assertTrue(body.contains("\"response_format\":{\"type\":\"json_object\"}"))
+        }
+
+    @Test
     fun openAiStructuredRequestKeepsCredentialOutOfBodyAndWrapsTranscriptAsData() =
         runTest {
             val transport =
