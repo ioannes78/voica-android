@@ -207,11 +207,19 @@ class OpenAiCompatibleTextLlmProvider(
                 return response
             }
 
-            val first = execute(disableThinking = false)
+            // Structured summaries need deterministic machine-readable output.
+            // For providers where reasoning is returned separately from final
+            // content, disable thinking up front so the output budget is spent
+            // on the JSON object rather than hidden reasoning tokens.
+            val structuredNonThinking =
+                request.structuredOutputSchema != null &&
+                    profile.presetId in REASONING_FALLBACK_PRESETS
+            val first = execute(disableThinking = structuredNonThinking)
             try {
                 parseGeneration(request.requestId, first.body)
             } catch (empty: EmptyTextCompletionException) {
                 if (
+                    !structuredNonThinking &&
                     profile.presetId in REASONING_FALLBACK_PRESETS &&
                     empty.hasReasoningContent
                 ) {
@@ -259,8 +267,9 @@ class OpenAiCompatibleTextLlmProvider(
         presetId: String,
         disableThinking: Boolean = false,
     ): String {
+        val schemaText = request.structuredOutputSchema?.trim()
         val schema =
-            request.structuredOutputSchema
+            schemaText
                 ?.takeIf { caps.supportsJsonSchema }
                 ?.let {
                     runCatching { PROVIDER_JSON.parseToJsonElement(it) }
@@ -284,7 +293,20 @@ class OpenAiCompatibleTextLlmProvider(
                             put("role", "system")
                             put(
                                 "content",
-                                UNTRUSTED_DATA_GUARD + "\n\n" + request.systemInstruction,
+                                buildString {
+                                    append(UNTRUSTED_DATA_GUARD)
+                                    append("\n\n")
+                                    append(request.systemInstruction)
+                                    if (schemaText != null && schema == null) {
+                                        append("\n\n")
+                                        append(
+                                            "NATIVE JSON SCHEMA MODE IS NOT AVAILABLE FOR THIS PROVIDER. " +
+                                                "You must still return exactly one JSON object conforming to the following schema. " +
+                                                "All required fields and enum literals are mandatory; do not add prose or Markdown fences.\n",
+                                        )
+                                        append(schemaText)
+                                    }
+                                },
                             )
                         },
                     )
@@ -340,7 +362,7 @@ class OpenAiCompatibleTextLlmProvider(
                             )
                         },
                     )
-                request.structuredOutputSchema != null &&
+                schemaText != null &&
                     caps.supportsJsonObject ->
                     put(
                         "response_format",
