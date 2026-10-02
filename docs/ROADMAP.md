@@ -282,8 +282,9 @@ High Quality：
 
 - 继续使用 Stage 8 Silero VAD 做 speech / non-speech gating
 - pyannote segmentation 3.0 INT8 做 speaker activity / speaker change / overlap segmentation
-- **CAM++ INT8 作为唯一主线 speaker embedding production candidate**
-- CAM++ FP32 只作为量化精度/embedding 回归参考，不作为用户可选模型或运行时自动 fallback
+- **ERes2Net Base 中文 16 kHz 作为唯一主线 speaker embedding production candidate**
+- 首选固定文件：`3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx`
+- 参考文件大小：39,593,761 bytes；参考 SHA-256：`1a331345f04805badbb495c775a6ddffcdd1a732567d5ec8b3d5749e3c7a5e4b`
 - sherpa-onnx 1.13.8 + FastClustering，Stage 9 不新增第二套推理 runtime
 - DiarizationEngine / SpeakerTurn / DiarizationRun 独立契约
 - 60s chunk + 10s overlap 初始 bounded-memory 长录音策略
@@ -292,8 +293,8 @@ High Quality：
 - overlap / ambiguous attribution 显式保留，不复制同一个 token 给多个 speaker
 - Room v2 → v3 additive migration；不保存 voiceprint / embedding vector
 - Speaker 1 / Speaker 2 等录音内匿名身份与当前 run 局部重命名
-- CAM++ INT8 必须通过 FP32→INT8 embedding regression、diarization regression 与 Android RTF/PSS/thermal 真机门禁后才能进入 production manifest
-- 若 INT8 在目标 Android 上出现明显性能倒退或精度退化，不得静默切回 FP32 并冻结 Stage 9；先修量化/执行路径后重新验收
+- ERes2Net Base 必须通过 native load、diarization regression 与 Android RTF/PSS/thermal 真机门禁后才能进入 production manifest
+- CAM++ / CAM++ INT8 / TitaNet / ERes2NetV2 不作为 Stage 9 runtime fallback；若 ERes2Net Base 真机不达标，重新评估模型路线后再继续 Freeze
 
 ## Stage 10 — 转写时间轴 + 播放同步
 
