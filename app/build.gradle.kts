@@ -67,6 +67,7 @@ dependencies {
     implementation(project(":core:protocol"))
     implementation(project(":core:ble"))
     implementation(project(":core:database"))
+    implementation(project(":core:ai"))
     implementation(project(":core:audio"))
     implementation(project(":core:model"))
     implementation(project(":core:transcript"))
