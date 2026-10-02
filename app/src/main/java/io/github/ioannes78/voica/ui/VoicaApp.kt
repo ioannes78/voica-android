@@ -307,16 +307,13 @@ private fun DeviceScreen(
     ) {
         item {
             Text(
-                stringResource(R.string.app_name),
+                stringResource(R.string.device_screen_title),
                 style = MaterialTheme.typography.headlineLarge,
             )
             Text(
-                stringResource(R.string.stage12_subtitle),
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Text(
-                stringResource(R.string.version_label),
+                stringResource(R.string.device_screen_subtitle),
                 style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
@@ -330,48 +327,50 @@ private fun DeviceScreen(
             )
         }
 
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Text(
-                        stringResource(R.string.scan_title),
-                        style = MaterialTheme.typography.titleLarge,
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(
-                            onClick = viewModel::startScan,
-                            enabled = !scan.isScanning && missingPermissions.isEmpty(),
-                        ) {
-                            Text(stringResource(R.string.scan_start))
+        if (connection !is DeviceConnectionState.Ready) {
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(
+                            stringResource(R.string.scan_title),
+                            style = MaterialTheme.typography.titleLarge,
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Button(
+                                onClick = viewModel::startScan,
+                                enabled = !scan.isScanning && missingPermissions.isEmpty(),
+                            ) {
+                                Text(stringResource(R.string.scan_start))
+                            }
+                            OutlinedButton(
+                                onClick = viewModel::stopScan,
+                                enabled = scan.isScanning,
+                            ) {
+                                Text(stringResource(R.string.scan_stop))
+                            }
                         }
-                        OutlinedButton(
-                            onClick = viewModel::stopScan,
-                            enabled = scan.isScanning,
-                        ) {
-                            Text(stringResource(R.string.scan_stop))
+                        Text(
+                            if (scan.isScanning) {
+                                stringResource(R.string.scan_scanning)
+                            } else if (scan.timedOut) {
+                                stringResource(R.string.scan_timeout)
+                            } else {
+                                stringResource(R.string.scan_idle)
+                            },
+                        )
+                        scan.error?.let {
+                            Text(errorText(it), style = MaterialTheme.typography.bodySmall)
                         }
-                    }
-                    Text(
-                        if (scan.isScanning) {
-                            stringResource(R.string.scan_scanning)
-                        } else if (scan.timedOut) {
-                            stringResource(R.string.scan_timeout)
-                        } else {
-                            stringResource(R.string.scan_idle)
-                        },
-                    )
-                    scan.error?.let {
-                        Text(errorText(it), style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
-        }
 
-        items(scan.devices, key = { it.address }) { device ->
-            ScanDeviceCard(device = device, onConnect = viewModel::connect)
+            items(scan.devices, key = { it.address }) { device ->
+                ScanDeviceCard(device = device, onConnect = viewModel::connect)
+            }
         }
 
         if (connection is DeviceConnectionState.Ready) {
