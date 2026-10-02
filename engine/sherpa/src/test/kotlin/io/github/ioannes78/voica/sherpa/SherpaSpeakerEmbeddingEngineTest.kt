@@ -37,16 +37,19 @@ class SherpaSpeakerEmbeddingEngineTest {
     }
 
     @Test(expected = IllegalArgumentException::class)
-    fun rejectsNonFiniteEmbedding() = runBlocking {
-        val engine =
-            SherpaSpeakerEmbeddingEngine(
-                model = embeddingDescriptor(),
-                native = FakeNativeSpeakerEmbeddingSession(floatArrayOf(Float.NaN)),
-            )
-        try {
-            engine.embed(shortArrayOf(1, 2, 3), 16_000)
-        } finally {
-            engine.close()
+    fun rejectsNonFiniteEmbedding() {
+        runBlocking {
+            val engine =
+                SherpaSpeakerEmbeddingEngine(
+                    model = embeddingDescriptor(),
+                    native = FakeNativeSpeakerEmbeddingSession(floatArrayOf(Float.NaN)),
+                )
+            try {
+                engine.embed(shortArrayOf(1, 2, 3), 16_000)
+                Unit
+            } finally {
+                engine.close()
+            }
         }
     }
 

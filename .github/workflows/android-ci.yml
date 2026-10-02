@@ -74,6 +74,19 @@ jobs:
           :app:assembleQa
           --stacktrace
 
+      - name: Stage 9 schema diagnostic
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          schema="core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/3.json"
+          if test -f "$schema"; then
+            echo "STAGE9_ROOM_SCHEMA_BEGIN"
+            cat "$schema"
+            echo "STAGE9_ROOM_SCHEMA_END"
+          else
+            echo "Stage 9 Room schema was not generated"
+          fi
+
       - name: Verify stable QA signing identity
         shell: bash
         run: |
