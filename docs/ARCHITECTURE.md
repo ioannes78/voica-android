@@ -8,7 +8,7 @@ Voica 是全新 Android 工程，不从 `voice-card-android` 继承任何代码�
 
 ## 2. 当前已落地模块
 
-Stage 10 当前物理模块：
+Stage 11 当前物理模块：
 
 ```
 :app
@@ -18,13 +18,16 @@ Stage 10 当前物理模块：
 ├─ :core:audio
 ├─ :core:model
 ├─ :core:transcript
+├─ :core:ai
 ├─ :engine:opus
 │  └─ :core:audio
 ├─ :engine:playback
 │  └─ :core:audio
-└─ :engine:sherpa
-   ├─ :core:model
-   └─ :core:transcript
+├─ :engine:sherpa
+│  ├─ :core:model
+│  └─ :core:transcript
+└─ :engine:llm
+   └─ :core:ai
 ```
 
 ### `:core:protocol`
@@ -68,6 +71,58 @@ Android BLE Transport / Device Session：
 - 中文设备信息与 BLE Diagnostics
 
 Stage 2 暂未拆独立 `:feature:device`，但 UI/Repository/Transport 边界已保留，后续按复杂度再抽离。
+
+### `:core:ai`
+
+Stage 11 纯业务/算法层：
+
+- StructuredTranscriptInput / evidenceRef
+- AI Summary contracts
+- SMART / PRESET / CUSTOM template
+- Prompt factory / result schema
+- strict structured result + evidence validation
+- token budget / chunk planning
+- hierarchical map/reduce
+- checkpoint contract
+- AudioUnderstandingProvider capability contract
+
+不得依赖 Android Keystore、HTTP transport 或 Compose。
+
+### `:engine:llm`
+
+Stage 11 Text LLM Provider 实现层：
+
+- OpenAI-compatible adapter
+- Gemini native adapter
+- Provider registry / presets
+- model discovery
+- synthetic connection test
+- Provider error normalization
+- Android Keystore + AES-GCM credential store
+- app-private Provider Profile store
+- structured-output provider compatibility
+
+默认 Text LLM 路径只发送结构化转写文本，不上传录音。
+
+### Stage 11 AI Summary 数据流
+
+```
+Selected Transcription
+  ↓
+speaker-aware StructuredTranscriptInput
+  ↓
+AiSummaryEngine
+  ↓
+TextLlmProvider
+  ↓
+strict schema + evidence validation
+  ↓
+Room v4 AI Summary / evidence / checkpoint
+  ↓
+Compose Summary UI / evidence seek-to-play
+```
+
+AI evidence 继续使用 Stage 7/10 的 16 kHz absolute canonical sample index，不建立第二套时间轴。
 
 ## 3. Stage 2 BLE 数据流
 
