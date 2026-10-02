@@ -135,6 +135,7 @@ class StreamingPlaybackController(
             publish(
                 PlaybackSnapshot(
                     recordingId = recordingId,
+                    sourceAssetId = descriptor.assetId,
                     state = PlaybackState.READY,
                     durationSampleCount = totalSamples,
                     durationUs = sampleIndexToTimeUs(
