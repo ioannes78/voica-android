@@ -1,6 +1,6 @@
 # Voica Android 全项目 Stage 开发路线图
 
-当前状态：**Stage 8 已完成、用户验收通过并冻结；下一阶段为 Stage 9。**
+当前状态：**Stage 9 已完成、用户验收通过并冻结；下一阶段为 Stage 10。**
 
 整个 Voica 路线均为全新独立实现，不得从 `voice-card-android` 复制、迁移、继承、cherry-pick 或机械改写任何代码。
 
@@ -280,23 +280,38 @@ High Quality：
 
 ## Stage 9 — 说话人分离
 
-- 继续使用 Stage 8 Silero VAD 做 speech / non-speech gating
-- pyannote segmentation 3.0 INT8 做 speaker activity / speaker change / overlap segmentation
-- **ERes2Net Base 中文 16 kHz 作为唯一主线 speaker embedding production candidate**
-- 首选固定文件：`3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx`
-- 参考文件大小：39,593,761 bytes；参考 SHA-256：`1a331345f04805badbb495c775a6ddffcdd1a732567d5ec8b3d5749e3c7a5e4b`
-- sherpa-onnx 1.13.8 + FastClustering，Stage 9 不新增第二套推理 runtime
-- DiarizationEngine / SpeakerTurn / DiarizationRun 独立契约
-- 60s chunk + 10s overlap 初始 bounded-memory 长录音策略
-- cross-chunk speaker stitching，禁止直接持久化 chunk-local speaker label
-- absolute sample timeline 上的 token-level transcript speaker alignment
-- overlap / ambiguous attribution 显式保留，不复制同一个 token 给多个 speaker
-- Room v2 → v3 additive migration；不保存 voiceprint / embedding vector
-- Speaker 1 / Speaker 2 等录音内匿名身份与当前 run 局部重命名
-- **直接 FAST/HQ 转写默认自动串行执行说话人分离与 Speaker 文本对齐；无需用户预先手动运行说话人分离**
-- 独立“说话人分离”动作仅用于补做、重跑、模型专项测试或已有转写的后处理
-- ERes2Net Base 必须通过 native load、diarization regression 与 Android RTF/PSS/thermal 真机门禁后才能进入 production manifest
-- CAM++ / CAM++ INT8 / TitaNet / ERes2NetV2 不作为 Stage 9 runtime fallback；若 ERes2Net Base 真机不达标，重新评估模型路线后再继续 Freeze
+状态：**已完成 / 已真机验收 / 已冻结**
+
+完成内容：
+
+- 复用 Stage 8 Silero VAD 做 speech / non-speech gating
+- Pyannote Segmentation 3.0 INT8 做 speaker activity/change/overlap segmentation
+- ERes2Net Base zh-CN 16 kHz 作为正式 speaker embedding
+- sherpa-onnx 1.13.8 + FastClustering；未引入第二套推理 runtime
+- Room v2 → v3 additive migration
+- DiarizationRun / Speaker / SpeakerTurn / TranscriptSpeakerAlignment / TranscriptSpeakerSpan 独立持久化
+- 60s chunk + 10s overlap bounded-memory 处理
+- 顺序式 PcmSource window reader；不依赖随机 seek
+- ERes2Net anchor embedding + overlap/temporal evidence 的 cross-chunk stitching
+- absolute canonical sample timeline 上的 token-level speaker alignment
+- SECOND_PASS timed token 优先，FIRST_PASS timed token fallback
+- overlap / ambiguous attribution 显式保留；同一文字不复制给多个 speaker
+- Speaker 1 / Speaker 2 等 run-local 匿名身份和局部重命名
+- FAST/HIGH_QUALITY 可复用同一 completed diarization run
+- **直接 FAST/HQ 转写默认自动串行继续说话人分离与 Speaker 对齐**
+- 独立“单独说话人分离”保留给补做、重跑和模型专项测试
+- 查看历史转写不会强制重新跑重型 diarization
+- exact model revision lease、取消、失败、启动中断 reconciliation
+- Pyannote + ERes2Net bundle smoke 在创建 run 前执行
+- Stage 9 speaker bundle 已从 candidate promotion 到 production model manifest
+- production 正式运行不依赖 candidate URL；Debug candidate override 只用于未来未合并候选验收
+- virtual 30/60/120min bounded-memory 自动化继续覆盖；真实 30min/1h/2h、定量 RTF/PSS/thermal soak 仍留 Stage 13
+
+冻结文档：
+
+- `docs/STAGE_9_TEST.md`
+- `docs/STAGE_9_FREEZE.md`
+- `docs/STAGE_9_HANDOFF.md`
 
 ## Stage 10 — 转写时间轴 + 播放同步
 

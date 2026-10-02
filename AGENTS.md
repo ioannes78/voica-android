@@ -4,15 +4,15 @@
 
 当前 `ioannes78/voica-android` 仓库是 Voica 项目实现状态的唯一事实来源。
 
-当前已冻结基线：**Stage 8**
+当前已冻结基线：**Stage 9**
 
-Stage 8 Freeze/Handoff：
+Stage 9 Freeze/Handoff：
 
-- `docs/STAGE_8_FREEZE.md`
-- `docs/STAGE_8_HANDOFF.md`
-- `docs/STAGE_8_TEST.md`
+- `docs/STAGE_9_FREEZE.md`
+- `docs/STAGE_9_HANDOFF.md`
+- `docs/STAGE_9_TEST.md`
 
-下一阶段：**Stage 9 — 说话人分离**
+下一阶段：**Stage 10 — 转写时间轴 + 播放同步**
 
 协议与行为参考：
 
@@ -83,10 +83,10 @@ Stage 8 Freeze/Handoff：
 - Compose BOM：2026.09.00
 - Application ID：`io.github.ioannes78.voica`
 - QA Application ID：`io.github.ioannes78.voica.qa`
-- versionCode：23
-- versionName：`0.8.0-stage8-alpha4`
+- versionCode：25
+- versionName：`0.9.0-stage9-alpha2`
 - sherpa-onnx：1.13.8
-- Room schema：2
+- Room schema：3
 - ABI：arm64-v8a
 - 默认产品语言：简体中文
 
@@ -271,6 +271,36 @@ app
 - production manifest 当前包含 Silero、Small Bilingual、CT-Transformer、SenseVoice 四模型。
 - QA APK 使用固定测试签名与 `io.github.ioannes78.voica.qa`，仅用于真机验收，不得用于生产发布。
 - 真实 30min/1h/2h 长录音压力仍作为 Stage 13 测试债务；Stage 8 已有 virtual 30/60/120min bounded-read 自动化覆盖。
+
+
+## 九-D、Stage 9 已冻结说话人分离事实
+
+后续 Stage 不得无新证据改变：
+
+- sherpa-onnx Android runtime 继续固定 1.13.8；Stage 9 未引入第二套推理 runtime。
+- Room schema 已从 v2 显式迁移到 v3；Stage 8 转写历史完整保留。
+- Stage 9 speaker pipeline 使用：Silero VAD → Pyannote Segmentation 3.0 INT8 → ERes2Net Base zh-CN 16 kHz → sherpa FastClustering。
+- production model manifest 已正式包含：
+  - `pyannote-segmentation-3-int8` / role=`DIARIZATION_SEGMENTATION`
+  - `3dspeaker-eres2net-base-zh-cn-16k` / role=`EMBEDDING`
+- 正常运行固定使用 production manifest；Stage 9 candidate URL 只属于未合并候选 QA，Stage 9 Freeze 后不再是运行依赖。
+- Debug/QA 如果过去保存了 candidate override，可在设置中“恢复 production”后完全退出并重启。
+- Pyannote 单模型 Kotlin API 不提供完整 standalone native session，因此其最终 native gate 是 Pyannote + ERes2Net bundle smoke；bundle smoke 必须在创建 DiarizationRun 前成功。
+- ERes2Net 单模型激活必须真实创建 SpeakerEmbeddingExtractor 并得到 finite/non-zero embedding。
+- 所有 speaker 时间继续使用 16 kHz canonical PCM absolute sample index；不得建立拼接 VAD 伪时间轴。
+- 长录音按 bounded windows 处理；初始策略 60s chunk + 10s overlap，窗口读取保持顺序式，不要求 PcmSource random seek。
+- cross-chunk speaker identity 使用 ERes2Net anchor embedding + overlap/temporal evidence；chunk-local speaker label 不得直接持久化为全局 label。
+- Stage 9 不持久化 embedding vector / voiceprint / 跨录音全局人物身份；这些仍属于 Stage 20。
+- Room v3 新增 diarization run / speaker / turn / transcript alignment / speaker span 数据，不向 Stage 8 TranscriptSegment 直接塞单一 speaker 字段。
+- transcript speaker alignment 优先 timed SECOND_PASS token，fallback timed FIRST_PASS；跨 speaker 边界必须拆 span。
+- overlap/ambiguous token 不得复制给多个 speaker；无法可靠归属时显式保存 unresolved / overlap ambiguous。
+- 同一 completed diarization run 可复用给同一 canonical lineage 的多个 FAST/HIGH_QUALITY transcription version。
+- **直接 FAST/HQ 转写完成后默认自动继续说话人分离并完成 Speaker 文本对齐；用户无需预先手动点击说话人分离。**
+- 若同一 canonical lineage 已存在 completed diarization run，则直接复用，只做新的 transcript/speaker alignment。
+- “单独说话人分离”保留给补做、重跑和模型专项测试；查看旧历史转写本身不得强制新跑重型 diarization。
+- 每次 diarization 重跑创建新的 run，不覆盖旧 run；Speaker 1/2/… 按本 run 首次全局出现顺序编号，局部重命名不跨 run 传播。
+- active diarization/alignment 在进程启动 reconciliation 时转 INTERRUPTED；取消/失败不得留下假 COMPLETED。
+- Stage 9 真机功能验收已通过；真实 30min/1h/2h 长录音、定量 RTF/PSS/thermal soak 仍属于 Stage 13 测试债务，不得写成 Stage 9 已完成。
 
 ## 十、架构规则
 
