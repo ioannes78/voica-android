@@ -9,6 +9,26 @@
     <string name="device_metric_firmware">固件</string>
     <string name="tab_library">录音库</string>
 
+    <string name="library_title">录音库</string>
+    <string name="library_subtitle">管理手机中的录音、转写和 AI 总结</string>
+    <string name="library_empty_title">暂无本地录音</string>
+    <string name="library_empty_body">从设备下载录音后，会自动显示在这里。</string>
+    <string name="back">返回</string>
+
+    <string name="detail_tab_playback">播放</string>
+    <string name="detail_tab_transcript">转写</string>
+    <string name="detail_tab_summary">AI 总结</string>
+    <string name="detail_tab_info">信息</string>
+    <string name="detail_canonical_required">需要先生成标准 WAV，才能播放和转写。</string>
+    <string name="detail_transcription_actions">转写与说话人</string>
+    <string name="detail_transcript_playback_incompatible">当前转写与现有标准 WAV 不兼容，已停止播放同步。</string>
+    <string name="detail_follow_playback">跟随播放</string>
+    <string name="detail_summary_title">AI 总结</string>
+    <string name="detail_summary_requires_transcript">需要先完成一个转写版本，才能生成 AI 总结。</string>
+    <string name="detail_go_transcript">前往转写</string>
+    <string name="detail_info_title">录音信息</string>
+    <string name="detail_source_device">来源设备</string>
+
     <string name="global_recording_active">正在录音 · %1$s</string>
     <string name="global_recording_paused">录音已暂停 · %1$s</string>
     <string name="global_recording_open">查看</string>
