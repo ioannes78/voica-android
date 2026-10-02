@@ -3,6 +3,7 @@ package io.github.ioannes78.voica.llm
 import io.github.ioannes78.voica.ai.ProviderCapabilities
 import io.github.ioannes78.voica.ai.ProviderErrorCode
 import io.github.ioannes78.voica.ai.ProviderFailure
+import io.github.ioannes78.voica.ai.ProviderFailureCarrier
 import io.github.ioannes78.voica.ai.ProviderPresetCatalog
 import io.github.ioannes78.voica.ai.ProviderProfile
 import java.net.URI
@@ -14,8 +15,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 
 class ProviderCallException(
-    val failure: ProviderFailure,
-) : Exception(failure.sanitizedMessage ?: failure.code.name)
+    override val failure: ProviderFailure,
+) : Exception(failure.sanitizedMessage ?: failure.code.name), ProviderFailureCarrier
 
 internal val PROVIDER_JSON =
     Json {

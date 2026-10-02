@@ -276,6 +276,10 @@ data class ProviderFailure(
     val retryable: Boolean = false,
 )
 
+interface ProviderFailureCarrier {
+    val failure: ProviderFailure
+}
+
 data class ConnectionTestResult(
     val success: Boolean,
     val capabilities: ProviderCapabilities?,

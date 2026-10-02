@@ -1,0 +1,382 @@
+package io.github.ioannes78.voica.ai
+
+import java.util.UUID
+import java.util.concurrent.CancellationException
+import kotlinx.coroutines.delay
+
+data class AiSummaryEngineConfig(
+    val outputReserveTokens: Int = 2_048,
+    val safetyMarginTokens: Int = 1_024,
+    val maxOutputTokens: Int = 2_048,
+    val maxRepairAttempts: Int = 1,
+) {
+    init {
+        require(outputReserveTokens > 0)
+        require(safetyMarginTokens > 0)
+        require(maxOutputTokens > 0)
+        require(maxRepairAttempts in 0..1)
+    }
+}
+
+enum class AiSummaryEnginePhase {
+    PREPARING,
+    MAPPING,
+    REDUCING,
+    VALIDATING,
+}
+
+data class AiSummaryEngineProgress(
+    val phase: AiSummaryEnginePhase,
+    val completedUnits: Int = 0,
+    val totalUnits: Int = 0,
+)
+
+data class AiSummaryEngineRequest(
+    val input: StructuredTranscriptInput,
+    val profile: ProviderProfile,
+    val mode: AiSummaryMode,
+    val template: SummaryTemplateSpec,
+)
+
+data class AiSummaryEngineOutput(
+    val result: AiSummaryResult,
+    val structuredPayloadJson: String,
+    val usage: LlmUsage?,
+    val providerCallCount: Int,
+    val mapChunkCount: Int,
+)
+
+class AiSummaryEngine(
+    private val estimator: TokenEstimator = ConservativeTokenEstimator(),
+    private val tokenBudgetPlanner: TokenBudgetPlanner = TokenBudgetPlanner(),
+    private val chunkPlanner: SummaryChunkPlanner = SummaryChunkPlanner(estimator),
+    private val retryPolicy: ProviderRetryPolicy = ProviderRetryPolicy(),
+    private val config: AiSummaryEngineConfig = AiSummaryEngineConfig(),
+    private val idFactory: () -> String = { UUID.randomUUID().toString() },
+    private val sleeper: suspend (Long) -> Unit = { delay(it) },
+) {
+    suspend fun generate(
+        provider: TextLlmProvider,
+        request: AiSummaryEngineRequest,
+        onProgress: (AiSummaryEngineProgress) -> Unit = {},
+    ): AiSummaryEngineOutput {
+        onProgress(AiSummaryEngineProgress(AiSummaryEnginePhase.PREPARING))
+        val capabilities = provider.capabilities(request.profile)
+        val fullPayload = TranscriptPayloadFormatter.format(request.input)
+        val taskInstruction =
+            SummaryPromptFactory.taskInstruction(
+                mode = request.mode,
+                template = request.template,
+                partial = false,
+            )
+        val manualContextWindowTokens = request.profile.manualContextWindowTokens
+        val budget =
+            tokenBudgetPlanner.plan(
+                TokenBudgetRequest(
+                    contextWindowTokens =
+                        manualContextWindowTokens
+                            ?: capabilities.contextWindowTokens,
+                    inputEstimatedTokens = estimator.estimate(fullPayload),
+                    systemTokens = estimator.estimate(SummaryPromptFactory.systemInstruction),
+                    templateTokens = estimator.estimate(taskInstruction),
+                    schemaTokens = estimator.estimate(SummaryPromptFactory.resultSchemaJson),
+                    outputReserveTokens = config.outputReserveTokens,
+                    safetyMarginTokens = config.safetyMarginTokens,
+                ),
+            )
+
+        val accumulator = UsageAccumulator()
+        var providerCalls = 0
+        var activeRequestId: String? = null
+
+        suspend fun call(
+            task: String,
+            dataPayload: String,
+            allowedEvidenceRefs: Set<String>,
+        ): ParsedCall {
+            var attempt = 1
+            while (true) {
+                val requestId = newRequestId()
+                activeRequestId = requestId
+                val response =
+                    try {
+                        provider.generate(
+                            request.profile,
+                            LlmGenerationRequest(
+                                requestId = requestId,
+                                model = request.profile.defaultModel,
+                                systemInstruction = SummaryPromptFactory.systemInstruction,
+                                taskInstruction = task,
+                                transcriptPayload = dataPayload,
+                                structuredOutputSchema = SummaryPromptFactory.resultSchemaJson,
+                                maxOutputTokens =
+                                    minOf(
+                                        config.maxOutputTokens,
+                                        capabilities.maxOutputTokens
+                                            ?: config.maxOutputTokens,
+                                    ),
+                            ),
+                        ).getOrThrow()
+                    } catch (cancelled: CancellationException) {
+                        provider.cancel(requestId)
+                        throw cancelled
+                    } catch (error: Throwable) {
+                        val failure = (error as? ProviderFailureCarrier)?.failure
+                        if (
+                            failure != null &&
+                            retryPolicy.shouldRetry(failure, attempt)
+                        ) {
+                            sleeper(retryPolicy.delayMs(failure, attempt))
+                            attempt++
+                            continue
+                        }
+                        throw error
+                    } finally {
+                        activeRequestId = null
+                    }
+                providerCalls++
+                accumulator.add(response.usage)
+
+                onProgress(AiSummaryEngineProgress(AiSummaryEnginePhase.VALIDATING))
+                val parsed =
+                    runCatching {
+                        SummaryResultCodec.decode(
+                            response.content,
+                            allowedEvidenceRefs,
+                        )
+                    }
+                if (parsed.isSuccess) {
+                    return ParsedCall(parsed.getOrThrow(), response.content)
+                }
+                if (config.maxRepairAttempts == 0) {
+                    throw parsed.exceptionOrNull()!!
+                }
+
+                val repairRequestId = newRequestId()
+                activeRequestId = repairRequestId
+                val repaired =
+                    try {
+                        provider.generate(
+                            request.profile,
+                            LlmGenerationRequest(
+                                requestId = repairRequestId,
+                                model = request.profile.defaultModel,
+                                systemInstruction = SummaryPromptFactory.systemInstruction,
+                                taskInstruction = SummaryPromptFactory.repairInstruction(),
+                                transcriptPayload = response.content,
+                                structuredOutputSchema = SummaryPromptFactory.resultSchemaJson,
+                                maxOutputTokens =
+                                    minOf(
+                                        config.maxOutputTokens,
+                                        capabilities.maxOutputTokens
+                                            ?: config.maxOutputTokens,
+                                    ),
+                            ),
+                        ).getOrThrow()
+                    } catch (cancelled: CancellationException) {
+                        provider.cancel(repairRequestId)
+                        throw cancelled
+                    } finally {
+                        activeRequestId = null
+                    }
+                providerCalls++
+                accumulator.add(repaired.usage)
+                return ParsedCall(
+                    result =
+                        SummaryResultCodec.decode(
+                            repaired.content,
+                            allowedEvidenceRefs,
+                        ),
+                    raw = repaired.content,
+                )
+            }
+        }
+
+        try {
+            if (budget is TokenBudgetPlan.Direct) {
+                val allRefs = request.input.units.mapTo(LinkedHashSet()) { it.evidence.ref }
+                val direct =
+                    try {
+                        call(taskInstruction, fullPayload, allRefs)
+                    } catch (error: Throwable) {
+                        val failure = (error as? ProviderFailureCarrier)?.failure
+                        if (failure?.code != ProviderErrorCode.CONTEXT_LIMIT_EXCEEDED) {
+                            throw error
+                        }
+                        null
+                    }
+                if (direct != null) {
+                    return AiSummaryEngineOutput(
+                        result = direct.result,
+                        structuredPayloadJson = SummaryResultCodec.encode(direct.result),
+                        usage = accumulator.toUsage(),
+                        providerCallCount = providerCalls,
+                        mapChunkCount = 1,
+                    )
+                }
+            }
+
+            val targetChunkTokens =
+                when (budget) {
+                    is TokenBudgetPlan.Chunked -> budget.targetChunkTokens
+                    is TokenBudgetPlan.Direct ->
+                        (budget.availableInputTokens * 0.65).toInt().coerceAtLeast(1)
+                }
+            val chunks =
+                chunkPlanner.plan(
+                    input = request.input,
+                    targetChunkTokens = targetChunkTokens,
+                )
+            val partials = mutableListOf<AiSummaryResult>()
+            onProgress(
+                AiSummaryEngineProgress(
+                    AiSummaryEnginePhase.MAPPING,
+                    completedUnits = 0,
+                    totalUnits = chunks.size,
+                ),
+            )
+            chunks.forEachIndexed { index, chunk ->
+                val partial =
+                    call(
+                        task =
+                            SummaryPromptFactory.taskInstruction(
+                                mode = request.mode,
+                                template = request.template,
+                                partial = true,
+                            ),
+                        dataPayload = chunk.payload,
+                        allowedEvidenceRefs = chunk.evidenceRefs,
+                    )
+                partials += partial.result
+                onProgress(
+                    AiSummaryEngineProgress(
+                        AiSummaryEnginePhase.MAPPING,
+                        completedUnits = index + 1,
+                        totalUnits = chunks.size,
+                    ),
+                )
+            }
+
+            var level = partials.toList()
+            while (level.size > 1) {
+                onProgress(
+                    AiSummaryEngineProgress(
+                        AiSummaryEnginePhase.REDUCING,
+                        completedUnits = 0,
+                        totalUnits = level.size,
+                    ),
+                )
+                val groups = groupForReduction(level, targetChunkTokens)
+                val next = mutableListOf<AiSummaryResult>()
+                var completed = 0
+                groups.forEach { group ->
+                    if (group.size == 1) {
+                        next += group.single()
+                    } else {
+                        val allowed =
+                            group.asSequence()
+                                .flatMap { SummaryResultCodec.evidenceRefs(it).asSequence() }
+                                .toCollection(LinkedHashSet())
+                        val reductionPayload =
+                            group.mapIndexed { index, result ->
+                                "CHILD_SUMMARY_" + (index + 1) + "\n" +
+                                    SummaryResultCodec.encode(result)
+                            }.joinToString("\n\n")
+                        next +=
+                            call(
+                                task =
+                                    SummaryPromptFactory.reduceInstruction(
+                                        mode = request.mode,
+                                        template = request.template,
+                                    ),
+                                dataPayload = reductionPayload,
+                                allowedEvidenceRefs = allowed,
+                            ).result
+                    }
+                    completed += group.size
+                    onProgress(
+                        AiSummaryEngineProgress(
+                            AiSummaryEnginePhase.REDUCING,
+                            completedUnits = completed,
+                            totalUnits = level.size,
+                        ),
+                    )
+                }
+                level = next
+            }
+
+            val result = level.single()
+            return AiSummaryEngineOutput(
+                result = result,
+                structuredPayloadJson = SummaryResultCodec.encode(result),
+                usage = accumulator.toUsage(),
+                providerCallCount = providerCalls,
+                mapChunkCount = chunks.size,
+            )
+        } catch (cancelled: CancellationException) {
+            activeRequestId?.let(provider::cancel)
+            throw cancelled
+        }
+    }
+
+    private fun groupForReduction(
+        results: List<AiSummaryResult>,
+        targetTokens: Int,
+    ): List<List<AiSummaryResult>> {
+        if (results.size <= 1) return listOf(results)
+        val groups = mutableListOf<MutableList<AiSummaryResult>>()
+        var current = mutableListOf<AiSummaryResult>()
+        var currentTokens = 0
+        results.forEach { result ->
+            val tokens = estimator.estimate(SummaryResultCodec.encode(result))
+            if (current.isNotEmpty() && currentTokens + tokens > targetTokens) {
+                groups += current
+                current = mutableListOf()
+                currentTokens = 0
+            }
+            current += result
+            currentTokens += tokens
+        }
+        if (current.isNotEmpty()) groups += current
+
+        if (groups.size == results.size) {
+            return results.chunked(2)
+        }
+        return groups
+    }
+
+    private fun newRequestId(): String =
+        idFactory().also { require(it.isNotBlank()) }
+
+    private data class ParsedCall(
+        val result: AiSummaryResult,
+        val raw: String,
+    )
+
+    private class UsageAccumulator {
+        private var input: Long? = null
+        private var output: Long? = null
+        private var total: Long? = null
+        private var seen = false
+
+        fun add(usage: LlmUsage?) {
+            if (usage == null) return
+            seen = true
+            input = sumNullable(input, usage.inputTokens)
+            output = sumNullable(output, usage.outputTokens)
+            total = sumNullable(total, usage.totalTokens)
+        }
+
+        fun toUsage(): LlmUsage? =
+            if (seen) LlmUsage(input, output, total) else null
+
+        private fun sumNullable(
+            current: Long?,
+            next: Long?,
+        ): Long? =
+            when {
+                current == null && next == null -> null
+                else -> (current ?: 0L) + (next ?: 0L)
+            }
+    }
+}
