@@ -5,13 +5,13 @@ import io.github.ioannes78.voica.audio.PlaybackSnapshot
 import io.github.ioannes78.voica.audio.PlaybackState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class TranscriptPlaybackCoordinatorTest {
     @Test
-    fun differentRecordingLoadsThenSeeksThenPlays() = runTest {
+    fun differentRecordingLoadsThenSeeksThenPlays() = runBlocking {
         val controller = FakeController()
         val coordinator = TranscriptPlaybackCoordinator(controller)
 
@@ -24,7 +24,7 @@ class TranscriptPlaybackCoordinatorTest {
     }
 
     @Test
-    fun alreadyLoadedRecordingOnlySeeksThenPlays() = runTest {
+    fun alreadyLoadedRecordingOnlySeeksThenPlays() = runBlocking {
         val controller = FakeController("recording-a")
         val coordinator = TranscriptPlaybackCoordinator(controller)
 
