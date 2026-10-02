@@ -135,14 +135,21 @@ internal fun classifyHttpFailure(
     return ProviderFailure(
         code = code,
         sanitizedMessage =
-            buildString {
-                append("provider HTTP ")
-                append(response.statusCode)
-                safeCode?.take(80)?.let {
-                    append(" (")
-                    append(it)
-                    append(")")
-                }
+            when (code) {
+                ProviderErrorCode.RATE_LIMITED ->
+                    "Provider 请求被限流（HTTP 429）；请稍后重试，免费模型通常有更低的请求额度。"
+                ProviderErrorCode.QUOTA_EXCEEDED ->
+                    "Provider 配额或计费额度不足（HTTP 429）；请检查账户额度后重试。"
+                else ->
+                    buildString {
+                        append("provider HTTP ")
+                        append(response.statusCode)
+                        safeCode?.take(80)?.let {
+                            append(" (")
+                            append(it)
+                            append(")")
+                        }
+                    }
             },
         retryAfterMs = retryAfter,
         retryable =
