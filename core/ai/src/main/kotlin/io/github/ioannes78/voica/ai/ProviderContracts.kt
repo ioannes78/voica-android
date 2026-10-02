@@ -7,6 +7,12 @@ enum class ProviderAdapterKind {
     XAI_GROK,
 }
 
+enum class ProviderAuthKind {
+    BEARER_API_KEY,
+    GOOGLE_API_KEY_HEADER,
+    GOOGLE_VERTEX_OAUTH,
+}
+
 object ProviderPresetIds {
     const val OPENAI = "openai"
     const val GOOGLE_GEMINI = "google-gemini"
@@ -38,6 +44,7 @@ data class ProviderPresetDescriptor(
     val presetId: String,
     val displayName: String,
     val adapterKind: ProviderAdapterKind,
+    val authKind: ProviderAuthKind,
     val defaultBaseUrl: String?,
     val defaultCapabilities: ProviderCapabilities,
 )
@@ -45,22 +52,181 @@ data class ProviderPresetDescriptor(
 object ProviderPresetCatalog {
     val builtIn: List<ProviderPresetDescriptor> =
         listOf(
-            ProviderPresetDescriptor(ProviderPresetIds.OPENAI, "OpenAI", ProviderAdapterKind.OPENAI_COMPATIBLE, null, ProviderCapabilities(supportsModelDiscovery = true, supportsStreaming = true, supportsJsonObject = true, supportsJsonSchema = true, reportsUsage = true)),
-            ProviderPresetDescriptor(ProviderPresetIds.GOOGLE_GEMINI, "Google Gemini API / AI Studio", ProviderAdapterKind.GOOGLE_GEMINI, null, ProviderCapabilities(supportsModelDiscovery = true, supportsStreaming = true, supportsJsonObject = true, reportsUsage = true)),
-            ProviderPresetDescriptor(ProviderPresetIds.GOOGLE_VERTEX, "Google Vertex AI / Gemini", ProviderAdapterKind.GOOGLE_VERTEX, null, ProviderCapabilities(supportsModelDiscovery = true, supportsStreaming = true, supportsJsonObject = true, reportsUsage = true)),
-            ProviderPresetDescriptor(ProviderPresetIds.XAI_GROK, "xAI / Grok", ProviderAdapterKind.XAI_GROK, null, ProviderCapabilities(supportsModelDiscovery = true, supportsStreaming = true, supportsJsonObject = true, reportsUsage = true)),
-            ProviderPresetDescriptor(ProviderPresetIds.DEEPSEEK, "DeepSeek", ProviderAdapterKind.OPENAI_COMPATIBLE, null, ProviderCapabilities(supportsModelDiscovery = true, supportsStreaming = true, supportsJsonObject = true, reportsUsage = true)),
-            ProviderPresetDescriptor(ProviderPresetIds.ALIBABA_BAILIAN, "阿里云百炼", ProviderAdapterKind.OPENAI_COMPATIBLE, null, ProviderCapabilities(supportsStreaming = true, supportsJsonObject = true)),
-            ProviderPresetDescriptor(ProviderPresetIds.VOLCENGINE_DOUBAO, "火山引擎 / 豆包", ProviderAdapterKind.OPENAI_COMPATIBLE, null, ProviderCapabilities(supportsStreaming = true, supportsJsonObject = true)),
-            ProviderPresetDescriptor(ProviderPresetIds.SILICONFLOW, "硅基流动", ProviderAdapterKind.OPENAI_COMPATIBLE, null, ProviderCapabilities(supportsModelDiscovery = true, supportsStreaming = true, supportsJsonObject = true)),
-            ProviderPresetDescriptor(ProviderPresetIds.ZHIPU_GLM, "智谱 GLM", ProviderAdapterKind.OPENAI_COMPATIBLE, null, ProviderCapabilities(supportsStreaming = true, supportsJsonObject = true)),
-            ProviderPresetDescriptor(ProviderPresetIds.MOONSHOT_KIMI, "月之暗面 Kimi", ProviderAdapterKind.OPENAI_COMPATIBLE, null, ProviderCapabilities(supportsStreaming = true, supportsJsonObject = true)),
-            ProviderPresetDescriptor(ProviderPresetIds.OPENROUTER, "OpenRouter", ProviderAdapterKind.OPENAI_COMPATIBLE, null, ProviderCapabilities(supportsModelDiscovery = true, supportsStreaming = true, supportsJsonObject = true, reportsUsage = true)),
-            ProviderPresetDescriptor(ProviderPresetIds.CUSTOM_OPENAI_COMPATIBLE, "Custom OpenAI-compatible", ProviderAdapterKind.OPENAI_COMPATIBLE, null, ProviderCapabilities()),
+            preset(
+                ProviderPresetIds.OPENAI,
+                "OpenAI",
+                ProviderAdapterKind.OPENAI_COMPATIBLE,
+                ProviderAuthKind.BEARER_API_KEY,
+                "https://api.openai.com/v1",
+                discovery = true,
+                streaming = true,
+                jsonObject = true,
+                jsonSchema = true,
+                usage = true,
+            ),
+            preset(
+                ProviderPresetIds.GOOGLE_GEMINI,
+                "Google Gemini API / AI Studio",
+                ProviderAdapterKind.GOOGLE_GEMINI,
+                ProviderAuthKind.GOOGLE_API_KEY_HEADER,
+                "https://generativelanguage.googleapis.com/v1beta",
+                discovery = true,
+                streaming = true,
+                jsonObject = true,
+                jsonSchema = true,
+                usage = true,
+            ),
+            preset(
+                ProviderPresetIds.GOOGLE_VERTEX,
+                "Google Vertex AI / Gemini",
+                ProviderAdapterKind.GOOGLE_VERTEX,
+                ProviderAuthKind.GOOGLE_VERTEX_OAUTH,
+                null,
+                discovery = false,
+                streaming = true,
+                jsonObject = true,
+                jsonSchema = true,
+                usage = true,
+            ),
+            preset(
+                ProviderPresetIds.XAI_GROK,
+                "xAI / Grok",
+                ProviderAdapterKind.XAI_GROK,
+                ProviderAuthKind.BEARER_API_KEY,
+                "https://api.x.ai/v1",
+                discovery = true,
+                streaming = true,
+                jsonObject = true,
+                jsonSchema = true,
+                usage = true,
+            ),
+            preset(
+                ProviderPresetIds.DEEPSEEK,
+                "DeepSeek",
+                ProviderAdapterKind.OPENAI_COMPATIBLE,
+                ProviderAuthKind.BEARER_API_KEY,
+                "https://api.deepseek.com",
+                discovery = true,
+                streaming = true,
+                jsonObject = true,
+                jsonSchema = false,
+                usage = true,
+            ),
+            preset(
+                ProviderPresetIds.ALIBABA_BAILIAN,
+                "阿里云百炼",
+                ProviderAdapterKind.OPENAI_COMPATIBLE,
+                ProviderAuthKind.BEARER_API_KEY,
+                null,
+                discovery = false,
+                streaming = true,
+                jsonObject = true,
+                jsonSchema = false,
+                usage = true,
+            ),
+            preset(
+                ProviderPresetIds.VOLCENGINE_DOUBAO,
+                "火山引擎 / 豆包",
+                ProviderAdapterKind.OPENAI_COMPATIBLE,
+                ProviderAuthKind.BEARER_API_KEY,
+                "https://ark.cn-beijing.volces.com/api/v3",
+                discovery = false,
+                streaming = true,
+                jsonObject = true,
+                jsonSchema = false,
+                usage = true,
+            ),
+            preset(
+                ProviderPresetIds.SILICONFLOW,
+                "硅基流动",
+                ProviderAdapterKind.OPENAI_COMPATIBLE,
+                ProviderAuthKind.BEARER_API_KEY,
+                "https://api.siliconflow.cn/v1",
+                discovery = true,
+                streaming = true,
+                jsonObject = true,
+                jsonSchema = false,
+                usage = true,
+            ),
+            preset(
+                ProviderPresetIds.ZHIPU_GLM,
+                "智谱 GLM",
+                ProviderAdapterKind.OPENAI_COMPATIBLE,
+                ProviderAuthKind.BEARER_API_KEY,
+                "https://open.bigmodel.cn/api/paas/v4",
+                discovery = false,
+                streaming = true,
+                jsonObject = true,
+                jsonSchema = false,
+                usage = true,
+            ),
+            preset(
+                ProviderPresetIds.MOONSHOT_KIMI,
+                "月之暗面 Kimi",
+                ProviderAdapterKind.OPENAI_COMPATIBLE,
+                ProviderAuthKind.BEARER_API_KEY,
+                "https://api.moonshot.cn/v1",
+                discovery = true,
+                streaming = true,
+                jsonObject = true,
+                jsonSchema = false,
+                usage = true,
+            ),
+            preset(
+                ProviderPresetIds.OPENROUTER,
+                "OpenRouter",
+                ProviderAdapterKind.OPENAI_COMPATIBLE,
+                ProviderAuthKind.BEARER_API_KEY,
+                "https://openrouter.ai/api/v1",
+                discovery = true,
+                streaming = true,
+                jsonObject = true,
+                jsonSchema = false,
+                usage = true,
+            ),
+            preset(
+                ProviderPresetIds.CUSTOM_OPENAI_COMPATIBLE,
+                "Custom OpenAI-compatible",
+                ProviderAdapterKind.OPENAI_COMPATIBLE,
+                ProviderAuthKind.BEARER_API_KEY,
+                null,
+                discovery = true,
+                streaming = false,
+                jsonObject = false,
+                jsonSchema = false,
+                usage = false,
+            ),
         )
 
     fun find(presetId: String): ProviderPresetDescriptor? =
         builtIn.firstOrNull { it.presetId == presetId }
+
+    private fun preset(
+        id: String,
+        name: String,
+        adapter: ProviderAdapterKind,
+        auth: ProviderAuthKind,
+        baseUrl: String?,
+        discovery: Boolean,
+        streaming: Boolean,
+        jsonObject: Boolean,
+        jsonSchema: Boolean,
+        usage: Boolean,
+    ) = ProviderPresetDescriptor(
+        presetId = id,
+        displayName = name,
+        adapterKind = adapter,
+        authKind = auth,
+        defaultBaseUrl = baseUrl,
+        defaultCapabilities =
+            ProviderCapabilities(
+                supportsModelDiscovery = discovery,
+                supportsStreaming = streaming,
+                supportsJsonObject = jsonObject,
+                supportsJsonSchema = jsonSchema,
+                reportsUsage = usage,
+            ),
+    )
 }
 
 data class ProviderProfile(
@@ -74,6 +240,7 @@ data class ProviderProfile(
     val manualContextWindowTokens: Int?,
     val capabilityOverrides: ProviderCapabilities?,
     val enabled: Boolean,
+    val extraParameters: Map<String, String> = emptyMap(),
 )
 
 data class ProviderModel(

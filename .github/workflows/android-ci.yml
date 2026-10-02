@@ -70,6 +70,8 @@ jobs:
           :engine:playback:testDebugUnitTest
           :engine:playback:assembleDebug
           :engine:sherpa:testDebugUnitTest
+          :engine:llm:testDebugUnitTest
+          :engine:llm:assembleDebug
           :engine:sherpa:assembleDebug
           :app:testDebugUnitTest
           :app:assembleQa
