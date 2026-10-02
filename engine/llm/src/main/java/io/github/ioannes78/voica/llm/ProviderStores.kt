@@ -316,7 +316,12 @@ class AppPrivateProviderProfileStore(
             displayName = value.requiredString("displayName"),
             baseUrl = value.requiredString("baseUrl"),
             credentialRef = value.requiredString("credentialRef"),
-            defaultModel = value.requiredString("defaultModel"),
+            // A blank/missing model is a valid persisted state: users may save
+            // credentials first and discover/select a model afterwards.
+            // Treat older or partially-written Stage 11 profiles the same way
+            // so the settings screen can recover without clearing app data.
+            defaultModel =
+                value["defaultModel"]?.jsonPrimitive?.contentOrNull.orEmpty(),
             timeoutMs = value["timeoutMs"]?.jsonPrimitive?.longOrNull ?: 30_000L,
             manualContextWindowTokens =
                 value["manualContextWindowTokens"]?.jsonPrimitive?.intOrNull,

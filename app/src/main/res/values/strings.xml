@@ -8,7 +8,7 @@
     <string name="stage6_subtitle">本地录音库与 Opus/WAV 音频链路</string>
     <string name="stage7_subtitle">播放器与精确时间轴</string>
     <string name="stage8_subtitle">本地 ASR + VAD + 标点 + 说话人分离</string>\n    <string name="stage11_subtitle">AI 智能总结 + 文本大模型 Provider</string>
-    <string name="version_label">0.11.0 Stage 11 Alpha 1 QA</string>
+    <string name="version_label">0.11.1 Stage 11 QA Fix 1</string>
     <string name="tab_device">设备</string>
     <string name="tab_local_files">本地</string>
     <string name="tab_settings">设置</string>
