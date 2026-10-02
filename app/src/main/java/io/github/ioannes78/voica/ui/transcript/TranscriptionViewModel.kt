@@ -59,6 +59,26 @@ data class TranscriptVersionSummary(
     val latest: Boolean,
 )
 
+internal class AutoDiarizationRequestTracker {
+    private var requestedRecordingId: String? = null
+
+    fun markStarted(recordingId: String) {
+        requestedRecordingId = recordingId
+    }
+
+    fun consumeCompleted(recordingId: String): Boolean {
+        if (requestedRecordingId != recordingId) return false
+        requestedRecordingId = null
+        return true
+    }
+
+    fun clearTerminal(recordingId: String) {
+        if (requestedRecordingId == recordingId) {
+            requestedRecordingId = null
+        }
+    }
+}
+
 class TranscriptionViewModel(
     private val coordinator: TranscriptionCoordinator,
     private val repository: TranscriptionRepository,
@@ -79,25 +99,66 @@ class TranscriptionViewModel(
     private val mutableNotice = MutableStateFlow<String?>(null)
     val notice: StateFlow<String?> = mutableNotice.asStateFlow()
 
+    private val autoDiarizationRequests = AutoDiarizationRequestTracker()
+
     init {
         viewModelScope.launch {
             coordinator.state.collectLatest { state ->
-                if (state is TranscriptionRunState.Completed) {
-                    loadDocument(state.transcriptionId)
-                    if (mutableVersionsRecordingId.value == state.recordingId) {
-                        loadVersions(state.recordingId)
+                when (state) {
+                    is TranscriptionRunState.Completed -> {
+                        val autoStartDiarization =
+                            autoDiarizationRequests.consumeCompleted(state.recordingId)
+                        loadDocument(
+                            transcriptionId = state.transcriptionId,
+                            autoStartDiarization = autoStartDiarization,
+                        )
+                        if (mutableVersionsRecordingId.value == state.recordingId) {
+                            loadVersions(state.recordingId)
+                        }
                     }
+
+                    is TranscriptionRunState.Failed -> {
+                        autoDiarizationRequests.clearTerminal(state.recordingId)
+                    }
+
+                    is TranscriptionRunState.Cancelled -> {
+                        autoDiarizationRequests.clearTerminal(state.recordingId)
+                    }
+
+                    TranscriptionRunState.Idle,
+                    is TranscriptionRunState.Running,
+                    -> Unit
                 }
             }
         }
         viewModelScope.launch {
             diarizationCoordinator.state.collectLatest { state ->
-                if (state is DiarizationRunState.Completed &&
-                    mutableDocument.value?.recordingId == state.recordingId
-                ) {
-                    mutableDocument.value?.transcriptionId?.let { transcriptionId ->
-                        loadDocument(transcriptionId)
+                when (state) {
+                    is DiarizationRunState.Completed -> {
+                        if (mutableDocument.value?.recordingId == state.recordingId) {
+                            mutableDocument.value?.transcriptionId?.let { transcriptionId ->
+                                loadDocument(transcriptionId)
+                            }
+                        }
                     }
+
+                    is DiarizationRunState.Failed -> {
+                        if (mutableDocument.value?.recordingId == state.recordingId) {
+                            mutableNotice.value =
+                                "转写已完成；自动说话人分离失败，可在说话人分离卡片中重试"
+                        }
+                    }
+
+                    is DiarizationRunState.Cancelled -> {
+                        if (mutableDocument.value?.recordingId == state.recordingId) {
+                            mutableNotice.value =
+                                "转写已完成；自动说话人分离已取消，可单独重新执行"
+                        }
+                    }
+
+                    DiarizationRunState.Idle,
+                    is DiarizationRunState.Running,
+                    -> Unit
                 }
             }
         }
@@ -180,7 +241,10 @@ class TranscriptionViewModel(
         mutableNotice.value = null
     }
 
-    private suspend fun loadDocument(transcriptionId: String) {
+    private suspend fun loadDocument(
+        transcriptionId: String,
+        autoStartDiarization: Boolean = false,
+    ) {
         val transcription = repository.find(transcriptionId)
         if (transcription == null ||
             transcription.state != TranscriptionStateValue.COMPLETED
@@ -220,7 +284,18 @@ class TranscriptionViewModel(
 
         if (compatibleRun == null) {
             mutableDocument.value = baseDocument
-            mutableNotice.value = null
+            if (autoStartDiarization) {
+                val started =
+                    diarizationCoordinator.start(transcription.recordingId)
+                mutableNotice.value =
+                    if (started) {
+                        "转写已完成，正在自动进行说话人分离…"
+                    } else {
+                        "转写已完成；当前已有说话人分离或对齐任务，请稍后单独重试"
+                    }
+            } else {
+                mutableNotice.value = null
+            }
             return
         }
 
@@ -338,7 +413,9 @@ class TranscriptionViewModel(
     ) {
         mutableNotice.value = null
         mutableDocument.value = null
-        if (!coordinator.start(recordingId, mode)) {
+        if (coordinator.start(recordingId, mode)) {
+            autoDiarizationRequests.markStarted(recordingId)
+        } else {
             mutableNotice.value = "已有转写任务正在运行，请先完成或取消当前任务"
         }
     }
