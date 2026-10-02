@@ -210,6 +210,63 @@ class ProviderAdaptersTest {
         }
 
     @Test
+    fun volcengineReasoningOnlyResponseRetriesOnceWithThinkingDisabled() =
+        runTest {
+            val transport =
+                FakeTransport(
+                    ArrayDeque(
+                        listOf(
+                            LlmHttpResponse(
+                                200,
+                                """{"choices":[{"message":{"content":"","reasoning_content":"long reasoning"},"finish_reason":"length"}]}""",
+                                emptyMap(),
+                            ),
+                            LlmHttpResponse(
+                                200,
+                                """{"choices":[{"message":{"content":"{\"schemaVersion\":1}"},"finish_reason":"stop"}]}""",
+                                emptyMap(),
+                            ),
+                        ),
+                    ),
+                )
+            val provider =
+                OpenAiCompatibleTextLlmProvider(
+                    transport,
+                    FakeCredentials("secret"),
+                )
+            val volcengineProfile =
+                profile(
+                    presetId = ProviderPresetIds.VOLCENGINE_DOUBAO,
+                    baseUrl = "https://ark.cn-beijing.volces.com/api/v3",
+                )
+
+            val result =
+                provider.generate(
+                    volcengineProfile,
+                    LlmGenerationRequest(
+                        requestId = "volcengine-reasoning-retry",
+                        model = "deepseek-v4-1-flash-260910",
+                        systemInstruction = "Summarize.",
+                        taskInstruction = "Return JSON.",
+                        transcriptPayload = "synthetic",
+                        structuredOutputSchema = """{"type":"object"}""",
+                        maxOutputTokens = 256,
+                    ),
+                ).getOrThrow()
+
+            assertEquals("""{"schemaVersion":1}""", result.content)
+            assertEquals(2, transport.requests.size)
+            assertFalse(
+                transport.requests[0].second.body.orEmpty()
+                    .contains("\"thinking\""),
+            )
+            assertTrue(
+                transport.requests[1].second.body.orEmpty()
+                    .contains("\"thinking\":{\"type\":\"disabled\"}"),
+            )
+        }
+
+    @Test
     fun openAiStructuredRequestKeepsCredentialOutOfBodyAndWrapsTranscriptAsData() =
         runTest {
             val transport =
