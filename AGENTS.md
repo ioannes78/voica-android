@@ -4,15 +4,15 @@
 
 当前 `ioannes78/voica-android` 仓库是 Voica 项目实现状态的唯一事实来源。
 
-当前已冻结基线：**Stage 9**
+当前已冻结基线：**Stage 10**
 
-Stage 9 Freeze/Handoff：
+Stage 10 Freeze/Handoff：
 
-- `docs/STAGE_9_FREEZE.md`
-- `docs/STAGE_9_HANDOFF.md`
-- `docs/STAGE_9_TEST.md`
+- `docs/STAGE_10_FREEZE.md`
+- `docs/STAGE_10_HANDOFF.md`
+- `docs/STAGE_10_TEST.md`
 
-下一阶段：**Stage 10 — 转写时间轴 + 播放同步**
+下一阶段：**Stage 11 — AI 智能总结 / 内容理解**
 
 协议与行为参考：
 
@@ -83,8 +83,8 @@ Stage 9 Freeze/Handoff：
 - Compose BOM：2026.09.00
 - Application ID：`io.github.ioannes78.voica`
 - QA Application ID：`io.github.ioannes78.voica.qa`
-- versionCode：25
-- versionName：`0.9.0-stage9-alpha2`
+- versionCode：26
+- versionName：`0.10.0-stage10-alpha1`
 - sherpa-onnx：1.13.8
 - Room schema：3
 - ABI：arm64-v8a
@@ -301,6 +301,35 @@ app
 - 每次 diarization 重跑创建新的 run，不覆盖旧 run；Speaker 1/2/… 按本 run 首次全局出现顺序编号，局部重命名不跨 run 传播。
 - active diarization/alignment 在进程启动 reconciliation 时转 INTERRUPTED；取消/失败不得留下假 COMPLETED。
 - Stage 9 真机功能验收已通过；真实 30min/1h/2h 长录音、定量 RTF/PSS/thermal soak 仍属于 Stage 13 测试债务，不得写成 Stage 9 已完成。
+
+
+## 九-E、Stage 10 已冻结转写时间轴与播放同步事实
+
+后续 Stage 不得无新证据改变：
+
+- 唯一同步时间真值继续是 16 kHz canonical PCM 的 absolute sample index；不得改用 wall-clock/ms 作为主时间轴。
+- Timeline row：存在 completed speaker alignment 时使用 `TranscriptSpeakerSpan`；否则使用 `TranscriptSegment`。
+- 播放映射边界固定为半开区间 `[start, end)`；静音/gap 不伪造当前 speaker/token。
+- FAST 使用 Small Bilingual Zipformer FIRST_PASS token timestamps；HQ 优先 timed SECOND_PASS，缺失时 fallback timed FIRST_PASS。
+- “当前词”实际是 ASR token，不保证等同自然语言分词；不得为中文强行制造无依据词边界。
+- punctuation 不拥有独立时间戳；标点字符随 finalText projection 归附邻近 timed token 显示。
+- Stage 9 token → finalText projection 已抽为共享纯逻辑；只有 `EXACT` projection 默认允许深色 token 高亮。
+- `HEURISTIC` / `UNAVAILABLE` projection 只保留 row/span 浅色高亮，宁可少高亮也不得伪造精确定位。
+- token 缺显式 end 时，以后续 timed token start 或 owner row end 推导，并 clamp 到 owner range。
+- 点击 row/span/segment → owner start sample；点击可靠 timed token → token start sample；最终统一走 `PlaybackController.seekToSample()`。
+- 点击转写文字的产品行为为 seek + play；若目标 recording 尚未加载，则先 load，再 seek，再 play。
+- rapid transcript click 使用 latest-wins；Stage 7 seekGeneration/discontinuityGeneration 继续作为 seek/discontinuity 事实。
+- playback sync 必须验证 recording、canonical lineage/source asset 与 total sample count；旧 canonical asset 不得继续同步。
+- FAST/HQ/同模式历史版本严格按 `transcriptionId` 绑定；切换版本保留当前 playback sample，不自动重播。
+- speaker rename 只刷新当前 run-local 显示，不重新 diarization，不改变 playback sample。
+- `ASSIGNED_WITH_OVERLAP`、`OVERLAP_AMBIGUOUS`、`UNRESOLVED` 必须保留显式语义，不强制伪造 speaker。
+- 自动滚动只在 active row 变化时触发，不在每个约 50 ms token tick 触发。
+- 用户手动滚动后进入 `USER_SUSPENDED`；高亮继续更新，但 viewport 不被播放强制抢回；点击“跟随播放”才恢复。
+- Timeline 内容按版本一次性构建；播放高频 tick 只更新 active row/cue/follow state，不执行 Room IO、全文重建或 O(N) 扫描。
+- 顺序播放使用前向 cursor；随机/反向 seek 使用二分定位。
+- Room schema 保持 v3；Stage 10 仅增加按 transcriptionId 批量读取 token，不引入 migration。
+- Stage 10 已通过 30/60/120 分钟 virtual timeline 自动化；这不等于真实 30min/1h/2h 真机 soak，后者继续属于 Stage 13。
+- Stage 10 真机功能验收已通过；不得把本次验收扩张为未执行的长录音 PSS/CPU/thermal 定量结论。
 
 ## 十、架构规则
 
