@@ -46,8 +46,8 @@ fun ProviderSettingsCard(
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text("文本大模型 Provider", style = MaterialTheme.typography.titleLarge)
             Text(
@@ -73,7 +73,7 @@ fun ProviderSettingsCard(
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 OutlinedButton(onClick = viewModel::newProfile) {
                     Text("新增 Provider")
                 }
@@ -223,7 +223,7 @@ fun ProviderSettingsCard(
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Button(
                     onClick = viewModel::save,
                     enabled = !state.busy && !state.stage11Unsupported,
@@ -290,7 +290,7 @@ private fun ModelPickerDialog(
         title = { Text("选择文本模型") },
         text = {
             Column(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 OutlinedTextField(
                     value = query,
