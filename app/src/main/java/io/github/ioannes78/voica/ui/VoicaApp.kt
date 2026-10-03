@@ -224,7 +224,7 @@ fun VoicaApp(
             )
         },
         bottomBar = {
-            NavigationBar {
+            NavigationBar(modifier = Modifier.height(64.dp)) {
                 NavigationBarItem(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
@@ -311,7 +311,7 @@ private fun DeviceScreen(
         item {
             Text(
                 stringResource(R.string.device_screen_title),
-                style = MaterialTheme.typography.headlineLarge,
+                style = MaterialTheme.typography.headlineMedium,
             )
             Text(
                 stringResource(R.string.device_screen_subtitle),
