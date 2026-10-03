@@ -259,11 +259,13 @@ fun VoicaApp(
             aiSummaryCoordinator,
             aiSummaryRepository,
             providerProfileStore,
+            providerAdapterRegistry,
         ) {
             AiSummaryViewModel.Factory(
                 coordinator = aiSummaryCoordinator,
                 repository = aiSummaryRepository,
                 profileStore = providerProfileStore,
+                providerRegistry = providerAdapterRegistry,
             )
         },
     )
