@@ -1,6 +1,7 @@
 package io.github.ioannes78.voica.ui.model
 
 import android.app.Application
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,6 +15,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -50,6 +52,8 @@ fun ModelManagerCard(
     var models by remember { mutableStateOf<List<ModelAvailability>>(emptyList()) }
     var checking by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
+    var updateSettingsExpanded by remember { mutableStateOf(false) }
+    var debugExpanded by remember { mutableStateOf(false) }
     var debugManifestUrl by remember {
         mutableStateOf(
             VoicaModelChannel.configuredDebugManifestUrl(application).orEmpty(),
@@ -82,7 +86,25 @@ fun ModelManagerCard(
                 style = MaterialTheme.typography.bodySmall,
             )
 
-            if (debugChannelEnabled) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                TextButton(
+                    onClick = { updateSettingsExpanded = !updateSettingsExpanded },
+                ) {
+                    Text(if (updateSettingsExpanded) "收起更新设置" else "更新设置")
+                }
+                if (debugChannelEnabled) {
+                    TextButton(
+                        onClick = { debugExpanded = !debugExpanded },
+                    ) {
+                        Text(if (debugExpanded) "收起开发选项" else "开发选项")
+                    }
+                }
+            }
+
+            if (debugChannelEnabled && debugExpanded) {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
@@ -149,12 +171,13 @@ fun ModelManagerCard(
                 }
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("自动检查模型更新")
+            if (updateSettingsExpanded) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("自动检查模型更新")
                     Text(
                         "默认开启；仅检查 production 清单。",
                         style = MaterialTheme.typography.bodySmall,
@@ -177,12 +200,13 @@ fun ModelManagerCard(
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
-                Switch(
-                    checked =
-                        updateSettings.automaticSmallModelUpdatesEnabled,
-                    onCheckedChange =
-                        modelUpdateController::setAutomaticSmallModelUpdatesEnabled,
-                )
+                    Switch(
+                        checked =
+                            updateSettings.automaticSmallModelUpdatesEnabled,
+                        onCheckedChange =
+                            modelUpdateController::setAutomaticSmallModelUpdatesEnabled,
+                    )
+                }
             }
             Button(
                 enabled = !checking && !updateState.checking,
@@ -372,14 +396,45 @@ private fun ModelAvailabilityRow(
                 )
     val retainedDownloadedBytes = operation?.downloadedBytes
     val retainedTotalBytes = operation?.totalBytes
+    var expanded by remember(descriptor.modelId) { mutableStateOf(false) }
 
     Column(
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { expanded = !expanded }
+            .padding(vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(
-            descriptor.displayName,
-            style = MaterialTheme.typography.titleSmall,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    descriptor.displayName,
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
+                    (availability.activeVersion ?: "未启用") +
+                        " · " + modelStateText(availability.state),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text(
+                if (expanded) "收起" else "详情",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+
+        if (!expanded &&
+            operation?.state != ModelState.DOWNLOADING &&
+            operation?.state != ModelState.VERIFYING
+        ) {
+            return@Column
+        }
+
         Text(
             buildString {
                 append("可用版本 ")
@@ -387,10 +442,6 @@ private fun ModelAvailabilityRow(
                 append(" · 当前 ")
                 append(availability.activeVersion ?: "未启用")
             },
-            style = MaterialTheme.typography.bodySmall,
-        )
-        Text(
-            modelStateText(availability.state),
             style = MaterialTheme.typography.bodySmall,
         )
 
