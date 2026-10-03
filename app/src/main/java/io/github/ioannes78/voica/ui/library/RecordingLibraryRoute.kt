@@ -1,5 +1,7 @@
 package io.github.ioannes78.voica.ui.library
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,6 +23,10 @@ fun RecordingLibraryRoute(
 ) {
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val importLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            uri?.let(viewModel::importAudio)
+        }
 
     LaunchedEffect(state.operationMessage) {
         val message = state.operationMessage ?: return@LaunchedEffect
@@ -32,6 +38,18 @@ fun RecordingLibraryRoute(
         RecordingLibraryScreen(
             padding = padding,
             state = state,
+            onImportAudio = {
+                importLauncher.launch(
+                    arrayOf(
+                        "audio/*",
+                        "application/ogg",
+                        "application/octet-stream",
+                    ),
+                )
+            },
+            onCancelImport = viewModel::cancelImport,
+            onConfirmDuplicateImport = viewModel::confirmDuplicateImport,
+            onDismissDuplicateImport = viewModel::dismissDuplicateImport,
             onQueryChange = viewModel::setQuery,
             onSortChange = viewModel::setSort,
             onFavoriteFilterChange = viewModel::setFavoriteOnly,
