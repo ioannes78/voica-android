@@ -245,7 +245,9 @@ fun RecordingDetailScreen(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    recording.deviceReportedDurationMs?.let(::formatDurationMs) ?: "--",
+                    (recording.mediaDurationMs ?: recording.deviceReportedDurationMs)
+                    ?.let(::formatDurationMs)
+                    ?: "--",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -748,14 +750,18 @@ private fun RecordingInformationCard(
             )
             InfoLine(
                 stringResource(R.string.local_file_downloaded_at),
-                Instant.ofEpochMilli(recording.downloadedAtMs)
-                    .atZone(ZoneId.systemDefault())
-                    .toLocalDateTime()
-                    .format(DISPLAY_TIME),
+                recording.downloadedAtMs
+                    ?.let { value ->
+                        Instant.ofEpochMilli(value)
+                            .atZone(ZoneId.systemDefault())
+                            .toLocalDateTime()
+                            .format(DISPLAY_TIME)
+                    }
+                    ?: "--",
             )
             InfoLine(
                 stringResource(R.string.detail_source_device),
-                recording.sourceDeviceAddress.ifBlank { "--" },
+                recording.sourceDeviceAddress?.takeIf { it.isNotBlank() } ?: "--",
             )
             recording.assets.forEach { asset ->
                 InfoLine(
