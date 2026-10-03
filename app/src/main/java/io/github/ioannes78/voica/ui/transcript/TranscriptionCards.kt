@@ -222,6 +222,7 @@ fun TranscriptDocumentHeader(
     var renameValue by remember(document.alignmentId) {
         mutableStateOf("")
     }
+    val modeText = modeLabel(document.mode)
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -229,7 +230,7 @@ fun TranscriptDocumentHeader(
     ) {
         Text(
             buildString {
-                append(modeLabel(document.mode))
+                append(modeText)
                 append(" · ")
                 append(document.segments.size)
                 append(" 段")
