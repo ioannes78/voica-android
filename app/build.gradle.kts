@@ -14,8 +14,8 @@ android {
         applicationId = "io.github.ioannes78.voica"
         minSdk = 26
         targetSdk = 37
-        versionCode = 33
-        versionName = "0.12.0-stage12a-dev1"
+        versionCode = 34
+        versionName = "0.12.0-stage12a-polish1"
         ndk {
             abiFilters += "arm64-v8a"
         }
