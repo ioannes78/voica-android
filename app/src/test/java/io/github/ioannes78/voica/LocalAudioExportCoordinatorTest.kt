@@ -72,6 +72,14 @@ class LocalAudioExportCoordinatorTest {
                         applicationScope = scope,
                     ),
                 nowMs = { 10_000L },
+                shareUriFactory = { providerContext, file ->
+                    Uri.parse(
+                        "content://" +
+                            providerContext.packageName +
+                            ".fileprovider/shared_audio/" +
+                            Uri.encode(file.name),
+                    )
+                },
             )
     }
 
