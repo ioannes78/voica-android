@@ -2,13 +2,19 @@ package io.github.ioannes78.voica.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -26,9 +32,10 @@ import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.model.DownloadedModelVersionInfo
 
 @Composable
-fun StorageManagementContent(
+fun StorageManagementScreen(
+    padding: PaddingValues,
     viewModel: StorageManagementViewModel,
-    scope: LazyListScope,
+    onBack: () -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
     var confirmCanonical by remember { mutableStateOf(false) }
@@ -38,146 +45,171 @@ fun StorageManagementContent(
         viewModel.refresh()
     }
 
-    scope.item {
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
+    LazyColumn(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(padding),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        item {
+            androidx.compose.foundation.layout.Row {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        Icons.AutoMirrored.Outlined.ArrowBack,
+                        contentDescription = "返回",
+                    )
+                }
                 Text(
-                    "Voica 托管空间",
-                    style = MaterialTheme.typography.titleMedium,
+                    "存储空间",
+                    style = MaterialTheme.typography.headlineSmall,
+                    modifier = Modifier.padding(top = 10.dp),
                 )
-                val snapshot = state.snapshot
-                if (snapshot == null) {
+            }
+        }
+
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     Text(
-                        if (state.loading) "正在统计…" else "暂无存储统计",
+                        "Voica 托管空间",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    val snapshot = state.snapshot
+                    if (snapshot == null) {
+                        Text(
+                            if (state.loading) "正在统计…" else "暂无存储统计",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        Text(
+                            "合计 " + formatStorageBytes(snapshot.totalManagedBytes),
+                            style = MaterialTheme.typography.headlineSmall,
+                        )
+                        StorageMetricRow("原始录音", snapshot.originalAudioBytes)
+                        StorageMetricRow(
+                            "标准化音频",
+                            snapshot.canonicalAudioBytes,
+                            if (snapshot.reclaimableCanonicalBytes > 0L) {
+                                "可安全回收 " +
+                                    formatStorageBytes(snapshot.reclaimableCanonicalBytes)
+                            } else {
+                                "当前没有可安全回收项"
+                            },
+                        )
+                        StorageMetricRow("已下载模型", snapshot.downloadedModelsBytes)
+                        StorageMetricRow(
+                            "数据库及文本数据",
+                            snapshot.databaseBytes,
+                            "包含数据库、WAL 与 SHM 实际文件",
+                        )
+                        StorageMetricRow("临时文件", snapshot.temporaryBytes)
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text("安全清理", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "只清理 Voica 托管的过期临时文件、导入暂存、分享缓存、Canonical .part 和模型 staging/package .part。",
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                } else {
+                    Button(
+                        enabled = !state.operationRunning,
+                        onClick = viewModel::cleanupTemporaryFiles,
+                    ) {
+                        Text("清理临时文件")
+                    }
+
+                    HorizontalDivider()
+
+                    Text("标准化音频", style = MaterialTheme.typography.titleSmall)
                     Text(
-                        "合计 " + formatStorageBytes(snapshot.totalManagedBytes),
-                        style = MaterialTheme.typography.headlineSmall,
+                        "只会删除无转写/说话人依赖、源文件仍完整且可重新生成的 Canonical WAV；原始录音不会删除。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    StorageMetricRow("原始录音", snapshot.originalAudioBytes)
-                    StorageMetricRow(
-                        "标准化音频",
-                        snapshot.canonicalAudioBytes,
-                        if (snapshot.reclaimableCanonicalBytes > 0L) {
-                            "可安全回收 " +
-                                formatStorageBytes(snapshot.reclaimableCanonicalBytes)
-                        } else {
-                            "当前没有可安全回收项"
-                        },
-                    )
-                    StorageMetricRow("已下载模型", snapshot.downloadedModelsBytes)
-                    StorageMetricRow(
-                        "数据库及文本数据",
-                        snapshot.databaseBytes,
-                        "包含数据库、WAL 与 SHM 实际文件",
-                    )
-                    StorageMetricRow("临时文件", snapshot.temporaryBytes)
+                    OutlinedButton(
+                        enabled =
+                            !state.operationRunning &&
+                                (state.snapshot?.reclaimableCanonicalBytes ?: 0L) > 0L,
+                        onClick = { confirmCanonical = true },
+                    ) {
+                        Text(
+                            "清理可重新生成的音频" +
+                                state.snapshot?.reclaimableCanonicalBytes
+                                    ?.takeIf { it > 0L }
+                                    ?.let { " · " + formatStorageBytes(it) }
+                                    .orEmpty(),
+                        )
+                    }
                 }
             }
         }
-    }
 
-    scope.item {
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text("安全清理", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "只清理 Voica 托管的过期临时文件、导入暂存、分享缓存、Canonical .part 和模型 staging/package .part。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Button(
-                    enabled = !state.operationRunning,
-                    onClick = viewModel::cleanupTemporaryFiles,
-                ) {
-                    Text("清理临时文件")
-                }
-
-                HorizontalDivider()
-
-                Text("标准化音频", style = MaterialTheme.typography.titleSmall)
-                Text(
-                    "只会删除无转写/说话人依赖、源文件仍完整且可重新生成的 Canonical WAV；原始录音不会删除。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                OutlinedButton(
-                    enabled =
-                        !state.operationRunning &&
-                            (state.snapshot?.reclaimableCanonicalBytes ?: 0L) > 0L,
-                    onClick = { confirmCanonical = true },
-                ) {
-                    Text(
-                        "清理可重新生成的音频" +
-                            state.snapshot?.reclaimableCanonicalBytes
-                                ?.takeIf { it > 0L }
-                                ?.let { " · " + formatStorageBytes(it) }
-                                .orEmpty(),
-                    )
-                }
-            }
-        }
-    }
-
-    scope.item {
-        Text(
-            "已下载模型",
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(top = 4.dp),
-        )
-    }
-
-    val models = state.snapshot?.downloadedModels.orEmpty()
-    if (models.isEmpty()) {
-        scope.item {
+        item {
             Text(
-                "没有可管理的下载模型。APK 内置模型不计入可删除文件。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 4.dp),
+                "已下载模型",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(top = 4.dp),
             )
         }
-    } else {
-        models.forEach { model ->
-            scope.item(
-                key =
-                    "storage-model-" + model.modelId + "-" +
-                        model.revision + "-" + model.version,
-            ) {
-                DownloadedModelStorageRow(
-                    model = model,
-                    operationRunning = state.operationRunning,
-                    onDelete = { confirmModel = model },
+
+        val models = state.snapshot?.downloadedModels.orEmpty()
+        if (models.isEmpty()) {
+            item {
+                Text(
+                    "没有可管理的下载模型。APK 内置模型不计入可删除文件。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                )
+            }
+        } else {
+            models.forEach { model ->
+                item(
+                    key =
+                        "storage-model-" + model.modelId + "-" +
+                            model.revision + "-" + model.version,
+                ) {
+                    DownloadedModelStorageRow(
+                        model = model,
+                        operationRunning = state.operationRunning,
+                        onDelete = { confirmModel = model },
+                    )
+                }
+            }
+        }
+
+        state.message?.let { message ->
+            item {
+                Text(
+                    message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 4.dp),
                 )
             }
         }
-    }
 
-    state.message?.let { message ->
-        scope.item {
-            Text(
-                message,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(horizontal = 4.dp),
-            )
-        }
-    }
-
-    scope.item {
-        OutlinedButton(
-            enabled = !state.loading && !state.operationRunning,
-            onClick = viewModel::refresh,
-        ) {
-            Text("重新统计")
+        item {
+            OutlinedButton(
+                enabled = !state.loading && !state.operationRunning,
+                onClick = viewModel::refresh,
+            ) {
+                Text("重新统计")
+            }
         }
     }
 
@@ -281,29 +313,27 @@ private fun DownloadedModelStorageRow(
             else -> null
         }
     Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(vertical = 4.dp)) {
-            ListItem(
-                headlineContent = {
-                    Text(model.displayName)
-                },
-                supportingContent = {
-                    Text(
-                        model.version + " · rev " + model.revision +
-                            " · " + formatStorageBytes(model.sizeBytes) +
-                            (protection?.let { " · " + it } ?: ""),
-                    )
-                },
-                trailingContent = {
-                    if (protection == null) {
-                        TextButton(
-                            enabled = !operationRunning,
-                            onClick = onDelete,
-                        ) {
-                            Text("删除")
-                        }
+        ListItem(
+            headlineContent = {
+                Text(model.displayName)
+            },
+            supportingContent = {
+                Text(
+                    model.version + " · rev " + model.revision +
+                        " · " + formatStorageBytes(model.sizeBytes) +
+                        (protection?.let { " · " + it } ?: ""),
+                )
+            },
+            trailingContent = {
+                if (protection == null) {
+                    TextButton(
+                        enabled = !operationRunning,
+                        onClick = onDelete,
+                    ) {
+                        Text("删除")
                     }
-                },
-            )
-        }
+                }
+            },
+        )
     }
 }
