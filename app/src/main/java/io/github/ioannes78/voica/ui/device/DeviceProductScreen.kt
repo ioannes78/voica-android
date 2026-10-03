@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -26,13 +27,17 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -73,6 +78,8 @@ fun DeviceProductScreen(
     val rangeProbeDiagnostics by viewModel.rangeProbeDiagnostics.collectAsState()
     val missingPermissions by viewModel.missingPermissions.collectAsState()
     val actionMessage by viewModel.actionMessage.collectAsState()
+    val batchDeleteState by viewModel.remoteDeleteBatchState.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     var page by rememberSaveable { mutableStateOf(DevicePage.HOME) }
 
@@ -84,6 +91,18 @@ fun DeviceProductScreen(
         if (connection is DeviceConnectionState.PermissionRequired) {
             viewModel.refreshPermissions()
         }
+    }
+
+    LaunchedEffect(actionMessage) {
+        val message = actionMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(
+            if (message == DeviceActionMessage.SYNC_SENT) {
+                "设备时间同步成功"
+            } else {
+                "设备时间同步失败"
+            },
+        )
+        viewModel.consumeActionMessage()
     }
 
     val permissionLauncher =
@@ -102,6 +121,7 @@ fun DeviceProductScreen(
     val otherDevices =
         scan.devices.filterNot { it.advertisesAe20 || it.likelyQs668 }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     when (page) {
         DevicePage.HOME -> {
             LazyColumn(
@@ -189,20 +209,6 @@ fun DeviceProductScreen(
                     }
                 }
 
-                actionMessage?.let { message ->
-                    item {
-                        Text(
-                            stringResource(
-                                if (message == DeviceActionMessage.SYNC_SENT) {
-                                    R.string.sync_sent
-                                } else {
-                                    R.string.sync_failed
-                                },
-                            ),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
                 }
             }
         }
@@ -219,6 +225,7 @@ fun DeviceProductScreen(
                 padding = padding,
                 state = deviceFiles,
                 operationState = operation,
+                batchDeleteState = batchDeleteState,
                 localRecordings = libraryRecordings,
                 canRefresh = canRefresh,
                 onBack = { page = DevicePage.HOME },
@@ -226,6 +233,8 @@ fun DeviceProductScreen(
                 onDownload = viewModel::downloadDeviceFile,
                 onCancelDownload = viewModel::cancelDeviceFileDownload,
                 onDeleteRemote = viewModel::deleteRemoteRecording,
+                onDeleteSelected = viewModel::deleteRemoteRecordings,
+                onDismissBatchResult = viewModel::dismissRemoteDeleteBatchResult,
                 onRangeProbe = viewModel::runRangeProbe,
             )
         }
@@ -291,7 +300,12 @@ fun DeviceProductScreen(
                 rangeProbe = rangeProbeDiagnostics,
                 onBack = { page = DevicePage.HOME },
             )
-        }}
+        }
+    }
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
     }
 }
 
