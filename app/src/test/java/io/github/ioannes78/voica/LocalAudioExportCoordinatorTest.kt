@@ -182,8 +182,11 @@ class LocalAudioExportCoordinatorTest {
         val ready = outcome as LocalAudioShareOutcome.Ready
         assertEquals(Intent.ACTION_CHOOSER, ready.intent.action)
 
-        @Suppress("DEPRECATION")
-        val send = ready.intent.getParcelableExtra(Intent.EXTRA_INTENT) as Intent?
+        val send =
+            ready.intent.getParcelableExtra(
+                Intent.EXTRA_INTENT,
+                Intent::class.java,
+            )
         requireNotNull(send)
         assertEquals(Intent.ACTION_SEND, send.action)
         assertEquals("audio/wav", send.type)
@@ -191,8 +194,11 @@ class LocalAudioExportCoordinatorTest {
             send.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0,
         )
 
-        @Suppress("DEPRECATION")
-        val stream = send.getParcelableExtra(Intent.EXTRA_STREAM) as Uri?
+        val stream =
+            send.getParcelableExtra(
+                Intent.EXTRA_STREAM,
+                Uri::class.java,
+            )
         requireNotNull(stream)
         assertEquals("content", stream.scheme)
         assertEquals(context.packageName + ".fileprovider", stream.authority)
