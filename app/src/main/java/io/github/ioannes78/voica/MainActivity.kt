@@ -37,6 +37,8 @@ class MainActivity : ComponentActivity() {
                         appContainer.localRecordingDeleteCoordinator,
                     localAudioExportCoordinator =
                         appContainer.localAudioExportCoordinator,
+                    storageManagementCoordinator =
+                        appContainer.storageManagementCoordinator,
                     playbackController = appContainer.playbackController,
                     modelManager = appContainer.modelManager,
                     modelUpdateController = appContainer.modelUpdateController,
