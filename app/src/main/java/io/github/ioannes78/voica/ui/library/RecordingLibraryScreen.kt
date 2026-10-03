@@ -3,18 +3,22 @@ package io.github.ioannes78.voica.ui.library
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Search
@@ -80,6 +84,10 @@ fun RecordingLibraryScreen(
     onRemoveTagFromSelected: (String) -> Unit,
     onCreateFolder: (String) -> Unit,
     onCreateTag: (String) -> Unit,
+    onRenameFolder: (String, String) -> Unit,
+    onDeleteFolder: (String) -> Unit,
+    onRenameTag: (String, String) -> Unit,
+    onDeleteTag: (String) -> Unit,
 ) {
     var sortMenuExpanded by rememberSaveable { mutableStateOf(false) }
     var folderMenuExpanded by rememberSaveable { mutableStateOf(false) }
@@ -88,6 +96,11 @@ fun RecordingLibraryScreen(
     var batchTagExpanded by rememberSaveable { mutableStateOf(false) }
     var createFolderDialog by rememberSaveable { mutableStateOf(false) }
     var createTagDialog by rememberSaveable { mutableStateOf(false) }
+    var manageMetadataDialog by rememberSaveable { mutableStateOf(false) }
+    var editingFolder by remember { mutableStateOf<FolderEntity?>(null) }
+    var deletingFolder by remember { mutableStateOf<FolderEntity?>(null) }
+    var editingTag by remember { mutableStateOf<TagEntity?>(null) }
+    var deletingTag by remember { mutableStateOf<TagEntity?>(null) }
 
     LazyColumn(
         modifier = Modifier
@@ -211,6 +224,14 @@ fun RecordingLibraryScreen(
                                     },
                                 )
                             }
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text("管理文件夹和标签…") },
+                                onClick = {
+                                    sortMenuExpanded = false
+                                    manageMetadataDialog = true
+                                },
+                            )
                         }
                     }
                 }
@@ -439,6 +460,219 @@ fun RecordingLibraryScreen(
             },
         )
     }
+
+    if (manageMetadataDialog) {
+        LibraryMetadataManagementDialog(
+            folders = state.folders,
+            tags = state.tags,
+            onDismiss = { manageMetadataDialog = false },
+            onEditFolder = {
+                manageMetadataDialog = false
+                editingFolder = it
+            },
+            onDeleteFolder = {
+                manageMetadataDialog = false
+                deletingFolder = it
+            },
+            onEditTag = {
+                manageMetadataDialog = false
+                editingTag = it
+            },
+            onDeleteTag = {
+                manageMetadataDialog = false
+                deletingTag = it
+            },
+        )
+    }
+
+    editingFolder?.let { folder ->
+        EditNameDialog(
+            title = "重命名文件夹",
+            initialValue = folder.name,
+            onDismiss = { editingFolder = null },
+            onConfirm = { value ->
+                onRenameFolder(folder.folderId, value)
+                editingFolder = null
+            },
+        )
+    }
+
+    deletingFolder?.let { folder ->
+        ConfirmDeleteMetadataDialog(
+            title = "删除文件夹？",
+            body = "“" + folder.name + "”中的录音不会被删除，将变为未分类。",
+            onDismiss = { deletingFolder = null },
+            onConfirm = {
+                onDeleteFolder(folder.folderId)
+                deletingFolder = null
+            },
+        )
+    }
+
+    editingTag?.let { tag ->
+        EditNameDialog(
+            title = "重命名标签",
+            initialValue = tag.name,
+            onDismiss = { editingTag = null },
+            onConfirm = { value ->
+                onRenameTag(tag.tagId, value)
+                editingTag = null
+            },
+        )
+    }
+
+    deletingTag?.let { tag ->
+        ConfirmDeleteMetadataDialog(
+            title = "删除标签？",
+            body = "“" + tag.name + "”只会从录音中移除，不会删除任何录音。",
+            onDismiss = { deletingTag = null },
+            onConfirm = {
+                onDeleteTag(tag.tagId)
+                deletingTag = null
+            },
+        )
+    }
+}
+
+@Composable
+private fun LibraryMetadataManagementDialog(
+    folders: List<FolderEntity>,
+    tags: List<TagEntity>,
+    onDismiss: () -> Unit,
+    onEditFolder: (FolderEntity) -> Unit,
+    onDeleteFolder: (FolderEntity) -> Unit,
+    onEditTag: (TagEntity) -> Unit,
+    onDeleteTag: (TagEntity) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("管理文件夹和标签") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text("文件夹", style = MaterialTheme.typography.titleSmall)
+                if (folders.isEmpty()) {
+                    Text(
+                        "暂无文件夹",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    folders.forEach { folder ->
+                        MetadataManagementRow(
+                            name = folder.name,
+                            onEdit = { onEditFolder(folder) },
+                            onDelete = { onDeleteFolder(folder) },
+                        )
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                Text("标签", style = MaterialTheme.typography.titleSmall)
+                if (tags.isEmpty()) {
+                    Text(
+                        "暂无标签",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    tags.forEach { tag ->
+                        MetadataManagementRow(
+                            name = tag.name,
+                            onEdit = { onEditTag(tag) },
+                            onDelete = { onDeleteTag(tag) },
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("完成") }
+        },
+    )
+}
+
+@Composable
+private fun MetadataManagementRow(
+    name: String,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            name,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        IconButton(onClick = onEdit) {
+            Icon(Icons.Outlined.Edit, contentDescription = "重命名")
+        }
+        IconButton(onClick = onDelete) {
+            Icon(Icons.Outlined.Delete, contentDescription = "删除")
+        }
+    }
+}
+
+@Composable
+private fun EditNameDialog(
+    title: String,
+    initialValue: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var value by remember(initialValue) { mutableStateOf(initialValue) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            OutlinedTextField(
+                value = value,
+                onValueChange = { value = it },
+                singleLine = true,
+                placeholder = { Text("名称") },
+            )
+        },
+        confirmButton = {
+            TextButton(
+                enabled = value.isNotBlank(),
+                onClick = { onConfirm(value) },
+            ) {
+                Text("保存")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+    )
+}
+
+@Composable
+private fun ConfirmDeleteMetadataDialog(
+    title: String,
+    body: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Text(body) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text("删除") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+    )
 }
 
 @Composable
