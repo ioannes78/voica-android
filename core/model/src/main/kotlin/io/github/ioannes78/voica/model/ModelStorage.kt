@@ -38,6 +38,12 @@ data class ModelActivationState(
     val previousRevision: Long?,
 )
 
+data class StoredModelVersion(
+    val snapshot: ModelDescriptorSnapshot,
+    val directory: File,
+    val sizeBytes: Long,
+)
+
 class ModelStorage(
     rootDirectory: File,
 ) {
@@ -315,6 +321,41 @@ class ModelStorage(
         return rolledBack
     }
 
+    fun installedVersions(): List<StoredModelVersion> =
+        installedRoot
+            .listFiles()
+            .orEmpty()
+            .filter(File::isDirectory)
+            .flatMap { modelDirectory ->
+                modelDirectory
+                    .listFiles()
+                    .orEmpty()
+                    .filter(File::isDirectory)
+                    .mapNotNull { versionDirectory ->
+                        val metadata = File(versionDirectory, DESCRIPTOR_SNAPSHOT)
+                        if (!metadata.isFile) return@mapNotNull null
+                        val properties = Properties()
+                        val snapshot =
+                            runCatching {
+                                metadata.inputStream().use(properties::load)
+                                ModelDescriptorSnapshotCodec.decode(properties)
+                            }.getOrNull() ?: return@mapNotNull null
+                        if (
+                            verifyDirectory(
+                                snapshot.descriptor,
+                                versionDirectory,
+                            ) != ModelVerificationResult.Valid
+                        ) {
+                            return@mapNotNull null
+                        }
+                        StoredModelVersion(
+                            snapshot = snapshot,
+                            directory = versionDirectory,
+                            sizeBytes = physicalBytes(versionDirectory),
+                        )
+                    }
+            }
+
     fun removeVersion(
         modelId: String,
         version: String,
@@ -334,8 +375,19 @@ class ModelStorage(
         return !directory.exists() || directory.deleteRecursively()
     }
 
-    fun cleanupStaging() {
-        stagingRoot.listFiles()?.forEach { it.deleteRecursively() }
+    fun cleanupStaging(): Long {
+        var reclaimed = 0L
+        stagingRoot.listFiles().orEmpty().forEach { entry ->
+            reclaimed += physicalBytes(entry)
+            entry.deleteRecursively()
+        }
+        return reclaimed
+    }
+
+    private fun physicalBytes(file: File): Long {
+        if (!file.exists()) return 0L
+        if (file.isFile) return file.length()
+        return file.listFiles().orEmpty().sumOf(::physicalBytes)
     }
 
     private fun writeDescriptorSnapshot(
