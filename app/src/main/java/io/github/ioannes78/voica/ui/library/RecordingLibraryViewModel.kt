@@ -208,7 +208,7 @@ class RecordingLibraryViewModel(
     }
 
     fun setSelectedFavorite(favorite: Boolean) {
-        val ids = selectedIds.value
+        val ids = uiState.value.selectedIds
         if (ids.isEmpty()) return
         viewModelScope.launch {
             repository.setFavorite(ids, favorite)
@@ -217,7 +217,7 @@ class RecordingLibraryViewModel(
     }
 
     fun moveSelectedToFolder(folderId: String?) {
-        val ids = selectedIds.value
+        val ids = uiState.value.selectedIds
         if (ids.isEmpty()) return
         viewModelScope.launch {
             runCatching { repository.moveToFolder(ids, folderId) }
@@ -230,7 +230,7 @@ class RecordingLibraryViewModel(
     }
 
     fun addTagToSelected(tagId: String) {
-        val ids = selectedIds.value
+        val ids = uiState.value.selectedIds
         if (ids.isEmpty()) return
         viewModelScope.launch {
             runCatching { repository.addTag(ids, tagId) }
@@ -240,7 +240,7 @@ class RecordingLibraryViewModel(
     }
 
     fun removeTagFromSelected(tagId: String) {
-        val ids = selectedIds.value
+        val ids = uiState.value.selectedIds
         if (ids.isEmpty()) return
         viewModelScope.launch {
             runCatching { repository.removeTag(ids, tagId) }
