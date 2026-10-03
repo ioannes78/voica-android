@@ -166,6 +166,14 @@ class AiSummaryViewModel(
                 snapshot.profiles.firstOrNull {
                     it.providerProfileId == providerProfileId && it.enabled
                 } ?: return@launch
+            val configuredDefault =
+                listOf(
+                    ProviderModel(
+                        id = profile.defaultModel,
+                        displayName = profile.defaultModel,
+                    ),
+                ).filter { it.id.isNotBlank() }
+            mutableGenerationModels.value = configuredDefault
             val discovered =
                 runCatching {
                     providerRegistry.forProfile(profile)
@@ -173,14 +181,8 @@ class AiSummaryViewModel(
                         .getOrThrow()
                 }.getOrDefault(emptyList())
             mutableGenerationModels.value =
-                (
-                    listOf(
-                        ProviderModel(
-                            id = profile.defaultModel,
-                            displayName = profile.defaultModel,
-                        ),
-                    ).filter { it.id.isNotBlank() } + discovered
-                ).distinctBy { it.id }
+                (configuredDefault + discovered)
+                    .distinctBy { it.id }
                     .sortedBy { it.displayName.lowercase() }
         }
     }
