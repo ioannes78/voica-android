@@ -72,6 +72,13 @@ class LocalAudioExportCoordinator(
     private val canonicalAudioCoordinator: CanonicalAudioCoordinator,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val nowMs: () -> Long = System::currentTimeMillis,
+    private val shareUriFactory: (Context, File) -> Uri = { providerContext, file ->
+        FileProvider.getUriForFile(
+            providerContext,
+            providerContext.packageName + FILE_PROVIDER_SUFFIX,
+            file,
+        )
+    },
 ) {
     private val appContext = context.applicationContext
     private val resolver = appContext.contentResolver
@@ -251,12 +258,7 @@ class LocalAudioExportCoordinator(
                 )
             try {
                 copyFile(source.file, target)
-                val uri =
-                    FileProvider.getUriForFile(
-                        appContext,
-                        appContext.packageName + FILE_PROVIDER_SUFFIX,
-                        target,
-                    )
+                val uri = shareUriFactory(appContext, target)
                 val send =
                     Intent(Intent.ACTION_SEND)
                         .setType(source.mimeType)
