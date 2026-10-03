@@ -1,6 +1,7 @@
 package io.github.ioannes78.voica.ui.settings
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -238,11 +239,10 @@ private fun SettingsRow(
                 contentDescription = null,
             )
         },
-        modifier = Modifier.fillMaxWidth(),
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
     )
-    androidx.compose.foundation.clickable
 }
 
 @Composable
