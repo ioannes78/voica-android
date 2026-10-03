@@ -10,6 +10,7 @@ import io.github.ioannes78.voica.ai.ProviderModel
 import io.github.ioannes78.voica.ai.ProviderPresetCatalog
 import io.github.ioannes78.voica.ai.ProviderPresetIds
 import io.github.ioannes78.voica.ai.ProviderProfile
+import io.github.ioannes78.voica.ai.StructuredSummaryCompatibility
 import io.github.ioannes78.voica.llm.ProviderAdapterRegistry
 import io.github.ioannes78.voica.llm.ProviderConfigurationRepository
 import io.github.ioannes78.voica.llm.ProviderProfileStore
@@ -345,7 +346,18 @@ class ProviderSettingsViewModel(
                             },
                         notice =
                             if (test.success) {
-                                "连接测试成功；测试未上传真实转写内容。"
+                                when (test.structuredSummaryProbe?.compatibility) {
+                                    StructuredSummaryCompatibility.VERIFIED_STRICT ->
+                                        "连接测试成功；智能总结结构化输出已验证（严格模式）；测试未上传真实转写内容。"
+                                    StructuredSummaryCompatibility.VERIFIED_COMPATIBLE ->
+                                        "连接测试成功；智能总结结构化输出已验证（兼容模式）；测试未上传真实转写内容。"
+                                    StructuredSummaryCompatibility.INCOMPATIBLE ->
+                                        test.structuredSummaryProbe.failure?.sanitizedMessage
+                                            ?: "连接正常，但当前模型未通过智能总结结构化输出测试。"
+                                    StructuredSummaryCompatibility.NOT_TESTED,
+                                    null,
+                                    -> "连接测试成功；测试未上传真实转写内容。"
+                                }
                             } else {
                                 test.failure?.sanitizedMessage ?: "连接测试失败。"
                             },
