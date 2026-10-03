@@ -92,7 +92,8 @@ import io.github.ioannes78.voica.ui.device.CompactScanDeviceRow
 import io.github.ioannes78.voica.ui.device.DeviceProductScreen
 import io.github.ioannes78.voica.ui.device.DeviceStatusPanel
 import io.github.ioannes78.voica.ui.library.RecordingDetailScreen
-import io.github.ioannes78.voica.ui.library.RecordingLibraryScreen
+import io.github.ioannes78.voica.ui.library.RecordingLibraryRoute
+import io.github.ioannes78.voica.ui.library.RecordingLibraryViewModel
 import io.github.ioannes78.voica.ui.playback.PlaybackCard
 import io.github.ioannes78.voica.ui.playback.PlaybackViewModel
 import io.github.ioannes78.voica.ui.recording.GlobalRecordingStatusBar
@@ -149,6 +150,11 @@ fun VoicaApp(
                 recordingLibraryRepository,
                 canonicalAudioCoordinator,
             )
+        },
+    )
+    val recordingLibraryViewModel: RecordingLibraryViewModel = viewModel(
+        factory = remember(recordingLibraryRepository) {
+            RecordingLibraryViewModel.Factory(recordingLibraryRepository)
         },
     )
     val playbackViewModel: PlaybackViewModel = viewModel(
@@ -290,6 +296,7 @@ fun VoicaApp(
             1 -> LocalFilesScreen(
                 padding,
                 deviceViewModel,
+                recordingLibraryViewModel,
                 playbackViewModel,
                 transcriptionViewModel,
                 diarizationViewModel,
@@ -484,6 +491,7 @@ private fun DeviceScreen(
 private fun LocalFilesScreen(
     padding: PaddingValues,
     viewModel: DeviceViewModel,
+    recordingLibraryViewModel: RecordingLibraryViewModel,
     playbackViewModel: PlaybackViewModel,
     transcriptionViewModel: TranscriptionViewModel,
     diarizationViewModel: DiarizationViewModel,
@@ -505,9 +513,9 @@ private fun LocalFilesScreen(
     }
 
     if (selectedRecording == null) {
-        RecordingLibraryScreen(
+        RecordingLibraryRoute(
             padding = padding,
-            recordings = recordings,
+            viewModel = recordingLibraryViewModel,
             onOpenRecording = { selectedRecordingId = it },
         )
     } else {
