@@ -52,6 +52,7 @@ import io.github.ioannes78.voica.DiarizationCoordinator
 import io.github.ioannes78.voica.DiarizationRunState
 import io.github.ioannes78.voica.ModelUpdateController
 import io.github.ioannes78.voica.LocalAudioImportCoordinator
+import io.github.ioannes78.voica.LocalRecordingDeleteCoordinator
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.TranscriptionCoordinator
 import io.github.ioannes78.voica.TranscriptionRunState
