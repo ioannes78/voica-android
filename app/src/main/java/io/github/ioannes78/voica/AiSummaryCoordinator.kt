@@ -24,6 +24,7 @@ import io.github.ioannes78.voica.llm.ProviderAdapterRegistry
 import io.github.ioannes78.voica.llm.ProviderProfileStore
 import java.util.concurrent.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -70,28 +71,40 @@ class AiSummaryCoordinator(
     private val profileStore: ProviderProfileStore,
     private val providerRegistry: ProviderAdapterRegistry,
     private val engine: AiSummaryEngine = AiSummaryEngine(),
+    private val isRecordingActive: suspend (String) -> Boolean = { true },
 ) {
     private val mutableState = MutableStateFlow<AiSummaryRunState>(AiSummaryRunState.Idle)
     val state: StateFlow<AiSummaryRunState> = mutableState.asStateFlow()
 
+    private val activeLock = Any()
     private var activeJob: Job? = null
+    private var activeTarget: ActiveTarget? = null
+
+    private sealed interface ActiveTarget {
+        data class Transcription(val transcriptionId: String) : ActiveTarget
+        data class Summary(val summaryId: String) : ActiveTarget
+    }
 
     fun start(
         transcriptionId: String,
         mode: AiSummaryMode,
         template: SummaryTemplateSpec,
     ): Boolean {
-        if (activeJob?.isActive == true) return false
         require(transcriptionId.isNotBlank())
-        activeJob =
-            scope.launch {
-                generateNew(
-                    transcriptionId = transcriptionId,
-                    mode = mode,
-                    template = template,
-                )
-            }
-        return true
+        synchronized(activeLock) {
+            if (activeJob?.isActive == true) return false
+            val job =
+                scope.launch(start = CoroutineStart.LAZY) {
+                    generateNew(
+                        transcriptionId = transcriptionId,
+                        mode = mode,
+                        template = template,
+                    )
+                }
+            installActiveJob(job, ActiveTarget.Transcription(transcriptionId))
+            job.start()
+            return true
+        }
     }
 
     fun startSmart(transcriptionId: String): Boolean =
@@ -102,17 +115,58 @@ class AiSummaryCoordinator(
         )
 
     fun cancel() {
-        activeJob?.cancel()
+        synchronized(activeLock) {
+            activeJob?.cancel(CancellationException("user cancelled AI summary"))
+        }
+    }
+
+    suspend fun cancelAndAwait(recordingId: String) {
+        val snapshot =
+            synchronized(activeLock) {
+                activeJob to activeTarget
+            }
+        val job = snapshot.first ?: return
+        val target = snapshot.second ?: return
+        val targetRecordingId =
+            when (target) {
+                is ActiveTarget.Transcription ->
+                    repository.recordingIdForTranscription(target.transcriptionId)
+                is ActiveTarget.Summary ->
+                    repository.find(target.summaryId)?.recordingId
+            }
+        if (targetRecordingId != recordingId) return
+        job.cancel(CancellationException("recording deletion"))
+        runCatching { job.join() }
     }
 
     fun resumeInterrupted(summaryId: String): Boolean {
-        if (activeJob?.isActive == true) return false
         require(summaryId.isNotBlank())
-        activeJob =
-            scope.launch {
-                resume(summaryId)
+        synchronized(activeLock) {
+            if (activeJob?.isActive == true) return false
+            val job =
+                scope.launch(start = CoroutineStart.LAZY) {
+                    resume(summaryId)
+                }
+            installActiveJob(job, ActiveTarget.Summary(summaryId))
+            job.start()
+            return true
+        }
+    }
+
+    private fun installActiveJob(
+        job: Job,
+        target: ActiveTarget,
+    ) {
+        activeJob = job
+        activeTarget = target
+        job.invokeOnCompletion {
+            synchronized(activeLock) {
+                if (activeJob === job) {
+                    activeJob = null
+                    activeTarget = null
+                }
             }
-        return true
+        }
     }
 
     private suspend fun generateNew(
@@ -122,6 +176,11 @@ class AiSummaryCoordinator(
     ) {
         var summaryId: String? = null
         try {
+            val recordingId =
+                repository.recordingIdForTranscription(transcriptionId)
+                    ?: throw AiSummaryConfigurationException("转写记录不存在")
+            if (!isRecordingActive(recordingId)) return
+
             mutableState.value =
                 AiSummaryRunState.Running(
                     summaryId = null,
@@ -132,6 +191,9 @@ class AiSummaryCoordinator(
             val input = inputBuilder.build(transcriptionId)
             val profile = resolveDefaultProfile()
             validateProfileForGeneration(profile)
+            if (!isRecordingActive(input.recordingId)) {
+                throw CancellationException("recording is being deleted")
+            }
             summaryId =
                 repository.create(
                     NewAiSummaryRequest(
@@ -182,8 +244,6 @@ class AiSummaryCoordinator(
             throw cancelled
         } catch (error: Throwable) {
             fail(summaryId, transcriptionId, error)
-        } finally {
-            activeJob = null
         }
     }
 
@@ -198,6 +258,7 @@ class AiSummaryCoordinator(
             if (summary.status != AiSummaryStateValue.INTERRUPTED) {
                 throw AiSummaryConfigurationException("只有中断的总结任务可以继续")
             }
+            if (!isRecordingActive(summary.recordingId)) return
             val profileSnapshot = profileStore.load()
             val storedProfile =
                 profileSnapshot.profiles.firstOrNull {
@@ -216,6 +277,9 @@ class AiSummaryCoordinator(
             val mode =
                 AiSummaryMode.entries.firstOrNull { it.databaseValue() == summary.mode }
                     ?: AiSummaryMode.SMART
+            if (!isRecordingActive(summary.recordingId)) {
+                throw CancellationException("recording is being deleted")
+            }
             check(repository.resumeInterrupted(summaryId)) {
                 "AI summary resume state changed"
             }
@@ -243,8 +307,6 @@ class AiSummaryCoordinator(
             throw cancelled
         } catch (error: Throwable) {
             fail(summaryId, transcriptionId, error)
-        } finally {
-            activeJob = null
         }
     }
 
