@@ -169,6 +169,19 @@ class AppContainer(
             scope = applicationScope,
         )
 
+    val localRecordingDeleteCoordinator =
+        LocalRecordingDeleteCoordinator(
+            repository = recordingLibraryRepository,
+            hooks =
+                DefaultRecordingDeletionHooks(
+                    playbackController = playbackController,
+                    canonicalAudioCoordinator = canonicalAudioCoordinator,
+                    transcriptionCoordinator = transcriptionCoordinator,
+                    diarizationCoordinator = diarizationCoordinator,
+                    aiSummaryCoordinator = aiSummaryCoordinator,
+                ),
+        )
+
     private val processLifecycleObserver =
         object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
