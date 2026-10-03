@@ -1,5 +1,9 @@
 package io.github.ioannes78.voica.ui
 
+import android.app.Activity
+import android.content.Intent
+import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.rememberScrollState
@@ -43,6 +47,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -507,6 +512,11 @@ private fun DeviceScreen(
     }
 }
 
+private data class PendingDetailAudioExport(
+    val recordingId: String,
+    val variant: AudioExportVariant,
+)
+
 @Composable
 private fun LocalFilesScreen(
     padding: PaddingValues,
@@ -528,6 +538,115 @@ private fun LocalFilesScreen(
             recordings.firstOrNull { it.id == id }
         }
     val deviceRecording by viewModel.recordingState.collectAsState()
+    val context = LocalContext.current
+    val actionScope = rememberCoroutineScope()
+    var pendingSafExport by remember {
+        mutableStateOf<PendingDetailAudioExport?>(null)
+    }
+
+    val createDocumentLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.StartActivityForResult(),
+        ) { result ->
+            val pending = pendingSafExport
+            pendingSafExport = null
+            val destination = result.data?.data
+            if (
+                result.resultCode == Activity.RESULT_OK &&
+                pending != null &&
+                destination != null
+            ) {
+                actionScope.launch {
+                    val exported =
+                        localAudioExportCoordinator.exportToUri(
+                            recordingId = pending.recordingId,
+                            destinationUri = destination,
+                            variant = pending.variant,
+                        )
+                    Toast.makeText(
+                        context,
+                        if (exported.exported) {
+                            "已导出“" + (exported.displayName ?: "录音") + "”"
+                        } else {
+                            exported.error ?: "导出失败"
+                        },
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }
+        }
+
+    val exportDetailAudio: (String, AudioExportVariant) -> Unit =
+        { recordingId, variant ->
+            actionScope.launch {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val result =
+                        localAudioExportCoordinator.exportToDownloads(
+                            recordingIds = listOf(recordingId),
+                            variant = variant,
+                        )
+                    val item = result.items.firstOrNull()
+                    Toast.makeText(
+                        context,
+                        if (item?.exported == true) {
+                            "已导出到 Downloads/Voica"
+                        } else {
+                            item?.error ?: "导出失败"
+                        },
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                } else {
+                    val descriptor =
+                        localAudioExportCoordinator.describe(
+                            recordingId = recordingId,
+                            variant = variant,
+                        )
+                    if (descriptor == null) {
+                        Toast.makeText(
+                            context,
+                            "没有可导出的音频",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    } else {
+                        pendingSafExport =
+                            PendingDetailAudioExport(
+                                recordingId = recordingId,
+                                variant = variant,
+                            )
+                        createDocumentLauncher.launch(
+                            Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                                addCategory(Intent.CATEGORY_OPENABLE)
+                                type = descriptor.mimeType
+                                putExtra(Intent.EXTRA_TITLE, descriptor.displayName)
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
+    val shareDetailAudio: (String, AudioExportVariant) -> Unit =
+        { recordingId, variant ->
+            actionScope.launch {
+                when (
+                    val outcome =
+                        localAudioExportCoordinator.prepareShare(
+                            recordingId = recordingId,
+                            variant = variant,
+                        )
+                ) {
+                    is LocalAudioShareOutcome.Ready ->
+                        context.startActivity(outcome.intent)
+
+                    is LocalAudioShareOutcome.Failed ->
+                        Toast.makeText(
+                            context,
+                            outcome.reason,
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                }
+            }
+        }
 
     LaunchedEffect(selectedRecording != null) {
         onSecondaryPageChanged(selectedRecording != null)
@@ -552,6 +671,18 @@ private fun LocalFilesScreen(
             onOpenSettings = onOpenSettings,
             onRename = viewModel::renameLocalRecording,
             onDelete = playbackViewModel::deleteRecording,
+            onExportCanonical = {
+                exportDetailAudio(it, AudioExportVariant.CANONICAL_WAV)
+            },
+            onExportOriginal = {
+                exportDetailAudio(it, AudioExportVariant.ORIGINAL)
+            },
+            onShareCanonical = {
+                shareDetailAudio(it, AudioExportVariant.CANONICAL_WAV)
+            },
+            onShareOriginal = {
+                shareDetailAudio(it, AudioExportVariant.ORIGINAL)
+            },
             onGenerateCanonical = viewModel::generateCanonicalAudio,
             onCancelCanonical = viewModel::cancelCanonicalAudio,
             deviceRecordingActive =
