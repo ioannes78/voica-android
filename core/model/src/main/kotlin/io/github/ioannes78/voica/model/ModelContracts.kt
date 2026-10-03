@@ -198,6 +198,17 @@ data class ModelAvailability(
     val updateAvailable: Boolean = false,
 )
 
+data class DownloadedModelVersionInfo(
+    val modelId: String,
+    val displayName: String,
+    val version: String,
+    val revision: Long,
+    val sizeBytes: Long,
+    val active: Boolean,
+    val previous: Boolean,
+    val inUse: Boolean,
+)
+
 data class ModelOperationStatus(
     val state: ModelState,
     val downloadedBytes: Long? = null,
@@ -256,6 +267,16 @@ interface ModelManager {
     )
 
     suspend fun rollback(modelId: String)
+
+    suspend fun downloadedVersions(): List<DownloadedModelVersionInfo> = emptyList()
+
+    /**
+     * Removes only transient manager-owned storage that is not participating in an
+     * active install. Installed/active/rollback model versions are never removed here.
+     *
+     * @return reclaimed physical bytes.
+     */
+    suspend fun cleanupTransientStorage(): Long = 0L
 }
 
 internal val SHA256_REGEX = Regex("^[0-9a-fA-F]{64}$")
