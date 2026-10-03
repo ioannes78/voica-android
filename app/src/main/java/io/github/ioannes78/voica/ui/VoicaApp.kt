@@ -148,7 +148,7 @@ private data class GlobalDetailContext(
     val destination: RecordingDetailDestination,
 )
 
-private data class GlobalTaskItem(
+internal data class GlobalTaskItem(
     val key: String,
     val recordingId: String,
     val recordingName: String,
