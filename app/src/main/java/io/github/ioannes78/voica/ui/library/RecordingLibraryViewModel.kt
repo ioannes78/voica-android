@@ -16,6 +16,7 @@ import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.database.RecordingLibraryRow
 import io.github.ioannes78.voica.database.TagEntity
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -56,7 +57,7 @@ data class RecordingLibraryUiState(
         get() = selectedIds.size
 }
 
-@OptIn(FlowPreview::class)
+@OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 class RecordingLibraryViewModel(
     private val repository: RecordingLibraryRepository,
     private val importCoordinator: LocalAudioImportCoordinator,
