@@ -101,9 +101,7 @@ fun AiSummaryCard(
                 ?: providers.firstOrNull()
         if (selectedProfile != null) {
             selectedGenerationProviderId = selectedProfile.providerProfileId
-            if (selectedGenerationModel.isBlank()) {
-                selectedGenerationModel = selectedProfile.model
-            }
+            selectedGenerationModel = selectedProfile.model
             viewModel.loadGenerationModels(selectedProfile.providerProfileId)
         }
     }
