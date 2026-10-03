@@ -32,6 +32,9 @@ interface RecordingDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAssetIgnore(asset: AudioAssetEntity): Long
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertUserMetadataIgnore(metadata: RecordingUserMetadataEntity): Long
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAsset(asset: AudioAssetEntity)
 
