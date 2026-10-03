@@ -209,8 +209,8 @@ fun RecordingDetailScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(padding),
-        contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         item(key = "detail-header") {
             Row(
@@ -268,8 +268,8 @@ fun RecordingDetailScreen(
                     } else {
                         Card(modifier = Modifier.fillMaxWidth()) {
                             Column(
-                                modifier = Modifier.padding(18.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
                                 Text(
                                     stringResource(R.string.playback_title),
@@ -431,8 +431,8 @@ fun RecordingDetailScreen(
                     if (document == null) {
                         Card(modifier = Modifier.fillMaxWidth()) {
                             Column(
-                                modifier = Modifier.padding(18.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
                                 Text(
                                     stringResource(R.string.detail_summary_title),
@@ -550,8 +550,8 @@ private fun TranscriptionActionsCard(
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(9.dp),
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
                 stringResource(R.string.detail_transcription_actions),
@@ -605,8 +605,8 @@ private fun RecordingInformationCard(
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(9.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
                 stringResource(R.string.detail_info_title),
