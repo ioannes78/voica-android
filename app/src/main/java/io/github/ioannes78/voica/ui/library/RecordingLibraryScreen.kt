@@ -74,7 +74,7 @@ fun RecordingLibraryScreen(
         item {
             Text(
                 stringResource(R.string.library_title),
-                style = MaterialTheme.typography.headlineLarge,
+                style = MaterialTheme.typography.headlineMedium,
             )
             Text(
                 stringResource(R.string.library_subtitle),
