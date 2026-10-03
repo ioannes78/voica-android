@@ -87,6 +87,8 @@ import io.github.ioannes78.voica.ui.ai.ProviderSettingsViewModel
 import io.github.ioannes78.voica.ui.diarization.DiarizationStatusCard
 import io.github.ioannes78.voica.ui.diarization.DiarizationViewModel
 import io.github.ioannes78.voica.ui.files.DeviceFilesCard
+import io.github.ioannes78.voica.ui.device.CompactScanDeviceRow
+import io.github.ioannes78.voica.ui.device.DeviceStatusPanel
 import io.github.ioannes78.voica.ui.library.RecordingDetailScreen
 import io.github.ioannes78.voica.ui.library.RecordingLibraryScreen
 import io.github.ioannes78.voica.ui.playback.PlaybackCard
@@ -303,8 +305,8 @@ private fun DeviceScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(padding),
-        contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {
             Text(
@@ -319,71 +321,43 @@ private fun DeviceScreen(
         }
 
         item {
-            StatusCard(
+            DeviceStatusPanel(
                 connection = connection,
+                info = info,
+                isScanning = scan.isScanning,
+                timedOut = scan.timedOut,
+                discoveredCount = scan.devices.size,
                 missingPermissions = missingPermissions,
+                onScan = viewModel::startScan,
+                onStopScan = viewModel::stopScan,
                 onRequestPermissions = {
                     permissionLauncher.launch(missingPermissions.toTypedArray())
                 },
+                onRefresh = viewModel::refreshDeviceInfo,
+                onSyncTime = viewModel::syncTime,
+                onDisconnect = viewModel::disconnect,
             )
         }
 
         if (connection !is DeviceConnectionState.Ready) {
-            item {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Text(
-                            stringResource(R.string.scan_title),
-                            style = MaterialTheme.typography.titleLarge,
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Button(
-                                onClick = viewModel::startScan,
-                                enabled = !scan.isScanning && missingPermissions.isEmpty(),
-                            ) {
-                                Text(stringResource(R.string.scan_start))
-                            }
-                            OutlinedButton(
-                                onClick = viewModel::stopScan,
-                                enabled = scan.isScanning,
-                            ) {
-                                Text(stringResource(R.string.scan_stop))
-                            }
-                        }
-                        Text(
-                            if (scan.isScanning) {
-                                stringResource(R.string.scan_scanning)
-                            } else if (scan.timedOut) {
-                                stringResource(R.string.scan_timeout)
-                            } else {
-                                stringResource(R.string.scan_idle)
-                            },
-                        )
-                        scan.error?.let {
-                            Text(errorText(it), style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
+            scan.error?.let { error ->
+                item {
+                    Text(
+                        errorText(error),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
                 }
             }
-
             items(scan.devices, key = { it.address }) { device ->
-                ScanDeviceCard(device = device, onConnect = viewModel::connect)
+                CompactScanDeviceRow(
+                    device = device,
+                    onConnect = viewModel::connect,
+                )
             }
         }
 
         if (connection is DeviceConnectionState.Ready) {
-            item {
-                DeviceInfoCard(
-                    info = info,
-                    connection = connection as DeviceConnectionState.Ready,
-                    onRefresh = viewModel::refreshDeviceInfo,
-                    onSyncTime = viewModel::syncTime,
-                    onDisconnect = viewModel::disconnect,
-                )
-            }
             item {
                 RecordingCard(
                     state = recording,
@@ -413,17 +387,6 @@ private fun DeviceScreen(
                     onDeleteRemote = viewModel::deleteRemoteRecording,
                     onRangeProbe = viewModel::runRangeProbe,
                 )
-            }
-        } else if (connection !is DeviceConnectionState.Idle &&
-            connection !is DeviceConnectionState.Scanning &&
-            connection !is DeviceConnectionState.PermissionRequired &&
-            connection !is DeviceConnectionState.Unavailable &&
-            connection !is DeviceConnectionState.BluetoothOff
-        ) {
-            item {
-                OutlinedButton(onClick = viewModel::disconnect) {
-                    Text(stringResource(R.string.disconnect))
-                }
             }
         }
 
@@ -606,7 +569,7 @@ private fun DeviceInfoCard(
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1206,8 +1169,8 @@ private fun SettingsScreen(
             .fillMaxSize()
             .padding(padding)
             .verticalScroll(rememberScrollState())
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
             stringResource(R.string.settings_title),
