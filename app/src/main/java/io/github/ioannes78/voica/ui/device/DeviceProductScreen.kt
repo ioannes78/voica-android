@@ -208,8 +208,6 @@ fun DeviceProductScreen(
                         )
                     }
                 }
-
-                }
             }
         }
 
