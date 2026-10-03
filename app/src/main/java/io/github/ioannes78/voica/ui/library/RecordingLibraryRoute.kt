@@ -1,0 +1,64 @@
+package io.github.ioannes78.voica.ui.library
+
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+
+@Composable
+fun RecordingLibraryRoute(
+    padding: PaddingValues,
+    viewModel: RecordingLibraryViewModel,
+    onOpenRecording: (String) -> Unit,
+) {
+    val state by viewModel.uiState.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(state.operationMessage) {
+        val message = state.operationMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        viewModel.consumeOperationMessage()
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        RecordingLibraryScreen(
+            padding = padding,
+            state = state,
+            onQueryChange = viewModel::setQuery,
+            onSortChange = viewModel::setSort,
+            onFavoriteFilterChange = viewModel::setFavoriteOnly,
+            onCompletedTranscriptionFilterChange =
+                viewModel::setCompletedTranscriptionOnly,
+            onCompletedSummaryFilterChange = viewModel::setCompletedSummaryOnly,
+            onFolderFilter = viewModel::setFolderFilter,
+            onUncategorizedFilter = viewModel::setUncategorizedOnly,
+            onToggleTagFilter = viewModel::toggleTagFilter,
+            onToggleSourceType = viewModel::toggleSourceType,
+            onClearFilters = viewModel::clearFilters,
+            onOpenRecording = onOpenRecording,
+            onEnterSelection = viewModel::enterSelection,
+            onToggleSelection = viewModel::toggleSelection,
+            onClearSelection = viewModel::clearSelection,
+            onSelectAll = viewModel::selectAllVisible,
+            onToggleFavorite = viewModel::toggleFavorite,
+            onSetSelectedFavorite = viewModel::setSelectedFavorite,
+            onMoveSelectedToFolder = viewModel::moveSelectedToFolder,
+            onAddTagToSelected = viewModel::addTagToSelected,
+            onRemoveTagFromSelected = viewModel::removeTagFromSelected,
+            onCreateFolder = viewModel::createFolder,
+            onCreateTag = viewModel::createTag,
+        )
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
+    }
+}
