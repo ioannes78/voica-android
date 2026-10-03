@@ -49,7 +49,24 @@ class RecordingLibraryViewModel(
             queryText.debounce(275),
             criteria,
         ) { query, current ->
-            current.copy(query = query)
+            val date = LibraryDateQueryParser.parse(query)
+            if (date == null) {
+                current.copy(
+                    query = query,
+                    searchDateFromLocalIso = null,
+                    searchDateToLocalIsoExclusive = null,
+                    searchDateFromMs = null,
+                    searchDateToMsExclusive = null,
+                )
+            } else {
+                current.copy(
+                    query = "",
+                    searchDateFromLocalIso = date.fromLocalIso,
+                    searchDateToLocalIsoExclusive = date.toLocalIsoExclusive,
+                    searchDateFromMs = date.fromEpochMs,
+                    searchDateToMsExclusive = date.toEpochMsExclusive,
+                )
+            }
         }
 
     private val visibleRecordings =
