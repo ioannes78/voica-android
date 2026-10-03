@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 concurrency:
   group: android-ci-${{ github.ref }}
@@ -115,3 +116,36 @@ jobs:
           path: app/build/outputs/apk/qa/app-qa.apk
           if-no-files-found: error
           retention-days: 3
+
+      # Keep storage bounded during high-frequency device testing:
+      # after a new candidate is safely uploaded, remove older APK artifacts
+      # from the same source branch. Other branches are left untouched.
+      - name: Remove older QA APK artifacts for this branch
+        if: ${{ success() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[APK]'))) }}
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_BRANCH: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          mapfile -t artifact_ids < <(
+            gh api --paginate \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/${GITHUB_REPOSITORY}/actions/artifacts?name=Voica-qa-apk&per_page=100" \
+              --jq ".artifacts[] | select((.workflow_run.head_branch == \"${TARGET_BRANCH}\") and (.workflow_run.id != ${CURRENT_RUN_ID})) | .id"
+          )
+
+          if (( ${#artifact_ids[@]} == 0 )); then
+            echo "No older Voica-qa-apk artifacts to remove for branch ${TARGET_BRANCH}."
+            exit 0
+          fi
+
+          for artifact_id in "${artifact_ids[@]}"; do
+            echo "Deleting older artifact ${artifact_id} from branch ${TARGET_BRANCH}."
+            gh api --method DELETE \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}"
+          done
