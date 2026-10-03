@@ -439,6 +439,7 @@ class TranscriptionViewModel(
             repository.observeVersions(recordingId)
                 .first()
                 .filter { it.state == TranscriptionStateValue.COMPLETED }
+                .sortedByDescending { it.completedAtMs ?: it.updatedAtMs }
 
         if (completed.isEmpty()) {
             mutableVersionsRecordingId.value = recordingId
