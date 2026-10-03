@@ -330,7 +330,7 @@ class LocalAudioExportCoordinator(
                 it.formatValidationState == AudioValidationState.VALID
         }
 
-    private fun exportSourceToDownloads(
+    private suspend fun exportSourceToDownloads(
         source: ExportSource,
         displayName: String,
     ): LocalAudioExportItemResult {
