@@ -384,7 +384,7 @@ private fun fileListStatusText(state: DeviceFileListState): String =
             stringResource(R.string.device_files_failed)
     }
 
-private fun formatDuration(seconds: Int): String {
+private fun formatDuration(seconds: Long): String {
     val hours = seconds / 3600
     val minutes = (seconds % 3600) / 60
     val remainingSeconds = seconds % 60
