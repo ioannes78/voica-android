@@ -83,6 +83,7 @@ fun RecordingLibraryScreen(
     onSelectAll: () -> Unit,
     onToggleFavorite: (String) -> Unit,
     onSetSelectedFavorite: (Boolean) -> Unit,
+    onDeleteSelected: () -> Unit,
     onMoveSelectedToFolder: (String?) -> Unit,
     onAddTagToSelected: (String) -> Unit,
     onRemoveTagFromSelected: (String) -> Unit,
@@ -105,6 +106,7 @@ fun RecordingLibraryScreen(
     var deletingFolder by remember { mutableStateOf<FolderEntity?>(null) }
     var editingTag by remember { mutableStateOf<TagEntity?>(null) }
     var deletingTag by remember { mutableStateOf<TagEntity?>(null) }
+    var confirmBatchDelete by rememberSaveable { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier
@@ -141,6 +143,9 @@ fun RecordingLibraryScreen(
                         }
                         TextButton(onClick = { onSetSelectedFavorite(false) }) {
                             Text("取消收藏")
+                        }
+                        TextButton(onClick = { confirmBatchDelete = true }) {
+                            Text("删除")
                         }
                         Column {
                             TextButton(onClick = { batchFolderExpanded = true }) {
@@ -451,6 +456,35 @@ fun RecordingLibraryScreen(
                 }
             }
         }
+    }
+
+    if (confirmBatchDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmBatchDelete = false },
+            title = { Text("删除本地录音？") },
+            text = {
+                Text(
+                    "将删除已选 " + state.selectedCount +
+                        " 条录音的本地音频、标准化音频、转写、说话人分离/对齐和 AI 总结。" +
+                        "不会删除录音卡设备上的文件。此操作不可恢复。",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmBatchDelete = false
+                        onDeleteSelected()
+                    },
+                ) {
+                    Text("删除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmBatchDelete = false }) {
+                    Text("取消")
+                }
+            },
+        )
     }
 
     if (createFolderDialog) {
