@@ -67,6 +67,8 @@ jobs:
           :core:model:test
           :core:transcript:test
           :engine:opus:assembleDebug
+          :engine:media:testDebugUnitTest
+          :engine:media:assembleDebug
           :engine:playback:testDebugUnitTest
           :engine:playback:assembleDebug
           :engine:sherpa:testDebugUnitTest
