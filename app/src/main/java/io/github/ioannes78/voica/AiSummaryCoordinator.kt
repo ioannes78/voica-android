@@ -90,6 +90,8 @@ class AiSummaryCoordinator(
         transcriptionId: String,
         mode: AiSummaryMode,
         template: SummaryTemplateSpec,
+        providerProfileId: String? = null,
+        modelOverride: String? = null,
     ): Boolean {
         require(transcriptionId.isNotBlank())
         synchronized(activeLock) {
@@ -100,6 +102,8 @@ class AiSummaryCoordinator(
                         transcriptionId = transcriptionId,
                         mode = mode,
                         template = template,
+                        providerProfileId = providerProfileId,
+                        modelOverride = modelOverride,
                     )
                 }
             installActiveJob(job, ActiveTarget.Transcription(transcriptionId))
@@ -108,11 +112,17 @@ class AiSummaryCoordinator(
         }
     }
 
-    fun startSmart(transcriptionId: String): Boolean =
+    fun startSmart(
+        transcriptionId: String,
+        providerProfileId: String? = null,
+        modelOverride: String? = null,
+    ): Boolean =
         start(
             transcriptionId = transcriptionId,
             mode = AiSummaryMode.SMART,
             template = SummaryTemplateCatalog.smart(),
+            providerProfileId = providerProfileId,
+            modelOverride = modelOverride,
         )
 
     fun cancel() {
@@ -174,6 +184,8 @@ class AiSummaryCoordinator(
         transcriptionId: String,
         mode: AiSummaryMode,
         template: SummaryTemplateSpec,
+        providerProfileId: String?,
+        modelOverride: String?,
     ) {
         var summaryId: String? = null
         try {
@@ -190,7 +202,7 @@ class AiSummaryCoordinator(
                     phase = AiSummaryEnginePhase.PREPARING,
                 )
             val input = inputBuilder.build(transcriptionId)
-            val profile = resolveDefaultProfile()
+            val profile = resolveProfile(providerProfileId, modelOverride)
             validateProfileForGeneration(profile)
             if (!isRecordingActive(input.recordingId)) {
                 throw CancellationException("recording is being deleted")
@@ -417,16 +429,34 @@ class AiSummaryCoordinator(
             )
     }
 
-    private suspend fun resolveDefaultProfile(): ProviderProfile {
+    private suspend fun resolveProfile(
+        providerProfileId: String?,
+        modelOverride: String?,
+    ): ProviderProfile {
         val snapshot = profileStore.load()
         val selected =
-            snapshot.defaultProfileId?.let { defaultId ->
-                snapshot.profiles.firstOrNull {
-                    it.providerProfileId == defaultId && it.enabled
+            providerProfileId
+                ?.let { requestedId ->
+                    snapshot.profiles.firstOrNull {
+                        it.providerProfileId == requestedId && it.enabled
+                    }
                 }
-            } ?: snapshot.profiles.firstOrNull { it.enabled }
-        return selected
-            ?: throw AiSummaryConfigurationException("请先在设置中配置文本大模型")
+                ?: snapshot.defaultProfileId?.let { defaultId ->
+                    snapshot.profiles.firstOrNull {
+                        it.providerProfileId == defaultId && it.enabled
+                    }
+                }
+                ?: snapshot.profiles.firstOrNull { it.enabled }
+                ?: throw AiSummaryConfigurationException("请先在设置中配置文本大模型")
+
+        val requestedModel = modelOverride?.trim().orEmpty()
+        if (requestedModel.isBlank() || requestedModel == selected.defaultModel) {
+            return selected
+        }
+        return selected.copy(
+            defaultModel = requestedModel,
+            capabilityOverrides = null,
+        )
     }
 
     private fun validateProfileForGeneration(profile: ProviderProfile) {
