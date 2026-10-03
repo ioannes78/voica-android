@@ -4,14 +4,37 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.RawQuery
 import androidx.room.Transaction
+import androidx.sqlite.db.SupportSQLiteQuery
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface RecordingDao {
     @Transaction
-    @Query("SELECT * FROM recordings WHERE state != 'DELETED' ORDER BY recordedAtLocalIso DESC, downloadedAtMs DESC")
+    @Query("SELECT * FROM recordings WHERE state = 'ACTIVE' ORDER BY recordedAtLocalIso DESC, createdAtMs DESC")
     fun observeAll(): Flow<List<RecordingWithAssets>>
+
+    @RawQuery(
+        observedEntities = [
+            RecordingEntity::class,
+            AudioAssetEntity::class,
+            RecordingImportProvenanceEntity::class,
+            RecordingUserMetadataEntity::class,
+            FolderEntity::class,
+            TagEntity::class,
+            RecordingTagCrossRef::class,
+            TranscriptionEntity::class,
+            AiSummaryEntity::class,
+        ],
+    )
+    fun observeLibrary(query: SupportSQLiteQuery): Flow<List<RecordingLibraryProjection>>
+
+    @Query("SELECT * FROM recording_folders ORDER BY name COLLATE NOCASE ASC")
+    fun observeFolders(): Flow<List<FolderEntity>>
+
+    @Query("SELECT * FROM recording_tags ORDER BY name COLLATE NOCASE ASC")
+    fun observeTags(): Flow<List<TagEntity>>
 
     @Transaction
     @Query("SELECT * FROM recordings WHERE id = :recordingId LIMIT 1")
@@ -34,6 +57,15 @@ interface RecordingDao {
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertUserMetadataIgnore(metadata: RecordingUserMetadataEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertFolder(folder: FolderEntity)
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertTag(tag: TagEntity)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertRecordingTagCrossRefs(crossRefs: List<RecordingTagCrossRef>): List<Long>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAsset(asset: AudioAssetEntity)
@@ -90,6 +122,41 @@ interface RecordingDao {
 
     @Query("UPDATE recordings SET state = :state, updatedAtMs = :updatedAtMs WHERE id = :recordingId")
     suspend fun updateState(recordingId: String, state: String, updatedAtMs: Long): Int
+
+    @Query("UPDATE recording_user_metadata SET isFavorite = :favorite, updatedAtMs = :updatedAtMs WHERE recordingId IN (:recordingIds)")
+    suspend fun setFavorite(
+        recordingIds: List<String>,
+        favorite: Boolean,
+        updatedAtMs: Long,
+    ): Int
+
+    @Query("UPDATE recording_user_metadata SET folderId = :folderId, updatedAtMs = :updatedAtMs WHERE recordingId IN (:recordingIds)")
+    suspend fun moveToFolder(
+        recordingIds: List<String>,
+        folderId: String?,
+        updatedAtMs: Long,
+    ): Int
+
+    @Query("DELETE FROM recording_tag_cross_refs WHERE recordingId IN (:recordingIds) AND tagId = :tagId")
+    suspend fun removeTagFromRecordings(recordingIds: List<String>, tagId: String): Int
+
+    @Query("SELECT * FROM recording_folders WHERE name = :name COLLATE NOCASE LIMIT 1")
+    suspend fun findFolderByName(name: String): FolderEntity?
+
+    @Query("SELECT * FROM recording_tags WHERE name = :name COLLATE NOCASE LIMIT 1")
+    suspend fun findTagByName(name: String): TagEntity?
+
+    @Query("UPDATE recording_folders SET name = :name, updatedAtMs = :updatedAtMs WHERE folderId = :folderId")
+    suspend fun renameFolder(folderId: String, name: String, updatedAtMs: Long): Int
+
+    @Query("UPDATE recording_tags SET name = :name, updatedAtMs = :updatedAtMs WHERE tagId = :tagId")
+    suspend fun renameTag(tagId: String, name: String, updatedAtMs: Long): Int
+
+    @Query("DELETE FROM recording_folders WHERE folderId = :folderId")
+    suspend fun deleteFolder(folderId: String): Int
+
+    @Query("DELETE FROM recording_tags WHERE tagId = :tagId")
+    suspend fun deleteTag(tagId: String): Int
 
     @Query("DELETE FROM recordings WHERE id = :recordingId")
     suspend fun deleteRecording(recordingId: String): Int
