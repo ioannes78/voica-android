@@ -191,6 +191,17 @@ class AppContainer(
                 ),
         )
 
+    val storageManagementCoordinator =
+        StorageManagementCoordinator(
+            application = application,
+            repository = recordingLibraryRepository,
+            canonicalAudioCoordinator = canonicalAudioCoordinator,
+            importCoordinator = localAudioImportCoordinator,
+            exportCoordinator = localAudioExportCoordinator,
+            modelManager = modelManager,
+            playbackController = playbackController,
+        )
+
     private val processLifecycleObserver =
         object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
