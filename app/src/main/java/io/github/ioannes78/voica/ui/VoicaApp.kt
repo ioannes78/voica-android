@@ -143,12 +143,19 @@ private data class GlobalRecordingOpenRequest(
     val destination: RecordingDetailDestination,
 )
 
+private data class GlobalDetailContext(
+    val recordingId: String,
+    val destination: RecordingDetailDestination,
+)
+
 private data class GlobalTaskItem(
+    val key: String,
     val recordingId: String,
     val recordingName: String,
     val label: String,
     val progress: String?,
     val destination: RecordingDetailDestination,
+    val terminal: Boolean,
 )
 
 @Composable
@@ -282,14 +289,42 @@ fun VoicaApp(
     val globalPlayback by playbackViewModel.snapshot.collectAsState()
     var openRequestToken by rememberSaveable { mutableIntStateOf(0) }
     var libraryOpenRequest by remember { mutableStateOf<GlobalRecordingOpenRequest?>(null) }
+    var activeDetailContext by remember { mutableStateOf<GlobalDetailContext?>(null) }
+    var dismissedTaskKeys by rememberSaveable { mutableStateOf(setOf<String>()) }
 
-    val globalTasks =
+    val allGlobalTasks =
         buildGlobalTaskItems(
             transcription = globalTranscription,
             diarization = globalDiarization,
             aiSummary = globalAiSummary,
             recordings = libraryRecordings,
         )
+
+    LaunchedEffect(activeDetailContext, allGlobalTasks.map { it.key }) {
+        val current = activeDetailContext ?: return@LaunchedEffect
+        val readKeys =
+            allGlobalTasks
+                .filter { task ->
+                    task.terminal &&
+                        task.recordingId == current.recordingId &&
+                        task.destination == current.destination
+                }
+                .mapTo(LinkedHashSet()) { it.key }
+        if (readKeys.isNotEmpty()) {
+            dismissedTaskKeys = dismissedTaskKeys + readKeys
+        }
+    }
+
+    val globalTasks =
+        allGlobalTasks.filter { task ->
+            val current = activeDetailContext
+            task.key !in dismissedTaskKeys &&
+                !(
+                    current != null &&
+                        task.recordingId == current.recordingId &&
+                        task.destination == current.destination
+                )
+        }
     val requestOpenRecording: (String, RecordingDetailDestination) -> Unit =
         { recordingId, destination ->
             openRequestToken += 1
@@ -328,7 +363,12 @@ fun VoicaApp(
                 if (globalTasks.isNotEmpty()) {
                     GlobalTaskStatusBar(
                         tasks = globalTasks,
-                        onOpen = requestOpenRecording,
+                        onOpen = { task ->
+                            if (task.terminal) {
+                                dismissedTaskKeys = dismissedTaskKeys + task.key
+                            }
+                            requestOpenRecording(task.recordingId, task.destination)
+                        },
                     )
                 }
             }
@@ -338,8 +378,15 @@ fun VoicaApp(
                 Column {
                     if (
                         globalPlayback.recordingId != null &&
-                        globalPlayback.state != PlaybackState.IDLE &&
-                        globalPlayback.state != PlaybackState.RELEASED
+                        globalPlayback.state in
+                            setOf(
+                                PlaybackState.PREPARING,
+                                PlaybackState.READY,
+                                PlaybackState.PLAYING,
+                                PlaybackState.PAUSED,
+                                PlaybackState.SEEKING,
+                                PlaybackState.ERROR,
+                            )
                     ) {
                         GlobalPlaybackStatusBar(
                             snapshot = globalPlayback,
@@ -402,6 +449,14 @@ fun VoicaApp(
                 viewModel = deviceViewModel,
                 homeRequestToken = deviceHomeRequest,
                 onSecondaryPageChanged = { secondaryPageActive = it },
+                onDetailContextChanged = { recordingId, destination ->
+                    activeDetailContext =
+                        if (recordingId != null && destination != null) {
+                            GlobalDetailContext(recordingId, destination)
+                        } else {
+                            null
+                        }
+                },
             )
             1 -> LocalFilesScreen(
                 padding,
@@ -625,6 +680,7 @@ private fun LocalFilesScreen(
     onOpenRequestConsumed: (GlobalRecordingOpenRequest) -> Unit,
     onOpenSettings: () -> Unit,
     onSecondaryPageChanged: (Boolean) -> Unit,
+    onDetailContextChanged: (String?, RecordingDetailDestination?) -> Unit,
 ) {
     val recordings by viewModel.libraryRecordings.collectAsState(initial = emptyList())
     var selectedRecordingId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -755,6 +811,9 @@ private fun LocalFilesScreen(
 
     LaunchedEffect(selectedRecording != null) {
         onSecondaryPageChanged(selectedRecording != null)
+        if (selectedRecording == null) {
+            onDetailContextChanged(null, null)
+        }
     }
 
     if (selectedRecording == null) {
@@ -800,6 +859,9 @@ private fun LocalFilesScreen(
                 deviceRecording.status == RecordingStatus.Recording ||
                     deviceRecording.status == RecordingStatus.Paused,
             initialDestination = requestedDestination,
+            onDestinationChanged = { destination ->
+                onDetailContextChanged(recording.id, destination)
+            },
         )
     }
 }
