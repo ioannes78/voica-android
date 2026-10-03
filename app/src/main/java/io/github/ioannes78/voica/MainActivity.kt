@@ -33,6 +33,8 @@ class MainActivity : ComponentActivity() {
                     recordingLibraryRepository = recordingLibraryRepository,
                     canonicalAudioCoordinator = canonicalAudioCoordinator,
                     localAudioImportCoordinator = appContainer.localAudioImportCoordinator,
+                    localRecordingDeleteCoordinator =
+                        appContainer.localRecordingDeleteCoordinator,
                     playbackController = appContainer.playbackController,
                     modelManager = appContainer.modelManager,
                     modelUpdateController = appContainer.modelUpdateController,
