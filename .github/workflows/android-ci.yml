@@ -80,6 +80,15 @@ jobs:
           :app:assembleQa
           --stacktrace
 
+      - name: Upload generated Room v6 schema
+        if: ${{ success() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: room-v6-schema
+          path: core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/6.json
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Verify stable QA signing identity
         shell: bash
         run: |
