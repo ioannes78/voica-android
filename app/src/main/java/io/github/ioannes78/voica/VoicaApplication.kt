@@ -71,6 +71,14 @@ class AppContainer(
             onImported = canonicalAudioCoordinator::requestAutomatic,
         )
 
+    val localAudioExportCoordinator =
+        LocalAudioExportCoordinator(
+            context = application,
+            repository = recordingLibraryRepository,
+            recordingsRoot = recordingsRoot,
+            canonicalAudioCoordinator = canonicalAudioCoordinator,
+        )
+
     private val roomAudioSourceResolver =
         RoomAudioSourceResolver(
             repository = recordingLibraryRepository,
@@ -129,6 +137,7 @@ class AppContainer(
             profileStore = providerProfileStore,
             providerRegistry = providerAdapterRegistry,
             engine = AiSummaryEngine(),
+            isRecordingActive = recordingLibraryRepository::isRecordingActive,
         )
 
     val transcriptionCoordinator =
@@ -252,6 +261,7 @@ class AppContainer(
             recordingLibraryRepository.normalizeStandardDeviceDisplayNames()
             recordingLibraryRepository.reconcilePendingDeletes()
             localAudioImportCoordinator.cleanupStaleStaging()
+            localAudioExportCoordinator.cleanupStaleShareCache()
             canonicalAudioCoordinator.reconcileOnStartup()
             transcriptionCoordinator.reconcileOnStartup()
             diarizationCoordinator.reconcileOnStartup()
