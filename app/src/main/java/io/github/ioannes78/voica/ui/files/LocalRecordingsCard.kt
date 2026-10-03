@@ -68,10 +68,10 @@ fun LocalRecordingsCard(
                 recordings.sortedWith(
                     compareByDescending<RecordingLibraryItem> {
                         it.recordedAtLocalIso ?: ""
-                    }.thenByDescending { it.downloadedAtMs },
+                    }.thenByDescending { it.downloadedAtMs ?: Long.MIN_VALUE },
                 )
             LocalRecordingSort.DOWNLOADED_AT ->
-                recordings.sortedByDescending { it.downloadedAtMs }
+                recordings.sortedByDescending { it.downloadedAtMs ?: Long.MIN_VALUE }
             LocalRecordingSort.NAME ->
                 recordings.sortedBy { it.displayName.lowercase(Locale.ROOT) }
             LocalRecordingSort.SIZE ->
@@ -283,10 +283,14 @@ private fun RecordingRow(
         )
         LocalInfoLine(
             stringResource(R.string.local_file_downloaded_at),
-            Instant.ofEpochMilli(item.downloadedAtMs)
-                .atZone(ZoneId.systemDefault())
-                .toLocalDateTime()
-                .format(DISPLAY_TIME),
+            item.downloadedAtMs
+                ?.let { value ->
+                    Instant.ofEpochMilli(value)
+                        .atZone(ZoneId.systemDefault())
+                        .toLocalDateTime()
+                        .format(DISPLAY_TIME)
+                }
+                ?: stringResource(R.string.device_file_unknown),
         )
 
         item.assets
