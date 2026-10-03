@@ -112,6 +112,14 @@ class RecordingLibraryRepository(
                     if (dao.insertRecordingIgnore(recording) != -1L) {
                         insertedRecordings += 1
                     }
+                    dao.insertUserMetadataIgnore(
+                        RecordingUserMetadataEntity(
+                            recordingId = recording.id,
+                            folderId = null,
+                            isFavorite = false,
+                            updatedAtMs = now,
+                        ),
+                    )
                     assets.forEach { candidate ->
                         if (dao.insertAssetIgnore(candidate.toAssetEntity(now)) != -1L) {
                             insertedAssets += 1
@@ -177,6 +185,14 @@ class RecordingLibraryRepository(
                     deviceReportedDurationMs = asset.deviceReportedDurationMs,
                     downloadedAtMs = asset.downloadedAtMs,
                     createdAtMs = asset.downloadedAtMs,
+                    updatedAtMs = now,
+                ),
+            )
+            dao.insertUserMetadataIgnore(
+                RecordingUserMetadataEntity(
+                    recordingId = recordingId,
+                    folderId = null,
+                    isFavorite = false,
                     updatedAtMs = now,
                 ),
             )
