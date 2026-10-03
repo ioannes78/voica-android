@@ -1,5 +1,24 @@
 package io.github.ioannes78.voica.database
 
+data class CanonicalCleanupCandidate(
+    val recordingId: String,
+    val assetId: String,
+    val relativePath: String,
+    val sizeBytes: Long,
+)
+
+data class RecordingStorageUsage(
+    val originalAudioBytes: Long,
+    val canonicalAudioBytes: Long,
+    val reclaimableCanonicalBytes: Long,
+)
+
+data class CanonicalCleanupResult(
+    val reclaimedBytes: Long,
+    val deletedAssets: Int,
+    val failedPaths: List<String>,
+)
+
 data class RecordingAsset(
     val assetId: String,
     val role: String,
