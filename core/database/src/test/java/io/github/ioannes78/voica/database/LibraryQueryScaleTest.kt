@@ -142,7 +142,7 @@ class LibraryQueryScaleTest {
                         createdAtMs, updatedAtMs, state
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
                     """.trimIndent(),
-                    arrayOf(
+                    arrayOf<Any?>(
                         id,
                         sourceType,
                         if (sourceType == RecordingSourceType.DEVICE_DOWNLOAD) "remote-$id" else null,
@@ -163,7 +163,7 @@ class LibraryQueryScaleTest {
                         recordingId, folderId, isFavorite, updatedAtMs
                     ) VALUES (?, ?, ?, ?)
                     """.trimIndent(),
-                    arrayOf(
+                    arrayOf<Any?>(
                         id,
                         if (inFolder) "folder-client" else null,
                         favorite,
@@ -180,7 +180,7 @@ class LibraryQueryScaleTest {
                               'PCM16_LE', 16000, 1, ?, ?,
                               'VERIFIED', 'VALID', ?, ?)
                     """.trimIndent(),
-                    arrayOf(
+                    arrayOf<Any?>(
                         "asset-$id",
                         id,
                         "completed/$id.wav",
