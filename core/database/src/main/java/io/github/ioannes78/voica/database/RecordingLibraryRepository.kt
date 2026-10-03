@@ -28,6 +28,7 @@ data class CanonicalConversionSource(
     val sourceSha256: String,
     val sourceSizeBytes: Long,
     val deviceReportedDurationMs: Long?,
+    val mediaDurationMs: Long?,
     val existingCanonical: RecordingAsset?,
     val derivationState: String?,
 )
@@ -491,6 +492,9 @@ class RecordingLibraryRepository(
             } ?: row.assets.firstOrNull {
                 it.role == AudioAssetRole.DEVICE_WAV &&
                     it.integrityState == AudioIntegrityState.VERIFIED
+            } ?: row.assets.firstOrNull {
+                it.role == AudioAssetRole.IMPORTED_ORIGINAL &&
+                    it.integrityState == AudioIntegrityState.VERIFIED
             } ?: return null
         val existingCanonical = row.assets.firstOrNull {
             it.role == AudioAssetRole.CANONICAL_WAV &&
@@ -510,6 +514,7 @@ class RecordingLibraryRepository(
             sourceSha256 = source.sha256,
             sourceSizeBytes = source.sizeBytes,
             deviceReportedDurationMs = row.recording.deviceReportedDurationMs,
+            mediaDurationMs = row.recording.mediaDurationMs,
             existingCanonical = existingCanonical,
             derivationState = derivation?.state,
         )
