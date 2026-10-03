@@ -69,6 +69,7 @@ import io.github.ioannes78.voica.StorageManagementCoordinator
 import io.github.ioannes78.voica.TranscriptionCoordinator
 import io.github.ioannes78.voica.TranscriptionRunState
 import io.github.ioannes78.voica.audio.PlaybackController
+import io.github.ioannes78.voica.audio.PlaybackSnapshot
 import io.github.ioannes78.voica.audio.PlaybackState
 import io.github.ioannes78.voica.ble.BleDiagnostics
 import io.github.ioannes78.voica.ble.BleError
@@ -112,6 +113,7 @@ import io.github.ioannes78.voica.ui.library.RecordingLibraryRoute
 import io.github.ioannes78.voica.ui.library.RecordingLibraryViewModel
 import io.github.ioannes78.voica.ui.playback.PlaybackCard
 import io.github.ioannes78.voica.ui.playback.PlaybackViewModel
+import io.github.ioannes78.voica.ui.playback.formatPlaybackTime
 import io.github.ioannes78.voica.ui.recording.GlobalRecordingStatusBar
 import io.github.ioannes78.voica.ui.recording.RecordingCard
 import io.github.ioannes78.voica.ui.settings.ProductSettingsScreen
@@ -618,11 +620,16 @@ private fun LocalFilesScreen(
     diarizationViewModel: DiarizationViewModel,
     transcriptPlaybackSyncViewModel: TranscriptPlaybackSyncViewModel,
     aiSummaryViewModel: AiSummaryViewModel,
+    openRequest: GlobalRecordingOpenRequest?,
+    onOpenRequestConsumed: (GlobalRecordingOpenRequest) -> Unit,
     onOpenSettings: () -> Unit,
     onSecondaryPageChanged: (Boolean) -> Unit,
 ) {
     val recordings by viewModel.libraryRecordings.collectAsState(initial = emptyList())
     var selectedRecordingId by rememberSaveable { mutableStateOf<String?>(null) }
+    var requestedDestination by remember {
+        mutableStateOf(RecordingDetailDestination.PLAYBACK)
+    }
     val selectedRecording =
         selectedRecordingId?.let { id ->
             recordings.firstOrNull { it.id == id }
@@ -738,6 +745,13 @@ private fun LocalFilesScreen(
             }
         }
 
+    LaunchedEffect(openRequest?.token) {
+        val request = openRequest ?: return@LaunchedEffect
+        requestedDestination = request.destination
+        selectedRecordingId = request.recordingId
+        onOpenRequestConsumed(request)
+    }
+
     LaunchedEffect(selectedRecording != null) {
         onSecondaryPageChanged(selectedRecording != null)
     }
@@ -746,7 +760,10 @@ private fun LocalFilesScreen(
         RecordingLibraryRoute(
             padding = padding,
             viewModel = recordingLibraryViewModel,
-            onOpenRecording = { selectedRecordingId = it },
+            onOpenRecording = {
+                requestedDestination = RecordingDetailDestination.PLAYBACK
+                selectedRecordingId = it
+            },
         )
     } else {
         RecordingDetailScreen(
@@ -757,7 +774,10 @@ private fun LocalFilesScreen(
             diarizationViewModel = diarizationViewModel,
             transcriptPlaybackSyncViewModel = transcriptPlaybackSyncViewModel,
             aiSummaryViewModel = aiSummaryViewModel,
-            onBack = { selectedRecordingId = null },
+            onBack = {
+                selectedRecordingId = null
+                requestedDestination = RecordingDetailDestination.PLAYBACK
+            },
             onOpenSettings = onOpenSettings,
             onRename = viewModel::renameLocalRecording,
             onDelete = playbackViewModel::deleteRecording,
@@ -778,7 +798,177 @@ private fun LocalFilesScreen(
             deviceRecordingActive =
                 deviceRecording.status == RecordingStatus.Recording ||
                     deviceRecording.status == RecordingStatus.Paused,
+            initialDestination = requestedDestination,
         )
+    }
+}
+
+private fun buildGlobalTaskItems(
+    transcription: TranscriptionRunState,
+    diarization: DiarizationRunState,
+    aiSummary: AiSummaryRunState,
+    recordings: List<RecordingLibraryItem>,
+): List<GlobalTaskItem> {
+    fun recordingName(recordingId: String): String =
+        recordings.firstOrNull { it.id == recordingId }?.displayName
+            ?: "录音"
+
+    return buildList {
+        (transcription as? TranscriptionRunState.Running)?.let { state ->
+            val progress =
+                state.progress.fraction?.let {
+                    (it * 100.0).roundToInt().coerceIn(0, 100).toString() + "%"
+                }
+            add(
+                GlobalTaskItem(
+                    recordingId = state.recordingId,
+                    recordingName = recordingName(state.recordingId),
+                    label = "转写中",
+                    progress = progress,
+                    destination = RecordingDetailDestination.TRANSCRIPT,
+                ),
+            )
+        }
+        (diarization as? DiarizationRunState.Running)?.let { state ->
+            val progress =
+                state.progress.fraction?.let {
+                    (it * 100.0).roundToInt().coerceIn(0, 100).toString() + "%"
+                }
+            add(
+                GlobalTaskItem(
+                    recordingId = state.recordingId,
+                    recordingName = recordingName(state.recordingId),
+                    label = "说话人分离",
+                    progress = progress,
+                    destination = RecordingDetailDestination.TRANSCRIPT,
+                ),
+            )
+        }
+        (aiSummary as? AiSummaryRunState.Running)
+            ?.recordingId
+            ?.let { recordingId ->
+                val state = aiSummary as AiSummaryRunState.Running
+                val progress =
+                    if (state.totalUnits > 0) {
+                        ((state.completedUnits.toDouble() / state.totalUnits.toDouble()) * 100.0)
+                            .roundToInt()
+                            .coerceIn(0, 100)
+                            .toString() + "%"
+                    } else {
+                        when (state.phase.name) {
+                            "PREPARING" -> "准备中"
+                            "ANALYZING" -> "分析中"
+                            "MAPPING" -> "分段总结"
+                            "REDUCING" -> "合并总结"
+                            "VALIDATING" -> "验证结果"
+                            else -> null
+                        }
+                    }
+                add(
+                    GlobalTaskItem(
+                        recordingId = recordingId,
+                        recordingName = recordingName(recordingId),
+                        label = "AI 总结",
+                        progress = progress,
+                        destination = RecordingDetailDestination.SUMMARY,
+                    ),
+                )
+            }
+    }
+}
+
+@Composable
+private fun GlobalTaskStatusBar(
+    tasks: List<GlobalTaskItem>,
+    onOpen: (String, RecordingDetailDestination) -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            Text(
+                if (tasks.size == 1) "正在处理" else tasks.size.toString() + " 个任务正在处理",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            tasks.forEach { task ->
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                onOpen(task.recordingId, task.destination)
+                            }
+                            .padding(vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        task.label + " · " + task.recordingName,
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                    )
+                    task.progress?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    Text("›", style = MaterialTheme.typography.titleMedium)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GlobalPlaybackStatusBar(
+    snapshot: PlaybackSnapshot,
+    recordingName: String?,
+    onPlay: () -> Unit,
+    onPause: () -> Unit,
+    onOpen: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onOpen)
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            TextButton(
+                onClick = {
+                    if (snapshot.state == PlaybackState.PLAYING) {
+                        onPause()
+                    } else {
+                        onPlay()
+                    }
+                },
+            ) {
+                Text(if (snapshot.state == PlaybackState.PLAYING) "暂停" else "播放")
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    recordingName ?: "当前录音",
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                )
+                Text(
+                    formatPlaybackTime(snapshot.positionSampleIndex) +
+                        " / " +
+                        formatPlaybackTime(snapshot.durationSampleCount),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text("›", style = MaterialTheme.typography.titleLarge)
+        }
     }
 }
 
