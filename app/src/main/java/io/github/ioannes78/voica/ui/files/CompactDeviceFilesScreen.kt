@@ -139,7 +139,7 @@ fun CompactDeviceFilesScreen(
                     }
                     IconButton(
                         onClick = { batchDeleteConfirm = true },
-                        enabled = selectedIds.isNotEmpty() && !batchBusy && active == null,
+                        enabled = selectedIds.isNotEmpty() && !batchBusy && active == null && canRefresh,
                     ) {
                         Icon(
                             Icons.Outlined.Delete,
@@ -326,7 +326,7 @@ fun CompactDeviceFilesScreen(
                             selectedFile = null
                             onDownload(file, DeviceAudioFormat.OPUS)
                         },
-                        enabled = active == null && !batchBusy,
+                        enabled = active == null && !batchBusy && canRefresh,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text(stringResource(R.string.device_file_download_opus))
@@ -341,7 +341,7 @@ fun CompactDeviceFilesScreen(
                             selectedFile = null
                             onDownload(file, DeviceAudioFormat.WAV)
                         },
-                        enabled = active == null && !batchBusy,
+                        enabled = active == null && !batchBusy && canRefresh,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text(stringResource(R.string.device_file_download_wav))
@@ -354,7 +354,7 @@ fun CompactDeviceFilesScreen(
                             selectedFile = null
                             onRangeProbe(file)
                         },
-                        enabled = active == null && !batchBusy,
+                        enabled = active == null && !batchBusy && canRefresh,
                     ) {
                         Text(stringResource(R.string.device_file_range_probe))
                     }
@@ -365,7 +365,7 @@ fun CompactDeviceFilesScreen(
                         selectedFile = null
                         pendingDelete = file
                     },
-                    enabled = active == null && !batchBusy,
+                    enabled = active == null && !batchBusy && canRefresh,
                 ) {
                     Text(
                         stringResource(R.string.device_file_delete_remote),
