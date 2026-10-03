@@ -9,6 +9,7 @@ import androidx.room.Relation
 
 object RecordingSourceType {
     const val DEVICE_DOWNLOAD = "DEVICE_DOWNLOAD"
+    const val LOCAL_IMPORT = "LOCAL_IMPORT"
 }
 
 object RecordingState {
@@ -19,6 +20,7 @@ object RecordingState {
 object AudioAssetRole {
     const val DEVICE_OPUS = "DEVICE_OPUS"
     const val DEVICE_WAV = "DEVICE_WAV"
+    const val IMPORTED_ORIGINAL = "IMPORTED_ORIGINAL"
     const val CANONICAL_WAV = "CANONICAL_WAV"
 }
 
@@ -58,18 +60,23 @@ object AudioDerivationState {
         Index(value = ["sourceRemoteIdentity"], unique = true),
         Index(value = ["recordedAtLocalIso"]),
         Index(value = ["downloadedAtMs"]),
+        Index(value = ["createdAtMs"]),
+        Index(value = ["updatedAtMs"]),
+        Index(value = ["sourceType"]),
+        Index(value = ["state"]),
     ],
 )
 data class RecordingEntity(
     @PrimaryKey val id: String,
     val sourceType: String,
-    val sourceRemoteIdentity: String,
-    val sourceDeviceAddress: String,
+    val sourceRemoteIdentity: String?,
+    val sourceDeviceAddress: String?,
     val originalFilename: String,
     val displayName: String,
     val recordedAtLocalIso: String?,
     val deviceReportedDurationMs: Long?,
-    val downloadedAtMs: Long,
+    val mediaDurationMs: Long?,
+    val downloadedAtMs: Long?,
     val createdAtMs: Long,
     val updatedAtMs: Long,
     val state: String = RecordingState.ACTIVE,
