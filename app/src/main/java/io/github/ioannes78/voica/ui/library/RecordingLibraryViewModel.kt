@@ -282,6 +282,63 @@ class RecordingLibraryViewModel(
         }
     }
 
+    fun renameFolder(folderId: String, name: String) {
+        viewModelScope.launch {
+            runCatching { repository.renameFolder(folderId, name) }
+                .onSuccess { renamed ->
+                    operationMessage.value =
+                        if (renamed) "文件夹已重命名" else "文件夹名称已存在"
+                }
+                .onFailure { operationMessage.value = it.message ?: "重命名失败" }
+        }
+    }
+
+    fun deleteFolder(folderId: String) {
+        viewModelScope.launch {
+            runCatching { repository.deleteFolder(folderId) }
+                .onSuccess { deleted ->
+                    if (deleted && criteria.value.folderId == folderId) {
+                        criteria.value =
+                            criteria.value.copy(
+                                folderId = null,
+                                uncategorizedOnly = false,
+                            )
+                    }
+                    operationMessage.value =
+                        if (deleted) "文件夹已删除，录音已移至未分类" else "文件夹不存在"
+                }
+                .onFailure { operationMessage.value = it.message ?: "删除文件夹失败" }
+        }
+    }
+
+    fun renameTag(tagId: String, name: String) {
+        viewModelScope.launch {
+            runCatching { repository.renameTag(tagId, name) }
+                .onSuccess { renamed ->
+                    operationMessage.value =
+                        if (renamed) "标签已重命名" else "标签名称已存在"
+                }
+                .onFailure { operationMessage.value = it.message ?: "重命名失败" }
+        }
+    }
+
+    fun deleteTag(tagId: String) {
+        viewModelScope.launch {
+            runCatching { repository.deleteTag(tagId) }
+                .onSuccess { deleted ->
+                    if (deleted && tagId in criteria.value.tagIds) {
+                        criteria.value =
+                            criteria.value.copy(
+                                tagIds = criteria.value.tagIds - tagId,
+                            )
+                    }
+                    operationMessage.value =
+                        if (deleted) "标签已删除" else "标签不存在"
+                }
+                .onFailure { operationMessage.value = it.message ?: "删除标签失败" }
+        }
+    }
+
     fun consumeOperationMessage() {
         operationMessage.value = null
     }
