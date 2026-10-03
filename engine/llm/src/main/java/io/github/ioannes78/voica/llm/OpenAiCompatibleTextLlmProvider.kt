@@ -506,10 +506,12 @@ class OpenAiCompatibleTextLlmProvider(
         return when {
             parameters.any {
                 it == "structured_outputs" ||
-                    it == "json_schema" ||
-                    it == "response_format"
+                    it == "json_schema"
             } -> StructuredOutputMode.STRICT_JSON_SCHEMA
-            parameters.any { it == "json_object" } -> StructuredOutputMode.JSON_OBJECT
+            parameters.any {
+                it == "json_object" ||
+                    it == "response_format"
+            } -> StructuredOutputMode.JSON_OBJECT
             else -> StructuredOutputMode.PROMPT_ONLY
         }
     }
