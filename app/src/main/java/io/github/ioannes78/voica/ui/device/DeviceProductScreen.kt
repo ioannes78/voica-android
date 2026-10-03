@@ -59,6 +59,7 @@ private enum class DevicePage {
 fun DeviceProductScreen(
     padding: PaddingValues,
     viewModel: DeviceViewModel,
+    onSecondaryPageChanged: (Boolean) -> Unit,
 ) {
     val scan by viewModel.scanState.collectAsState()
     val connection by viewModel.connectionState.collectAsState()
@@ -67,10 +68,17 @@ fun DeviceProductScreen(
     val deviceFiles by viewModel.deviceFileListState.collectAsState()
     val libraryRecordings by viewModel.libraryRecordings.collectAsState(initial = emptyList())
     val diagnostics by viewModel.diagnostics.collectAsState()
+    val fileTransferDiagnostics by viewModel.fileTransferDiagnostics.collectAsState()
+    val remoteDeleteDiagnostics by viewModel.remoteDeleteDiagnostics.collectAsState()
+    val rangeProbeDiagnostics by viewModel.rangeProbeDiagnostics.collectAsState()
     val missingPermissions by viewModel.missingPermissions.collectAsState()
     val actionMessage by viewModel.actionMessage.collectAsState()
 
     var page by rememberSaveable { mutableStateOf(DevicePage.HOME) }
+
+    LaunchedEffect(page) {
+        onSecondaryPageChanged(page != DevicePage.HOME)
+    }
 
     LaunchedEffect(connection) {
         if (connection is DeviceConnectionState.PermissionRequired) {
@@ -88,6 +96,11 @@ fun DeviceProductScreen(
     if (page != DevicePage.HOME) {
         BackHandler { page = DevicePage.HOME }
     }
+
+    val compatibleDevices =
+        scan.devices.filter { it.advertisesAe20 || it.likelyQs668 }
+    val otherDevices =
+        scan.devices.filterNot { it.advertisesAe20 || it.likelyQs668 }
 
     when (page) {
         DevicePage.HOME -> {
@@ -128,20 +141,29 @@ fun DeviceProductScreen(
                 }
 
                 if (connection !is DeviceConnectionState.Ready) {
-                    items(
-                        items = scan.devices.take(MAX_HOME_SCAN_RESULTS),
-                        key = { it.address },
-                    ) { device ->
-                        CompactScanDeviceRow(
-                            device = device,
-                            onConnect = viewModel::connect,
-                        )
+                    if (compatibleDevices.isNotEmpty()) {
+                        item {
+                            Text(
+                                "兼容录音设备",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        items(
+                            items = compatibleDevices.take(MAX_HOME_SCAN_RESULTS),
+                            key = { it.address },
+                        ) { device ->
+                            CompactScanDeviceRow(
+                                device = device,
+                                onConnect = viewModel::connect,
+                            )
+                        }
                     }
 
-                    if (scan.devices.size > MAX_HOME_SCAN_RESULTS) {
+                    if (otherDevices.isNotEmpty()) {
                         item {
                             TextButton(onClick = { page = DevicePage.ALL_DEVICES }) {
-                                Text("查看全部 ${scan.devices.size} 台设备")
+                                Text("其它蓝牙设备 " + otherDevices.size + " >")
                             }
                         }
                     }
@@ -222,58 +244,54 @@ fun DeviceProductScreen(
                         onBack = { page = DevicePage.HOME },
                     )
                 }
-                items(scan.devices, key = { it.address }) { device ->
-                    CompactScanDeviceRow(
-                        device = device,
-                        onConnect = {
-                            page = DevicePage.HOME
-                            viewModel.connect(it)
-                        },
-                    )
+                if (compatibleDevices.isNotEmpty()) {
+                    item {
+                        Text(
+                            "兼容录音设备",
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                    }
+                    items(compatibleDevices, key = { it.address }) { device ->
+                        CompactScanDeviceRow(
+                            device = device,
+                            onConnect = {
+                                page = DevicePage.HOME
+                                viewModel.connect(it)
+                            },
+                        )
+                    }
+                }
+                if (otherDevices.isNotEmpty()) {
+                    item {
+                        Text(
+                            "其它蓝牙设备",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    items(otherDevices, key = { it.address }) { device ->
+                        CompactScanDeviceRow(
+                            device = device,
+                            onConnect = {
+                                page = DevicePage.HOME
+                                viewModel.connect(it)
+                            },
+                        )
+                    }
                 }
             }
         }
 
         DevicePage.DIAGNOSTICS -> {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                item {
-                    CompactSubpageHeader(
-                        title = "设备诊断",
-                        onBack = { page = DevicePage.HOME },
-                    )
-                }
-                item {
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            DiagnosticRow("Session", diagnostics.sessionId.toString())
-                            DiagnosticRow("GATT", diagnostics.gattStage)
-                            DiagnosticRow("MTU", diagnostics.negotiatedMtu?.toString() ?: "--")
-                            DiagnosticRow("AE20", diagnostics.shape.ae20Found.toString())
-                            DiagnosticRow("AE22", diagnostics.ae22Subscribed.toString())
-                            DiagnosticRow("AE23", diagnostics.ae23Subscribed.toString())
-                            DiagnosticRow(
-                                "录音状态",
-                                diagnostics.recording.statusDecoded ?: "--",
-                            )
-                            DiagnosticRow(
-                                "录音时长",
-                                diagnostics.recording.durationSeconds?.toString() ?: "--",
-                            )
-                            DiagnosticRow(
-                                "设备文件",
-                                diagnostics.fileList.parsedEntryCount.toString(),
-                            )
-                        }
-                    }
-                }
-            }
-        }
+            FullDiagnosticsScreen(
+                padding = padding,
+                diagnostics = diagnostics,
+                fileTransfer = fileTransferDiagnostics,
+                remoteDelete = remoteDeleteDiagnostics,
+                rangeProbe = rangeProbeDiagnostics,
+                onBack = { page = DevicePage.HOME },
+            )
+        }}
     }
 }
 
