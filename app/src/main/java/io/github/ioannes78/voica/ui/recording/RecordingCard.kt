@@ -25,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.ioannes78.voica.R
@@ -117,17 +118,6 @@ fun RecordingCard(
                         },
                         enabled = !busy,
                     )
-                    state.filename?.let { filename ->
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    "$filename · ${formatBytes(state.currentSizeBytes)}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                            },
-                            onClick = {},
-                            enabled = false,
-                        )
                     }
                 }
             }
@@ -141,6 +131,24 @@ fun RecordingCard(
                     ),
                 fontWeight = FontWeight.Medium,
             )
+
+            if (
+                (state.status == RecordingStatus.Recording ||
+                    state.status == RecordingStatus.Paused) &&
+                !state.filename.isNullOrBlank()
+            ) {
+                Text(
+                    text =
+                        state.filename +
+                            (state.currentSizeBytes?.let {
+                                " · " + formatBytes(it)
+                            } ?: ""),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
 
             if (!synchronized) {
                 Text(
