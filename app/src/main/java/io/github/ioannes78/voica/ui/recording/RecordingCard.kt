@@ -78,7 +78,7 @@ fun RecordingCard(
                     DropdownMenuItem(
                         text = {
                             Text(
-                                "增益：\${gainText(state.gain)}",
+                                "增益：${gainText(state.gain)}",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         },
@@ -121,7 +121,7 @@ fun RecordingCard(
                         DropdownMenuItem(
                             text = {
                                 Text(
-                                    "\$filename · \${formatBytes(state.currentSizeBytes)}",
+                                    "$filename · ${formatBytes(state.currentSizeBytes)}",
                                     style = MaterialTheme.typography.bodySmall,
                                 )
                             },
@@ -236,7 +236,7 @@ fun RecordingCard(
 
             state.lastError?.let { error ->
                 Text(
-                    error.code.name + (error.detail?.let { " · \$it" } ?: ""),
+                    error.code.name + (error.detail?.let { " · $it" } ?: ""),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
@@ -323,6 +323,6 @@ private fun formatBytes(bytes: Long?): String {
             "%.2f MB".format(bytes.toDouble() / 1024.0 / 1024.0)
         bytes >= 1024L ->
             "%.1f KB".format(bytes.toDouble() / 1024.0)
-        else -> "\$bytes B"
+        else -> "$bytes B"
     }
 }
