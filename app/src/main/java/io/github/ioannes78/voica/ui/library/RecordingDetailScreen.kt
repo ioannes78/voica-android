@@ -93,6 +93,10 @@ fun RecordingDetailScreen(
     onOpenSettings: () -> Unit,
     onRename: (String, String) -> Unit,
     onDelete: (String) -> Unit,
+    onExportCanonical: (String) -> Unit,
+    onExportOriginal: (String) -> Unit,
+    onShareCanonical: (String) -> Unit,
+    onShareOriginal: (String) -> Unit,
     onGenerateCanonical: (String) -> Unit,
     onCancelCanonical: (String) -> Unit,
     deviceRecordingActive: Boolean,
@@ -144,6 +148,12 @@ fun RecordingDetailScreen(
     val activeCanonicalJob = recording.derivations.firstOrNull {
         it.state in ACTIVE_DERIVATION_STATES
     }
+    val originalIsRecorderRawOpus =
+        recording.assets.none { it.role == AudioAssetRole.IMPORTED_ORIGINAL } &&
+            recording.assets.any {
+                it.role == AudioAssetRole.DEVICE_OPUS &&
+                    it.integrityState == AudioIntegrityState.VERIFIED
+            }
 
     val transcriptListState = rememberLazyListState()
     val programmaticScroll = remember { AtomicBoolean(false) }
@@ -333,6 +343,52 @@ fun RecordingDetailScreen(
                             renameOpen = true
                         },
                     )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("导出 WAV") },
+                        onClick = {
+                            moreMenuExpanded = false
+                            onExportCanonical(recording.id)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                if (originalIsRecorderRawOpus) {
+                                    "导出原始文件（录音卡 Opus）"
+                                } else {
+                                    "导出原始文件"
+                                },
+                            )
+                        },
+                        onClick = {
+                            moreMenuExpanded = false
+                            onExportOriginal(recording.id)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("分享 WAV") },
+                        onClick = {
+                            moreMenuExpanded = false
+                            onShareCanonical(recording.id)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                if (originalIsRecorderRawOpus) {
+                                    "分享原始文件（录音卡 Opus）"
+                                } else {
+                                    "分享原始文件"
+                                },
+                            )
+                        },
+                        onClick = {
+                            moreMenuExpanded = false
+                            onShareOriginal(recording.id)
+                        },
+                    )
+                    HorizontalDivider()
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.local_file_delete)) },
                         onClick = {
