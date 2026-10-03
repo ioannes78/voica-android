@@ -386,6 +386,63 @@ class DefaultModelManager(
         }
     }
 
+    override suspend fun downloadedVersions(): List<DownloadedModelVersionInfo> =
+        withContext(blockingDispatcher) {
+            storage.installedVersions()
+                .map { stored ->
+                    val descriptor = stored.snapshot.descriptor
+                    val activation = storage.activationState(descriptor.modelId)
+                    DownloadedModelVersionInfo(
+                        modelId = descriptor.modelId,
+                        displayName = descriptor.displayName,
+                        version = descriptor.version,
+                        revision = descriptor.revision,
+                        sizeBytes = stored.sizeBytes,
+                        active =
+                            activation.activeVersion == descriptor.version &&
+                                activation.activeRevision == descriptor.revision,
+                        previous =
+                            activation.previousVersion == descriptor.version &&
+                                activation.previousRevision == descriptor.revision,
+                        inUse =
+                            useRegistry.isInUse(
+                                descriptor.modelId,
+                                descriptor.version,
+                                descriptor.revision,
+                            ),
+                    )
+                }
+                .sortedWith(
+                    compareBy<DownloadedModelVersionInfo> { it.displayName.lowercase() }
+                        .thenByDescending { it.revision },
+                )
+        }
+
+    override suspend fun cleanupTransientStorage(): Long {
+        val activeParts = installPartFiles.values.mapTo(hashSetOf()) { it.canonicalPath }
+        return withContext(blockingDispatcher) {
+            var reclaimed = 0L
+
+            if (installJobs.isEmpty()) {
+                reclaimed += storage.cleanupStaging()
+            }
+
+            packages.listFiles()
+                .orEmpty()
+                .filter { file ->
+                    file.isFile &&
+                        file.name.endsWith(".part") &&
+                        file.canonicalPath !in activeParts
+                }
+                .forEach { file ->
+                    val bytes = file.length()
+                    if (file.delete()) reclaimed += bytes
+                }
+
+            reclaimed
+        }
+    }
+
     override suspend fun rollback(modelId: String) {
         val mutex = modelMutexes.computeIfAbsent(modelId) { Mutex() }
         mutex.withLock {
