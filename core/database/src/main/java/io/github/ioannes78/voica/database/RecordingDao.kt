@@ -58,25 +58,29 @@ interface RecordingDao {
             canonical.recordingId AS recordingId,
             canonical.assetId AS assetId,
             canonical.relativePath AS relativePath,
-            canonical.sizeBytes AS sizeBytes
+            canonical.sizeBytes AS sizeBytes,
+            source.assetId AS sourceAssetId,
+            source.relativePath AS sourceRelativePath,
+            source.sizeBytes AS sourceSizeBytes,
+            source.sha256 AS sourceSha256
         FROM audio_assets canonical
         JOIN recordings recording ON recording.id = canonical.recordingId
+        JOIN audio_derivations derivation
+          ON derivation.recordingId = canonical.recordingId
+         AND derivation.outputAssetId = canonical.assetId
+         AND derivation.state = 'READY'
+        JOIN audio_assets source
+          ON source.recordingId = canonical.recordingId
+         AND source.assetId = derivation.sourceAssetId
+         AND LOWER(source.sha256) = LOWER(derivation.sourceSha256)
         WHERE canonical.role = 'CANONICAL_WAV'
           AND canonical.integrityState = 'VERIFIED'
           AND canonical.formatValidationState = 'VALID'
           AND recording.state = 'ACTIVE'
-          AND EXISTS (
-              SELECT 1 FROM audio_assets source
-              WHERE source.recordingId = canonical.recordingId
-                AND source.role IN ('DEVICE_OPUS', 'DEVICE_WAV', 'IMPORTED_ORIGINAL')
-                AND source.integrityState = 'VERIFIED'
-          )
-          AND NOT EXISTS (
-              SELECT 1 FROM audio_assets source
-              WHERE source.recordingId = canonical.recordingId
-                AND source.role IN ('DEVICE_OPUS', 'DEVICE_WAV', 'IMPORTED_ORIGINAL')
-                AND source.relativePath = canonical.relativePath
-          )
+          AND source.role IN ('DEVICE_OPUS', 'DEVICE_WAV', 'IMPORTED_ORIGINAL')
+          AND source.integrityState = 'VERIFIED'
+          AND source.formatValidationState = 'VALID'
+          AND source.relativePath != canonical.relativePath
           AND NOT EXISTS (
               SELECT 1 FROM transcriptions tx
               WHERE tx.sourceCanonicalAssetId = canonical.assetId
