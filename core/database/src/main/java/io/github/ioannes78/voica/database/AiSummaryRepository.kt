@@ -57,6 +57,9 @@ class AiSummaryRepository(
 
     suspend fun find(summaryId: String): AiSummaryEntity? = dao.findSummary(summaryId)
 
+    suspend fun recordingIdForTranscription(transcriptionId: String): String? =
+        transcriptionDao.findTranscription(transcriptionId)?.recordingId
+
     fun observeCustomTemplates(): Flow<List<AiCustomTemplateEntity>> =
         dao.observeCustomTemplates()
 
