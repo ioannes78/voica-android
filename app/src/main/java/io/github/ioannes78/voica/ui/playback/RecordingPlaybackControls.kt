@@ -39,11 +39,21 @@ fun RecordingPlaybackCard(
     recordingId: String,
     recordingName: String,
     canonicalReady: Boolean,
+    deviceRecordingActive: Boolean,
     playbackViewModel: PlaybackViewModel,
 ) {
     val snapshot by playbackViewModel.snapshot.collectAsState()
 
-    if (snapshot.recordingId == recordingId) {
+    if (deviceRecordingActive) {
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                "设备正在录音，播放已暂停。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(14.dp),
+            )
+        }
+    } else if (snapshot.recordingId == recordingId) {
         PlaybackCard(
             snapshot = snapshot,
             recordingName = recordingName,
@@ -157,6 +167,8 @@ fun MiniPlaybackBar(
                         when {
                             loaded && snapshot.state == PlaybackState.PLAYING ->
                                 playbackViewModel.pause()
+                            loaded && snapshot.state == PlaybackState.ERROR ->
+                                playbackViewModel.retryCurrent()
                             loaded -> playbackViewModel.play()
                             else -> playbackViewModel.loadAndPlay(recordingId)
                         }
