@@ -1,6 +1,6 @@
 # Voica Android 全项目 Stage 开发路线图
 
-当前状态：**Stage 11 已完成、用户验收通过并冻结；下一阶段为 Stage 12。**
+当前状态：**Stage 12A 已完成、用户真机验收通过并冻结；下一子阶段为 Stage 12B。**
 
 整个 Voica 路线均为全新独立实现，不得从 `voice-card-android` 复制、迁移、继承、cherry-pick 或机械改写任何代码。
 
@@ -510,6 +510,8 @@ Stage 12 统一完成产品层 UI/UX、本地录音库管理、转写/AI 总结�
 
 ### Stage 12A — UI / UX 完整化
 
+状态：**已完成 / 已真机验收 / 已冻结**
+
 - Material 3 视觉体系统一
 - Dark Mode
 - Device / 本地录音 / 转写 / AI 总结 / 设置页面层级与信息架构统一
@@ -519,6 +521,26 @@ Stage 12 统一完成产品层 UI/UX、本地录音库管理、转写/AI 总结�
 - 适配不同 Android 屏幕尺寸、长列表和大文本内容
 - 统一长按、更多菜单、多选、搜索、筛选、分享、导出等交互模式
 - Stage 9–11 新增页面在本阶段统一收口，不在此前阶段重复做全局 redesign
+
+Stage 12A 冻结补充：
+
+- 高频效率工具型 UI，一级导航固定为设备 / 录音库 / 设置
+- 二级页面隐藏主 Bottom Navigation
+- 设备首页聚焦连接状态与录音控制，完整 BLE Diagnostics 移入独立二级页但不删能力
+- 设备录音高密度列表、Bottom Sheet 单项操作、多选顺序验证删除
+- Recording Detail 固定 header + 播放 / 转写 / AI 总结 3 Tab
+- 完整播放器增加 ±10s 与六档离散倍速 Slider
+- 转写 / AI 总结使用 Mini Player，共用 Stage 7/10 sample timeline
+- Provider 未保存修改离开确认
+- Room 保持 v4
+- QA `0.12.0-stage12a-uxv3-qa1` 真机验收通过
+- 用户要求当前 UI/UX 暂时冻结，全部核心功能完成后再统一精细优化
+
+冻结文档：
+
+- `docs/STAGE_12A_TEST.md`
+- `docs/STAGE_12A_FREEZE.md`
+- `docs/STAGE_12A_HANDOFF.md`
 
 ### Stage 12B — 本地录音库增强
 
