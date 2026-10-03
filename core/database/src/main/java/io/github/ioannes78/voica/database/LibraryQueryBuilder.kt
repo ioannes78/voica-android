@@ -94,6 +94,47 @@ internal object LibraryQueryBuilder {
                 """.trimIndent()
         }
 
+        val searchDateFromLocalIso = criteria.searchDateFromLocalIso
+        val searchDateToLocalIso = criteria.searchDateToLocalIsoExclusive
+        val searchDateFromMs = criteria.searchDateFromMs
+        val searchDateToMs = criteria.searchDateToMsExclusive
+        if (
+            searchDateFromLocalIso != null &&
+            searchDateToLocalIso != null &&
+            searchDateFromMs != null &&
+            searchDateToMs != null
+        ) {
+            where +=
+                """
+                (
+                    (
+                        r.recordedAtLocalIso IS NOT NULL AND
+                        r.recordedAtLocalIso >= ? AND
+                        r.recordedAtLocalIso < ?
+                    ) OR (
+                        r.downloadedAtMs IS NOT NULL AND
+                        r.downloadedAtMs >= ? AND
+                        r.downloadedAtMs < ?
+                    ) OR (
+                        ip.importedAtMs IS NOT NULL AND
+                        ip.importedAtMs >= ? AND
+                        ip.importedAtMs < ?
+                    ) OR (
+                        r.createdAtMs >= ? AND
+                        r.createdAtMs < ?
+                    )
+                )
+                """.trimIndent()
+            args += searchDateFromLocalIso
+            args += searchDateToLocalIso
+            args += searchDateFromMs
+            args += searchDateToMs
+            args += searchDateFromMs
+            args += searchDateToMs
+            args += searchDateFromMs
+            args += searchDateToMs
+        }
+
         criteria.recordedFromLocalIso?.let {
             where += "r.recordedAtLocalIso >= ?"
             args += it
