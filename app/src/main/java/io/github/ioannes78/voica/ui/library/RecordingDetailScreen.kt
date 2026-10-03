@@ -73,6 +73,12 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 import kotlinx.coroutines.flow.distinctUntilChanged
 
+enum class RecordingDetailDestination {
+    PLAYBACK,
+    TRANSCRIPT,
+    SUMMARY,
+}
+
 private enum class DetailTab {
     PLAYBACK,
     TRANSCRIPT,
@@ -100,9 +106,10 @@ fun RecordingDetailScreen(
     onGenerateCanonical: (String) -> Unit,
     onCancelCanonical: (String) -> Unit,
     deviceRecordingActive: Boolean,
+    initialDestination: RecordingDetailDestination = RecordingDetailDestination.PLAYBACK,
 ) {
-    var selectedTab by rememberSaveable(recording.id) {
-        mutableStateOf(DetailTab.PLAYBACK)
+    var selectedTab by rememberSaveable(recording.id, initialDestination) {
+        mutableStateOf(initialDestination.toDetailTab())
     }
     var moreMenuExpanded by rememberSaveable { mutableStateOf(false) }
     var selectedTranscriptionId by rememberSaveable(recording.id) {
@@ -878,6 +885,13 @@ private fun InfoLine(label: String, value: String) {
 }
 
 @Composable
+private fun RecordingDetailDestination.toDetailTab(): DetailTab =
+    when (this) {
+        RecordingDetailDestination.PLAYBACK -> DetailTab.PLAYBACK
+        RecordingDetailDestination.TRANSCRIPT -> DetailTab.TRANSCRIPT
+        RecordingDetailDestination.SUMMARY -> DetailTab.SUMMARY
+    }
+
 private fun tabLabel(tab: DetailTab): String =
     stringResource(
         when (tab) {
