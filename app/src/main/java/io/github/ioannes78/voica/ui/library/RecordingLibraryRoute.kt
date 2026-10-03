@@ -1,5 +1,6 @@
 package io.github.ioannes78.voica.ui.library
 
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
@@ -22,10 +23,15 @@ fun RecordingLibraryRoute(
     onOpenRecording: (String) -> Unit,
 ) {
     val state by viewModel.uiState.collectAsState()
+    val exportInProgress by viewModel.exportInProgress.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val importLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             uri?.let(viewModel::importAudio)
+        }
+    val exportTreeLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            uri?.let(viewModel::exportSelectedToTree)
         }
 
     LaunchedEffect(state.operationMessage) {
@@ -69,6 +75,15 @@ fun RecordingLibraryRoute(
             onToggleFavorite = viewModel::toggleFavorite,
             onSetSelectedFavorite = viewModel::setSelectedFavorite,
             onDeleteSelected = viewModel::deleteSelected,
+            exportInProgress = exportInProgress,
+            onExportSelected = {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    viewModel.exportSelectedToDownloads()
+                } else {
+                    exportTreeLauncher.launch(null)
+                }
+            },
+            onCancelExport = viewModel::cancelExport,
             onMoveSelectedToFolder = viewModel::moveSelectedToFolder,
             onAddTagToSelected = viewModel::addTagToSelected,
             onRemoveTagFromSelected = viewModel::removeTagFromSelected,
