@@ -156,6 +156,125 @@ class SummaryPipelineTest {
         }
 
     @Test
+    fun invalidEvidenceUsesTargetedRepairWithAllowedRefs() =
+        runTest {
+            val provider =
+                QueueProvider(
+                    capabilities =
+                        ProviderCapabilities(
+                            supportsJsonSchema = true,
+                            contextWindowTokens = 100_000,
+                            maxOutputTokens = 4_096,
+                        ),
+                    responses =
+                        ArrayDeque(
+                            listOf(
+                                Result.success(
+                                    LlmGenerationResponse(
+                                        requestId = "bad-evidence",
+                                        content = validJson("S99999"),
+                                        usage = null,
+                                        finishReason = "stop",
+                                    ),
+                                ),
+                                Result.success(
+                                    LlmGenerationResponse(
+                                        requestId = "repaired",
+                                        content = validJson("S00001"),
+                                        usage = null,
+                                        finishReason = "stop",
+                                    ),
+                                ),
+                            ),
+                        ),
+                )
+            val engine =
+                AiSummaryEngine(
+                    idFactory = { "repair-" + provider.requests.size },
+                    sleeper = {},
+                )
+
+            val output =
+                engine.generate(
+                    provider,
+                    AiSummaryEngineRequest(
+                        input = transcriptInput(),
+                        profile = profile(),
+                        mode = AiSummaryMode.SMART,
+                        template = SummaryTemplateCatalog.smart(),
+                    ),
+                )
+
+            assertEquals(2, output.providerCallCount)
+            assertEquals(2, provider.requests.size)
+            assertTrue(
+                provider.requests[1].taskInstruction.contains(
+                    SummaryStructuredOutputErrorCode.INVALID_EVIDENCE_REF.name,
+                ),
+            )
+            assertTrue(provider.requests[1].taskInstruction.contains("S00001"))
+            assertFalse(provider.requests[1].taskInstruction.contains("S99999,"))
+        }
+
+    @Test
+    fun lengthFinishReasonRetriesWithLargerOutputBudgetBeforeRepair() =
+        runTest {
+            val provider =
+                QueueProvider(
+                    capabilities =
+                        ProviderCapabilities(
+                            supportsJsonSchema = true,
+                            contextWindowTokens = 100_000,
+                            maxOutputTokens = 4_096,
+                        ),
+                    responses =
+                        ArrayDeque(
+                            listOf(
+                                Result.success(
+                                    LlmGenerationResponse(
+                                        requestId = "cut-off",
+                                        content = "{\"schemaVersion\":1",
+                                        usage = null,
+                                        finishReason = "length",
+                                    ),
+                                ),
+                                Result.success(
+                                    LlmGenerationResponse(
+                                        requestId = "complete",
+                                        content = validJson("S00001"),
+                                        usage = null,
+                                        finishReason = "stop",
+                                    ),
+                                ),
+                            ),
+                        ),
+                )
+            val engine =
+                AiSummaryEngine(
+                    idFactory = { "length-" + provider.requests.size },
+                    sleeper = {},
+                )
+
+            val output =
+                engine.generate(
+                    provider,
+                    AiSummaryEngineRequest(
+                        input = transcriptInput(),
+                        profile = profile(),
+                        mode = AiSummaryMode.SMART,
+                        template = SummaryTemplateCatalog.smart(),
+                    ),
+                )
+
+            assertEquals(2, output.providerCallCount)
+            assertEquals(2, provider.requests.size)
+            val firstBudget = provider.requests[0].maxOutputTokens ?: 0
+            val secondBudget = provider.requests[1].maxOutputTokens ?: 0
+            assertTrue(secondBudget > firstBudget)
+            assertFalse(provider.requests[1].taskInstruction.contains("Repair"))
+        }
+
+    @Test
     fun retryPolicyOnlyRetriesDeclaredTransientFailures() {
         val policy = ProviderRetryPolicy(maxAttempts = 3, baseDelayMs = 100)
         assertTrue(
