@@ -8,6 +8,7 @@ import io.github.ioannes78.voica.AiSummaryRunState
 import io.github.ioannes78.voica.ai.AiSummaryMode
 import io.github.ioannes78.voica.ai.AiSummaryResult
 import io.github.ioannes78.voica.ai.AiSummarySectionType
+import io.github.ioannes78.voica.ai.ProviderModel
 import io.github.ioannes78.voica.ai.ProviderProfile
 import io.github.ioannes78.voica.ai.SummaryResultCodec
 import io.github.ioannes78.voica.ai.SummaryTemplateCatalog
@@ -20,6 +21,7 @@ import io.github.ioannes78.voica.database.AiSummaryModeValue
 import io.github.ioannes78.voica.database.AiSummaryRepository
 import io.github.ioannes78.voica.database.AiSummaryStateValue
 import io.github.ioannes78.voica.database.SaveAiCustomTemplateRequest
+import io.github.ioannes78.voica.llm.ProviderAdapterRegistry
 import io.github.ioannes78.voica.llm.ProviderProfileStore
 import java.net.URI
 import java.util.UUID
@@ -35,6 +37,7 @@ data class AiSummaryProviderPreview(
     val displayName: String,
     val model: String,
     val host: String,
+    val structuredCompatibilityLabel: String?,
 )
 
 data class AiSummaryDocument(
@@ -50,6 +53,7 @@ class AiSummaryViewModel(
     private val coordinator: AiSummaryCoordinator,
     private val repository: AiSummaryRepository,
     private val profileStore: ProviderProfileStore,
+    private val providerRegistry: ProviderAdapterRegistry,
 ) : ViewModel() {
     val runState: StateFlow<AiSummaryRunState> = coordinator.state
 
@@ -61,6 +65,16 @@ class AiSummaryViewModel(
 
     private val mutableProvider = MutableStateFlow<AiSummaryProviderPreview?>(null)
     val provider: StateFlow<AiSummaryProviderPreview?> = mutableProvider.asStateFlow()
+
+    private val mutableProviders =
+        MutableStateFlow<List<AiSummaryProviderPreview>>(emptyList())
+    val providers: StateFlow<List<AiSummaryProviderPreview>> =
+        mutableProviders.asStateFlow()
+
+    private val mutableGenerationModels =
+        MutableStateFlow<List<ProviderModel>>(emptyList())
+    val generationModels: StateFlow<List<ProviderModel>> =
+        mutableGenerationModels.asStateFlow()
 
     private val mutableCustomTemplates =
         MutableStateFlow<List<AiCustomTemplateEntity>>(emptyList())
@@ -135,27 +149,64 @@ class AiSummaryViewModel(
     fun refreshProvider() {
         viewModelScope.launch {
             val snapshot = profileStore.load()
+            val enabled = snapshot.profiles.filter { it.enabled }
+            mutableProviders.value = enabled.map { it.toPreview() }
             val profile =
                 snapshot.defaultProfileId?.let { id ->
-                    snapshot.profiles.firstOrNull {
-                        it.providerProfileId == id && it.enabled
-                    }
-                } ?: snapshot.profiles.firstOrNull { it.enabled }
+                    enabled.firstOrNull { it.providerProfileId == id }
+                } ?: enabled.firstOrNull()
             mutableProvider.value = profile?.toPreview()
         }
     }
 
-    fun generateSmart(): Boolean {
+    fun loadGenerationModels(providerProfileId: String) {
+        viewModelScope.launch {
+            val snapshot = profileStore.load()
+            val profile =
+                snapshot.profiles.firstOrNull {
+                    it.providerProfileId == providerProfileId && it.enabled
+                } ?: return@launch
+            val discovered =
+                runCatching {
+                    providerRegistry.forProfile(profile)
+                        .discoverModels(profile)
+                        .getOrThrow()
+                }.getOrDefault(emptyList())
+            mutableGenerationModels.value =
+                (
+                    listOf(
+                        ProviderModel(
+                            id = profile.defaultModel,
+                            displayName = profile.defaultModel,
+                        ),
+                    ).filter { it.id.isNotBlank() } + discovered
+                ).distinctBy { it.id }
+                    .sortedBy { it.displayName.lowercase() }
+        }
+    }
+
+    fun generateSmart(
+        providerProfileId: String? = null,
+        model: String? = null,
+    ): Boolean {
         val transcriptionId = boundTranscriptionId ?: return false
         mutableNotice.value = null
-        return coordinator.startSmart(transcriptionId).also { started ->
+        return coordinator.startSmart(
+            transcriptionId = transcriptionId,
+            providerProfileId = providerProfileId,
+            modelOverride = model,
+        ).also { started ->
             if (!started) {
                 mutableNotice.value = "已有 AI 总结任务正在运行。"
             }
         }
     }
 
-    fun generatePreset(presetId: String): Boolean {
+    fun generatePreset(
+        presetId: String,
+        providerProfileId: String? = null,
+        model: String? = null,
+    ): Boolean {
         val transcriptionId = boundTranscriptionId ?: return false
         val template =
             SummaryTemplateCatalog.find(presetId)
@@ -165,6 +216,8 @@ class AiSummaryViewModel(
             transcriptionId = transcriptionId,
             mode = AiSummaryMode.PRESET,
             template = template,
+            providerProfileId = providerProfileId,
+            modelOverride = model,
         ).also { started ->
             if (!started) {
                 mutableNotice.value = "已有 AI 总结任务正在运行。"
@@ -172,7 +225,11 @@ class AiSummaryViewModel(
         }
     }
 
-    fun generateCustom(templateId: String): Boolean {
+    fun generateCustom(
+        templateId: String,
+        providerProfileId: String? = null,
+        model: String? = null,
+    ): Boolean {
         val transcriptionId = boundTranscriptionId ?: return false
         val entity =
             mutableCustomTemplates.value.firstOrNull { it.id == templateId }
@@ -188,6 +245,8 @@ class AiSummaryViewModel(
             transcriptionId = transcriptionId,
             mode = AiSummaryMode.CUSTOM,
             template = template,
+            providerProfileId = providerProfileId,
+            modelOverride = model,
         ).also { started ->
             if (!started) {
                 mutableNotice.value = "已有 AI 总结任务正在运行。"
@@ -294,6 +353,8 @@ class AiSummaryViewModel(
             transcriptionId = transcriptionId,
             mode = mode,
             template = template,
+            providerProfileId = entity.providerProfileId,
+            modelOverride = entity.model,
         ).also { started ->
             if (!started) {
                 mutableNotice.value = "已有 AI 总结任务正在运行。"
@@ -334,12 +395,21 @@ class AiSummaryViewModel(
                 runCatching { URI(baseUrl).host }
                     .getOrNull()
                     .orEmpty(),
+            structuredCompatibilityLabel =
+                capabilityOverrides?.let { capabilities ->
+                    when {
+                        capabilities.supportsJsonSchema -> "结构化输出已验证"
+                        capabilities.supportsJsonObject -> "兼容模式"
+                        else -> "结构化输出未验证"
+                    }
+                },
         )
 
     class Factory(
         private val coordinator: AiSummaryCoordinator,
         private val repository: AiSummaryRepository,
         private val profileStore: ProviderProfileStore,
+        private val providerRegistry: ProviderAdapterRegistry,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
@@ -347,6 +417,7 @@ class AiSummaryViewModel(
                 coordinator = coordinator,
                 repository = repository,
                 profileStore = profileStore,
+                providerRegistry = providerRegistry,
             ) as T
     }
 }
