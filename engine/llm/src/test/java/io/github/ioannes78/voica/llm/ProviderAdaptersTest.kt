@@ -5,6 +5,8 @@ import io.github.ioannes78.voica.ai.ProviderCapabilities
 import io.github.ioannes78.voica.ai.ProviderErrorCode
 import io.github.ioannes78.voica.ai.ProviderPresetIds
 import io.github.ioannes78.voica.ai.ProviderProfile
+import io.github.ioannes78.voica.ai.StructuredOutputMode
+import io.github.ioannes78.voica.ai.StructuredSummaryCompatibility
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -90,6 +92,11 @@ class ProviderAdaptersTest {
                                 """{"choices":[{"message":{"content":"OK"},"finish_reason":"stop"}]}""",
                                 emptyMap(),
                             ),
+                            LlmHttpResponse(
+                                200,
+                                """{"choices":[{"message":{"content":"{\"schemaVersion\":1,\"title\":\"Voica probe\"}"},"finish_reason":"stop"}]}""",
+                                emptyMap(),
+                            ),
                         ),
                     ),
                 )
@@ -113,9 +120,20 @@ class ProviderAdaptersTest {
             val result = provider.testConnection(doubaoProfile)
 
             assertTrue(result.success)
-            val body = transport.requests.single().second.body.orEmpty()
-            assertFalse(body.contains("response_format"))
-            assertTrue(body.contains("Plain text only"))
+            assertEquals(2, transport.requests.size)
+            val plainBody = transport.requests[0].second.body.orEmpty()
+            val structuredBody = transport.requests[1].second.body.orEmpty()
+            assertFalse(plainBody.contains("response_format"))
+            assertTrue(plainBody.contains("Plain text only"))
+            assertTrue(structuredBody.contains("\"response_format\":{\"type\":\"json_object\"}"))
+            assertEquals(
+                StructuredSummaryCompatibility.VERIFIED_COMPATIBLE,
+                result.structuredSummaryProbe?.compatibility,
+            )
+            assertEquals(
+                StructuredOutputMode.JSON_OBJECT,
+                result.structuredSummaryProbe?.mode,
+            )
         }
 
     @Test
@@ -135,6 +153,11 @@ class ProviderAdaptersTest {
                                 """{"choices":[{"message":{"content":"OK"},"finish_reason":"stop"}]}""",
                                 emptyMap(),
                             ),
+                            LlmHttpResponse(
+                                200,
+                                """{"choices":[{"message":{"content":"{\"schemaVersion\":1,\"title\":\"Voica probe\"}"},"finish_reason":"stop"}]}""",
+                                emptyMap(),
+                            ),
                         ),
                     ),
                 )
@@ -147,9 +170,18 @@ class ProviderAdaptersTest {
             val result = provider.testConnection(profile())
 
             assertTrue(result.success)
-            assertEquals(2, transport.requests.size)
+            assertEquals(3, transport.requests.size)
             assertEquals("GET", transport.requests[0].second.method)
             assertEquals("POST", transport.requests[1].second.method)
+            assertEquals("POST", transport.requests[2].second.method)
+            assertTrue(
+                transport.requests[2].second.body.orEmpty()
+                    .contains("\"type\":\"json_schema\""),
+            )
+            assertEquals(
+                StructuredSummaryCompatibility.VERIFIED_STRICT,
+                result.structuredSummaryProbe?.compatibility,
+            )
         }
 
     @Test
