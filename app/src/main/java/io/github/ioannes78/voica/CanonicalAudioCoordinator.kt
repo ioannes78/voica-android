@@ -62,6 +62,7 @@ class CanonicalAudioCoordinator(
     private val serial = Mutex()
     private val canonicalDir = File(recordingsRoot, CANONICAL_DIRECTORY)
     private val activeTokens = ConcurrentHashMap<String, AtomicBoolean>()
+    private val activeGenerationJobs = ConcurrentHashMap<String, Job>()
     private val automaticLock = Any()
     private val automaticJobs = mutableMapOf<String, Job>()
     private val automaticRerun = mutableSetOf<String>()
@@ -103,18 +104,48 @@ class CanonicalAudioCoordinator(
         activeTokens[recordingId]?.set(true)
         synchronized(automaticLock) {
             automaticRerun.remove(recordingId)
-            automaticJobs.remove(recordingId)?.cancel()
+            automaticJobs.remove(recordingId)?.cancel(
+                CancellationException("canonical generation cancelled"),
+            )
         }
+        activeGenerationJobs[recordingId]?.cancel(
+            CancellationException("canonical generation cancelled"),
+        )
+    }
+
+    suspend fun cancelAndAwait(recordingId: String) {
+        val caller = currentCoroutineContext()[Job]
+        activeTokens[recordingId]?.set(true)
+        val jobs = linkedSetOf<Job>()
+        synchronized(automaticLock) {
+            automaticRerun.remove(recordingId)
+            automaticJobs.remove(recordingId)?.let(jobs::add)
+        }
+        activeGenerationJobs[recordingId]?.let(jobs::add)
+
+        jobs
+            .filter { it !== caller }
+            .forEach { it.cancel(CancellationException("recording deletion")) }
+        jobs
+            .filter { it !== caller }
+            .forEach { runCatching { it.join() } }
     }
 
     suspend fun generate(recordingId: String): CanonicalGenerationOutcome =
         serial.withLock {
             val token = AtomicBoolean(false)
+            val job = currentCoroutineContext()[Job]
             activeTokens[recordingId] = token
+            if (job != null) {
+                activeGenerationJobs[recordingId] = job
+            }
             try {
                 generateLocked(recordingId, token)
             } finally {
                 activeTokens.remove(recordingId, token)
+                if (job != null) {
+                    activeGenerationJobs.remove(recordingId, job)
+                }
             }
         }
 
