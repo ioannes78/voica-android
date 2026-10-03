@@ -32,8 +32,13 @@ class RoomAudioSourceResolver(
         recordingId: String,
     ): PlaybackAudioSource? {
         val resolved = resolveCanonicalAsset(recordingId) ?: return null
+        if (!repository.isRecordingActive(recordingId)) return null
         val handle = withContext(ioDispatcher) {
             FileSeekableAudioHandle(resolved.file)
+        }
+        if (!repository.isRecordingActive(recordingId)) {
+            handle.close()
+            return null
         }
         val wav = resolved.wavInfo
         return PlaybackAudioSource(
@@ -60,14 +65,22 @@ class RoomAudioSourceResolver(
         recordingId: String,
     ): PcmSource? {
         val resolved = resolveCanonicalAsset(recordingId) ?: return null
-        return withContext(ioDispatcher) {
-            CanonicalWavPcmSource(resolved.file)
+        if (!repository.isRecordingActive(recordingId)) return null
+        val source =
+            withContext(ioDispatcher) {
+                CanonicalWavPcmSource(resolved.file)
+            }
+        if (!repository.isRecordingActive(recordingId)) {
+            source.close()
+            return null
         }
+        return source
     }
 
     private suspend fun resolveCanonicalAsset(
         recordingId: String,
     ): ResolvedCanonicalAsset? {
+        if (!repository.isRecordingActive(recordingId)) return null
         val recording = repository.loadRecording(recordingId) ?: return null
         val asset = recording.assets.firstOrNull {
             it.role == AudioAssetRole.CANONICAL_WAV &&
