@@ -66,8 +66,13 @@ fun ProductSettingsScreen(
     modelUpdateController: ModelUpdateController,
     providerSettingsViewModel: ProviderSettingsViewModel,
     themeSettingsStore: ThemeSettingsStore,
+    onSecondaryPageChanged: (Boolean) -> Unit,
 ) {
     var page by rememberSaveable { mutableStateOf(SettingsPage.HOME) }
+
+    androidx.compose.runtime.LaunchedEffect(page) {
+        onSecondaryPageChanged(page != SettingsPage.HOME)
+    }
 
     if (page != SettingsPage.HOME) {
         BackHandler { page = SettingsPage.HOME }
