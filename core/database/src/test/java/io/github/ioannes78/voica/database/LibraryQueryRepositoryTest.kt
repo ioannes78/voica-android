@@ -84,6 +84,21 @@ class LibraryQueryRepositoryTest {
     }
 
     @Test
+    fun exactDateRangeMatchesRecordingOrLibraryTimestampsInSql() = runBlocking {
+        val rows =
+            repository.observeLibrary(
+                LibraryQueryCriteria(
+                    searchDateFromLocalIso = "2026-10-03T00:00",
+                    searchDateToLocalIsoExclusive = "2026-10-04T00:00",
+                    searchDateFromMs = 900,
+                    searchDateToMsExclusive = 1500,
+                ),
+            ).first()
+
+        assertEquals(listOf("rec-device"), rows.map { it.id })
+    }
+
+    @Test
     fun searchEscapesSqlWildcardsInsteadOfTreatingThemAsPatterns() = runBlocking {
         val noLiteralPercent =
             repository.observeLibrary(
