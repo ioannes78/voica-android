@@ -2,12 +2,14 @@ package io.github.ioannes78.voica.ui.library
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -19,16 +21,16 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -41,6 +43,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.DiarizationRunState
 import io.github.ioannes78.voica.R
@@ -53,8 +56,9 @@ import io.github.ioannes78.voica.ui.ai.AiSummaryCard
 import io.github.ioannes78.voica.ui.ai.AiSummaryViewModel
 import io.github.ioannes78.voica.ui.diarization.DiarizationStatusCard
 import io.github.ioannes78.voica.ui.diarization.DiarizationViewModel
-import io.github.ioannes78.voica.ui.playback.PlaybackCard
+import io.github.ioannes78.voica.ui.playback.MiniPlaybackBar
 import io.github.ioannes78.voica.ui.playback.PlaybackViewModel
+import io.github.ioannes78.voica.ui.playback.RecordingPlaybackCard
 import io.github.ioannes78.voica.ui.transcript.TranscriptDocumentHeader
 import io.github.ioannes78.voica.ui.transcript.TranscriptFollowMode
 import io.github.ioannes78.voica.ui.transcript.TranscriptPlaybackSyncViewModel
@@ -92,19 +96,12 @@ fun RecordingDetailScreen(
     onDelete: (String) -> Unit,
     onGenerateCanonical: (String) -> Unit,
     onCancelCanonical: (String) -> Unit,
+    deviceRecordingActive: Boolean,
 ) {
     var selectedTab by rememberSaveable(recording.id) {
         mutableStateOf(DetailTab.PLAYBACK)
     }
     var moreMenuExpanded by rememberSaveable { mutableStateOf(false) }
-
-    BackHandler {
-        if (selectedTab == DetailTab.INFO) {
-            selectedTab = DetailTab.PLAYBACK
-        } else {
-            onBack()
-        }
-    }
     var selectedTranscriptionId by rememberSaveable(recording.id) {
         mutableStateOf<String?>(null)
     }
@@ -114,7 +111,14 @@ fun RecordingDetailScreen(
     }
     var deleteOpen by rememberSaveable { mutableStateOf(false) }
 
-    val playback by playbackViewModel.snapshot.collectAsState()
+    BackHandler {
+        if (selectedTab == DetailTab.INFO) {
+            selectedTab = DetailTab.PLAYBACK
+        } else {
+            onBack()
+        }
+    }
+
     val transcriptionState by transcriptionViewModel.runState.collectAsState()
     val transcriptDocument by transcriptionViewModel.document.collectAsState()
     val transcriptVersions by transcriptionViewModel.versions.collectAsState()
@@ -208,339 +212,394 @@ fun RecordingDetailScreen(
         }
     }
 
-    val idleListState = rememberLazyListState()
-    val listState =
-        if (selectedTab == DetailTab.TRANSCRIPT) {
-            transcriptListState
-        } else {
-            idleListState
-        }
-
-    LazyColumn(
-        state = listState,
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(padding),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        item(key = "detail-header") {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            IconButton(
+                onClick = {
+                    if (selectedTab == DetailTab.INFO) {
+                        selectedTab = DetailTab.PLAYBACK
+                    } else {
+                        onBack()
+                    }
+                },
             ) {
-                IconButton(
-                    onClick = {
-                        if (selectedTab == DetailTab.INFO) {
-                            selectedTab = DetailTab.PLAYBACK
-                        } else {
-                            onBack()
-                        }
-                    },
-                ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                    contentDescription = stringResource(R.string.back),
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    recording.displayName,
+                    style = MaterialTheme.typography.headlineSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    recording.deviceReportedDurationMs?.let(::formatDurationMs) ?: "--",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Box {
+                IconButton(onClick = { moreMenuExpanded = true }) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                        contentDescription = stringResource(R.string.back),
+                        Icons.Outlined.MoreVert,
+                        contentDescription = "更多录音操作",
                     )
                 }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        recording.displayName,
-                        style = MaterialTheme.typography.headlineSmall,
-                        maxLines = 1,
-                    )
-                    Text(
-                        recording.deviceReportedDurationMs?.let(::formatDurationMs) ?: "--",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Column {
-                    IconButton(onClick = { moreMenuExpanded = true }) {
-                        Icon(
-                            Icons.Outlined.MoreVert,
-                            contentDescription = "更多录音操作",
-                        )
+                DropdownMenu(
+                    expanded = moreMenuExpanded,
+                    onDismissRequest = { moreMenuExpanded = false },
+                ) {
+                    if (selectedTab == DetailTab.TRANSCRIPT) {
+                        if (!canonicalReady) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        if (activeCanonicalJob == null) {
+                                            stringResource(R.string.local_standard_audio_generate)
+                                        } else {
+                                            stringResource(R.string.local_standard_audio_cancel)
+                                        },
+                                    )
+                                },
+                                onClick = {
+                                    moreMenuExpanded = false
+                                    if (activeCanonicalJob == null) {
+                                        onGenerateCanonical(recording.id)
+                                    } else {
+                                        onCancelCanonical(recording.id)
+                                    }
+                                },
+                            )
+                        } else {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.transcription_start_fast)) },
+                                enabled = !transcriptionBusy && !diarizationBusy,
+                                onClick = {
+                                    moreMenuExpanded = false
+                                    transcriptionViewModel.startFast(recording.id)
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        stringResource(
+                                            R.string.transcription_start_high_quality,
+                                        ),
+                                    )
+                                },
+                                enabled = !transcriptionBusy && !diarizationBusy,
+                                onClick = {
+                                    moreMenuExpanded = false
+                                    transcriptionViewModel.startHighQuality(recording.id)
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.diarization_start)) },
+                                enabled = !transcriptionBusy && !diarizationBusy,
+                                onClick = {
+                                    moreMenuExpanded = false
+                                    diarizationViewModel.start(recording.id)
+                                },
+                            )
+                            HorizontalDivider()
+                        }
                     }
-                    DropdownMenu(
-                        expanded = moreMenuExpanded,
-                        onDismissRequest = { moreMenuExpanded = false },
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("录音信息") },
-                            onClick = {
-                                moreMenuExpanded = false
-                                selectedTab = DetailTab.INFO
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.local_file_rename)) },
-                            onClick = {
-                                moreMenuExpanded = false
-                                renameValue = recording.displayName
-                                renameOpen = true
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.local_file_delete)) },
-                            onClick = {
-                                moreMenuExpanded = false
-                                deleteOpen = true
-                            },
-                        )
-                    }
+                    DropdownMenuItem(
+                        text = { Text("录音信息") },
+                        onClick = {
+                            moreMenuExpanded = false
+                            selectedTab = DetailTab.INFO
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.local_file_rename)) },
+                        onClick = {
+                            moreMenuExpanded = false
+                            renameValue = recording.displayName
+                            renameOpen = true
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.local_file_delete)) },
+                        onClick = {
+                            moreMenuExpanded = false
+                            deleteOpen = true
+                        },
+                    )
                 }
             }
         }
 
         if (selectedTab != DetailTab.INFO) {
-            item(key = "detail-tabs") {
-                val visibleTabs =
-                    listOf(
-                        DetailTab.PLAYBACK,
-                        DetailTab.TRANSCRIPT,
-                        DetailTab.SUMMARY,
+            val visibleTabs =
+                listOf(
+                    DetailTab.PLAYBACK,
+                    DetailTab.TRANSCRIPT,
+                    DetailTab.SUMMARY,
+                )
+            TabRow(
+                selectedTabIndex = visibleTabs.indexOf(selectedTab).coerceAtLeast(0),
+            ) {
+                visibleTabs.forEach { tab ->
+                    Tab(
+                        selected = selectedTab == tab,
+                        onClick = { selectedTab = tab },
+                        text = { Text(tabLabel(tab)) },
                     )
-                TabRow(
-                    selectedTabIndex = visibleTabs.indexOf(selectedTab).coerceAtLeast(0),
-                ) {
-                    visibleTabs.forEach { tab ->
-                        Tab(
-                            selected = selectedTab == tab,
-                            onClick = { selectedTab = tab },
-                            text = { Text(tabLabel(tab)) },
-                        )
+                }
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+        ) {
+            when (selectedTab) {
+                DetailTab.PLAYBACK -> {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                    ) {
+                        item {
+                            RecordingPlaybackCard(
+                                recordingId = recording.id,
+                                recordingName = recording.displayName,
+                                canonicalReady = canonicalReady,
+                                playbackViewModel = playbackViewModel,
+                            )
+                        }
+                    }
+                }
+
+                DetailTab.TRANSCRIPT -> {
+                    LazyColumn(
+                        state = transcriptListState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        item(key = "transcript-status") {
+                            if (transcriptionState !is TranscriptionRunState.Idle ||
+                                transcriptionNotice != null
+                            ) {
+                                TranscriptionStatusCard(
+                                    state = transcriptionState,
+                                    recordingName = recording.displayName,
+                                    notice = transcriptionNotice,
+                                    onCancel = transcriptionViewModel::cancel,
+                                )
+                            }
+                        }
+                        item(key = "diarization-status") {
+                            if (diarizationState !is DiarizationRunState.Idle ||
+                                diarizationNotice != null
+                            ) {
+                                DiarizationStatusCard(
+                                    state = diarizationState,
+                                    recordingName = recording.displayName,
+                                    notice = diarizationNotice,
+                                    onCancel = diarizationViewModel::cancel,
+                                    onRetry = diarizationViewModel::retry,
+                                    onOpenSettings = onOpenSettings,
+                                )
+                            }
+                        }
+                        item(key = "transcript-versions") {
+                            if (versions.isNotEmpty()) {
+                                TranscriptVersionListCard(
+                                    versions = versions,
+                                    recordingName = recording.displayName,
+                                    selectedTranscriptionId = document?.transcriptionId,
+                                    onSelect = { transcriptionId ->
+                                        selectedTranscriptionId = transcriptionId
+                                        transcriptionViewModel.selectVersion(transcriptionId)
+                                    },
+                                )
+                            } else {
+                                Text(
+                                    "尚无转写，使用右上角菜单开始转写。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        item(key = "transcript-header") {
+                            document?.let {
+                                TranscriptDocumentHeader(
+                                    document = it,
+                                    recordingName = recording.displayName,
+                                    onRenameSpeaker = transcriptionViewModel::renameSpeaker,
+                                )
+                            }
+                        }
+                        item(key = "transcript-follow") {
+                            if (document?.timeline != null &&
+                                document.compatiblePlaybackAssetId == null
+                            ) {
+                                Text(
+                                    stringResource(
+                                        R.string.detail_transcript_playback_incompatible,
+                                    ),
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            if (syncState.followMode == TranscriptFollowMode.USER_SUSPENDED) {
+                                OutlinedButton(
+                                    onClick = transcriptPlaybackSyncViewModel::resumeFollowing,
+                                ) {
+                                    Text(stringResource(R.string.detail_follow_playback))
+                                }
+                            }
+                        }
+                        val currentDocument = document
+                        if (currentDocument != null) {
+                            items(
+                                items = currentDocument.segments,
+                                key = {
+                                    currentDocument.transcriptionId + ":" + it.stableId
+                                },
+                            ) { segment ->
+                                val syncEnabled =
+                                    currentDocument.compatiblePlaybackAssetId != null
+                                TranscriptSegmentCard(
+                                    segment = segment,
+                                    isActive =
+                                        syncState.playbackCompatible &&
+                                            syncState.activeRowId == segment.stableId,
+                                    activeCueId =
+                                        if (
+                                            syncState.playbackCompatible &&
+                                            syncState.activeRowId == segment.stableId
+                                        ) {
+                                            syncState.activeCueId
+                                        } else {
+                                            null
+                                        },
+                                    syncEnabled = syncEnabled,
+                                    onSeek = { sampleIndex ->
+                                        if (syncEnabled) {
+                                            playbackViewModel.seekAndPlay(
+                                                recordingId = recording.id,
+                                                sampleIndex = sampleIndex,
+                                            )
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+
+                DetailTab.SUMMARY -> {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    ) {
+                        item(key = "summary") {
+                            if (document == null) {
+                                Card(modifier = Modifier.fillMaxWidth()) {
+                                    Column(
+                                        modifier =
+                                            Modifier.padding(
+                                                horizontal = 14.dp,
+                                                vertical = 11.dp,
+                                            ),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        Text(
+                                            stringResource(R.string.detail_summary_title),
+                                            style = MaterialTheme.typography.titleLarge,
+                                        )
+                                        Text(
+                                            stringResource(
+                                                R.string.detail_summary_requires_transcript,
+                                            ),
+                                        )
+                                        Button(
+                                            onClick = {
+                                                selectedTab = DetailTab.TRANSCRIPT
+                                            },
+                                        ) {
+                                            Text(
+                                                stringResource(
+                                                    R.string.detail_go_transcript,
+                                                ),
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                AiSummaryCard(
+                                    transcriptionId = document.transcriptionId,
+                                    recordingName = recording.displayName,
+                                    viewModel = aiSummaryViewModel,
+                                    onOpenSettings = onOpenSettings,
+                                    onSeekEvidence = { sampleIndex ->
+                                        playbackViewModel.seekAndPlay(
+                                            recordingId = recording.id,
+                                            sampleIndex = sampleIndex,
+                                        )
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+
+                DetailTab.INFO -> {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    ) {
+                        item(key = "info") {
+                            RecordingInformationCard(
+                                recording = recording,
+                                canonicalReady = canonicalReady,
+                                canonicalBusy = activeCanonicalJob != null,
+                                onGenerateCanonical = {
+                                    onGenerateCanonical(recording.id)
+                                },
+                                onCancelCanonical = {
+                                    onCancelCanonical(recording.id)
+                                },
+                                onRename = {
+                                    renameValue = recording.displayName
+                                    renameOpen = true
+                                },
+                                onDelete = { deleteOpen = true },
+                            )
+                        }
                     }
                 }
             }
         }
 
-        when (selectedTab) {
-            DetailTab.PLAYBACK -> {
-                item(key = "playback-actions") {
-                    if (playback.recordingId == recording.id) {
-                        PlaybackCard(
-                            snapshot = playback,
-                            recordingName = recording.displayName,
-                            onPlay = playbackViewModel::play,
-                            onPause = playbackViewModel::pause,
-                            onSeek = playbackViewModel::seekToSample,
-                            onSpeed = playbackViewModel::setSpeed,
-                            onRetry = playbackViewModel::retryCurrent,
-                        )
-                    } else {
-                        Card(modifier = Modifier.fillMaxWidth()) {
-                            Column(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                Text(
-                                    stringResource(R.string.playback_title),
-                                    style = MaterialTheme.typography.titleLarge,
-                                )
-                                Button(
-                                    onClick = { playbackViewModel.loadAndPlay(recording.id) },
-                                    enabled = canonicalReady,
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Text(stringResource(R.string.playback_play))
-                                }
-                                if (!canonicalReady) {
-                                    Text(
-                                        stringResource(R.string.detail_canonical_required),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            DetailTab.TRANSCRIPT -> {
-                item(key = "transcript-status") {
-                    if (transcriptionState !is TranscriptionRunState.Idle ||
-                        transcriptionNotice != null
-                    ) {
-                        TranscriptionStatusCard(
-                            state = transcriptionState,
-                            recordingName = recording.displayName,
-                            notice = transcriptionNotice,
-                            onCancel = transcriptionViewModel::cancel,
-                        )
-                    }
-                }
-                item(key = "diarization-status") {
-                    if (diarizationState !is DiarizationRunState.Idle ||
-                        diarizationNotice != null
-                    ) {
-                        DiarizationStatusCard(
-                            state = diarizationState,
-                            recordingName = recording.displayName,
-                            notice = diarizationNotice,
-                            onCancel = diarizationViewModel::cancel,
-                            onRetry = diarizationViewModel::retry,
-                            onOpenSettings = onOpenSettings,
-                        )
-                    }
-                }
-                item(key = "transcript-versions") {
-                    if (versions.isNotEmpty()) {
-                        TranscriptVersionListCard(
-                            versions = versions,
-                            recordingName = recording.displayName,
-                            selectedTranscriptionId = document?.transcriptionId,
-                            onSelect = { transcriptionId ->
-                                selectedTranscriptionId = transcriptionId
-                                transcriptionViewModel.selectVersion(transcriptionId)
-                            },
-                        )
-                    } else {
-                        TranscriptionActionsCard(
-                            canonicalReady = canonicalReady,
-                            canonicalBusy = activeCanonicalJob != null,
-                            transcriptionBusy = transcriptionBusy,
-                            diarizationBusy = diarizationBusy,
-                            onGenerateCanonical = { onGenerateCanonical(recording.id) },
-                            onCancelCanonical = { onCancelCanonical(recording.id) },
-                            onFast = { transcriptionViewModel.startFast(recording.id) },
-                            onHighQuality = {
-                                transcriptionViewModel.startHighQuality(recording.id)
-                            },
-                            onDiarize = { diarizationViewModel.start(recording.id) },
-                        )
-                    }
-                }
-                item(key = "transcript-header") {
-                    document?.let {
-                        TranscriptDocumentHeader(
-                            document = it,
-                            recordingName = recording.displayName,
-                            onRenameSpeaker = transcriptionViewModel::renameSpeaker,
-                        )
-                    }
-                }
-                item(key = "transcript-follow") {
-                    if (document?.timeline != null &&
-                        document.compatiblePlaybackAssetId == null
-                    ) {
-                        Text(
-                            stringResource(R.string.detail_transcript_playback_incompatible),
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                    if (syncState.followMode == TranscriptFollowMode.USER_SUSPENDED) {
-                        OutlinedButton(
-                            onClick = transcriptPlaybackSyncViewModel::resumeFollowing,
-                        ) {
-                            Text(stringResource(R.string.detail_follow_playback))
-                        }
-                    }
-                }
-                item(key = "transcript-action-footer") {
-                    if (versions.isNotEmpty()) {
-                        TranscriptionActionsCard(
-                            canonicalReady = canonicalReady,
-                            canonicalBusy = activeCanonicalJob != null,
-                            transcriptionBusy = transcriptionBusy,
-                            diarizationBusy = diarizationBusy,
-                            onGenerateCanonical = { onGenerateCanonical(recording.id) },
-                            onCancelCanonical = { onCancelCanonical(recording.id) },
-                            onFast = { transcriptionViewModel.startFast(recording.id) },
-                            onHighQuality = {
-                                transcriptionViewModel.startHighQuality(recording.id)
-                            },
-                            onDiarize = { diarizationViewModel.start(recording.id) },
-                        )
-                    }
-                }
-                val currentDocument = document
-                if (currentDocument != null) {
-                    items(
-                        items = currentDocument.segments,
-                        key = { currentDocument.transcriptionId + ":" + it.stableId },
-                    ) { segment ->
-                        val syncEnabled = currentDocument.compatiblePlaybackAssetId != null
-                        TranscriptSegmentCard(
-                            segment = segment,
-                            isActive =
-                                syncState.playbackCompatible &&
-                                    syncState.activeRowId == segment.stableId,
-                            activeCueId =
-                                if (syncState.playbackCompatible &&
-                                    syncState.activeRowId == segment.stableId
-                                ) {
-                                    syncState.activeCueId
-                                } else {
-                                    null
-                                },
-                            syncEnabled = syncEnabled,
-                            onSeek = { sampleIndex ->
-                                if (syncEnabled) {
-                                    playbackViewModel.seekAndPlay(
-                                        recordingId = recording.id,
-                                        sampleIndex = sampleIndex,
-                                    )
-                                }
-                            },
-                        )
-                    }
-                }
-            }
-
-            DetailTab.SUMMARY -> {
-                item(key = "summary") {
-                    if (document == null) {
-                        Card(modifier = Modifier.fillMaxWidth()) {
-                            Column(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                Text(
-                                    stringResource(R.string.detail_summary_title),
-                                    style = MaterialTheme.typography.titleLarge,
-                                )
-                                Text(stringResource(R.string.detail_summary_requires_transcript))
-                                Button(onClick = { selectedTab = DetailTab.TRANSCRIPT }) {
-                                    Text(stringResource(R.string.detail_go_transcript))
-                                }
-                            }
-                        }
-                    } else {
-                        AiSummaryCard(
-                            transcriptionId = document.transcriptionId,
-                            recordingName = recording.displayName,
-                            viewModel = aiSummaryViewModel,
-                            onOpenSettings = onOpenSettings,
-                            onSeekEvidence = { sampleIndex ->
-                                playbackViewModel.seekAndPlay(
-                                    recordingId = recording.id,
-                                    sampleIndex = sampleIndex,
-                                )
-                            },
-                        )
-                    }
-                }
-            }
-
-            DetailTab.INFO -> {
-                item(key = "info") {
-                    RecordingInformationCard(
-                        recording = recording,
-                        canonicalReady = canonicalReady,
-                        canonicalBusy = activeCanonicalJob != null,
-                        onGenerateCanonical = { onGenerateCanonical(recording.id) },
-                        onCancelCanonical = { onCancelCanonical(recording.id) },
-                        onRename = {
-                            renameValue = recording.displayName
-                            renameOpen = true
-                        },
-                        onDelete = { deleteOpen = true },
-                    )
-                }
-            }
+        if (
+            selectedTab == DetailTab.TRANSCRIPT ||
+            selectedTab == DetailTab.SUMMARY
+        ) {
+            MiniPlaybackBar(
+                recordingId = recording.id,
+                durationMs = recording.deviceReportedDurationMs,
+                canonicalReady = canonicalReady,
+                deviceRecordingActive = deviceRecordingActive,
+                playbackViewModel = playbackViewModel,
+                onOpenFullPlayer = { selectedTab = DetailTab.PLAYBACK },
+            )
         }
     }
 
@@ -780,7 +839,7 @@ private fun formatBytes(bytes: Long): String {
     return String.format(Locale.US, "%.2f GB", mb / 1024.0)
 }
 
-private const val TRANSCRIPT_ROW_START_INDEX = 8
+private const val TRANSCRIPT_ROW_START_INDEX = 5
 
 private val ACTIVE_DERIVATION_STATES = setOf(
     "PREPARING",
