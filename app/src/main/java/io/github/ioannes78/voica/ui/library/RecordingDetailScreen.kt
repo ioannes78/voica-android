@@ -13,9 +13,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -24,6 +27,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -88,10 +93,17 @@ fun RecordingDetailScreen(
     onGenerateCanonical: (String) -> Unit,
     onCancelCanonical: (String) -> Unit,
 ) {
-    BackHandler(onBack = onBack)
-
     var selectedTab by rememberSaveable(recording.id) {
         mutableStateOf(DetailTab.PLAYBACK)
+    }
+    var moreMenuExpanded by rememberSaveable { mutableStateOf(false) }
+
+    BackHandler {
+        if (selectedTab == DetailTab.INFO) {
+            selectedTab = DetailTab.PLAYBACK
+        } else {
+            onBack()
+        }
     }
     var selectedTranscriptionId by rememberSaveable(recording.id) {
         mutableStateOf<String?>(null)
@@ -214,19 +226,29 @@ fun RecordingDetailScreen(
     ) {
         item(key = "detail-header") {
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                IconButton(onClick = onBack) {
+                IconButton(
+                    onClick = {
+                        if (selectedTab == DetailTab.INFO) {
+                            selectedTab = DetailTab.PLAYBACK
+                        } else {
+                            onBack()
+                        }
+                    },
+                ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                         contentDescription = stringResource(R.string.back),
                     )
                 }
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         recording.displayName,
                         style = MaterialTheme.typography.headlineSmall,
+                        maxLines = 1,
                     )
                     Text(
                         recording.deviceReportedDurationMs?.let(::formatDurationMs) ?: "--",
@@ -234,20 +256,62 @@ fun RecordingDetailScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                Column {
+                    IconButton(onClick = { moreMenuExpanded = true }) {
+                        Icon(
+                            Icons.Outlined.MoreVert,
+                            contentDescription = "更多录音操作",
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = moreMenuExpanded,
+                        onDismissRequest = { moreMenuExpanded = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("录音信息") },
+                            onClick = {
+                                moreMenuExpanded = false
+                                selectedTab = DetailTab.INFO
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.local_file_rename)) },
+                            onClick = {
+                                moreMenuExpanded = false
+                                renameValue = recording.displayName
+                                renameOpen = true
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.local_file_delete)) },
+                            onClick = {
+                                moreMenuExpanded = false
+                                deleteOpen = true
+                            },
+                        )
+                    }
+                }
             }
         }
 
-        item(key = "detail-tabs") {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                DetailTab.entries.forEach { tab ->
-                    FilterChip(
-                        selected = selectedTab == tab,
-                        onClick = { selectedTab = tab },
-                        label = { Text(tabLabel(tab)) },
+        if (selectedTab != DetailTab.INFO) {
+            item(key = "detail-tabs") {
+                val visibleTabs =
+                    listOf(
+                        DetailTab.PLAYBACK,
+                        DetailTab.TRANSCRIPT,
+                        DetailTab.SUMMARY,
                     )
+                TabRow(
+                    selectedTabIndex = visibleTabs.indexOf(selectedTab).coerceAtLeast(0),
+                ) {
+                    visibleTabs.forEach { tab ->
+                        Tab(
+                            selected = selectedTab == tab,
+                            onClick = { selectedTab = tab },
+                            text = { Text(tabLabel(tab)) },
+                        )
+                    }
                 }
             }
         }
