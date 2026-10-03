@@ -90,9 +90,11 @@ object AiSummaryRevisionCodec {
                                                     put("id", item.id)
                                                     put("text", item.text)
                                                     put("provenance", item.provenance.name)
-                                                    item.sourceItemId?.let {
-                                                        put("sourceItemId", it)
-                                                    } ?: put("sourceItemId", JsonNull)
+                                                    if (item.sourceItemId != null) {
+                                                        put("sourceItemId", item.sourceItemId)
+                                                    } else {
+                                                        put("sourceItemId", JsonNull)
+                                                    }
                                                     put(
                                                         "sourceEvidenceRefs",
                                                         buildJsonArray {
