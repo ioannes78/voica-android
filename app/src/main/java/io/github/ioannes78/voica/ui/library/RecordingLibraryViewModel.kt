@@ -16,6 +16,7 @@ import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.database.RecordingLibraryRow
 import io.github.ioannes78.voica.database.TagEntity
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,6 +28,11 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+
+sealed interface LibraryExportState {
+    data object Idle : LibraryExportState
+    data object Exporting : LibraryExportState
+}
 
 sealed interface LibraryImportState {
     data object Idle : LibraryImportState
@@ -48,6 +54,7 @@ data class RecordingLibraryUiState(
     val selectedIds: Set<String> = emptySet(),
     val operationMessage: String? = null,
     val importState: LibraryImportState = LibraryImportState.Idle,
+    val exportState: LibraryExportState = LibraryExportState.Idle,
 ) {
     val selectionMode: Boolean
         get() = selectedIds.isNotEmpty()
@@ -68,8 +75,10 @@ class RecordingLibraryViewModel(
     private val selectedIds = MutableStateFlow<Set<String>>(emptySet())
     private val operationMessage = MutableStateFlow<String?>(null)
     private val importState = MutableStateFlow<LibraryImportState>(LibraryImportState.Idle)
+    private val exportState = MutableStateFlow<LibraryExportState>(LibraryExportState.Idle)
     private var importJob: Job? = null
     private var deleteJob: Job? = null
+    private var exportJob: Job? = null
     private var exportJob: Job? = null
     private val exportBusy = MutableStateFlow(false)
     val exportInProgress: StateFlow<Boolean> = exportBusy.asStateFlow()
@@ -117,20 +126,32 @@ class RecordingLibraryViewModel(
             LibraryData(recordings, folders, tags)
         }
 
+    private val transferState =
+        combine(
+            importState,
+            exportState,
+        ) { currentImportState, currentExportState ->
+            TransferState(
+                importState = currentImportState,
+                exportState = currentExportState,
+            )
+        }
+
     private val interactionState =
         combine(
             queryText,
             criteria,
             selectedIds,
             operationMessage,
-            importState,
-        ) { query, currentCriteria, selected, message, currentImportState ->
+            transferState,
+        ) { query, currentCriteria, selected, message, transfer ->
             InteractionState(
                 query = query,
                 criteria = currentCriteria,
                 selectedIds = selected,
                 operationMessage = message,
-                importState = currentImportState,
+                importState = transfer.importState,
+                exportState = transfer.exportState,
             )
         }
 
@@ -150,6 +171,7 @@ class RecordingLibraryViewModel(
                 selectedIds = stillSelected,
                 operationMessage = interaction.operationMessage,
                 importState = interaction.importState,
+                exportState = interaction.exportState,
             )
         }.stateIn(
             scope = viewModelScope,
@@ -452,6 +474,56 @@ class RecordingLibraryViewModel(
                 else ->
                     "已导出 " + result.exportedCount + " 条；" +
                         result.failedCount + " 条失败"
+            }
+    }
+
+    fun exportSelectedToDownloads() {
+        startSelectedExport { ids ->
+            exportCoordinator.exportToDownloads(ids)
+        }
+    }
+
+    fun exportSelectedToTree(treeUri: Uri) {
+        startSelectedExport { ids ->
+            exportCoordinator.exportToTree(ids, treeUri)
+        }
+    }
+
+    fun cancelExport() {
+        exportJob?.cancel(CancellationException("user cancelled export"))
+    }
+
+    private fun startSelectedExport(
+        action: suspend (List<String>) -> LocalAudioBatchExportResult,
+    ) {
+        val ids = uiState.value.selectedIds.toList()
+        if (ids.isEmpty() || exportJob?.isActive == true) return
+        exportState.value = LibraryExportState.Exporting
+        exportJob =
+            viewModelScope.launch {
+                try {
+                    val result = action(ids)
+                    val failedIds =
+                        result.items
+                            .filterNot { it.exported }
+                            .mapTo(linkedSetOf()) { it.recordingId }
+                    selectedIds.value = failedIds
+                    operationMessage.value =
+                        when {
+                            result.failedCount == 0 ->
+                                "已导出 " + result.exportedCount + " 条录音"
+                            result.exportedCount == 0 ->
+                                result.failedCount.toString() + " 条录音导出失败"
+                            else ->
+                                "已导出 " + result.exportedCount + " 条；" +
+                                    result.failedCount + " 条失败"
+                        }
+                } catch (_: CancellationException) {
+                    operationMessage.value = "已取消导出，已完成文件保留"
+                } finally {
+                    exportState.value = LibraryExportState.Idle
+                    exportJob = null
+                }
             }
     }
 
