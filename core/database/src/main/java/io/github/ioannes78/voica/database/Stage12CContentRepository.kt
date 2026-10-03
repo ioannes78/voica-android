@@ -3,6 +3,7 @@ package io.github.ioannes78.voica.database
 import androidx.room.withTransaction
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 
 data class TranscriptionRevisionParagraphDraft(
     val text: String,
@@ -57,6 +58,24 @@ class Stage12CContentRepository(
 
     fun observeContentSelection(recordingId: String): Flow<RecordingContentSelectionEntity?> =
         dao.observeContentSelection(recordingId)
+
+    suspend fun loadTranscriptionMetadata(transcriptionId: String): TranscriptionUserMetadataEntity? =
+        dao.findTranscriptionMetadata(transcriptionId)
+
+    suspend fun loadTranscriptionRevisions(transcriptionId: String): List<TranscriptionRevisionEntity> =
+        dao.observeTranscriptionRevisions(transcriptionId).first()
+
+    suspend fun loadTranscriptionRevisionParagraphs(revisionId: String): List<TranscriptionRevisionParagraphEntity> =
+        dao.loadTranscriptionRevisionParagraphs(revisionId)
+
+    suspend fun loadAiSummaryMetadata(summaryId: String): AiSummaryUserMetadataEntity? =
+        dao.findAiSummaryMetadata(summaryId)
+
+    suspend fun loadAiSummaryRevisions(summaryId: String): List<AiSummaryRevisionEntity> =
+        dao.observeAiSummaryRevisions(summaryId).first()
+
+    suspend fun loadAiSummaryRevision(revisionId: String): AiSummaryRevisionEntity? =
+        dao.findAiSummaryRevision(revisionId)
 
     suspend fun renameTranscriptionVersion(transcriptionId: String, displayName: String?) {
         val transcription = transcriptionDao.findTranscription(transcriptionId) ?: error("transcription not found")
@@ -332,11 +351,13 @@ class Stage12CContentRepository(
         if (transcription.state in TranscriptionStateValue.ACTIVE) {
             return ContentVersionDeleteResult.ActiveTask
         }
-        val dependentSummaries = aiSummaryDao.countForTranscription(transcriptionId)
-        if (dependentSummaries > 0) {
-            return ContentVersionDeleteResult.ReferencedByAiSummaries(dependentSummaries)
-        }
         return database.withTransaction {
+            val dependentSummaries = aiSummaryDao.countForTranscription(transcriptionId)
+            if (dependentSummaries > 0) {
+                return@withTransaction ContentVersionDeleteResult.ReferencedByAiSummaries(
+                    dependentSummaries,
+                )
+            }
             check(transcriptionDao.deleteVersion(transcriptionId) == 1)
             val fallback = transcriptionDao.findLatestCompleted(transcription.recordingId)?.id
             val selection = dao.findContentSelection(transcription.recordingId)

@@ -71,7 +71,7 @@ object CjkSearchTokenizer {
     private fun quote(token: String): String =
         buildString {
             append('"')
-            append(token.replace("\\\"", "\\\"\\\""))
+            append(token)
             append('"')
         }
 
