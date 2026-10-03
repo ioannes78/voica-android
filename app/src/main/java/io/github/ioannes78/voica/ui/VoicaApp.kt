@@ -51,6 +51,7 @@ import io.github.ioannes78.voica.CanonicalAudioCoordinator
 import io.github.ioannes78.voica.DiarizationCoordinator
 import io.github.ioannes78.voica.DiarizationRunState
 import io.github.ioannes78.voica.ModelUpdateController
+import io.github.ioannes78.voica.LocalAudioImportCoordinator
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.TranscriptionCoordinator
 import io.github.ioannes78.voica.TranscriptionRunState
@@ -122,6 +123,7 @@ fun VoicaApp(
     repository: DeviceRepository,
     recordingLibraryRepository: RecordingLibraryRepository,
     canonicalAudioCoordinator: CanonicalAudioCoordinator,
+    localAudioImportCoordinator: LocalAudioImportCoordinator,
     playbackController: PlaybackController,
     modelManager: ModelManager,
     modelUpdateController: ModelUpdateController,
@@ -153,8 +155,11 @@ fun VoicaApp(
         },
     )
     val recordingLibraryViewModel: RecordingLibraryViewModel = viewModel(
-        factory = remember(recordingLibraryRepository) {
-            RecordingLibraryViewModel.Factory(recordingLibraryRepository)
+        factory = remember(recordingLibraryRepository, localAudioImportCoordinator) {
+            RecordingLibraryViewModel.Factory(
+                repository = recordingLibraryRepository,
+                importCoordinator = localAudioImportCoordinator,
+            )
         },
     )
     val playbackViewModel: PlaybackViewModel = viewModel(
