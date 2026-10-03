@@ -117,8 +117,8 @@ fun AiSummaryCard(
                     it.providerProfileId == selectedGenerationProviderId
                 }?.model
             selectedGenerationModel =
-                generationModels.firstOrNull()?.id
-                    ?: fallback.orEmpty()
+                fallback?.takeIf { it.isNotBlank() }
+                    ?: generationModels.firstOrNull()?.id.orEmpty()
         }
     }
 
