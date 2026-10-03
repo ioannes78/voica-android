@@ -62,14 +62,14 @@ internal object LibraryQueryBuilder {
                       AND filter_rt.tagId IN (${placeholders(ids.size)})
                 ) = ?
                 """.trimIndent()
-            args += ids
+            args.addAll(ids)
             args += ids.size
         }
 
         if (criteria.sourceTypes.isNotEmpty()) {
             val sources = criteria.sourceTypes.sorted()
             where += "r.sourceType IN (${placeholders(sources.size)})"
-            args += sources
+            args.addAll(sources)
         }
 
         if (criteria.completedTranscriptionOnly) {
