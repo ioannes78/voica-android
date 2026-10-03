@@ -18,7 +18,7 @@ private val MintDark =
     darkColorScheme(
         primary = Color(0xFF58D6B5),
         onPrimary = Color(0xFF00382D),
-        primaryContainer = Color(0xFF0C4F41),
+        primaryContainer = Color(0xFF173F36),
         onPrimaryContainer = Color(0xFFB8F4E2),
         secondary = Color(0xFFB2CCC3),
         onSecondary = Color(0xFF1D352E),
@@ -31,9 +31,9 @@ private val MintDark =
         surfaceVariant = Color(0xFF253139),
         onSurfaceVariant = Color(0xFFAAB6B8),
         outline = Color(0xFF35434A),
-        error = Color(0xFFFFB4AB),
-        onError = Color(0xFF690005),
-        errorContainer = Color(0xFF93000A),
+        error = Color(0xFFFF5C5C),
+        onError = Color.White,
+        errorContainer = Color(0xFF5D1F23),
         onErrorContainer = Color(0xFFFFDAD6),
     )
 
