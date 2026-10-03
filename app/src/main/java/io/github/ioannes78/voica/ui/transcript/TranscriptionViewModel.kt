@@ -27,6 +27,7 @@ import kotlinx.coroutines.launch
 
 data class TranscriptDisplaySegment(
     val stableId: String,
+    val sourceSegmentId: String,
     val displayIndex: Int,
     val segmentIndex: Int,
     val startSampleIndex: Long,

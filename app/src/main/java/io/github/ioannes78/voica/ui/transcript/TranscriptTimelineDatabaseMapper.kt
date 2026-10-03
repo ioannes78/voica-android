@@ -103,6 +103,7 @@ internal fun timelineDisplaySegments(
     return timeline.rows.mapIndexed { displayIndex, row ->
         TranscriptDisplaySegment(
             stableId = row.id,
+            sourceSegmentId = row.sourceSegmentId,
             displayIndex = displayIndex,
             segmentIndex = checkNotNull(segmentIndexById[row.sourceSegmentId]),
             startSampleIndex = row.startSampleIndex,
