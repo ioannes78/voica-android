@@ -163,6 +163,63 @@ class LibraryQueryRepositoryTest {
     }
 
     @Test
+    fun importedOriginalRegistersNullableDeviceFactsAndExactDuplicateLookup() = runBlocking {
+        val importedDir = File(recordingsRoot, "imported").apply { mkdirs() }
+        val source = File(importedDir, "source.mp3").apply {
+            writeBytes(byteArrayOf(1, 2, 3, 4))
+        }
+        val sha = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+
+        val recordingId =
+            repository.registerImportedOriginal(
+                ImportedOriginalRegistration(
+                    originalFilename = "手机录音.mp3",
+                    displayName = "手机录音",
+                    relativePath = source.relativeTo(recordingsRoot).invariantSeparatorsPath,
+                    sourceMimeType = "audio/mpeg",
+                    container = "MP3",
+                    codec = "audio/mpeg",
+                    sampleFormat = null,
+                    sampleRateHz = 44_100,
+                    channelCount = 2,
+                    mediaDurationMs = 12_345,
+                    sizeBytes = source.length(),
+                    sha256 = sha,
+                    importedAtMs = 9_000,
+                    providerAuthority = "test.provider",
+                    sourceLastModifiedMs = 8_000,
+                ),
+            )
+
+        val imported = requireNotNull(repository.loadRecording(recordingId))
+        assertEquals(RecordingSourceType.LOCAL_IMPORT, imported.sourceType)
+        assertEquals(null, imported.sourceRemoteIdentity)
+        assertEquals(null, imported.sourceDeviceAddress)
+        assertEquals(null, imported.downloadedAtMs)
+        assertEquals(12_345L, imported.mediaDurationMs)
+        assertEquals(
+            AudioAssetRole.IMPORTED_ORIGINAL,
+            imported.assets.single().role,
+        )
+
+        val matches =
+            repository.findExactAudioDuplicates(
+                sha256 = sha.uppercase(),
+                sizeBytes = source.length(),
+            )
+        assertEquals(1, matches.size)
+        assertEquals(recordingId, matches.single().recordingId)
+        assertEquals("手机录音", matches.single().displayName)
+
+        assertTrue(
+            repository.findExactAudioDuplicates(
+                sha256 = sha,
+                sizeBytes = source.length() + 1,
+            ).isEmpty(),
+        )
+    }
+
+    @Test
     fun searchEscapesSqlWildcardsInsteadOfTreatingThemAsPatterns() = runBlocking {
         val noLiteralPercent =
             repository.observeLibrary(
