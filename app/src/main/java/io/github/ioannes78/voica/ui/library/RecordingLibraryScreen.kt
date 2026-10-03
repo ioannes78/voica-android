@@ -84,6 +84,9 @@ fun RecordingLibraryScreen(
     onToggleFavorite: (String) -> Unit,
     onSetSelectedFavorite: (Boolean) -> Unit,
     onDeleteSelected: () -> Unit,
+    exportInProgress: Boolean,
+    onExportSelected: () -> Unit,
+    onCancelExport: () -> Unit,
     onMoveSelectedToFolder: (String?) -> Unit,
     onAddTagToSelected: (String) -> Unit,
     onRemoveTagFromSelected: (String) -> Unit,
@@ -144,7 +147,20 @@ fun RecordingLibraryScreen(
                         TextButton(onClick = { onSetSelectedFavorite(false) }) {
                             Text("取消收藏")
                         }
-                        TextButton(onClick = { confirmBatchDelete = true }) {
+                        TextButton(
+                            onClick =
+                                if (exportInProgress) {
+                                    onCancelExport
+                                } else {
+                                    onExportSelected
+                                },
+                        ) {
+                            Text(if (exportInProgress) "取消导出" else "导出 WAV")
+                        }
+                        TextButton(
+                            enabled = !exportInProgress,
+                            onClick = { confirmBatchDelete = true },
+                        ) {
                             Text("删除")
                         }
                         Column {
