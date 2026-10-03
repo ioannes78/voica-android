@@ -55,6 +55,8 @@ data class LocalAudioBatchExportResult(
 sealed interface LocalAudioShareOutcome {
     data class Ready(
         val intent: Intent,
+        val sendIntent: Intent,
+        val streamUri: Uri,
         val displayName: String,
     ) : LocalAudioShareOutcome
 
@@ -265,6 +267,8 @@ class LocalAudioExportCoordinator(
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 LocalAudioShareOutcome.Ready(
                     intent = chooser,
+                    sendIntent = send,
+                    streamUri = uri,
                     displayName = source.displayName,
                 )
             } catch (error: Throwable) {
