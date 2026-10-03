@@ -56,6 +56,13 @@ class AppContainer(
             recordingsRoot = recordingsRoot,
         )
 
+    val localAudioImportCoordinator =
+        LocalAudioImportCoordinator(
+            context = application,
+            repository = recordingLibraryRepository,
+            recordingsRoot = recordingsRoot,
+        )
+
     val canonicalAudioCoordinator =
         CanonicalAudioCoordinator(
             repository = recordingLibraryRepository,
@@ -228,6 +235,7 @@ class AppContainer(
             recordingLibraryRepository.importLegacyStage5IfNeeded()
             recordingLibraryRepository.normalizeStandardDeviceDisplayNames()
             recordingLibraryRepository.reconcilePendingDeletes()
+            localAudioImportCoordinator.cleanupStaleStaging()
             canonicalAudioCoordinator.reconcileOnStartup()
             transcriptionCoordinator.reconcileOnStartup()
             diarizationCoordinator.reconcileOnStartup()
