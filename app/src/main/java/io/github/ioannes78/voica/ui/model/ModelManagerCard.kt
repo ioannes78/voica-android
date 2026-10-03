@@ -70,8 +70,8 @@ fun ModelManagerCard(
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
                 "本地模型",
@@ -84,7 +84,7 @@ fun ModelManagerCard(
 
             if (debugChannelEnabled) {
                 Column(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     Text(
                         "Stage 8/9 候选模型验收（Debug）",
@@ -102,7 +102,7 @@ fun ModelManagerCard(
                         label = { Text("候选 production.json URL") },
                     )
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         Button(
                             onClick = {
@@ -410,7 +410,7 @@ private fun ModelAvailabilityRow(
                 "已下载并校验 · 尚未启用",
                 style = MaterialTheme.typography.bodySmall,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Button(onClick = onActivate) {
                     Text("验证并启用")
                 }
@@ -477,7 +477,7 @@ private fun ModelAvailabilityRow(
                     availability.updateAvailable
                 )
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Button(onClick = onInstall) {
                     Text(
                         when {
@@ -495,7 +495,7 @@ private fun ModelAvailabilityRow(
         if (!downloadedCandidateReady &&
             (canRollback || hasDownloadedInstalledVersion)
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (canRollback) {
                     OutlinedButton(onClick = onRollback) {
                         Text("回滚")
