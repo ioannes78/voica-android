@@ -143,6 +143,7 @@ class AppContainer(
                 SherpaStage8TranscriptionEngineProvider(
                     assetManager = application.assets,
                 ),
+            isRecordingActive = recordingLibraryRepository::isRecordingActive,
         )
 
     val diarizationCoordinator =
@@ -158,6 +159,7 @@ class AppContainer(
                 SherpaStage9DiarizationEngineProvider(
                     assetManager = application.assets,
                 ),
+            isRecordingActive = recordingLibraryRepository::isRecordingActive,
         )
 
     val playbackController =
