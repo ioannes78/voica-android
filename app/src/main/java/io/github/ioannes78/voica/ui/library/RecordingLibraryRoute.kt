@@ -3,7 +3,6 @@ package io.github.ioannes78.voica.ui.library
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import android.os.Build
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,10 +28,6 @@ fun RecordingLibraryRoute(
     val importLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             uri?.let(viewModel::importAudio)
-        }
-    val exportTreeLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-            uri?.let(viewModel::exportSelectedToTree)
         }
     val exportTreeLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -80,14 +75,6 @@ fun RecordingLibraryRoute(
             onToggleFavorite = viewModel::toggleFavorite,
             onSetSelectedFavorite = viewModel::setSelectedFavorite,
             onDeleteSelected = viewModel::deleteSelected,
-            onExportSelected = {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    viewModel.exportSelectedToDownloads()
-                } else {
-                    exportTreeLauncher.launch(null)
-                }
-            },
-            onCancelExport = viewModel::cancelExport,
             exportInProgress = exportInProgress,
             onExportSelected = {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
