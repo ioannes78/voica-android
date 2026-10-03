@@ -27,6 +27,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -217,6 +218,14 @@ fun VoicaApp(
     )
 
     val globalRecording by deviceViewModel.recordingState.collectAsState()
+    val navigationColors =
+        NavigationBarItemDefaults.colors(
+            selectedIconColor = MaterialTheme.colorScheme.primary,
+            selectedTextColor = MaterialTheme.colorScheme.primary,
+            indicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
 
     Scaffold(
         topBar = {
@@ -232,18 +241,21 @@ fun VoicaApp(
                     onClick = { selectedTab = 0 },
                     icon = { Icon(Icons.Outlined.Bluetooth, contentDescription = null) },
                     label = { Text(stringResource(R.string.tab_device)) },
+                    colors = navigationColors,
                 )
                 NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
                     icon = { Icon(Icons.Outlined.Folder, contentDescription = null) },
                     label = { Text(stringResource(R.string.tab_library)) },
+                    colors = navigationColors,
                 )
                 NavigationBarItem(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
                     icon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
                     label = { Text(stringResource(R.string.tab_settings)) },
+                    colors = navigationColors,
                 )
             }
         },
