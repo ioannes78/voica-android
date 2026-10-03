@@ -49,6 +49,69 @@ interface RecordingDao {
     @Query("SELECT * FROM audio_assets WHERE recordingId = :recordingId AND role = :role LIMIT 1")
     suspend fun findAsset(recordingId: String, role: String): AudioAssetEntity?
 
+    @Query("SELECT * FROM audio_assets")
+    suspend fun allAssets(): List<AudioAssetEntity>
+
+    @Query(
+        """
+        SELECT
+            canonical.recordingId AS recordingId,
+            canonical.assetId AS assetId,
+            canonical.relativePath AS relativePath,
+            canonical.sizeBytes AS sizeBytes
+        FROM audio_assets canonical
+        JOIN recordings recording ON recording.id = canonical.recordingId
+        WHERE canonical.role = 'CANONICAL_WAV'
+          AND canonical.integrityState = 'VERIFIED'
+          AND canonical.formatValidationState = 'VALID'
+          AND recording.state = 'ACTIVE'
+          AND EXISTS (
+              SELECT 1 FROM audio_assets source
+              WHERE source.recordingId = canonical.recordingId
+                AND source.role IN ('DEVICE_OPUS', 'DEVICE_WAV', 'IMPORTED_ORIGINAL')
+                AND source.integrityState = 'VERIFIED'
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM audio_assets source
+              WHERE source.recordingId = canonical.recordingId
+                AND source.role IN ('DEVICE_OPUS', 'DEVICE_WAV', 'IMPORTED_ORIGINAL')
+                AND source.relativePath = canonical.relativePath
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM transcriptions tx
+              WHERE tx.sourceCanonicalAssetId = canonical.assetId
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM diarization_runs dr
+              WHERE dr.sourceCanonicalAssetId = canonical.assetId
+          )
+        ORDER BY canonical.recordingId
+        """
+    )
+    suspend fun findReclaimableCanonicalAssets(): List<CanonicalCleanupCandidate>
+
+    @Query("DELETE FROM audio_assets WHERE assetId = :assetId")
+    suspend fun deleteAsset(assetId: String): Int
+
+    @Query(
+        """
+        UPDATE audio_derivations
+        SET outputAssetId = NULL,
+            state = 'NOT_PRESENT',
+            updatedAtMs = :updatedAtMs,
+            completedAtMs = NULL,
+            errorCode = NULL,
+            errorDetail = NULL
+        WHERE recordingId = :recordingId
+          AND outputAssetId = :assetId
+        """
+    )
+    suspend fun resetCanonicalDerivations(
+        recordingId: String,
+        assetId: String,
+        updatedAtMs: Long,
+    ): Int
+
     @Query(
         """
         SELECT
