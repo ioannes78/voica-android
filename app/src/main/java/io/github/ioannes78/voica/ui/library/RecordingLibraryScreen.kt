@@ -68,8 +68,8 @@ fun RecordingLibraryScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(padding),
-        contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         item {
             Text(
@@ -84,7 +84,7 @@ fun RecordingLibraryScreen(
         }
 
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 FilterChip(
                     selected = sort == LibrarySort.RECORDED,
                     onClick = { sort = LibrarySort.RECORDED },
@@ -96,7 +96,7 @@ fun RecordingLibraryScreen(
                     label = { Text(stringResource(R.string.local_sort_downloaded)) },
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 FilterChip(
                     selected = sort == LibrarySort.NAME,
                     onClick = { sort = LibrarySort.NAME },
@@ -114,8 +114,8 @@ fun RecordingLibraryScreen(
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(
-                        modifier = Modifier.padding(24.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.LibraryMusic,
@@ -157,9 +157,9 @@ private fun RecordingLibraryRow(
             .clickable(onClick = onClick),
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Column(
                 modifier = Modifier.weight(1f),
@@ -177,7 +177,7 @@ private fun RecordingLibraryRow(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
                         recording.deviceReportedDurationMs?.let(::formatDurationMs) ?: "--",
                         style = MaterialTheme.typography.labelMedium,
