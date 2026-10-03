@@ -54,6 +54,7 @@ sealed interface AiSummaryRunState {
 
     data class Failed(
         val summaryId: String?,
+        val recordingId: String?,
         val transcriptionId: String,
         val errorCode: String,
         val message: String,
@@ -481,9 +482,15 @@ class AiSummaryCoordinator(
                 )
             }
         }
+        val recordingId =
+            runCatching {
+                summaryId?.let { repository.find(it)?.recordingId }
+                    ?: repository.recordingIdForTranscription(transcriptionId)
+            }.getOrNull()
         mutableState.value =
             AiSummaryRunState.Failed(
                 summaryId = summaryId,
+                recordingId = recordingId,
                 transcriptionId = transcriptionId,
                 errorCode = failure.first,
                 message = failure.second,
