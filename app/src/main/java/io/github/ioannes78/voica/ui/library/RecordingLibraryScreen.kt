@@ -59,10 +59,10 @@ fun RecordingLibraryScreen(
                 recordings.sortedWith(
                     compareByDescending<RecordingLibraryItem> {
                         it.recordedAtLocalIso ?: ""
-                    }.thenByDescending { it.downloadedAtMs },
+                    }.thenByDescending { it.downloadedAtMs ?: Long.MIN_VALUE },
                 )
 
-            LibrarySort.DOWNLOADED -> recordings.sortedByDescending { it.downloadedAtMs }
+            LibrarySort.DOWNLOADED -> recordings.sortedByDescending { it.downloadedAtMs ?: Long.MIN_VALUE }
             LibrarySort.NAME -> recordings.sortedBy { it.displayName.lowercase(Locale.ROOT) }
             LibrarySort.SIZE -> recordings.sortedByDescending { item ->
                 item.assets.sumOf { it.sizeBytes }
