@@ -5,6 +5,10 @@ data class CanonicalCleanupCandidate(
     val assetId: String,
     val relativePath: String,
     val sizeBytes: Long,
+    val sourceAssetId: String,
+    val sourceRelativePath: String,
+    val sourceSizeBytes: Long,
+    val sourceSha256: String,
 )
 
 data class RecordingStorageUsage(
