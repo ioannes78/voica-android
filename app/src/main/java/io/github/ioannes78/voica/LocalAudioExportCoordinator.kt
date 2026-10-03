@@ -29,6 +29,11 @@ enum class AudioExportVariant {
     ORIGINAL,
 }
 
+data class LocalAudioExportDescriptor(
+    val displayName: String,
+    val mimeType: String,
+)
+
 data class LocalAudioExportItemResult(
     val recordingId: String,
     val exported: Boolean,
@@ -69,6 +74,19 @@ class LocalAudioExportCoordinator(
     private val appContext = context.applicationContext
     private val resolver = appContext.contentResolver
     private val shareDir = File(appContext.cacheDir, SHARE_DIRECTORY)
+
+    suspend fun describe(
+        recordingId: String,
+        variant: AudioExportVariant = AudioExportVariant.CANONICAL_WAV,
+    ): LocalAudioExportDescriptor? =
+        withContext(ioDispatcher) {
+            resolveSource(recordingId, variant)?.let { source ->
+                LocalAudioExportDescriptor(
+                    displayName = source.displayName,
+                    mimeType = source.mimeType,
+                )
+            }
+        }
 
     suspend fun exportToDownloads(
         recordingIds: Collection<String>,
