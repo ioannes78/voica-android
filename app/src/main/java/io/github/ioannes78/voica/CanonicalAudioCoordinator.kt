@@ -149,15 +149,25 @@ class CanonicalAudioCoordinator(
             }
         }
 
+    suspend fun cleanupTransientFiles(): Long =
+        serial.withLock {
+            withContext(ioDispatcher) {
+                canonicalDir.mkdirs()
+                var reclaimed = 0L
+                canonicalDir.listFiles()
+                    .orEmpty()
+                    .filter { it.isFile && it.name.endsWith(".part") }
+                    .forEach { file ->
+                        val bytes = file.length()
+                        if (file.delete()) reclaimed += bytes
+                    }
+                reclaimed
+            }
+        }
+
     suspend fun reconcileOnStartup() {
         val interrupted = repository.loadInterruptedCanonicalDerivations(PROFILE_ID)
-        withContext(ioDispatcher) {
-            canonicalDir.mkdirs()
-            canonicalDir.listFiles()
-                .orEmpty()
-                .filter { it.isFile && it.name.endsWith(".part") }
-                .forEach(File::delete)
-        }
+        cleanupTransientFiles()
 
         interrupted.forEach { derivation ->
             val target = targetFile(
