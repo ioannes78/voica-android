@@ -1,8 +1,11 @@
 package io.github.ioannes78.voica.ui.library
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import io.github.ioannes78.voica.LocalAudioImportCoordinator
+import io.github.ioannes78.voica.LocalAudioImportOutcome
 import io.github.ioannes78.voica.database.FolderEntity
 import io.github.ioannes78.voica.database.LibraryQueryCriteria
 import io.github.ioannes78.voica.database.LibrarySort
@@ -10,6 +13,7 @@ import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.database.RecordingLibraryRow
 import io.github.ioannes78.voica.database.TagEntity
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -19,6 +23,17 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+sealed interface LibraryImportState {
+    data object Idle : LibraryImportState
+    data object Importing : LibraryImportState
+
+    data class DuplicatePending(
+        val uri: Uri,
+        val originalFilename: String,
+        val matches: List<io.github.ioannes78.voica.database.AudioDuplicateMatch>,
+    ) : LibraryImportState
+}
+
 data class RecordingLibraryUiState(
     val recordings: List<RecordingLibraryRow> = emptyList(),
     val folders: List<FolderEntity> = emptyList(),
@@ -27,6 +42,7 @@ data class RecordingLibraryUiState(
     val criteria: LibraryQueryCriteria = LibraryQueryCriteria(),
     val selectedIds: Set<String> = emptySet(),
     val operationMessage: String? = null,
+    val importState: LibraryImportState = LibraryImportState.Idle,
 ) {
     val selectionMode: Boolean
         get() = selectedIds.isNotEmpty()
@@ -38,11 +54,14 @@ data class RecordingLibraryUiState(
 @OptIn(FlowPreview::class)
 class RecordingLibraryViewModel(
     private val repository: RecordingLibraryRepository,
+    private val importCoordinator: LocalAudioImportCoordinator,
 ) : ViewModel() {
     private val queryText = MutableStateFlow("")
     private val criteria = MutableStateFlow(LibraryQueryCriteria())
     private val selectedIds = MutableStateFlow<Set<String>>(emptySet())
     private val operationMessage = MutableStateFlow<String?>(null)
+    private val importState = MutableStateFlow<LibraryImportState>(LibraryImportState.Idle)
+    private var importJob: Job? = null
 
     private val effectiveCriteria =
         combine(
@@ -93,12 +112,14 @@ class RecordingLibraryViewModel(
             criteria,
             selectedIds,
             operationMessage,
-        ) { query, currentCriteria, selected, message ->
+            importState,
+        ) { query, currentCriteria, selected, message, currentImportState ->
             InteractionState(
                 query = query,
                 criteria = currentCriteria,
                 selectedIds = selected,
                 operationMessage = message,
+                importState = currentImportState,
             )
         }
 
@@ -117,6 +138,7 @@ class RecordingLibraryViewModel(
                 criteria = interaction.criteria,
                 selectedIds = stillSelected,
                 operationMessage = interaction.operationMessage,
+                importState = interaction.importState,
             )
         }.stateIn(
             scope = viewModelScope,
@@ -343,6 +365,74 @@ class RecordingLibraryViewModel(
         operationMessage.value = null
     }
 
+    fun importAudio(uri: Uri) {
+        startImport(uri = uri, allowDuplicate = false)
+    }
+
+    fun confirmDuplicateImport() {
+        val pending = importState.value as? LibraryImportState.DuplicatePending ?: return
+        startImport(uri = pending.uri, allowDuplicate = true)
+    }
+
+    fun dismissDuplicateImport() {
+        if (importState.value is LibraryImportState.DuplicatePending) {
+            importState.value = LibraryImportState.Idle
+        }
+    }
+
+    fun cancelImport() {
+        importJob?.cancel()
+        importJob = null
+        importState.value = LibraryImportState.Idle
+        operationMessage.value = "已取消导入"
+    }
+
+    private fun startImport(
+        uri: Uri,
+        allowDuplicate: Boolean,
+    ) {
+        if (importJob?.isActive == true) return
+        importState.value = LibraryImportState.Importing
+        importJob =
+            viewModelScope.launch {
+                try {
+                    when (val outcome = importCoordinator.import(uri, allowDuplicate)) {
+                        is LocalAudioImportOutcome.Imported -> {
+                            importState.value = LibraryImportState.Idle
+                            operationMessage.value =
+                                "已导入“" + outcome.originalFilename + "”"
+                        }
+
+                        is LocalAudioImportOutcome.Duplicate -> {
+                            importState.value =
+                                LibraryImportState.DuplicatePending(
+                                    uri = uri,
+                                    originalFilename = outcome.originalFilename,
+                                    matches = outcome.matches,
+                                )
+                        }
+
+                        is LocalAudioImportOutcome.Unsupported -> {
+                            importState.value = LibraryImportState.Idle
+                            operationMessage.value =
+                                "无法导入“" + outcome.originalFilename + "”：" + outcome.reason
+                        }
+
+                        is LocalAudioImportOutcome.Failed -> {
+                            importState.value = LibraryImportState.Idle
+                            operationMessage.value =
+                                outcome.reason
+                        }
+                    }
+                } finally {
+                    importJob = null
+                    if (importState.value is LibraryImportState.Importing) {
+                        importState.value = LibraryImportState.Idle
+                    }
+                }
+            }
+    }
+
     private data class LibraryData(
         val recordings: List<RecordingLibraryRow>,
         val folders: List<FolderEntity>,
@@ -354,13 +444,15 @@ class RecordingLibraryViewModel(
         val criteria: LibraryQueryCriteria,
         val selectedIds: Set<String>,
         val operationMessage: String?,
+        val importState: LibraryImportState,
     )
 
     class Factory(
         private val repository: RecordingLibraryRepository,
+        private val importCoordinator: LocalAudioImportCoordinator,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            RecordingLibraryViewModel(repository) as T
+            RecordingLibraryViewModel(repository, importCoordinator) as T
     }
 }
