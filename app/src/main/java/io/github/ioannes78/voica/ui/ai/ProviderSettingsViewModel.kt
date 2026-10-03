@@ -10,6 +10,7 @@ import io.github.ioannes78.voica.ai.ProviderModel
 import io.github.ioannes78.voica.ai.ProviderPresetCatalog
 import io.github.ioannes78.voica.ai.ProviderPresetIds
 import io.github.ioannes78.voica.ai.ProviderProfile
+import io.github.ioannes78.voica.ai.StructuredOutputMode
 import io.github.ioannes78.voica.ai.StructuredSummaryCompatibility
 import io.github.ioannes78.voica.llm.ProviderAdapterRegistry
 import io.github.ioannes78.voica.llm.ProviderConfigurationRepository
@@ -138,7 +139,12 @@ class ProviderSettingsViewModel(
     }
 
     fun setModel(value: String) {
-        mutableState.value = mutableState.value.copy(defaultModel = value)
+        mutableState.value =
+            mutableState.value.copy(
+                defaultModel = value,
+                connectionTest = null,
+                notice = null,
+            )
     }
 
     fun setManualContextWindow(value: String) {
@@ -334,6 +340,33 @@ class ProviderSettingsViewModel(
                     providerRegistry.forProfile(profile).testConnection(profile)
                 }
             result.onSuccess { test ->
+                val negotiatedMode = test.structuredSummaryProbe?.mode
+                val negotiatedCompatibility =
+                    test.structuredSummaryProbe?.compatibility
+                val negotiatedCaps =
+                    test.capabilities?.let { capabilities ->
+                        when (negotiatedCompatibility) {
+                            StructuredSummaryCompatibility.VERIFIED_STRICT ->
+                                capabilities.copy(
+                                    supportsJsonSchema = true,
+                                    supportsJsonObject = true,
+                                )
+                            StructuredSummaryCompatibility.VERIFIED_COMPATIBLE ->
+                                capabilities.copy(
+                                    supportsJsonSchema = false,
+                                    supportsJsonObject =
+                                        negotiatedMode == StructuredOutputMode.JSON_OBJECT,
+                                )
+                            else -> null
+                        }
+                    }
+                if (test.success && negotiatedCaps != null) {
+                    viewModelScope.launch {
+                        profileStore.upsert(
+                            profile.copy(capabilityOverrides = negotiatedCaps),
+                        )
+                    }
+                }
                 mutableState.value =
                     mutableState.value.copy(
                         busy = false,
