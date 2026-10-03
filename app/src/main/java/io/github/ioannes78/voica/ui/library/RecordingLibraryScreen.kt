@@ -62,6 +62,10 @@ import java.util.Locale
 fun RecordingLibraryScreen(
     padding: PaddingValues,
     state: RecordingLibraryUiState,
+    onImportAudio: () -> Unit,
+    onCancelImport: () -> Unit,
+    onConfirmDuplicateImport: () -> Unit,
+    onDismissDuplicateImport: () -> Unit,
     onQueryChange: (String) -> Unit,
     onSortChange: (LibrarySort) -> Unit,
     onFavoriteFilterChange: (Boolean) -> Unit,
@@ -202,6 +206,15 @@ fun RecordingLibraryScreen(
                         style = MaterialTheme.typography.headlineMedium,
                         modifier = Modifier.weight(1f),
                     )
+                    if (state.importState is LibraryImportState.Importing) {
+                        TextButton(onClick = onCancelImport) {
+                            Text("取消导入")
+                        }
+                    } else {
+                        TextButton(onClick = onImportAudio) {
+                            Text("导入音频")
+                        }
+                    }
                     Column {
                         IconButton(onClick = { sortMenuExpanded = true }) {
                             Icon(Icons.Outlined.MoreVert, contentDescription = "排序")
@@ -529,6 +542,36 @@ fun RecordingLibraryScreen(
             onConfirm = {
                 onDeleteTag(tag.tagId)
                 deletingTag = null
+            },
+        )
+    }
+
+    (state.importState as? LibraryImportState.DuplicatePending)?.let { duplicate ->
+        val existingNames =
+            duplicate.matches
+                .map { it.displayName }
+                .distinct()
+                .take(3)
+                .joinToString("、")
+        AlertDialog(
+            onDismissRequest = onDismissDuplicateImport,
+            title = { Text("发现重复音频") },
+            text = {
+                Text(
+                    "“" + duplicate.originalFilename + "”与录音库中的“" +
+                        existingNames +
+                        "”内容完全相同。默认不重复导入；如需保留另一份，请选择“仍然导入”。",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = onConfirmDuplicateImport) {
+                    Text("仍然导入")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismissDuplicateImport) {
+                    Text("取消")
+                }
             },
         )
     }
