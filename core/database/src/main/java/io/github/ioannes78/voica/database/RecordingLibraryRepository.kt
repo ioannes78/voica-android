@@ -19,6 +19,12 @@ data class LibraryDeleteResult(
     val failedPaths: List<String> = emptyList(),
 )
 
+enum class LocalDeletePreparation {
+    READY,
+    ALREADY_DELETING,
+    MISSING,
+}
+
 data class CanonicalConversionSource(
     val recordingId: String,
     val sourceAssetId: String,
@@ -670,10 +676,35 @@ class RecordingLibraryRepository(
         return dao.rename(recordingId, displayName, nowMs()) == 1
     }
 
-    suspend fun deleteLocalRecording(recordingId: String): LibraryDeleteResult {
+    suspend fun isRecordingActive(recordingId: String): Boolean =
+        dao.isRecordingActive(recordingId)
+
+    suspend fun prepareLocalDelete(recordingId: String): LocalDeletePreparation {
+        val state = dao.recordingState(recordingId) ?: return LocalDeletePreparation.MISSING
+        if (state == RecordingState.DELETING) {
+            return LocalDeletePreparation.ALREADY_DELETING
+        }
+        if (state != RecordingState.ACTIVE) {
+            return LocalDeletePreparation.MISSING
+        }
+
+        if (dao.markDeletingIfActive(recordingId, nowMs()) == 1) {
+            return LocalDeletePreparation.READY
+        }
+
+        return when (dao.recordingState(recordingId)) {
+            null -> LocalDeletePreparation.MISSING
+            RecordingState.DELETING -> LocalDeletePreparation.ALREADY_DELETING
+            else -> LocalDeletePreparation.MISSING
+        }
+    }
+
+    suspend fun finishLocalDelete(recordingId: String): LibraryDeleteResult {
         val recording = dao.findWithAssets(recordingId)
             ?: return LibraryDeleteResult(deleted = true)
-        dao.updateState(recordingId, RecordingState.DELETING, nowMs())
+        if (recording.recording.state != RecordingState.DELETING) {
+            return LibraryDeleteResult(deleted = false)
+        }
 
         val failed = deleteManagedFiles(recording)
         return if (failed.isEmpty()) {
@@ -682,6 +713,17 @@ class RecordingLibraryRepository(
         } else {
             LibraryDeleteResult(deleted = false, failedPaths = failed)
         }
+    }
+
+    @Deprecated("Use LocalRecordingDeleteCoordinator so active jobs are cancelled before files are removed.")
+    suspend fun deleteLocalRecording(recordingId: String): LibraryDeleteResult {
+        when (prepareLocalDelete(recordingId)) {
+            LocalDeletePreparation.MISSING -> return LibraryDeleteResult(deleted = true)
+            LocalDeletePreparation.READY,
+            LocalDeletePreparation.ALREADY_DELETING,
+            -> Unit
+        }
+        return finishLocalDelete(recordingId)
     }
 
     suspend fun reconcilePendingDeletes() {
