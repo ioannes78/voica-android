@@ -53,10 +53,10 @@ class StorageManagementCoordinator(
     private val modelPackages = File(app.cacheDir, "model-packages")
     private val shareRoot = File(app.cacheDir, "share")
 
-    suspend fun snapshot(): StorageManagementSnapshot {
-        val recordingUsage: RecordingStorageUsage = repository.recordingStorageUsage()
-        val downloadedModels = modelManager.downloadedVersions()
-        return withContext(ioDispatcher) {
+    suspend fun snapshot(): StorageManagementSnapshot =
+        withContext(ioDispatcher) {
+            val recordingUsage: RecordingStorageUsage = repository.recordingStorageUsage()
+            val downloadedModels = modelManager.downloadedVersions()
             StorageManagementSnapshot(
                 originalAudioBytes = recordingUsage.originalAudioBytes,
                 canonicalAudioBytes = recordingUsage.canonicalAudioBytes,
@@ -67,7 +67,6 @@ class StorageManagementCoordinator(
                 downloadedModels = downloadedModels,
             )
         }
-    }
 
     suspend fun cleanupSafeTemporaryFiles(): StorageCleanupOutcome {
         val before = withContext(ioDispatcher) { temporaryPhysicalBytes() }
@@ -101,7 +100,9 @@ class StorageManagementCoordinator(
             }
 
         val cleanup: CanonicalCleanupResult =
-            repository.cleanupReclaimableCanonicalAudio()
+            withContext(ioDispatcher) {
+                repository.cleanupReclaimableCanonicalAudio()
+            }
         val detail =
             if (cleanup.failedPaths.isEmpty()) {
                 "已清理 ${cleanup.deletedAssets} 个可重新生成的标准化音频"
