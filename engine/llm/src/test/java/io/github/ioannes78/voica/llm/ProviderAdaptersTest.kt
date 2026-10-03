@@ -93,8 +93,13 @@ class ProviderAdaptersTest {
                                 emptyMap(),
                             ),
                             LlmHttpResponse(
+                                400,
+                                """{"error":{"message":"json_schema unsupported"}}""",
+                                emptyMap(),
+                            ),
+                            LlmHttpResponse(
                                 200,
-                                """{"choices":[{"message":{"content":"{\"schemaVersion\":1,\"title\":\"Voica probe\"}"},"finish_reason":"stop"}]}""",
+                                """{"choices":[{"message":{"content":"{\"schemaVersion\":1,\"contentType\":\"GENERAL\",\"classificationConfidence\":1.0,\"title\":\"Voica probe\",\"overview\":\"结构化输出测试\",\"sections\":[]}"},"finish_reason":"stop"}]}""",
                                 emptyMap(),
                             ),
                         ),
@@ -120,11 +125,13 @@ class ProviderAdaptersTest {
             val result = provider.testConnection(doubaoProfile)
 
             assertTrue(result.success)
-            assertEquals(2, transport.requests.size)
+            assertEquals(3, transport.requests.size)
             val plainBody = transport.requests[0].second.body.orEmpty()
-            val structuredBody = transport.requests[1].second.body.orEmpty()
+            val strictBody = transport.requests[1].second.body.orEmpty()
+            val structuredBody = transport.requests[2].second.body.orEmpty()
             assertFalse(plainBody.contains("response_format"))
             assertTrue(plainBody.contains("Plain text only"))
+            assertTrue(strictBody.contains("\"type\":\"json_schema\""))
             assertTrue(structuredBody.contains("\"response_format\":{\"type\":\"json_object\"}"))
             assertEquals(
                 StructuredSummaryCompatibility.VERIFIED_COMPATIBLE,
@@ -155,7 +162,7 @@ class ProviderAdaptersTest {
                             ),
                             LlmHttpResponse(
                                 200,
-                                """{"choices":[{"message":{"content":"{\"schemaVersion\":1,\"title\":\"Voica probe\"}"},"finish_reason":"stop"}]}""",
+                                """{"choices":[{"message":{"content":"{\"schemaVersion\":1,\"contentType\":\"GENERAL\",\"classificationConfidence\":1.0,\"title\":\"Voica probe\",\"overview\":\"结构化输出测试\",\"sections\":[]}"},"finish_reason":"stop"}]}""",
                                 emptyMap(),
                             ),
                         ),
