@@ -703,10 +703,11 @@ class RecordingLibraryRepository(
             dao.findReclaimableCanonicalAssets()
                 .filter { candidate ->
                     val row = dao.findWithAssets(candidate.recordingId) ?: return@filter false
-                    hasVerifiedPhysicalSource(row) &&
+                    hasVerifiedCleanupLineage(candidate, row) &&
                         managedExistingFile(candidate.relativePath)?.length() ==
                         candidate.sizeBytes
                 }
+                .distinctBy(CanonicalCleanupCandidate::assetId)
                 .sumOf { it.sizeBytes }
 
         return RecordingStorageUsage(
@@ -720,10 +721,11 @@ class RecordingLibraryRepository(
         dao.findReclaimableCanonicalAssets()
             .filter { candidate ->
                 val row = dao.findWithAssets(candidate.recordingId) ?: return@filter false
-                hasVerifiedPhysicalSource(row) &&
+                hasVerifiedCleanupLineage(candidate, row) &&
                     managedExistingFile(candidate.relativePath)?.length() ==
                     candidate.sizeBytes
             }
+            .distinctBy(CanonicalCleanupCandidate::assetId)
 
     suspend fun cleanupReclaimableCanonicalAudio(): CanonicalCleanupResult {
         var reclaimed = 0L
@@ -731,24 +733,36 @@ class RecordingLibraryRepository(
         val failed = mutableListOf<String>()
 
         reclaimableCanonicalCandidates().forEach { candidate ->
-            val row = dao.findWithAssets(candidate.recordingId)
-            if (row == null || !hasVerifiedPhysicalSource(row)) {
-                return@forEach
-            }
+            val row = dao.findWithAssets(candidate.recordingId) ?: return@forEach
+            if (!hasVerifiedCleanupLineage(candidate, row)) return@forEach
+
+            val canonicalAsset =
+                row.assets.firstOrNull { it.assetId == candidate.assetId }
+                    ?: return@forEach
+            val affectedDerivations =
+                row.derivations.filter { it.outputAssetId == candidate.assetId }
             val file = managedExistingFile(candidate.relativePath) ?: return@forEach
             if (file.length() != candidate.sizeBytes) {
                 failed += candidate.relativePath
                 return@forEach
             }
 
-            if (!file.delete()) {
-                failed += candidate.relativePath
-                return@forEach
-            }
-
-            val committed =
+            val detached =
                 runCatching {
                     database.withTransaction {
+                        val stillReclaimable =
+                            dao.findReclaimableCanonicalAssets()
+                                .any {
+                                    it.assetId == candidate.assetId &&
+                                        it.sourceAssetId == candidate.sourceAssetId &&
+                                        it.sourceSha256.equals(
+                                            candidate.sourceSha256,
+                                            ignoreCase = true,
+                                        )
+                                }
+                        check(stillReclaimable) {
+                            "canonical asset became in-use during cleanup"
+                        }
                         dao.resetCanonicalDerivations(
                             recordingId = candidate.recordingId,
                             assetId = candidate.assetId,
@@ -760,12 +774,26 @@ class RecordingLibraryRepository(
                     }
                 }.isSuccess
 
-            if (committed) {
+            if (!detached) {
+                failed += candidate.relativePath
+                return@forEach
+            }
+
+            if (file.delete()) {
                 reclaimed += candidate.sizeBytes
                 deleted += 1
-            } else {
-                failed += candidate.relativePath
+                return@forEach
             }
+
+            // The file still exists, so restore the database lineage rather than
+            // leaving an untracked canonical file after an I/O deletion failure.
+            runCatching {
+                database.withTransaction {
+                    dao.upsertAsset(canonicalAsset)
+                    affectedDerivations.forEach { dao.upsertDerivation(it) }
+                }
+            }
+            failed += candidate.relativePath
         }
 
         return CanonicalCleanupResult(
@@ -905,6 +933,30 @@ class RecordingLibraryRepository(
 
     private fun canonicalAssetId(recordingId: String, profileId: String): String =
         stableRecordingId("$recordingId|canonical=$profileId")
+
+    private fun hasVerifiedCleanupLineage(
+        candidate: CanonicalCleanupCandidate,
+        recording: RecordingWithAssets,
+    ): Boolean {
+        val sourceRoles =
+            setOf(
+                AudioAssetRole.DEVICE_OPUS,
+                AudioAssetRole.DEVICE_WAV,
+                AudioAssetRole.IMPORTED_ORIGINAL,
+            )
+        val source =
+            recording.assets.firstOrNull { asset ->
+                asset.assetId == candidate.sourceAssetId &&
+                    asset.role in sourceRoles &&
+                    asset.relativePath == candidate.sourceRelativePath &&
+                    asset.sizeBytes == candidate.sourceSizeBytes &&
+                    asset.sha256.equals(candidate.sourceSha256, ignoreCase = true) &&
+                    asset.integrityState == AudioIntegrityState.VERIFIED &&
+                    asset.formatValidationState == AudioValidationState.VALID
+            } ?: return false
+
+        return managedExistingFile(source.relativePath)?.length() == source.sizeBytes
+    }
 
     private fun hasVerifiedPhysicalSource(recording: RecordingWithAssets): Boolean {
         val sourceRoles =
