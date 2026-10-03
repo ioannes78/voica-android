@@ -58,6 +58,7 @@ class LocalAudioImportCoordinator(
     private val repository: RecordingLibraryRepository,
     private val recordingsRoot: File,
     private val mediaProbe: CompressedAudioProbe = AndroidMediaProbe(),
+    private val onImported: (String) -> Unit = {},
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val nowMs: () -> Long = System::currentTimeMillis,
 ) {
@@ -191,6 +192,7 @@ class LocalAudioImportCoordinator(
                 }
 
             committedFile = null
+            runCatching { onImported(recordingId) }
             return LocalAudioImportOutcome.Imported(
                 recordingId = recordingId,
                 originalFilename = originalFilename,
