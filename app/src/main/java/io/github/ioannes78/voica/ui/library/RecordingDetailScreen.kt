@@ -145,12 +145,6 @@ fun RecordingDetailScreen(
         } else {
             emptyList()
         }
-    val scopedTranscriptionState =
-        transcriptionState.takeIf { it.recordingIdOrNull() == recording.id }
-            ?: TranscriptionRunState.Idle
-    val scopedDiarizationState =
-        diarizationState.takeIf { it.recordingIdOrNull() == recording.id }
-            ?: DiarizationRunState.Idle
     val transcriptionBusy = transcriptionState is TranscriptionRunState.Running
     val diarizationBusy = diarizationState is DiarizationRunState.Running
     val canonicalReady = recording.assets.any {
@@ -465,11 +459,13 @@ fun RecordingDetailScreen(
                     ) {
                         item(key = "transcript-status") {
                             if (
-                                scopedTranscriptionState is TranscriptionRunState.Running ||
-                                scopedTranscriptionState is TranscriptionRunState.Failed
+                                shouldShowTranscriptionStatus(
+                                    transcriptionState,
+                                    recording.id,
+                                )
                             ) {
                                 TranscriptionStatusCard(
-                                    state = scopedTranscriptionState,
+                                    state = transcriptionState,
                                     recordingName = recording.displayName,
                                     notice = transcriptionNotice,
                                     onCancel = transcriptionViewModel::cancel,
@@ -478,11 +474,13 @@ fun RecordingDetailScreen(
                         }
                         item(key = "diarization-status") {
                             if (
-                                scopedDiarizationState is DiarizationRunState.Running ||
-                                scopedDiarizationState is DiarizationRunState.Failed
+                                shouldShowDiarizationStatus(
+                                    diarizationState,
+                                    recording.id,
+                                )
                             ) {
                                 DiarizationStatusCard(
-                                    state = scopedDiarizationState,
+                                    state = diarizationState,
                                     recordingName = recording.displayName,
                                     notice = diarizationNotice,
                                     onCancel = diarizationViewModel::cancel,
@@ -923,22 +921,30 @@ private fun formatBytes(bytes: Long): String {
     return String.format(Locale.US, "%.2f GB", mb / 1024.0)
 }
 
-private fun TranscriptionRunState.recordingIdOrNull(): String? =
-    when (this) {
-        TranscriptionRunState.Idle -> null
-        is TranscriptionRunState.Running -> recordingId
-        is TranscriptionRunState.Completed -> recordingId
-        is TranscriptionRunState.Failed -> recordingId
-        is TranscriptionRunState.Cancelled -> recordingId
+internal fun shouldShowTranscriptionStatus(
+    state: TranscriptionRunState,
+    recordingId: String,
+): Boolean =
+    when (state) {
+        is TranscriptionRunState.Running -> state.recordingId == recordingId
+        is TranscriptionRunState.Failed -> state.recordingId == recordingId
+        TranscriptionRunState.Idle,
+        is TranscriptionRunState.Completed,
+        is TranscriptionRunState.Cancelled,
+        -> false
     }
 
-private fun DiarizationRunState.recordingIdOrNull(): String? =
-    when (this) {
-        DiarizationRunState.Idle -> null
-        is DiarizationRunState.Running -> recordingId
-        is DiarizationRunState.Completed -> recordingId
-        is DiarizationRunState.Failed -> recordingId
-        is DiarizationRunState.Cancelled -> recordingId
+internal fun shouldShowDiarizationStatus(
+    state: DiarizationRunState,
+    recordingId: String,
+): Boolean =
+    when (state) {
+        is DiarizationRunState.Running -> state.recordingId == recordingId
+        is DiarizationRunState.Failed -> state.recordingId == recordingId
+        DiarizationRunState.Idle,
+        is DiarizationRunState.Completed,
+        is DiarizationRunState.Cancelled,
+        -> false
     }
 
 private const val TRANSCRIPT_ROW_START_INDEX = 5
