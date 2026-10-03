@@ -140,8 +140,14 @@ interface RecordingDao {
     @Query("DELETE FROM recording_tag_cross_refs WHERE recordingId IN (:recordingIds) AND tagId = :tagId")
     suspend fun removeTagFromRecordings(recordingIds: List<String>, tagId: String): Int
 
+    @Query("SELECT * FROM recording_folders WHERE folderId = :folderId LIMIT 1")
+    suspend fun findFolder(folderId: String): FolderEntity?
+
     @Query("SELECT * FROM recording_folders WHERE name = :name COLLATE NOCASE LIMIT 1")
     suspend fun findFolderByName(name: String): FolderEntity?
+
+    @Query("SELECT * FROM recording_tags WHERE tagId = :tagId LIMIT 1")
+    suspend fun findTag(tagId: String): TagEntity?
 
     @Query("SELECT * FROM recording_tags WHERE name = :name COLLATE NOCASE LIMIT 1")
     suspend fun findTagByName(name: String): TagEntity?
