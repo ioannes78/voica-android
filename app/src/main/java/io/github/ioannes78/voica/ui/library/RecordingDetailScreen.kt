@@ -138,6 +138,12 @@ fun RecordingDetailScreen(
         } else {
             emptyList()
         }
+    val scopedTranscriptionState =
+        transcriptionState.takeIf { it.recordingIdOrNull() == recording.id }
+            ?: TranscriptionRunState.Idle
+    val scopedDiarizationState =
+        diarizationState.takeIf { it.recordingIdOrNull() == recording.id }
+            ?: DiarizationRunState.Idle
     val transcriptionBusy = transcriptionState is TranscriptionRunState.Running
     val diarizationBusy = diarizationState is DiarizationRunState.Running
     val canonicalReady = recording.assets.any {
@@ -451,11 +457,12 @@ fun RecordingDetailScreen(
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         item(key = "transcript-status") {
-                            if (transcriptionState !is TranscriptionRunState.Idle ||
-                                transcriptionNotice != null
+                            if (
+                                scopedTranscriptionState is TranscriptionRunState.Running ||
+                                scopedTranscriptionState is TranscriptionRunState.Failed
                             ) {
                                 TranscriptionStatusCard(
-                                    state = transcriptionState,
+                                    state = scopedTranscriptionState,
                                     recordingName = recording.displayName,
                                     notice = transcriptionNotice,
                                     onCancel = transcriptionViewModel::cancel,
@@ -463,11 +470,12 @@ fun RecordingDetailScreen(
                             }
                         }
                         item(key = "diarization-status") {
-                            if (diarizationState !is DiarizationRunState.Idle ||
-                                diarizationNotice != null
+                            if (
+                                scopedDiarizationState is DiarizationRunState.Running ||
+                                scopedDiarizationState is DiarizationRunState.Failed
                             ) {
                                 DiarizationStatusCard(
-                                    state = diarizationState,
+                                    state = scopedDiarizationState,
                                     recordingName = recording.displayName,
                                     notice = diarizationNotice,
                                     onCancel = diarizationViewModel::cancel,
@@ -900,6 +908,24 @@ private fun formatBytes(bytes: Long): String {
     if (mb < 1024.0) return String.format(Locale.US, "%.1f MB", mb)
     return String.format(Locale.US, "%.2f GB", mb / 1024.0)
 }
+
+private fun TranscriptionRunState.recordingIdOrNull(): String? =
+    when (this) {
+        TranscriptionRunState.Idle -> null
+        is TranscriptionRunState.Running -> recordingId
+        is TranscriptionRunState.Completed -> recordingId
+        is TranscriptionRunState.Failed -> recordingId
+        is TranscriptionRunState.Cancelled -> recordingId
+    }
+
+private fun DiarizationRunState.recordingIdOrNull(): String? =
+    when (this) {
+        DiarizationRunState.Idle -> null
+        is DiarizationRunState.Running -> recordingId
+        is DiarizationRunState.Completed -> recordingId
+        is DiarizationRunState.Failed -> recordingId
+        is DiarizationRunState.Cancelled -> recordingId
+    }
 
 private const val TRANSCRIPT_ROW_START_INDEX = 5
 
