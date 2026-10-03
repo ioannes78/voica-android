@@ -118,7 +118,6 @@ fun RecordingCard(
                         },
                         enabled = !busy,
                     )
-                    }
                 }
             }
 
