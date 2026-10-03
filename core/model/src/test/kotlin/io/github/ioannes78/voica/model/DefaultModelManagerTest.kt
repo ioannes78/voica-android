@@ -383,6 +383,86 @@ class DefaultModelManagerTest {
     }
 
     @Test
+    fun downloadedVersionInventoryMarksActivePreviousAndInUse() = runBlocking {
+        val v1Bytes = "model-v1".toByteArray()
+        val v2Bytes = "model-v2".toByteArray()
+        val bundled = catalog(descriptor("v1", 1, v1Bytes))
+        var remote = bundled
+        val registry = ModelUseRegistry()
+        val downloader =
+            FakeDownloader(
+                mapOf(
+                    "https://example.invalid/v1.bin" to v1Bytes,
+                    "https://example.invalid/v2.bin" to v2Bytes,
+                ),
+            )
+        val manager =
+            manager(
+                bundled = bundled,
+                remoteProvider = ModelCatalogProvider { remote },
+                downloader = downloader,
+                registry = registry,
+            )
+
+        manager.install("asr", "v1", 1)
+        manager.confirmInstalledVersion("asr", "v1", 1)
+
+        remote = catalog(descriptor("v2", 2, v2Bytes))
+        manager.checkForUpdates(true)
+        manager.install("asr", "v2", 2)
+        manager.confirmInstalledVersion("asr", "v2", 2)
+
+        val lease = registry.acquire("asr", "v2", 2)
+        try {
+            val versions = manager.downloadedVersions()
+            val active = versions.single { it.revision == 2L }
+            val previous = versions.single { it.revision == 1L }
+
+            assertTrue(active.active)
+            assertTrue(active.inUse)
+            assertFalse(active.previous)
+            assertTrue(previous.previous)
+            assertFalse(previous.active)
+            assertFalse(previous.inUse)
+            assertTrue(active.sizeBytes >= v2Bytes.size)
+            assertTrue(previous.sizeBytes >= v1Bytes.size)
+        } finally {
+            lease.close()
+        }
+    }
+
+    @Test
+    fun transientCleanupRemovesOnlyOrphanManagerTemporaryFiles() = runBlocking {
+        val bytes = "model".toByteArray()
+        val manager =
+            manager(
+                bundled = catalog(descriptor("v1", 1, bytes)),
+                remoteProvider = null,
+                downloader =
+                    FakeDownloader(
+                        mapOf("https://example.invalid/v1.bin" to bytes),
+                    ),
+            )
+
+        val packagePart =
+            File(root, "packages/orphan.part").apply {
+                parentFile?.mkdirs()
+                writeBytes(ByteArray(31))
+            }
+        val staging =
+            File(root, "models/.staging/orphan").apply {
+                mkdirs()
+            }
+        File(staging, "partial.bin").writeBytes(ByteArray(17))
+
+        val reclaimed = manager.cleanupTransientStorage()
+
+        assertEquals(48L, reclaimed)
+        assertFalse(packagePart.exists())
+        assertFalse(staging.exists())
+    }
+
+    @Test
     fun remoteCatalogCannotRegressBundledModelRevision() = runBlocking {
         val bundled = catalog(descriptor("v2", 2, "two".toByteArray()))
         val remote = catalog(descriptor("v1", 1, "one".toByteArray()))
@@ -406,6 +486,7 @@ class DefaultModelManagerTest {
         remoteProvider: ModelCatalogProvider?,
         downloader: ModelPackageDownloader,
         validator: ModelCandidateValidator = ModelCandidateValidator { _, _ -> },
+        registry: ModelUseRegistry = ModelUseRegistry(),
     ) =
         DefaultModelManager(
             bundledCatalog = bundled,
@@ -421,6 +502,7 @@ class DefaultModelManagerTest {
             storage = ModelStorage(File(root, "models")),
             packageDirectory = File(root, "packages"),
             downloader = downloader,
+            useRegistry = registry,
             candidateValidator = validator,
         )
 
