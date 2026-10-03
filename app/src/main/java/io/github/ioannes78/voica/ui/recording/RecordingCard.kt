@@ -303,6 +303,7 @@ private fun gainText(gain: RecordingGain?): String =
         RecordingGain.Low -> "低"
         RecordingGain.Medium -> "中"
         RecordingGain.High -> "高"
+        is RecordingGain.UnknownRaw -> "未知(" + gain.rawValue + ")"
         null -> "未知"
     }
 
