@@ -45,7 +45,7 @@ import io.github.ioannes78.voica.ble.RecordingFreshness
 import io.github.ioannes78.voica.protocol.RecordingStatus
 import io.github.ioannes78.voica.ui.DeviceActionMessage
 import io.github.ioannes78.voica.ui.DeviceViewModel
-import io.github.ioannes78.voica.ui.files.DeviceFilesCard
+import io.github.ioannes78.voica.ui.files.CompactDeviceFilesScreen
 import io.github.ioannes78.voica.ui.recording.RecordingCard
 
 private enum class DevicePage {
@@ -186,10 +186,25 @@ fun DeviceProductScreen(
         }
 
         DevicePage.FILES -> {
-            DeviceFilesPage(
+            val operation by viewModel.fileOperationState.collectAsState()
+            val canRefresh =
+                recording.status == RecordingStatus.Idle &&
+                    recording.freshness == RecordingFreshness.FRESH &&
+                    recording.commandState == RecordingCommandState.IDLE &&
+                    deviceFiles.freshness != FileListFreshness.LOADING &&
+                    operation !is FileOperationState.Active
+            CompactDeviceFilesScreen(
                 padding = padding,
-                viewModel = viewModel,
+                state = deviceFiles,
+                operationState = operation,
+                localRecordings = libraryRecordings,
+                canRefresh = canRefresh,
                 onBack = { page = DevicePage.HOME },
+                onRefresh = viewModel::refreshDeviceFiles,
+                onDownload = viewModel::downloadDeviceFile,
+                onCancelDownload = viewModel::cancelDeviceFileDownload,
+                onDeleteRemote = viewModel::deleteRemoteRecording,
+                onRangeProbe = viewModel::runRangeProbe,
             )
         }
 
@@ -355,53 +370,6 @@ private fun DeviceFilesEntry(
                 Icon(Icons.Outlined.ChevronRight, contentDescription = null)
             },
         )
-    }
-}
-
-@Composable
-private fun DeviceFilesPage(
-    padding: PaddingValues,
-    viewModel: DeviceViewModel,
-    onBack: () -> Unit,
-) {
-    val recording by viewModel.recordingState.collectAsState()
-    val state by viewModel.deviceFileListState.collectAsState()
-    val operation by viewModel.fileOperationState.collectAsState()
-    val recordings by viewModel.libraryRecordings.collectAsState(initial = emptyList())
-
-    val canRefresh =
-        recording.status == RecordingStatus.Idle &&
-            recording.freshness == RecordingFreshness.FRESH &&
-            recording.commandState == RecordingCommandState.IDLE &&
-            state.freshness != FileListFreshness.LOADING &&
-            operation !is FileOperationState.Active
-
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(padding),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        item {
-            CompactSubpageHeader(
-                title = "设备录音",
-                onBack = onBack,
-            )
-        }
-        item {
-            DeviceFilesCard(
-                state = state,
-                operationState = operation,
-                localRecordings = recordings,
-                canRefresh = canRefresh,
-                onRefresh = viewModel::refreshDeviceFiles,
-                onDownload = viewModel::downloadDeviceFile,
-                onCancelDownload = viewModel::cancelDeviceFileDownload,
-                onDeleteRemote = viewModel::deleteRemoteRecording,
-                onRangeProbe = viewModel::runRangeProbe,
-            )
-        }
     }
 }
 
