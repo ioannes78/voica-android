@@ -52,6 +52,9 @@ import io.github.ioannes78.voica.DiarizationCoordinator
 import io.github.ioannes78.voica.DiarizationRunState
 import io.github.ioannes78.voica.ModelUpdateController
 import io.github.ioannes78.voica.LocalAudioImportCoordinator
+import io.github.ioannes78.voica.LocalAudioExportCoordinator
+import io.github.ioannes78.voica.LocalAudioShareOutcome
+import io.github.ioannes78.voica.AudioExportVariant
 import io.github.ioannes78.voica.LocalRecordingDeleteCoordinator
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.TranscriptionCoordinator
@@ -126,6 +129,7 @@ fun VoicaApp(
     canonicalAudioCoordinator: CanonicalAudioCoordinator,
     localAudioImportCoordinator: LocalAudioImportCoordinator,
     localRecordingDeleteCoordinator: LocalRecordingDeleteCoordinator,
+    localAudioExportCoordinator: LocalAudioExportCoordinator,
     playbackController: PlaybackController,
     modelManager: ModelManager,
     modelUpdateController: ModelUpdateController,
@@ -162,11 +166,13 @@ fun VoicaApp(
                 recordingLibraryRepository,
                 localAudioImportCoordinator,
                 localRecordingDeleteCoordinator,
+                localAudioExportCoordinator,
             ) {
                 RecordingLibraryViewModel.Factory(
                     repository = recordingLibraryRepository,
                     importCoordinator = localAudioImportCoordinator,
                     deleteCoordinator = localRecordingDeleteCoordinator,
+                    exportCoordinator = localAudioExportCoordinator,
                 )
             },
     )
@@ -311,6 +317,7 @@ fun VoicaApp(
                 deviceViewModel,
                 recordingLibraryViewModel,
                 playbackViewModel,
+                localAudioExportCoordinator,
                 transcriptionViewModel,
                 diarizationViewModel,
                 transcriptPlaybackSyncViewModel,
@@ -506,6 +513,7 @@ private fun LocalFilesScreen(
     viewModel: DeviceViewModel,
     recordingLibraryViewModel: RecordingLibraryViewModel,
     playbackViewModel: PlaybackViewModel,
+    localAudioExportCoordinator: LocalAudioExportCoordinator,
     transcriptionViewModel: TranscriptionViewModel,
     diarizationViewModel: DiarizationViewModel,
     transcriptPlaybackSyncViewModel: TranscriptPlaybackSyncViewModel,
