@@ -56,6 +56,23 @@ jobs:
         with:
           gradle-version: "9.6.0"
 
+      - name: Generate Room v5 schema
+        run: gradle :core:database:kspDebugKotlin --stacktrace
+
+      # One-time Stage 12B bootstrap. The compiler output is committed to the PR
+      # head branch before migration tests run; subsequent runs skip this write.
+      - name: Bootstrap committed Room v5 schema
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          schema_path="core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/5.json"
+          if test -f "$schema_path" && ! git ls-files --error-unmatch "$schema_path" >/dev/null 2>&1; then
+            content="$(base64 -w0 "$schema_path")"
+            gh api               --method PUT               "repos/$GITHUB_REPOSITORY/contents/$schema_path"               -f message="Stage 12B: commit generated Room v5 schema"               -f content="$content"               -f branch="$GITHUB_HEAD_REF"
+          fi
+
       - name: Unit test and debug build
         run: >
           gradle
@@ -99,20 +116,6 @@ jobs:
           path: core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/5.json
           if-no-files-found: warn
           retention-days: 1
-
-      # One-time Stage 12B bootstrap: persist the compiler-generated v5 schema
-      # onto the PR head branch. This step becomes a no-op once 5.json is tracked.
-      - name: Bootstrap committed Room v5 schema
-        if: ${{ always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          schema_path="core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/5.json"
-          if test -f "$schema_path" && ! git ls-files --error-unmatch "$schema_path" >/dev/null 2>&1; then
-            content="$(base64 -w0 "$schema_path")"
-            gh api               --method PUT               "repos/$GITHUB_REPOSITORY/contents/$schema_path"               -f message="Stage 12B: commit generated Room v5 schema"               -f content="$content"               -f branch="$GITHUB_HEAD_REF"
-          fi
 
       - name: Verify committed Room schemas
         shell: bash
