@@ -134,14 +134,6 @@ fun DeviceStatusPanel(
                     )
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = onRefresh) {
-                        Text(stringResource(R.string.refresh))
-                    }
-                    OutlinedButton(onClick = onSyncTime) {
-                        Text(stringResource(R.string.sync_time))
-                    }
-                }
             } else {
                 Text(
                     connectionSummary(connection),
