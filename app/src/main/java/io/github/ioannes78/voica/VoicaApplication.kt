@@ -56,18 +56,19 @@ class AppContainer(
             recordingsRoot = recordingsRoot,
         )
 
-    val localAudioImportCoordinator =
-        LocalAudioImportCoordinator(
-            context = application,
-            repository = recordingLibraryRepository,
-            recordingsRoot = recordingsRoot,
-        )
-
     val canonicalAudioCoordinator =
         CanonicalAudioCoordinator(
             repository = recordingLibraryRepository,
             recordingsRoot = recordingsRoot,
             applicationScope = applicationScope,
+        )
+
+    val localAudioImportCoordinator =
+        LocalAudioImportCoordinator(
+            context = application,
+            repository = recordingLibraryRepository,
+            recordingsRoot = recordingsRoot,
+            onImported = canonicalAudioCoordinator::requestAutomatic,
         )
 
     private val roomAudioSourceResolver =
