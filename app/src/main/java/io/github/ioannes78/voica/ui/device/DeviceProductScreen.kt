@@ -141,7 +141,7 @@ fun DeviceProductScreen(
                     if (scan.devices.size > MAX_HOME_SCAN_RESULTS) {
                         item {
                             TextButton(onClick = { page = DevicePage.ALL_DEVICES }) {
-                                Text("查看全部 \${scan.devices.size} 台设备")
+                                Text("查看全部 ${scan.devices.size} 台设备")
                             }
                         }
                     }
@@ -344,9 +344,9 @@ private fun DeviceFilesEntry(
             supportingContent = {
                 Text(
                     if (latestName == null) {
-                        "\$count 个文件"
+                        "$count 个文件"
                     } else {
-                        "\$count 个文件 · 最近：\$latestName"
+                        "$count 个文件 · 最近：$latestName"
                     },
                     maxLines = 1,
                 )
