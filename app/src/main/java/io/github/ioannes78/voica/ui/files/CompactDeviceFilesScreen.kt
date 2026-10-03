@@ -156,18 +156,11 @@ fun CompactDeviceFilesScreen(
                     file.displayFilename,
                     style = MaterialTheme.typography.headlineSmall,
                 )
+                val unknownText = stringResource(R.string.device_file_unknown)
+                val recordedAtText = file.recordedAt?.format(DISPLAY_TIME) ?: unknownText
+                val durationText = file.durationSeconds?.let(::formatDuration) ?: unknownText
                 Text(
-                    buildString {
-                        append(
-                            file.recordedAt?.format(DISPLAY_TIME)
-                                ?: stringResource(R.string.device_file_unknown),
-                        )
-                        append(" · ")
-                        append(
-                            file.durationSeconds?.let(::formatDuration)
-                                ?: stringResource(R.string.device_file_unknown),
-                        )
-                    },
+                    recordedAtText + " · " + durationText,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -306,23 +299,13 @@ private fun CompactDeviceFileRow(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        val unknownText = stringResource(R.string.device_file_unknown)
+        val recordedAtText = file.recordedAt?.format(DISPLAY_TIME) ?: unknownText
+        val durationText = file.durationSeconds?.let(::formatDuration) ?: unknownText
+        val downloadedText = if (opusDownloaded || wavDownloaded) " · 已下载" else ""
         Text(
-            buildString {
-                append(
-                    file.recordedAt?.format(DISPLAY_TIME)
-                        ?: stringResource(R.string.device_file_unknown),
-                )
-                append(" · ")
-                append(
-                    file.durationSeconds?.let(::formatDuration)
-                        ?: stringResource(R.string.device_file_unknown),
-                )
-                append(" · ")
-                append(formatBytes(file.sizeBytes))
-                if (opusDownloaded || wavDownloaded) {
-                    append(" · 已下载")
-                }
-            },
+            recordedAtText + " · " + durationText + " · " +
+                formatBytes(file.sizeBytes) + downloadedText,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
