@@ -86,6 +86,7 @@ class AiSummaryViewModel(
 
     private var boundTranscriptionId: String? = null
     private var historyJob: Job? = null
+    private var generationModelsProfileId: String? = null
 
     init {
         viewModelScope.launch {
@@ -160,12 +161,19 @@ class AiSummaryViewModel(
     }
 
     fun loadGenerationModels(providerProfileId: String) {
+        generationModelsProfileId = providerProfileId
         viewModelScope.launch {
             val snapshot = profileStore.load()
             val profile =
                 snapshot.profiles.firstOrNull {
                     it.providerProfileId == providerProfileId && it.enabled
-                } ?: return@launch
+                }
+            if (profile == null) {
+                if (generationModelsProfileId == providerProfileId) {
+                    mutableGenerationModels.value = emptyList()
+                }
+                return@launch
+            }
             val configuredDefault =
                 listOf(
                     ProviderModel(
@@ -173,17 +181,21 @@ class AiSummaryViewModel(
                         displayName = profile.defaultModel,
                     ),
                 ).filter { it.id.isNotBlank() }
-            mutableGenerationModels.value = configuredDefault
+            if (generationModelsProfileId == providerProfileId) {
+                mutableGenerationModels.value = configuredDefault
+            }
             val discovered =
                 runCatching {
                     providerRegistry.forProfile(profile)
                         .discoverModels(profile)
                         .getOrThrow()
                 }.getOrDefault(emptyList())
-            mutableGenerationModels.value =
-                (configuredDefault + discovered)
-                    .distinctBy { it.id }
-                    .sortedBy { it.displayName.lowercase() }
+            if (generationModelsProfileId == providerProfileId) {
+                mutableGenerationModels.value =
+                    (configuredDefault + discovered)
+                        .distinctBy { it.id }
+                        .sortedBy { it.displayName.lowercase() }
+            }
         }
     }
 
