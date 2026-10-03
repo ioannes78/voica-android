@@ -107,6 +107,7 @@ fun RecordingDetailScreen(
     onCancelCanonical: (String) -> Unit,
     deviceRecordingActive: Boolean,
     initialDestination: RecordingDetailDestination = RecordingDetailDestination.PLAYBACK,
+    onDestinationChanged: (RecordingDetailDestination?) -> Unit = {},
 ) {
     var selectedTab by rememberSaveable(recording.id, initialDestination) {
         mutableStateOf(initialDestination.toDetailTab())
@@ -165,6 +166,16 @@ fun RecordingDetailScreen(
     val transcriptListState = rememberLazyListState()
     val programmaticScroll = remember { AtomicBoolean(false) }
 
+    LaunchedEffect(recording.id, selectedTab) {
+        onDestinationChanged(
+            when (selectedTab) {
+                DetailTab.PLAYBACK -> RecordingDetailDestination.PLAYBACK
+                DetailTab.TRANSCRIPT -> RecordingDetailDestination.TRANSCRIPT
+                DetailTab.SUMMARY -> RecordingDetailDestination.SUMMARY
+                DetailTab.INFO -> null
+            },
+        )
+    }
     LaunchedEffect(recording.id) {
         transcriptionViewModel.viewVersions(recording.id)
     }
