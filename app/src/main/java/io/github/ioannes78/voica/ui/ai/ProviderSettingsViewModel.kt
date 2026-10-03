@@ -10,6 +10,8 @@ import io.github.ioannes78.voica.ai.ProviderModel
 import io.github.ioannes78.voica.ai.ProviderPresetCatalog
 import io.github.ioannes78.voica.ai.ProviderPresetIds
 import io.github.ioannes78.voica.ai.ProviderProfile
+import io.github.ioannes78.voica.ai.StructuredOutputMode
+import io.github.ioannes78.voica.ai.StructuredSummaryCompatibility
 import io.github.ioannes78.voica.llm.ProviderAdapterRegistry
 import io.github.ioannes78.voica.llm.ProviderConfigurationRepository
 import io.github.ioannes78.voica.llm.ProviderProfileStore
@@ -137,7 +139,12 @@ class ProviderSettingsViewModel(
     }
 
     fun setModel(value: String) {
-        mutableState.value = mutableState.value.copy(defaultModel = value)
+        mutableState.value =
+            mutableState.value.copy(
+                defaultModel = value,
+                connectionTest = null,
+                notice = null,
+            )
     }
 
     fun setManualContextWindow(value: String) {
@@ -333,6 +340,34 @@ class ProviderSettingsViewModel(
                     providerRegistry.forProfile(profile).testConnection(profile)
                 }
             result.onSuccess { test ->
+                val structuredProbe = test.structuredSummaryProbe
+                val negotiatedMode = structuredProbe?.mode
+                val negotiatedCompatibility =
+                    structuredProbe?.compatibility
+                val negotiatedCaps =
+                    test.capabilities?.let { capabilities ->
+                        when (negotiatedCompatibility) {
+                            StructuredSummaryCompatibility.VERIFIED_STRICT ->
+                                capabilities.copy(
+                                    supportsJsonSchema = true,
+                                    supportsJsonObject = true,
+                                )
+                            StructuredSummaryCompatibility.VERIFIED_COMPATIBLE ->
+                                capabilities.copy(
+                                    supportsJsonSchema = false,
+                                    supportsJsonObject =
+                                        negotiatedMode == StructuredOutputMode.JSON_OBJECT,
+                                )
+                            else -> null
+                        }
+                    }
+                if (test.success && negotiatedCaps != null) {
+                    viewModelScope.launch {
+                        profileStore.upsert(
+                            profile.copy(capabilityOverrides = negotiatedCaps),
+                        )
+                    }
+                }
                 mutableState.value =
                     mutableState.value.copy(
                         busy = false,
@@ -345,7 +380,18 @@ class ProviderSettingsViewModel(
                             },
                         notice =
                             if (test.success) {
-                                "连接测试成功；测试未上传真实转写内容。"
+                                when (negotiatedCompatibility) {
+                                    StructuredSummaryCompatibility.VERIFIED_STRICT ->
+                                        "连接测试成功；智能总结结构化输出已验证（严格模式）；测试未上传真实转写内容。"
+                                    StructuredSummaryCompatibility.VERIFIED_COMPATIBLE ->
+                                        "连接测试成功；智能总结结构化输出已验证（兼容模式）；测试未上传真实转写内容。"
+                                    StructuredSummaryCompatibility.INCOMPATIBLE ->
+                                        structuredProbe?.failure?.sanitizedMessage
+                                            ?: "连接正常，但当前模型未通过智能总结结构化输出测试."
+                                    StructuredSummaryCompatibility.NOT_TESTED,
+                                    null,
+                                    -> "连接测试成功；测试未上传真实转写内容。"
+                                }
                             } else {
                                 test.failure?.sanitizedMessage ?: "连接测试失败。"
                             },

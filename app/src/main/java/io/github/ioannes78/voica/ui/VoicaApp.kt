@@ -1,7 +1,12 @@
 package io.github.ioannes78.voica.ui
 
+import android.app.Activity
+import android.content.Intent
+import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -31,6 +36,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -42,19 +48,30 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.ioannes78.voica.AiSummaryCoordinator
+import io.github.ioannes78.voica.AiSummaryRunState
 import io.github.ioannes78.voica.CanonicalAudioCoordinator
 import io.github.ioannes78.voica.DiarizationCoordinator
 import io.github.ioannes78.voica.DiarizationRunState
 import io.github.ioannes78.voica.ModelUpdateController
+import io.github.ioannes78.voica.LocalAudioImportCoordinator
+import io.github.ioannes78.voica.LocalAudioExportCoordinator
+import io.github.ioannes78.voica.LocalAudioShareOutcome
+import io.github.ioannes78.voica.AudioExportVariant
+import io.github.ioannes78.voica.LocalRecordingDeleteCoordinator
 import io.github.ioannes78.voica.R
+import io.github.ioannes78.voica.StorageManagementCoordinator
 import io.github.ioannes78.voica.TranscriptionCoordinator
 import io.github.ioannes78.voica.TranscriptionRunState
 import io.github.ioannes78.voica.audio.PlaybackController
+import io.github.ioannes78.voica.audio.PlaybackSnapshot
+import io.github.ioannes78.voica.audio.PlaybackState
 import io.github.ioannes78.voica.ble.BleDiagnostics
 import io.github.ioannes78.voica.ble.BleError
 import io.github.ioannes78.voica.ble.BleScanDevice
@@ -91,10 +108,13 @@ import io.github.ioannes78.voica.ui.files.DeviceFilesCard
 import io.github.ioannes78.voica.ui.device.CompactScanDeviceRow
 import io.github.ioannes78.voica.ui.device.DeviceProductScreen
 import io.github.ioannes78.voica.ui.device.DeviceStatusPanel
+import io.github.ioannes78.voica.ui.library.RecordingDetailDestination
 import io.github.ioannes78.voica.ui.library.RecordingDetailScreen
-import io.github.ioannes78.voica.ui.library.RecordingLibraryScreen
+import io.github.ioannes78.voica.ui.library.RecordingLibraryRoute
+import io.github.ioannes78.voica.ui.library.RecordingLibraryViewModel
 import io.github.ioannes78.voica.ui.playback.PlaybackCard
 import io.github.ioannes78.voica.ui.playback.PlaybackViewModel
+import io.github.ioannes78.voica.ui.playback.formatPlaybackTime
 import io.github.ioannes78.voica.ui.recording.GlobalRecordingStatusBar
 import io.github.ioannes78.voica.ui.recording.RecordingCard
 import io.github.ioannes78.voica.ui.settings.ProductSettingsScreen
@@ -110,17 +130,43 @@ import io.github.ioannes78.voica.ui.theme.ThemeSettingsStore
 import io.github.ioannes78.voica.ui.model.ModelManagerCard
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private data class GlobalRecordingOpenRequest(
+    val token: Int,
+    val recordingId: String,
+    val destination: RecordingDetailDestination,
+)
+
+private data class GlobalDetailContext(
+    val recordingId: String,
+    val destination: RecordingDetailDestination,
+)
+
+internal data class GlobalTaskItem(
+    val key: String,
+    val recordingId: String,
+    val recordingName: String,
+    val label: String,
+    val progress: String?,
+    val destination: RecordingDetailDestination,
+    val terminal: Boolean,
+)
+
 @Composable
 fun VoicaApp(
     repository: DeviceRepository,
     recordingLibraryRepository: RecordingLibraryRepository,
     canonicalAudioCoordinator: CanonicalAudioCoordinator,
+    localAudioImportCoordinator: LocalAudioImportCoordinator,
+    localRecordingDeleteCoordinator: LocalRecordingDeleteCoordinator,
+    localAudioExportCoordinator: LocalAudioExportCoordinator,
+    storageManagementCoordinator: StorageManagementCoordinator,
     playbackController: PlaybackController,
     modelManager: ModelManager,
     modelUpdateController: ModelUpdateController,
@@ -151,14 +197,30 @@ fun VoicaApp(
             )
         },
     )
+    val recordingLibraryViewModel: RecordingLibraryViewModel = viewModel(
+        factory =
+            remember(
+                recordingLibraryRepository,
+                localAudioImportCoordinator,
+                localRecordingDeleteCoordinator,
+                localAudioExportCoordinator,
+            ) {
+                RecordingLibraryViewModel.Factory(
+                    repository = recordingLibraryRepository,
+                    importCoordinator = localAudioImportCoordinator,
+                    deleteCoordinator = localRecordingDeleteCoordinator,
+                    exportCoordinator = localAudioExportCoordinator,
+                )
+            },
+    )
     val playbackViewModel: PlaybackViewModel = viewModel(
         factory = remember(
             playbackController,
-            recordingLibraryRepository,
+            localRecordingDeleteCoordinator,
         ) {
             PlaybackViewModel.Factory(
                 playbackController,
-                recordingLibraryRepository,
+                localRecordingDeleteCoordinator,
             )
         },
     )
@@ -197,11 +259,13 @@ fun VoicaApp(
             aiSummaryCoordinator,
             aiSummaryRepository,
             providerProfileStore,
+            providerAdapterRegistry,
         ) {
             AiSummaryViewModel.Factory(
                 coordinator = aiSummaryCoordinator,
                 repository = aiSummaryRepository,
                 profileStore = providerProfileStore,
+                providerRegistry = providerAdapterRegistry,
             )
         },
     )
@@ -220,6 +284,91 @@ fun VoicaApp(
     )
 
     val globalRecording by deviceViewModel.recordingState.collectAsState()
+    val libraryRecordings by deviceViewModel.libraryRecordings.collectAsState(initial = emptyList())
+    val globalTranscription by transcriptionViewModel.runState.collectAsState()
+    val globalDiarization by diarizationViewModel.runState.collectAsState()
+    val globalAiSummary by aiSummaryViewModel.runState.collectAsState()
+    val globalPlayback by playbackViewModel.snapshot.collectAsState()
+    var openRequestToken by rememberSaveable { mutableIntStateOf(0) }
+    var libraryOpenRequest by remember { mutableStateOf<GlobalRecordingOpenRequest?>(null) }
+    var activeDetailContext by remember { mutableStateOf<GlobalDetailContext?>(null) }
+    var dismissedTaskKeys by remember { mutableStateOf(setOf<String>()) }
+    var terminalTaskNotices by remember { mutableStateOf<List<GlobalTaskItem>>(emptyList()) }
+
+    val liveGlobalTasks =
+        buildGlobalTaskItems(
+            transcription = globalTranscription,
+            diarization = globalDiarization,
+            aiSummary = globalAiSummary,
+            recordings = libraryRecordings,
+        )
+    val liveRunningTasks = liveGlobalTasks.filterNot { it.terminal }
+    val liveTerminalTasks = liveGlobalTasks.filter { it.terminal }
+
+    LaunchedEffect(activeDetailContext, liveTerminalTasks.map { it.key }) {
+        val current = activeDetailContext
+        var nextNotices = terminalTaskNotices
+
+        liveTerminalTasks.forEach { task ->
+            val alreadyRead = task.key in dismissedTaskKeys
+            val visibleOnCurrentPage =
+                current != null &&
+                    task.recordingId == current.recordingId &&
+                    task.destination == current.destination
+            when {
+                visibleOnCurrentPage -> {
+                    dismissedTaskKeys = dismissedTaskKeys + task.key
+                    nextNotices = nextNotices.filterNot { it.key == task.key }
+                }
+                !alreadyRead && nextNotices.none { it.key == task.key } -> {
+                    nextNotices = nextNotices + task
+                }
+            }
+        }
+
+        if (current != null) {
+            val readFromQueue =
+                nextNotices.filter { task ->
+                    task.recordingId == current.recordingId &&
+                        task.destination == current.destination
+                }
+            if (readFromQueue.isNotEmpty()) {
+                dismissedTaskKeys =
+                    dismissedTaskKeys + readFromQueue.map { it.key }
+                nextNotices =
+                    nextNotices.filterNot { task ->
+                        readFromQueue.any { it.key == task.key }
+                    }
+            }
+        }
+
+        terminalTaskNotices = nextNotices
+    }
+
+    val globalTasks =
+        (liveRunningTasks + terminalTaskNotices)
+            .filter { task ->
+                val current = activeDetailContext
+                task.key !in dismissedTaskKeys &&
+                    !(
+                        current != null &&
+                            task.recordingId == current.recordingId &&
+                            task.destination == current.destination
+                    )
+            }
+    val requestOpenRecording: (String, RecordingDetailDestination) -> Unit =
+        { recordingId, destination ->
+            openRequestToken += 1
+            libraryOpenRequest =
+                GlobalRecordingOpenRequest(
+                    token = openRequestToken,
+                    recordingId = recordingId,
+                    destination = destination,
+                )
+            secondaryPageActive = false
+            selectedTab = 1
+        }
+
     val navigationColors =
         NavigationBarItemDefaults.colors(
             selectedIconColor = MaterialTheme.colorScheme.primary,
@@ -231,23 +380,60 @@ fun VoicaApp(
 
     Scaffold(
         topBar = {
-            if (selectedTab != 0 || secondaryPageActive) {
-                GlobalRecordingStatusBar(
-                    state = globalRecording,
-                    onClick = {
-                        secondaryPageActive = false
-                        selectedTab = 0
-                        deviceHomeRequest += 1
-                    },
-                )
+            Column {
+                if (selectedTab != 0 || secondaryPageActive) {
+                    GlobalRecordingStatusBar(
+                        state = globalRecording,
+                        onClick = {
+                            activeDetailContext = null
+                            secondaryPageActive = false
+                            selectedTab = 0
+                            deviceHomeRequest += 1
+                        },
+                    )
+                }
+                if (globalTasks.isNotEmpty()) {
+                    GlobalTaskStatusBar(
+                        tasks = globalTasks,
+                        onOpen = { task ->
+                            if (task.terminal) {
+                                dismissedTaskKeys = dismissedTaskKeys + task.key
+                                terminalTaskNotices =
+                                    terminalTaskNotices.filterNot { it.key == task.key }
+                            }
+                            requestOpenRecording(task.recordingId, task.destination)
+                        },
+                    )
+                }
             }
         },
         bottomBar = {
             if (!secondaryPageActive) {
-                NavigationBar(modifier = Modifier.height(64.dp)) {
+                Column {
+                    if (shouldShowGlobalPlayback(globalPlayback)) {
+                        GlobalPlaybackStatusBar(
+                            snapshot = globalPlayback,
+                            recordingName =
+                                libraryRecordings.firstOrNull {
+                                    it.id == globalPlayback.recordingId
+                                }?.displayName,
+                            onPlay = playbackViewModel::play,
+                            onPause = playbackViewModel::pause,
+                            onOpen = {
+                                globalPlayback.recordingId?.let { id ->
+                                    requestOpenRecording(
+                                        id,
+                                        RecordingDetailDestination.PLAYBACK,
+                                    )
+                                }
+                            },
+                        )
+                    }
+                    NavigationBar(modifier = Modifier.height(64.dp)) {
                     NavigationBarItem(
                         selected = selectedTab == 0,
                         onClick = {
+                            activeDetailContext = null
                             secondaryPageActive = false
                             selectedTab = 0
                             deviceHomeRequest += 1
@@ -259,6 +445,7 @@ fun VoicaApp(
                     NavigationBarItem(
                         selected = selectedTab == 1,
                         onClick = {
+                            activeDetailContext = null
                             secondaryPageActive = false
                             selectedTab = 1
                         },
@@ -269,6 +456,7 @@ fun VoicaApp(
                     NavigationBarItem(
                         selected = selectedTab == 2,
                         onClick = {
+                            activeDetailContext = null
                             secondaryPageActive = false
                             selectedTab = 2
                         },
@@ -276,6 +464,7 @@ fun VoicaApp(
                         label = { Text(stringResource(R.string.tab_settings)) },
                         colors = navigationColors,
                     )
+                    }
                 }
             }
         },
@@ -290,21 +479,39 @@ fun VoicaApp(
             1 -> LocalFilesScreen(
                 padding,
                 deviceViewModel,
+                recordingLibraryViewModel,
                 playbackViewModel,
+                localAudioExportCoordinator,
                 transcriptionViewModel,
                 diarizationViewModel,
                 transcriptPlaybackSyncViewModel,
                 aiSummaryViewModel,
+                openRequest = libraryOpenRequest,
+                onOpenRequestConsumed = { request ->
+                    if (libraryOpenRequest?.token == request.token) {
+                        libraryOpenRequest = null
+                    }
+                },
                 onOpenSettings = {
+                    activeDetailContext = null
                     secondaryPageActive = false
                     selectedTab = 2
                 },
                 onSecondaryPageChanged = { secondaryPageActive = it },
+                onDetailContextChanged = { recordingId, destination ->
+                    activeDetailContext =
+                        if (recordingId != null && destination != null) {
+                            GlobalDetailContext(recordingId, destination)
+                        } else {
+                            null
+                        }
+                },
             )
             else -> ProductSettingsScreen(
                 padding = padding,
                 modelManager = modelManager,
                 modelUpdateController = modelUpdateController,
+                storageManagementCoordinator = storageManagementCoordinator,
                 providerSettingsViewModel = providerSettingsViewModel,
                 themeSettingsStore = themeSettingsStore,
                 onSecondaryPageChanged = { secondaryPageActive = it },
@@ -480,35 +687,170 @@ private fun DeviceScreen(
     }
 }
 
+private data class PendingDetailAudioExport(
+    val recordingId: String,
+    val variant: AudioExportVariant,
+)
+
 @Composable
 private fun LocalFilesScreen(
     padding: PaddingValues,
     viewModel: DeviceViewModel,
+    recordingLibraryViewModel: RecordingLibraryViewModel,
     playbackViewModel: PlaybackViewModel,
+    localAudioExportCoordinator: LocalAudioExportCoordinator,
     transcriptionViewModel: TranscriptionViewModel,
     diarizationViewModel: DiarizationViewModel,
     transcriptPlaybackSyncViewModel: TranscriptPlaybackSyncViewModel,
     aiSummaryViewModel: AiSummaryViewModel,
+    openRequest: GlobalRecordingOpenRequest?,
+    onOpenRequestConsumed: (GlobalRecordingOpenRequest) -> Unit,
     onOpenSettings: () -> Unit,
     onSecondaryPageChanged: (Boolean) -> Unit,
+    onDetailContextChanged: (String?, RecordingDetailDestination?) -> Unit,
 ) {
     val recordings by viewModel.libraryRecordings.collectAsState(initial = emptyList())
     var selectedRecordingId by rememberSaveable { mutableStateOf<String?>(null) }
+    var requestedDestination by remember {
+        mutableStateOf(RecordingDetailDestination.PLAYBACK)
+    }
     val selectedRecording =
         selectedRecordingId?.let { id ->
             recordings.firstOrNull { it.id == id }
         }
     val deviceRecording by viewModel.recordingState.collectAsState()
+    val context = LocalContext.current
+    val actionScope = rememberCoroutineScope()
+    var pendingSafExport by remember {
+        mutableStateOf<PendingDetailAudioExport?>(null)
+    }
+
+    val createDocumentLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.StartActivityForResult(),
+        ) { result ->
+            val pending = pendingSafExport
+            pendingSafExport = null
+            val destination = result.data?.data
+            if (
+                result.resultCode == Activity.RESULT_OK &&
+                pending != null &&
+                destination != null
+            ) {
+                actionScope.launch {
+                    val exported =
+                        localAudioExportCoordinator.exportToUri(
+                            recordingId = pending.recordingId,
+                            destinationUri = destination,
+                            variant = pending.variant,
+                        )
+                    Toast.makeText(
+                        context,
+                        if (exported.exported) {
+                            "已导出“" + (exported.displayName ?: "录音") + "”"
+                        } else {
+                            exported.error ?: "导出失败"
+                        },
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }
+        }
+
+    val exportDetailAudio: (String, AudioExportVariant) -> Unit =
+        { recordingId, variant ->
+            actionScope.launch {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val result =
+                        localAudioExportCoordinator.exportToDownloads(
+                            recordingIds = listOf(recordingId),
+                            variant = variant,
+                        )
+                    val item = result.items.firstOrNull()
+                    Toast.makeText(
+                        context,
+                        if (item?.exported == true) {
+                            "已导出到 Downloads/Voica"
+                        } else {
+                            item?.error ?: "导出失败"
+                        },
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                } else {
+                    val descriptor =
+                        localAudioExportCoordinator.describe(
+                            recordingId = recordingId,
+                            variant = variant,
+                        )
+                    if (descriptor == null) {
+                        Toast.makeText(
+                            context,
+                            "没有可导出的音频",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    } else {
+                        pendingSafExport =
+                            PendingDetailAudioExport(
+                                recordingId = recordingId,
+                                variant = variant,
+                            )
+                        createDocumentLauncher.launch(
+                            Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                                addCategory(Intent.CATEGORY_OPENABLE)
+                                type = descriptor.mimeType
+                                putExtra(Intent.EXTRA_TITLE, descriptor.displayName)
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
+    val shareDetailAudio: (String, AudioExportVariant) -> Unit =
+        { recordingId, variant ->
+            actionScope.launch {
+                when (
+                    val outcome =
+                        localAudioExportCoordinator.prepareShare(
+                            recordingId = recordingId,
+                            variant = variant,
+                        )
+                ) {
+                    is LocalAudioShareOutcome.Ready ->
+                        context.startActivity(outcome.intent)
+
+                    is LocalAudioShareOutcome.Failed ->
+                        Toast.makeText(
+                            context,
+                            outcome.reason,
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                }
+            }
+        }
+
+    LaunchedEffect(openRequest?.token) {
+        val request = openRequest ?: return@LaunchedEffect
+        requestedDestination = request.destination
+        selectedRecordingId = request.recordingId
+        onOpenRequestConsumed(request)
+    }
 
     LaunchedEffect(selectedRecording != null) {
         onSecondaryPageChanged(selectedRecording != null)
+        if (selectedRecording == null) {
+            onDetailContextChanged(null, null)
+        }
     }
 
     if (selectedRecording == null) {
-        RecordingLibraryScreen(
+        RecordingLibraryRoute(
             padding = padding,
-            recordings = recordings,
-            onOpenRecording = { selectedRecordingId = it },
+            viewModel = recordingLibraryViewModel,
+            onOpenRecording = {
+                requestedDestination = RecordingDetailDestination.PLAYBACK
+                selectedRecordingId = it
+            },
         )
     } else {
         RecordingDetailScreen(
@@ -519,16 +861,319 @@ private fun LocalFilesScreen(
             diarizationViewModel = diarizationViewModel,
             transcriptPlaybackSyncViewModel = transcriptPlaybackSyncViewModel,
             aiSummaryViewModel = aiSummaryViewModel,
-            onBack = { selectedRecordingId = null },
+            onBack = {
+                selectedRecordingId = null
+                requestedDestination = RecordingDetailDestination.PLAYBACK
+            },
             onOpenSettings = onOpenSettings,
             onRename = viewModel::renameLocalRecording,
             onDelete = playbackViewModel::deleteRecording,
+            onExportCanonical = {
+                exportDetailAudio(it, AudioExportVariant.CANONICAL_WAV)
+            },
+            onExportOriginal = {
+                exportDetailAudio(it, AudioExportVariant.ORIGINAL)
+            },
+            onShareCanonical = {
+                shareDetailAudio(it, AudioExportVariant.CANONICAL_WAV)
+            },
+            onShareOriginal = {
+                shareDetailAudio(it, AudioExportVariant.ORIGINAL)
+            },
             onGenerateCanonical = viewModel::generateCanonicalAudio,
             onCancelCanonical = viewModel::cancelCanonicalAudio,
             deviceRecordingActive =
                 deviceRecording.status == RecordingStatus.Recording ||
                     deviceRecording.status == RecordingStatus.Paused,
+            initialDestination = requestedDestination,
+            onDestinationChanged = { destination ->
+                onDetailContextChanged(selectedRecording.id, destination)
+            },
         )
+    }
+}
+
+internal fun shouldShowGlobalPlayback(snapshot: PlaybackSnapshot): Boolean =
+    snapshot.recordingId != null &&
+        snapshot.state in
+            setOf(
+                PlaybackState.PREPARING,
+                PlaybackState.READY,
+                PlaybackState.PLAYING,
+                PlaybackState.PAUSED,
+                PlaybackState.SEEKING,
+                PlaybackState.ERROR,
+            )
+
+internal fun buildGlobalTaskItems(
+    transcription: TranscriptionRunState,
+    diarization: DiarizationRunState,
+    aiSummary: AiSummaryRunState,
+    recordings: List<RecordingLibraryItem>,
+): List<GlobalTaskItem> {
+    fun recordingName(recordingId: String): String =
+        recordings.firstOrNull { it.id == recordingId }?.displayName
+            ?: "录音"
+
+    return buildList {
+        when (transcription) {
+            is TranscriptionRunState.Running -> {
+                val progress =
+                    transcription.progress.fraction?.let {
+                        (it * 100.0).roundToInt().coerceIn(0, 100).toString() + "%"
+                    }
+                add(
+                    GlobalTaskItem(
+                        key = "transcription-running-" + transcription.recordingId,
+                        recordingId = transcription.recordingId,
+                        recordingName = recordingName(transcription.recordingId),
+                        label = "转写中",
+                        progress = progress,
+                        destination = RecordingDetailDestination.TRANSCRIPT,
+                        terminal = false,
+                    ),
+                )
+            }
+            is TranscriptionRunState.Completed ->
+                add(
+                    GlobalTaskItem(
+                        key = "transcription-completed-" + transcription.transcriptionId,
+                        recordingId = transcription.recordingId,
+                        recordingName = recordingName(transcription.recordingId),
+                        label = "转写完成",
+                        progress = "完成",
+                        destination = RecordingDetailDestination.TRANSCRIPT,
+                        terminal = true,
+                    ),
+                )
+            is TranscriptionRunState.Failed ->
+                add(
+                    GlobalTaskItem(
+                        key =
+                            "transcription-failed-" +
+                                transcription.recordingId + "-" +
+                                transcription.mode.name,
+                        recordingId = transcription.recordingId,
+                        recordingName = recordingName(transcription.recordingId),
+                        label = "转写失败",
+                        progress = "查看",
+                        destination = RecordingDetailDestination.TRANSCRIPT,
+                        terminal = true,
+                    ),
+                )
+            else -> Unit
+        }
+
+        when (diarization) {
+            is DiarizationRunState.Running -> {
+                val progress =
+                    diarization.progress.fraction?.let {
+                        (it * 100.0).roundToInt().coerceIn(0, 100).toString() + "%"
+                    }
+                add(
+                    GlobalTaskItem(
+                        key = "diarization-running-" + diarization.recordingId,
+                        recordingId = diarization.recordingId,
+                        recordingName = recordingName(diarization.recordingId),
+                        label = "说话人分离",
+                        progress = progress,
+                        destination = RecordingDetailDestination.TRANSCRIPT,
+                        terminal = false,
+                    ),
+                )
+            }
+            is DiarizationRunState.Completed ->
+                add(
+                    GlobalTaskItem(
+                        key = "diarization-completed-" + diarization.runId,
+                        recordingId = diarization.recordingId,
+                        recordingName = recordingName(diarization.recordingId),
+                        label = "说话人分离完成",
+                        progress = "完成",
+                        destination = RecordingDetailDestination.TRANSCRIPT,
+                        terminal = true,
+                    ),
+                )
+            is DiarizationRunState.Failed ->
+                add(
+                    GlobalTaskItem(
+                        key = "diarization-failed-" + diarization.recordingId,
+                        recordingId = diarization.recordingId,
+                        recordingName = recordingName(diarization.recordingId),
+                        label = "说话人分离失败",
+                        progress = "查看",
+                        destination = RecordingDetailDestination.TRANSCRIPT,
+                        terminal = true,
+                    ),
+                )
+            else -> Unit
+        }
+
+        when (aiSummary) {
+            is AiSummaryRunState.Running -> {
+                val recordingId = aiSummary.recordingId
+                if (recordingId != null) {
+                    val progress =
+                        if (aiSummary.totalUnits > 0) {
+                            ((aiSummary.completedUnits.toDouble() /
+                                aiSummary.totalUnits.toDouble()) * 100.0)
+                                .roundToInt()
+                                .coerceIn(0, 100)
+                                .toString() + "%"
+                        } else {
+                            when (aiSummary.phase.name) {
+                                "PREPARING" -> "准备中"
+                                "ANALYZING" -> "分析中"
+                                "MAPPING" -> "分段总结"
+                                "REDUCING" -> "合并总结"
+                                "VALIDATING" -> "验证结果"
+                                else -> null
+                            }
+                        }
+                    add(
+                        GlobalTaskItem(
+                            key = "summary-running-" + aiSummary.transcriptionId,
+                            recordingId = recordingId,
+                            recordingName = recordingName(recordingId),
+                            label = "AI 总结",
+                            progress = progress,
+                            destination = RecordingDetailDestination.SUMMARY,
+                            terminal = false,
+                        ),
+                    )
+                }
+            }
+            is AiSummaryRunState.Completed ->
+                add(
+                    GlobalTaskItem(
+                        key = "summary-completed-" + aiSummary.summaryId,
+                        recordingId = aiSummary.recordingId,
+                        recordingName = recordingName(aiSummary.recordingId),
+                        label = "AI 总结完成",
+                        progress = "完成",
+                        destination = RecordingDetailDestination.SUMMARY,
+                        terminal = true,
+                    ),
+                )
+            is AiSummaryRunState.Failed -> {
+                val recordingId = aiSummary.recordingId
+                if (recordingId != null) {
+                    add(
+                        GlobalTaskItem(
+                            key =
+                                "summary-failed-" +
+                                    (aiSummary.summaryId ?: aiSummary.transcriptionId),
+                            recordingId = recordingId,
+                            recordingName = recordingName(recordingId),
+                            label = "AI 总结失败",
+                            progress = "查看",
+                            destination = RecordingDetailDestination.SUMMARY,
+                            terminal = true,
+                        ),
+                    )
+                }
+            }
+            else -> Unit
+        }
+    }
+}
+
+@Composable
+private fun GlobalTaskStatusBar(
+    tasks: List<GlobalTaskItem>,
+    onOpen: (GlobalTaskItem) -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            Text(
+                when {
+                    tasks.all { it.terminal } -> if (tasks.size == 1) "任务通知" else tasks.size.toString() + " 条任务通知"
+                    tasks.none { it.terminal } -> if (tasks.size == 1) "正在处理" else tasks.size.toString() + " 个任务正在处理"
+                    else -> "任务状态"
+                },
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            tasks.forEach { task ->
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                onOpen(task)
+                            }
+                            .padding(vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        task.label + " · " + task.recordingName,
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                    )
+                    task.progress?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    Text("›", style = MaterialTheme.typography.titleMedium)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GlobalPlaybackStatusBar(
+    snapshot: PlaybackSnapshot,
+    recordingName: String?,
+    onPlay: () -> Unit,
+    onPause: () -> Unit,
+    onOpen: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onOpen)
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            TextButton(
+                onClick = {
+                    if (snapshot.state == PlaybackState.PLAYING) {
+                        onPause()
+                    } else {
+                        onPlay()
+                    }
+                },
+            ) {
+                Text(if (snapshot.state == PlaybackState.PLAYING) "暂停" else "播放")
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    recordingName ?: "当前录音",
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                )
+                Text(
+                    formatPlaybackTime(snapshot.positionSampleIndex) +
+                        " / " +
+                        formatPlaybackTime(snapshot.durationSampleCount),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text("›", style = MaterialTheme.typography.titleLarge)
+        }
     }
 }
 

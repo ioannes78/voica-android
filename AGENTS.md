@@ -4,15 +4,15 @@
 
 当前 `ioannes78/voica-android` 仓库是 Voica 项目实现状态的唯一事实来源。
 
-当前已冻结基线：**Stage 12A**
+当前已冻结基线：**Stage 12B**
 
-Stage 12A Freeze/Handoff：
+Stage 12B Freeze/Handoff：
 
-- `docs/STAGE_12A_FREEZE.md`
-- `docs/STAGE_12A_HANDOFF.md`
-- `docs/STAGE_12A_TEST.md`
+- `docs/STAGE_12B_FREEZE.md`
+- `docs/STAGE_12B_HANDOFF.md`
+- `docs/STAGE_12B_TEST.md`
 
-下一子阶段：**Stage 12B — 本地录音库增强**
+下一子阶段：**Stage 12C — 转写 / AI 总结内容管理 + 统一全文搜索**
 
 协议与行为参考：
 
@@ -83,10 +83,10 @@ Stage 12A Freeze/Handoff：
 - Compose BOM：2026.09.00
 - Application ID：`io.github.ioannes78.voica`
 - QA Application ID：`io.github.ioannes78.voica.qa`
-- versionCode：36
-- versionName：`0.12.0-stage12a-uxv3-qa1`
+- versionCode：39
+- versionName：`0.12.3-stage12b-qa3`
 - sherpa-onnx：1.13.8
-- Room schema：4
+- Room schema：5
 - ABI：arm64-v8a
 - 默认产品语言：简体中文
 
@@ -101,6 +101,7 @@ Stage 12A Freeze/Handoff：
 - `:core:transcript`
 - `:core:ai`
 - `:engine:opus`
+- `:engine:media`
 - `:engine:playback`
 - `:engine:sherpa`
 - `:engine:llm`
@@ -118,6 +119,24 @@ app
 ├─ engine:playback → core:audio
 └─ engine:sherpa → core:model / core:transcript
 ```
+
+## 六、Stage 12B 已冻结产品与数据事实
+
+后续 Stage 不得无明确需求和迁移设计改变：
+
+- Room schema = 5；Stage 12C 必须从 v5 additive migration
+- Recording metadata 搜索/排序/筛选、收藏、逻辑文件夹、标签均复用现有 Recording Library，不建立第二套录音库
+- LOCAL_IMPORT + IMPORTED_ORIGINAL 保存导入 provenance；外部 content URI 不作为长期唯一音频事实
+- 手机导入支持 WAV / MP3 / M4A-AAC / ADTS AAC / FLAC / Ogg Opus；QS668 raw framed Opus 继续走专用链
+- Canonical WAV 是可再生成标准处理音频；原始导入/设备资产不得被 canonical cleanup 静默删除
+- 本地删除必须通过 lifecycle coordinator；不得联动 BLE 远端删除
+- 导出/分享保持真实 MIME；QS668 raw Opus 不伪装标准 Ogg Opus
+- 全局 Mini Player 播放完成隐藏、暂停保留
+- 全局转写/说话人/AI Summary 状态在对应详情页不重复；Completed/Failed 作为未读任务通知直到用户查看
+- AI Summary 历史版本显示实际 Provider/Model lineage
+- 每次 AI Summary 可临时选择 Provider/Model，不能修改全局默认
+- Structured Output Reliability 使用 strict schema 优先 + 有界 fallback/repair；不得降低 evidence validation
+- Stage 12C 人工编辑不得直接覆盖原始 ASR / AI Summary 模型结果
 
 ## 六、Stage 2 已冻结 BLE 事实
 

@@ -28,6 +28,12 @@ object ProviderPresetIds {
     const val CUSTOM_OPENAI_COMPATIBLE = "custom-openai-compatible"
 }
 
+enum class StructuredOutputMode {
+    STRICT_JSON_SCHEMA,
+    JSON_OBJECT,
+    PROMPT_ONLY,
+}
+
 data class ProviderCapabilities(
     val supportsModelDiscovery: Boolean = false,
     val supportsStreaming: Boolean = false,
@@ -248,6 +254,7 @@ data class ProviderModel(
     val displayName: String = id,
     val contextWindowTokens: Int? = null,
     val maxOutputTokens: Int? = null,
+    val structuredOutputMode: StructuredOutputMode? = null,
 )
 
 enum class ProviderErrorCode {
@@ -280,11 +287,25 @@ interface ProviderFailureCarrier {
     val failure: ProviderFailure
 }
 
+enum class StructuredSummaryCompatibility {
+    VERIFIED_STRICT,
+    VERIFIED_COMPATIBLE,
+    INCOMPATIBLE,
+    NOT_TESTED,
+}
+
+data class StructuredSummaryProbeResult(
+    val compatibility: StructuredSummaryCompatibility,
+    val mode: StructuredOutputMode,
+    val failure: ProviderFailure? = null,
+)
+
 data class ConnectionTestResult(
     val success: Boolean,
     val capabilities: ProviderCapabilities?,
     val models: List<ProviderModel> = emptyList(),
     val failure: ProviderFailure? = null,
+    val structuredSummaryProbe: StructuredSummaryProbeResult? = null,
 )
 
 data class LlmGenerationRequest(
@@ -307,6 +328,7 @@ data class LlmGenerationResponse(
     val requestId: String,
     val content: String,
     val usage: LlmUsage?,
+    val finishReason: String? = null,
 )
 
 interface TextLlmProvider {

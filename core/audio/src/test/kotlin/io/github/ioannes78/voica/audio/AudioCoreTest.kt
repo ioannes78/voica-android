@@ -7,7 +7,7 @@ import org.junit.Test
 
 class AudioCoreTest {
     @Test
-    fun detectorDistinguishesWaveOggOpusAndRawCandidate() {
+    fun detectorDistinguishesStandardHeadersAndLeavesUnknownForRawValidation() {
         assertEquals(
             AudioContainerKind.WAV,
             AudioContainerDetector.detect("RIFF1234WAVEfmt ".encodeToByteArray()),
@@ -19,7 +19,25 @@ class AudioCoreTest {
             ),
         )
         assertEquals(
-            AudioContainerKind.DEVICE_RAW_CANDIDATE,
+            AudioContainerKind.FLAC,
+            AudioContainerDetector.detect("fLaC".encodeToByteArray()),
+        )
+        assertEquals(
+            AudioContainerKind.MP4,
+            AudioContainerDetector.detect(
+                byteArrayOf(0, 0, 0, 20) + "ftyp".encodeToByteArray(),
+            ),
+        )
+        assertEquals(
+            AudioContainerKind.MP3,
+            AudioContainerDetector.detect("ID3".encodeToByteArray()),
+        )
+        assertEquals(
+            AudioContainerKind.AAC_ADTS,
+            AudioContainerDetector.detect(byteArrayOf(0xFF.toByte(), 0xF1.toByte())),
+        )
+        assertEquals(
+            AudioContainerKind.UNKNOWN,
             AudioContainerDetector.detect(byteArrayOf(1, 2, 3, 4)),
         )
     }

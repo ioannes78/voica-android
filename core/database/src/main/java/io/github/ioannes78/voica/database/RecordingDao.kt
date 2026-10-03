@@ -4,14 +4,37 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.RawQuery
 import androidx.room.Transaction
+import androidx.sqlite.db.SupportSQLiteQuery
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface RecordingDao {
     @Transaction
-    @Query("SELECT * FROM recordings WHERE state != 'DELETED' ORDER BY recordedAtLocalIso DESC, downloadedAtMs DESC")
+    @Query("SELECT * FROM recordings WHERE state = 'ACTIVE' ORDER BY recordedAtLocalIso DESC, createdAtMs DESC")
     fun observeAll(): Flow<List<RecordingWithAssets>>
+
+    @RawQuery(
+        observedEntities = [
+            RecordingEntity::class,
+            AudioAssetEntity::class,
+            RecordingImportProvenanceEntity::class,
+            RecordingUserMetadataEntity::class,
+            FolderEntity::class,
+            TagEntity::class,
+            RecordingTagCrossRef::class,
+            TranscriptionEntity::class,
+            AiSummaryEntity::class,
+        ],
+    )
+    fun observeLibrary(query: SupportSQLiteQuery): Flow<List<RecordingLibraryProjection>>
+
+    @Query("SELECT * FROM recording_folders ORDER BY name COLLATE NOCASE ASC")
+    fun observeFolders(): Flow<List<FolderEntity>>
+
+    @Query("SELECT * FROM recording_tags ORDER BY name COLLATE NOCASE ASC")
+    fun observeTags(): Flow<List<TagEntity>>
 
     @Transaction
     @Query("SELECT * FROM recordings WHERE id = :recordingId LIMIT 1")
@@ -26,11 +49,114 @@ interface RecordingDao {
     @Query("SELECT * FROM audio_assets WHERE recordingId = :recordingId AND role = :role LIMIT 1")
     suspend fun findAsset(recordingId: String, role: String): AudioAssetEntity?
 
+    @Query("SELECT * FROM audio_assets")
+    suspend fun allAssets(): List<AudioAssetEntity>
+
+    @Query(
+        """
+        SELECT
+            canonical.recordingId AS recordingId,
+            canonical.assetId AS assetId,
+            canonical.relativePath AS relativePath,
+            canonical.sizeBytes AS sizeBytes,
+            source.assetId AS sourceAssetId,
+            source.relativePath AS sourceRelativePath,
+            source.sizeBytes AS sourceSizeBytes,
+            source.sha256 AS sourceSha256
+        FROM audio_assets canonical
+        JOIN recordings recording ON recording.id = canonical.recordingId
+        JOIN audio_derivations derivation
+          ON derivation.recordingId = canonical.recordingId
+         AND derivation.outputAssetId = canonical.assetId
+         AND derivation.state = 'READY'
+        JOIN audio_assets source
+          ON source.recordingId = canonical.recordingId
+         AND source.assetId = derivation.sourceAssetId
+         AND LOWER(source.sha256) = LOWER(derivation.sourceSha256)
+        WHERE canonical.role = 'CANONICAL_WAV'
+          AND canonical.integrityState = 'VERIFIED'
+          AND canonical.formatValidationState = 'VALID'
+          AND recording.state = 'ACTIVE'
+          AND source.role IN ('DEVICE_OPUS', 'DEVICE_WAV', 'IMPORTED_ORIGINAL')
+          AND source.integrityState = 'VERIFIED'
+          AND source.formatValidationState = 'VALID'
+          AND source.relativePath != canonical.relativePath
+          AND NOT EXISTS (
+              SELECT 1 FROM transcriptions tx
+              WHERE tx.sourceCanonicalAssetId = canonical.assetId
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM diarization_runs dr
+              WHERE dr.sourceCanonicalAssetId = canonical.assetId
+          )
+        ORDER BY canonical.recordingId
+        """
+    )
+    suspend fun findReclaimableCanonicalAssets(): List<CanonicalCleanupCandidate>
+
+    @Query("DELETE FROM audio_assets WHERE assetId = :assetId")
+    suspend fun deleteAsset(assetId: String): Int
+
+    @Query(
+        """
+        UPDATE audio_derivations
+        SET outputAssetId = NULL,
+            state = 'NOT_PRESENT',
+            updatedAtMs = :updatedAtMs,
+            completedAtMs = NULL,
+            errorCode = NULL,
+            errorDetail = NULL
+        WHERE recordingId = :recordingId
+          AND outputAssetId = :assetId
+        """
+    )
+    suspend fun resetCanonicalDerivations(
+        recordingId: String,
+        assetId: String,
+        updatedAtMs: Long,
+    ): Int
+
+    @Query(
+        """
+        SELECT
+            r.id AS recordingId,
+            r.displayName AS displayName,
+            MIN(a.role) AS role,
+            MIN(a.relativePath) AS relativePath
+        FROM audio_assets a
+        JOIN recordings r ON r.id = a.recordingId
+        WHERE LOWER(a.sha256) = LOWER(:sha256)
+          AND a.sizeBytes = :sizeBytes
+          AND r.state = 'ACTIVE'
+        GROUP BY r.id, r.displayName, r.createdAtMs
+        ORDER BY r.createdAtMs DESC
+        """
+    )
+    suspend fun findAudioDuplicates(
+        sha256: String,
+        sizeBytes: Long,
+    ): List<AudioDuplicateMatch>
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertRecordingIgnore(recording: RecordingEntity): Long
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAssetIgnore(asset: AudioAssetEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertUserMetadataIgnore(metadata: RecordingUserMetadataEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertImportProvenance(provenance: RecordingImportProvenanceEntity)
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertFolder(folder: FolderEntity)
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertTag(tag: TagEntity)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertRecordingTagCrossRefs(crossRefs: List<RecordingTagCrossRef>): List<Long>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAsset(asset: AudioAssetEntity)
@@ -87,6 +213,56 @@ interface RecordingDao {
 
     @Query("UPDATE recordings SET state = :state, updatedAtMs = :updatedAtMs WHERE id = :recordingId")
     suspend fun updateState(recordingId: String, state: String, updatedAtMs: Long): Int
+
+    @Query("SELECT state FROM recordings WHERE id = :recordingId LIMIT 1")
+    suspend fun recordingState(recordingId: String): String?
+
+    @Query("SELECT COUNT(*) > 0 FROM recordings WHERE id = :recordingId AND state = 'ACTIVE'")
+    suspend fun isRecordingActive(recordingId: String): Boolean
+
+    @Query("UPDATE recordings SET state = 'DELETING', updatedAtMs = :updatedAtMs WHERE id = :recordingId AND state = 'ACTIVE'")
+    suspend fun markDeletingIfActive(recordingId: String, updatedAtMs: Long): Int
+
+    @Query("UPDATE recording_user_metadata SET isFavorite = :favorite, updatedAtMs = :updatedAtMs WHERE recordingId IN (:recordingIds)")
+    suspend fun setFavorite(
+        recordingIds: List<String>,
+        favorite: Boolean,
+        updatedAtMs: Long,
+    ): Int
+
+    @Query("UPDATE recording_user_metadata SET folderId = :folderId, updatedAtMs = :updatedAtMs WHERE recordingId IN (:recordingIds)")
+    suspend fun moveToFolder(
+        recordingIds: List<String>,
+        folderId: String?,
+        updatedAtMs: Long,
+    ): Int
+
+    @Query("DELETE FROM recording_tag_cross_refs WHERE recordingId IN (:recordingIds) AND tagId = :tagId")
+    suspend fun removeTagFromRecordings(recordingIds: List<String>, tagId: String): Int
+
+    @Query("SELECT * FROM recording_folders WHERE folderId = :folderId LIMIT 1")
+    suspend fun findFolder(folderId: String): FolderEntity?
+
+    @Query("SELECT * FROM recording_folders WHERE name = :name COLLATE NOCASE LIMIT 1")
+    suspend fun findFolderByName(name: String): FolderEntity?
+
+    @Query("SELECT * FROM recording_tags WHERE tagId = :tagId LIMIT 1")
+    suspend fun findTag(tagId: String): TagEntity?
+
+    @Query("SELECT * FROM recording_tags WHERE name = :name COLLATE NOCASE LIMIT 1")
+    suspend fun findTagByName(name: String): TagEntity?
+
+    @Query("UPDATE recording_folders SET name = :name, updatedAtMs = :updatedAtMs WHERE folderId = :folderId")
+    suspend fun renameFolder(folderId: String, name: String, updatedAtMs: Long): Int
+
+    @Query("UPDATE recording_tags SET name = :name, updatedAtMs = :updatedAtMs WHERE tagId = :tagId")
+    suspend fun renameTag(tagId: String, name: String, updatedAtMs: Long): Int
+
+    @Query("DELETE FROM recording_folders WHERE folderId = :folderId")
+    suspend fun deleteFolder(folderId: String): Int
+
+    @Query("DELETE FROM recording_tags WHERE tagId = :tagId")
+    suspend fun deleteTag(tagId: String): Int
 
     @Query("DELETE FROM recordings WHERE id = :recordingId")
     suspend fun deleteRecording(recordingId: String): Int

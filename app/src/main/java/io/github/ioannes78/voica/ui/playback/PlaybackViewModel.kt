@@ -5,13 +5,13 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import io.github.ioannes78.voica.audio.PlaybackController
 import io.github.ioannes78.voica.audio.PlaybackState
-import io.github.ioannes78.voica.database.RecordingLibraryRepository
+import io.github.ioannes78.voica.LocalRecordingDeleteCoordinator
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 class PlaybackViewModel(
     private val controller: PlaybackController,
-    private val recordingLibraryRepository: RecordingLibraryRepository,
+    private val deleteCoordinator: LocalRecordingDeleteCoordinator,
 ) : ViewModel() {
     val snapshot = controller.snapshot
     private val transcriptPlaybackCoordinator = TranscriptPlaybackCoordinator(controller)
@@ -67,22 +67,19 @@ class PlaybackViewModel(
 
     fun deleteRecording(recordingId: String) {
         viewModelScope.launch {
-            if (controller.snapshot.value.recordingId == recordingId) {
-                controller.unload()
-            }
-            recordingLibraryRepository.deleteLocalRecording(recordingId)
+            deleteCoordinator.delete(recordingId)
         }
     }
 
     class Factory(
         private val controller: PlaybackController,
-        private val recordingLibraryRepository: RecordingLibraryRepository,
+        private val deleteCoordinator: LocalRecordingDeleteCoordinator,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
             PlaybackViewModel(
                 controller,
-                recordingLibraryRepository,
+                deleteCoordinator,
             ) as T
     }
 }

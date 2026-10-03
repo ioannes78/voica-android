@@ -220,9 +220,19 @@ class DiarizationCoordinator(
     private val modelManager: ModelManager,
     private val modelUseRegistry: ModelUseRegistry,
     private val engineProvider: Stage9DiarizationEngineProvider,
+    private val isRecordingActive: suspend (String) -> Boolean = { true },
 ) {
     private val lock = Any()
     private var currentJob: Job? = null
+    private var currentTarget: OperationTarget? = null
+
+    private sealed interface OperationTarget {
+        data class Recording(val recordingId: String) : OperationTarget
+        data class Alignment(
+            val transcriptionId: String,
+            val diarizationRunId: String,
+        ) : OperationTarget
+    }
 
     private val mutableState =
         MutableStateFlow<DiarizationRunState>(DiarizationRunState.Idle)
@@ -244,7 +254,7 @@ class DiarizationCoordinator(
                 scope.launch {
                     runDiarization(recordingId, config)
                 }
-            installCurrentJob(job)
+            installCurrentJob(job, OperationTarget.Recording(recordingId))
             return true
         }
     }
@@ -264,7 +274,13 @@ class DiarizationCoordinator(
                         diarizationRunId = diarizationRunId,
                     )
                 }
-            installCurrentJob(job)
+            installCurrentJob(
+                job,
+                OperationTarget.Alignment(
+                    transcriptionId = transcriptionId,
+                    diarizationRunId = diarizationRunId,
+                ),
+            )
             return true
         }
     }
@@ -275,14 +291,47 @@ class DiarizationCoordinator(
         }
     }
 
+    suspend fun cancelAndAwait(recordingId: String) {
+        val snapshot =
+            synchronized(lock) {
+                currentJob to currentTarget
+            }
+        val job = snapshot.first ?: return
+        val target = snapshot.second ?: return
+        val matches =
+            when (target) {
+                is OperationTarget.Recording ->
+                    target.recordingId == recordingId
+
+                is OperationTarget.Alignment -> {
+                    val transcriptionRecordingId =
+                        transcriptionRepository.find(target.transcriptionId)?.recordingId
+                    val diarizationRecordingId =
+                        diarizationRepository.findRun(target.diarizationRunId)?.recordingId
+                    transcriptionRecordingId == recordingId ||
+                        diarizationRecordingId == recordingId
+                }
+            }
+        if (!matches) return
+        job.cancel(CancellationException("recording deletion"))
+        runCatching { job.join() }
+    }
+
     suspend fun reconcileOnStartup() =
         diarizationRepository.reconcileInterruptedOnStartup()
 
-    private fun installCurrentJob(job: Job) {
+    private fun installCurrentJob(
+        job: Job,
+        target: OperationTarget,
+    ) {
         currentJob = job
+        currentTarget = target
         job.invokeOnCompletion {
             synchronized(lock) {
-                if (currentJob === job) currentJob = null
+                if (currentJob === job) {
+                    currentJob = null
+                    currentTarget = null
+                }
             }
         }
     }
@@ -292,6 +341,7 @@ class DiarizationCoordinator(
         synchronized(lock) {
             if (currentJob === job) {
                 currentJob = null
+                currentTarget = null
             }
         }
     }
@@ -304,6 +354,8 @@ class DiarizationCoordinator(
         var leases: List<ModelLease> = emptyList()
 
         try {
+            if (!isRecordingActive(recordingId)) return
+
             mutableState.value =
                 DiarizationRunState.Running(
                     recordingId = recordingId,
@@ -338,6 +390,10 @@ class DiarizationCoordinator(
                 segmentation = models.segmentation,
                 embedding = models.embedding,
             )
+
+            if (!isRecordingActive(recordingId)) {
+                throw CancellationException("recording is being deleted")
+            }
 
             val createdRunId =
                 diarizationRepository.createRun(
@@ -680,12 +736,27 @@ class DiarizationCoordinator(
     ) {
         var alignmentId: String? = null
         try {
+            val transcription =
+                transcriptionRepository.find(transcriptionId)
+                    ?: error("transcription not found")
+            val diarizationRun =
+                diarizationRepository.findRun(diarizationRunId)
+                    ?: error("diarization run not found")
+            require(transcription.recordingId == diarizationRun.recordingId) {
+                "alignment inputs belong to different recordings"
+            }
+            if (!isRecordingActive(transcription.recordingId)) return
+
             mutableAlignmentState.value =
                 SpeakerAlignmentRunState.Running(
                     transcriptionId = transcriptionId,
                     diarizationRunId = diarizationRunId,
                     alignmentId = null,
                 )
+
+            if (!isRecordingActive(transcription.recordingId)) {
+                throw CancellationException("recording is being deleted")
+            }
 
             val createdAlignmentId =
                 diarizationRepository.createAlignment(

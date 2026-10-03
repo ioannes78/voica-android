@@ -14,8 +14,8 @@ android {
         applicationId = "io.github.ioannes78.voica"
         minSdk = 26
         targetSdk = 37
-        versionCode = 36
-        versionName = "0.12.0-stage12a-uxv3-qa1"
+        versionCode = 39
+        versionName = "0.12.3-stage12b-qa3"
         ndk {
             abiFilters += "arm64-v8a"
         }
@@ -73,6 +73,7 @@ dependencies {
     implementation(project(":core:model"))
     implementation(project(":core:transcript"))
     implementation(project(":engine:opus"))
+    implementation(project(":engine:media"))
     implementation(project(":engine:playback"))
     implementation(project(":engine:sherpa"))
     implementation(project(":engine:llm"))

@@ -10,6 +10,11 @@ import io.github.ioannes78.voica.ai.ProviderFailure
 import io.github.ioannes78.voica.ai.ProviderModel
 import io.github.ioannes78.voica.ai.ProviderProfile
 import io.github.ioannes78.voica.ai.ProviderPresetIds
+import io.github.ioannes78.voica.ai.StructuredOutputMode
+import io.github.ioannes78.voica.ai.StructuredSummaryCompatibility
+import io.github.ioannes78.voica.ai.StructuredSummaryProbeResult
+import io.github.ioannes78.voica.ai.SummaryPromptFactory
+import io.github.ioannes78.voica.ai.SummaryResultCodec
 import io.github.ioannes78.voica.ai.TextLlmProvider
 import java.util.UUID
 import kotlinx.serialization.json.JsonArray
@@ -146,6 +151,7 @@ class OpenAiCompatibleTextLlmProvider(
                 success = true,
                 capabilities = caps,
                 models = discoveredModels,
+                structuredSummaryProbe = structuredSummaryProbe(profile, caps),
             )
         } else {
             ConnectionTestResult(
@@ -374,6 +380,142 @@ class OpenAiCompatibleTextLlmProvider(
         }.toString()
     }
 
+    private suspend fun structuredSummaryProbe(
+        profile: ProviderProfile,
+        caps: ProviderCapabilities,
+    ): StructuredSummaryProbeResult {
+        suspend fun runProbe(
+            probeProfile: ProviderProfile,
+            mode: StructuredOutputMode,
+        ): Pair<Boolean, ProviderFailure?> {
+            val requestId = "structured-probe-" + UUID.randomUUID()
+            val result =
+                generate(
+                    probeProfile,
+                    LlmGenerationRequest(
+                        requestId = requestId,
+                        model = profile.defaultModel,
+                        systemInstruction =
+                            "This is a synthetic Voica structured-summary compatibility test. No user data is present.",
+                        taskInstruction =
+                            "Return a valid Voica summary for the synthetic source. " +
+                                "Use contentType GENERAL, title \"Voica probe\", a short overview, " +
+                                "classificationConfidence 1.0, and an empty sections array.",
+                        transcriptPayload = "[S00001] synthetic probe text",
+                        structuredOutputSchema = SummaryPromptFactory.resultSchemaJson,
+                        maxOutputTokens = 512,
+                    ),
+                )
+            if (result.isFailure) {
+                return false to
+                    ((result.exceptionOrNull() as? ProviderCallException)?.failure
+                        ?: ProviderFailure(
+                            ProviderErrorCode.STRUCTURED_OUTPUT_INVALID,
+                            "智能总结结构化输出测试失败。",
+                        ))
+            }
+            val valid =
+                runCatching {
+                    val decoded =
+                        SummaryResultCodec.decode(
+                            result.getOrThrow().content,
+                            allowedEvidenceRefs = emptySet(),
+                        )
+                    decoded.title == "Voica probe"
+                }.getOrDefault(false)
+            return if (valid) {
+                true to null
+            } else {
+                false to
+                    ProviderFailure(
+                        ProviderErrorCode.STRUCTURED_OUTPUT_INVALID,
+                        "连接正常，但当前模型未通过智能总结结构化输出测试。",
+                    )
+            }
+        }
+
+        if (caps.supportsJsonSchema) {
+            val strict = runProbe(profile, StructuredOutputMode.STRICT_JSON_SCHEMA)
+            return if (strict.first) {
+                StructuredSummaryProbeResult(
+                    compatibility = StructuredSummaryCompatibility.VERIFIED_STRICT,
+                    mode = StructuredOutputMode.STRICT_JSON_SCHEMA,
+                )
+            } else {
+                StructuredSummaryProbeResult(
+                    compatibility = StructuredSummaryCompatibility.INCOMPATIBLE,
+                    mode = StructuredOutputMode.STRICT_JSON_SCHEMA,
+                    failure = strict.second,
+                )
+            }
+        }
+
+        val strictProbeProfile =
+            profile.copy(
+                capabilityOverrides =
+                    caps.copy(
+                        supportsJsonSchema = true,
+                        supportsJsonObject = true,
+                    ),
+            )
+        val strict = runProbe(strictProbeProfile, StructuredOutputMode.STRICT_JSON_SCHEMA)
+        if (strict.first) {
+            return StructuredSummaryProbeResult(
+                compatibility = StructuredSummaryCompatibility.VERIFIED_STRICT,
+                mode = StructuredOutputMode.STRICT_JSON_SCHEMA,
+            )
+        }
+
+        val fallbackMode =
+            if (caps.supportsJsonObject) {
+                StructuredOutputMode.JSON_OBJECT
+            } else {
+                StructuredOutputMode.PROMPT_ONLY
+            }
+        val fallbackProfile =
+            profile.copy(
+                capabilityOverrides =
+                    caps.copy(
+                        supportsJsonSchema = false,
+                        supportsJsonObject = fallbackMode == StructuredOutputMode.JSON_OBJECT,
+                    ),
+            )
+        val fallback = runProbe(fallbackProfile, fallbackMode)
+        return if (fallback.first) {
+            StructuredSummaryProbeResult(
+                compatibility = StructuredSummaryCompatibility.VERIFIED_COMPATIBLE,
+                mode = fallbackMode,
+            )
+        } else {
+            StructuredSummaryProbeResult(
+                compatibility = StructuredSummaryCompatibility.INCOMPATIBLE,
+                mode = fallbackMode,
+                failure = fallback.second ?: strict.second,
+            )
+        }
+    }
+
+    private fun modelStructuredOutputMode(obj: JsonObject): StructuredOutputMode? {
+        val parameters =
+            obj["supported_parameters"]
+                ?.jsonArray
+                ?.mapNotNull { it.jsonPrimitive.contentOrNull }
+                ?.map(String::lowercase)
+                ?.toSet()
+                ?: return null
+        return when {
+            parameters.any {
+                it == "structured_outputs" ||
+                    it == "json_schema"
+            } -> StructuredOutputMode.STRICT_JSON_SCHEMA
+            parameters.any {
+                it == "json_object" ||
+                    it == "response_format"
+            } -> StructuredOutputMode.JSON_OBJECT
+            else -> StructuredOutputMode.PROMPT_ONLY
+        }
+    }
+
     private fun parseModels(body: String): List<ProviderModel> {
         val root =
             runCatching { PROVIDER_JSON.parseToJsonElement(body).jsonObject }
@@ -399,6 +541,7 @@ class OpenAiCompatibleTextLlmProvider(
                             ?: obj["context_length"]?.jsonPrimitive?.intOrNull,
                     maxOutputTokens =
                         obj["max_output_tokens"]?.jsonPrimitive?.intOrNull,
+                    structuredOutputMode = modelStructuredOutputMode(obj),
                 )
             }
             ?: throw ProviderCallException(
@@ -455,7 +598,12 @@ class OpenAiCompatibleTextLlmProvider(
                     totalTokens = it["total_tokens"]?.jsonPrimitive?.longOrNull,
                 )
             }
-        return LlmGenerationResponse(requestId, content, usage)
+        return LlmGenerationResponse(
+            requestId = requestId,
+            content = content,
+            usage = usage,
+            finishReason = choice["finish_reason"]?.jsonPrimitive?.contentOrNull,
+        )
     }
 
     private fun extractTextContent(element: JsonElement?): String? =

@@ -3,6 +3,8 @@ package io.github.ioannes78.voica
 import io.github.ioannes78.voica.audio.AudioPipelineException
 import io.github.ioannes78.voica.audio.CanonicalAudioStage
 import io.github.ioannes78.voica.audio.CanonicalPcmProfile
+import io.github.ioannes78.voica.audio.CompressedAudioDecoder
+import io.github.ioannes78.voica.audio.CompressedAudioToCanonicalWavConverter
 import io.github.ioannes78.voica.audio.PcmWavToCanonicalWavConverter
 import io.github.ioannes78.voica.audio.RawOpusToCanonicalWavConverter
 import io.github.ioannes78.voica.audio.RawOpusValidationResult
@@ -17,6 +19,7 @@ import io.github.ioannes78.voica.database.CanonicalConversionSource
 import io.github.ioannes78.voica.database.CanonicalWavRegistration
 import io.github.ioannes78.voica.database.RecordingAsset
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
+import io.github.ioannes78.voica.media.AndroidMediaDecoder
 import io.github.ioannes78.voica.opus.NativeOpusBackend
 import java.io.File
 import java.security.MessageDigest
@@ -52,12 +55,14 @@ class CanonicalAudioCoordinator(
     private val repository: RecordingLibraryRepository,
     private val recordingsRoot: File,
     private val applicationScope: CoroutineScope,
+    private val mediaDecoder: CompressedAudioDecoder = AndroidMediaDecoder(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val nowMs: () -> Long = System::currentTimeMillis,
 ) {
     private val serial = Mutex()
     private val canonicalDir = File(recordingsRoot, CANONICAL_DIRECTORY)
     private val activeTokens = ConcurrentHashMap<String, AtomicBoolean>()
+    private val activeGenerationJobs = ConcurrentHashMap<String, Job>()
     private val automaticLock = Any()
     private val automaticJobs = mutableMapOf<String, Job>()
     private val automaticRerun = mutableSetOf<String>()
@@ -99,30 +104,70 @@ class CanonicalAudioCoordinator(
         activeTokens[recordingId]?.set(true)
         synchronized(automaticLock) {
             automaticRerun.remove(recordingId)
-            automaticJobs.remove(recordingId)?.cancel()
+            automaticJobs.remove(recordingId)?.cancel(
+                CancellationException("canonical generation cancelled"),
+            )
         }
+        activeGenerationJobs[recordingId]?.cancel(
+            CancellationException("canonical generation cancelled"),
+        )
+    }
+
+    suspend fun cancelAndAwait(recordingId: String) {
+        val caller = currentCoroutineContext()[Job]
+        activeTokens[recordingId]?.set(true)
+        val jobs = linkedSetOf<Job>()
+        synchronized(automaticLock) {
+            automaticRerun.remove(recordingId)
+            automaticJobs.remove(recordingId)?.let(jobs::add)
+        }
+        activeGenerationJobs[recordingId]?.let(jobs::add)
+
+        jobs
+            .filter { it !== caller }
+            .forEach { it.cancel(CancellationException("recording deletion")) }
+        jobs
+            .filter { it !== caller }
+            .forEach { runCatching { it.join() } }
     }
 
     suspend fun generate(recordingId: String): CanonicalGenerationOutcome =
         serial.withLock {
             val token = AtomicBoolean(false)
+            val job = currentCoroutineContext()[Job]
             activeTokens[recordingId] = token
+            if (job != null) {
+                activeGenerationJobs[recordingId] = job
+            }
             try {
                 generateLocked(recordingId, token)
             } finally {
                 activeTokens.remove(recordingId, token)
+                if (job != null) {
+                    activeGenerationJobs.remove(recordingId, job)
+                }
+            }
+        }
+
+    suspend fun cleanupTransientFiles(): Long =
+        serial.withLock {
+            withContext(ioDispatcher) {
+                canonicalDir.mkdirs()
+                var reclaimed = 0L
+                canonicalDir.listFiles()
+                    .orEmpty()
+                    .filter { it.isFile && it.name.endsWith(".part") }
+                    .forEach { file ->
+                        val bytes = file.length()
+                        if (file.delete()) reclaimed += bytes
+                    }
+                reclaimed
             }
         }
 
     suspend fun reconcileOnStartup() {
         val interrupted = repository.loadInterruptedCanonicalDerivations(PROFILE_ID)
-        withContext(ioDispatcher) {
-            canonicalDir.mkdirs()
-            canonicalDir.listFiles()
-                .orEmpty()
-                .filter { it.isFile && it.name.endsWith(".part") }
-                .forEach(File::delete)
-        }
+        cleanupTransientFiles()
 
         interrupted.forEach { derivation ->
             val target = targetFile(
@@ -258,7 +303,15 @@ class CanonicalAudioCoordinator(
                     )
 
                 AudioAssetRole.DEVICE_WAV ->
-                    generateFromDeviceWav(
+                    generateFromWav(
+                        source,
+                        sourceFile,
+                        callerJob,
+                        cancellationToken,
+                    )
+
+                AudioAssetRole.IMPORTED_ORIGINAL ->
+                    generateFromImportedOriginal(
                         source,
                         sourceFile,
                         callerJob,
@@ -378,7 +431,88 @@ class CanonicalAudioCoordinator(
         )
     }
 
-    private suspend fun generateFromDeviceWav(
+    private suspend fun generateFromImportedOriginal(
+        source: CanonicalConversionSource,
+        sourceFile: File,
+        callerJob: Job?,
+        cancellationToken: AtomicBoolean,
+    ): CanonicalGenerationOutcome =
+        when (source.sourceContainer) {
+            "WAV" ->
+                generateFromWav(
+                    source,
+                    sourceFile,
+                    callerJob,
+                    cancellationToken,
+                )
+
+            "RAW_OPUS" ->
+                generateFromOpus(
+                    source,
+                    sourceFile,
+                    callerJob,
+                    cancellationToken,
+                )
+
+            "MP3", "MP4", "AAC_ADTS", "FLAC", "OGG_OPUS" ->
+                generateFromCompressedMedia(
+                    source,
+                    sourceFile,
+                    callerJob,
+                    cancellationToken,
+                )
+
+            else ->
+                fail(
+                    source = source,
+                    code = "UNSUPPORTED_CONTAINER",
+                    recoverable = false,
+                    detail = "unsupported imported container=" + source.sourceContainer,
+                )
+        }
+
+    private suspend fun generateFromCompressedMedia(
+        source: CanonicalConversionSource,
+        sourceFile: File,
+        callerJob: Job?,
+        cancellationToken: AtomicBoolean,
+    ): CanonicalGenerationOutcome {
+        val durationUs =
+            (source.mediaDurationMs ?: source.deviceReportedDurationMs)
+                ?.coerceAtLeast(0L)
+                ?.times(1_000L)
+                ?: 0L
+        ensureCapacity(durationUs)
+
+        val target =
+            targetFile(
+                source.recordingId,
+                source.sourceSha256,
+                PIPELINE_VERSION,
+            )
+        val result =
+            withContext(ioDispatcher) {
+                CompressedAudioToCanonicalWavConverter(mediaDecoder)
+                    .convert(
+                        sourceFile = sourceFile,
+                        targetFile = target,
+                        expectedSourceSha256 = source.sourceSha256,
+                        isCancelled = {
+                            cancellationToken.get() || callerJob?.isActive == false
+                        },
+                        onStage = { stage -> persistStageBlocking(source, stage) },
+                    )
+            }
+
+        return commitResult(
+            source = source,
+            target = target,
+            sizeBytes = result.wav.sizeBytes,
+            sha256 = result.wav.sha256,
+        )
+    }
+
+    private suspend fun generateFromWav(
         source: CanonicalConversionSource,
         sourceFile: File,
         callerJob: Job?,
@@ -411,7 +545,7 @@ class CanonicalAudioCoordinator(
             throw AudioPipelineException(
                 code = "UNSUPPORTED_WAV_PCM",
                 recoverable = false,
-                message = "device WAV is not PCM16",
+                message = "WAV is not PCM16",
             )
         }
 

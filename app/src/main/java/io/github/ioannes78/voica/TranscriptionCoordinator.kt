@@ -176,9 +176,11 @@ class TranscriptionCoordinator(
     private val modelManager: ModelManager,
     private val modelUseRegistry: ModelUseRegistry,
     private val engineProvider: Stage8TranscriptionEngineProvider,
+    private val isRecordingActive: suspend (String) -> Boolean = { true },
 ) {
     private val lock = Any()
     private var currentJob: Job? = null
+    private var currentRecordingId: String? = null
     private val mutableState =
         MutableStateFlow<TranscriptionRunState>(TranscriptionRunState.Idle)
 
@@ -196,10 +198,12 @@ class TranscriptionCoordinator(
                     runTranscription(recordingId, mode)
                 }
             currentJob = job
+            currentRecordingId = recordingId
             job.invokeOnCompletion {
                 synchronized(lock) {
                     if (currentJob === job) {
                         currentJob = null
+                        currentRecordingId = null
                     }
                 }
             }
@@ -213,6 +217,15 @@ class TranscriptionCoordinator(
         }
     }
 
+    suspend fun cancelAndAwait(recordingId: String) {
+        val job =
+            synchronized(lock) {
+                currentJob?.takeIf { currentRecordingId == recordingId }
+            } ?: return
+        job.cancel(CancellationException("recording deletion"))
+        runCatching { job.join() }
+    }
+
     suspend fun reconcileOnStartup(): Int =
         transcriptionRepository.reconcileInterruptedOnStartup()
 
@@ -224,6 +237,8 @@ class TranscriptionCoordinator(
         var leases: List<ModelLease> = emptyList()
 
         try {
+            if (!isRecordingActive(recordingId)) return
+
             mutableState.value =
                 TranscriptionRunState.Running(
                     recordingId = recordingId,
@@ -261,6 +276,9 @@ class TranscriptionCoordinator(
                     totalSampleCount = totalSampleCount,
                     models = models,
                 )
+            if (!isRecordingActive(recordingId)) {
+                throw CancellationException("recording is being deleted")
+            }
             val createdTranscriptionId = transcriptionRepository.create(request)
             transcriptionId = createdTranscriptionId
 

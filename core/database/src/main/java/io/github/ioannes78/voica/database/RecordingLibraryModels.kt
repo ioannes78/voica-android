@@ -1,5 +1,28 @@
 package io.github.ioannes78.voica.database
 
+data class CanonicalCleanupCandidate(
+    val recordingId: String,
+    val assetId: String,
+    val relativePath: String,
+    val sizeBytes: Long,
+    val sourceAssetId: String,
+    val sourceRelativePath: String,
+    val sourceSizeBytes: Long,
+    val sourceSha256: String,
+)
+
+data class RecordingStorageUsage(
+    val originalAudioBytes: Long,
+    val canonicalAudioBytes: Long,
+    val reclaimableCanonicalBytes: Long,
+)
+
+data class CanonicalCleanupResult(
+    val reclaimedBytes: Long,
+    val deletedAssets: Int,
+    val failedPaths: List<String>,
+)
+
 data class RecordingAsset(
     val assetId: String,
     val role: String,
@@ -28,16 +51,20 @@ data class RecordingDerivation(
 
 data class RecordingLibraryItem(
     val id: String,
-    val sourceRemoteIdentity: String,
-    val sourceDeviceAddress: String,
+    val sourceRemoteIdentity: String?,
+    val sourceDeviceAddress: String?,
     val originalFilename: String,
     val displayName: String,
     val recordedAtLocalIso: String?,
     val deviceReportedDurationMs: Long?,
-    val downloadedAtMs: Long,
+    val downloadedAtMs: Long?,
     val state: String,
     val assets: List<RecordingAsset>,
     val derivations: List<RecordingDerivation>,
+    val sourceType: String = RecordingSourceType.DEVICE_DOWNLOAD,
+    val mediaDurationMs: Long? = null,
+    val createdAtMs: Long = 0L,
+    val updatedAtMs: Long = 0L,
 )
 
 internal fun RecordingWithAssets.toLibraryItem(): RecordingLibraryItem =
@@ -51,6 +78,10 @@ internal fun RecordingWithAssets.toLibraryItem(): RecordingLibraryItem =
         deviceReportedDurationMs = recording.deviceReportedDurationMs,
         downloadedAtMs = recording.downloadedAtMs,
         state = recording.state,
+        sourceType = recording.sourceType,
+        mediaDurationMs = recording.mediaDurationMs,
+        createdAtMs = recording.createdAtMs,
+        updatedAtMs = recording.updatedAtMs,
         assets = assets.map { asset ->
             RecordingAsset(
                 assetId = asset.assetId,

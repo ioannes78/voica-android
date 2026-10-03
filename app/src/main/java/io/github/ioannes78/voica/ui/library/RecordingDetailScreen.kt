@@ -73,6 +73,12 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 import kotlinx.coroutines.flow.distinctUntilChanged
 
+enum class RecordingDetailDestination {
+    PLAYBACK,
+    TRANSCRIPT,
+    SUMMARY,
+}
+
 private enum class DetailTab {
     PLAYBACK,
     TRANSCRIPT,
@@ -93,12 +99,18 @@ fun RecordingDetailScreen(
     onOpenSettings: () -> Unit,
     onRename: (String, String) -> Unit,
     onDelete: (String) -> Unit,
+    onExportCanonical: (String) -> Unit,
+    onExportOriginal: (String) -> Unit,
+    onShareCanonical: (String) -> Unit,
+    onShareOriginal: (String) -> Unit,
     onGenerateCanonical: (String) -> Unit,
     onCancelCanonical: (String) -> Unit,
     deviceRecordingActive: Boolean,
+    initialDestination: RecordingDetailDestination = RecordingDetailDestination.PLAYBACK,
+    onDestinationChanged: (RecordingDetailDestination?) -> Unit = {},
 ) {
-    var selectedTab by rememberSaveable(recording.id) {
-        mutableStateOf(DetailTab.PLAYBACK)
+    var selectedTab by rememberSaveable(recording.id, initialDestination) {
+        mutableStateOf(initialDestination.toDetailTab())
     }
     var moreMenuExpanded by rememberSaveable { mutableStateOf(false) }
     var selectedTranscriptionId by rememberSaveable(recording.id) {
@@ -144,10 +156,26 @@ fun RecordingDetailScreen(
     val activeCanonicalJob = recording.derivations.firstOrNull {
         it.state in ACTIVE_DERIVATION_STATES
     }
+    val originalIsRecorderRawOpus =
+        recording.assets.none { it.role == AudioAssetRole.IMPORTED_ORIGINAL } &&
+            recording.assets.any {
+                it.role == AudioAssetRole.DEVICE_OPUS &&
+                    it.integrityState == AudioIntegrityState.VERIFIED
+            }
 
     val transcriptListState = rememberLazyListState()
     val programmaticScroll = remember { AtomicBoolean(false) }
 
+    LaunchedEffect(recording.id, selectedTab) {
+        onDestinationChanged(
+            when (selectedTab) {
+                DetailTab.PLAYBACK -> RecordingDetailDestination.PLAYBACK
+                DetailTab.TRANSCRIPT -> RecordingDetailDestination.TRANSCRIPT
+                DetailTab.SUMMARY -> RecordingDetailDestination.SUMMARY
+                DetailTab.INFO -> null
+            },
+        )
+    }
     LaunchedEffect(recording.id) {
         transcriptionViewModel.viewVersions(recording.id)
     }
@@ -245,7 +273,9 @@ fun RecordingDetailScreen(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    recording.deviceReportedDurationMs?.let(::formatDurationMs) ?: "--",
+                    (recording.mediaDurationMs ?: recording.deviceReportedDurationMs)
+                    ?.let(::formatDurationMs)
+                    ?: "--",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -331,6 +361,52 @@ fun RecordingDetailScreen(
                             renameOpen = true
                         },
                     )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("导出 WAV") },
+                        onClick = {
+                            moreMenuExpanded = false
+                            onExportCanonical(recording.id)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                if (originalIsRecorderRawOpus) {
+                                    "导出原始文件（录音卡 Opus）"
+                                } else {
+                                    "导出原始文件"
+                                },
+                            )
+                        },
+                        onClick = {
+                            moreMenuExpanded = false
+                            onExportOriginal(recording.id)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("分享 WAV") },
+                        onClick = {
+                            moreMenuExpanded = false
+                            onShareCanonical(recording.id)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                if (originalIsRecorderRawOpus) {
+                                    "分享原始文件（录音卡 Opus）"
+                                } else {
+                                    "分享原始文件"
+                                },
+                            )
+                        },
+                        onClick = {
+                            moreMenuExpanded = false
+                            onShareOriginal(recording.id)
+                        },
+                    )
+                    HorizontalDivider()
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.local_file_delete)) },
                         onClick = {
@@ -393,8 +469,11 @@ fun RecordingDetailScreen(
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         item(key = "transcript-status") {
-                            if (transcriptionState !is TranscriptionRunState.Idle ||
-                                transcriptionNotice != null
+                            if (
+                                shouldShowTranscriptionStatus(
+                                    transcriptionState,
+                                    recording.id,
+                                )
                             ) {
                                 TranscriptionStatusCard(
                                     state = transcriptionState,
@@ -405,8 +484,11 @@ fun RecordingDetailScreen(
                             }
                         }
                         item(key = "diarization-status") {
-                            if (diarizationState !is DiarizationRunState.Idle ||
-                                diarizationNotice != null
+                            if (
+                                shouldShowDiarizationStatus(
+                                    diarizationState,
+                                    recording.id,
+                                )
                             ) {
                                 DiarizationStatusCard(
                                     state = diarizationState,
@@ -748,14 +830,18 @@ private fun RecordingInformationCard(
             )
             InfoLine(
                 stringResource(R.string.local_file_downloaded_at),
-                Instant.ofEpochMilli(recording.downloadedAtMs)
-                    .atZone(ZoneId.systemDefault())
-                    .toLocalDateTime()
-                    .format(DISPLAY_TIME),
+                recording.downloadedAtMs
+                    ?.let { value ->
+                        Instant.ofEpochMilli(value)
+                            .atZone(ZoneId.systemDefault())
+                            .toLocalDateTime()
+                            .format(DISPLAY_TIME)
+                    }
+                    ?: "--",
             )
             InfoLine(
                 stringResource(R.string.detail_source_device),
-                recording.sourceDeviceAddress.ifBlank { "--" },
+                recording.sourceDeviceAddress?.takeIf { it.isNotBlank() } ?: "--",
             )
             recording.assets.forEach { asset ->
                 InfoLine(
@@ -807,6 +893,13 @@ private fun InfoLine(label: String, value: String) {
     }
 }
 
+private fun RecordingDetailDestination.toDetailTab(): DetailTab =
+    when (this) {
+        RecordingDetailDestination.PLAYBACK -> DetailTab.PLAYBACK
+        RecordingDetailDestination.TRANSCRIPT -> DetailTab.TRANSCRIPT
+        RecordingDetailDestination.SUMMARY -> DetailTab.SUMMARY
+    }
+
 @Composable
 private fun tabLabel(tab: DetailTab): String =
     stringResource(
@@ -838,6 +931,32 @@ private fun formatBytes(bytes: Long): String {
     if (mb < 1024.0) return String.format(Locale.US, "%.1f MB", mb)
     return String.format(Locale.US, "%.2f GB", mb / 1024.0)
 }
+
+internal fun shouldShowTranscriptionStatus(
+    state: TranscriptionRunState,
+    recordingId: String,
+): Boolean =
+    when (state) {
+        is TranscriptionRunState.Running -> state.recordingId == recordingId
+        is TranscriptionRunState.Failed -> state.recordingId == recordingId
+        TranscriptionRunState.Idle,
+        is TranscriptionRunState.Completed,
+        is TranscriptionRunState.Cancelled,
+        -> false
+    }
+
+internal fun shouldShowDiarizationStatus(
+    state: DiarizationRunState,
+    recordingId: String,
+): Boolean =
+    when (state) {
+        is DiarizationRunState.Running -> state.recordingId == recordingId
+        is DiarizationRunState.Failed -> state.recordingId == recordingId
+        DiarizationRunState.Idle,
+        is DiarizationRunState.Completed,
+        is DiarizationRunState.Cancelled,
+        -> false
+    }
 
 private const val TRANSCRIPT_ROW_START_INDEX = 5
 

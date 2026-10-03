@@ -63,6 +63,22 @@ class AppContainer(
             applicationScope = applicationScope,
         )
 
+    val localAudioImportCoordinator =
+        LocalAudioImportCoordinator(
+            context = application,
+            repository = recordingLibraryRepository,
+            recordingsRoot = recordingsRoot,
+            onImported = canonicalAudioCoordinator::requestAutomatic,
+        )
+
+    val localAudioExportCoordinator =
+        LocalAudioExportCoordinator(
+            context = application,
+            repository = recordingLibraryRepository,
+            recordingsRoot = recordingsRoot,
+            canonicalAudioCoordinator = canonicalAudioCoordinator,
+        )
+
     private val roomAudioSourceResolver =
         RoomAudioSourceResolver(
             repository = recordingLibraryRepository,
@@ -121,6 +137,7 @@ class AppContainer(
             profileStore = providerProfileStore,
             providerRegistry = providerAdapterRegistry,
             engine = AiSummaryEngine(),
+            isRecordingActive = recordingLibraryRepository::isRecordingActive,
         )
 
     val transcriptionCoordinator =
@@ -135,6 +152,7 @@ class AppContainer(
                 SherpaStage8TranscriptionEngineProvider(
                     assetManager = application.assets,
                 ),
+            isRecordingActive = recordingLibraryRepository::isRecordingActive,
         )
 
     val diarizationCoordinator =
@@ -150,6 +168,7 @@ class AppContainer(
                 SherpaStage9DiarizationEngineProvider(
                     assetManager = application.assets,
                 ),
+            isRecordingActive = recordingLibraryRepository::isRecordingActive,
         )
 
     val playbackController =
@@ -157,6 +176,30 @@ class AppContainer(
             context = application,
             sourceResolver = audioSourceResolver,
             scope = applicationScope,
+        )
+
+    val localRecordingDeleteCoordinator =
+        LocalRecordingDeleteCoordinator(
+            repository = recordingLibraryRepository,
+            hooks =
+                DefaultRecordingDeletionHooks(
+                    playbackController = playbackController,
+                    canonicalAudioCoordinator = canonicalAudioCoordinator,
+                    transcriptionCoordinator = transcriptionCoordinator,
+                    diarizationCoordinator = diarizationCoordinator,
+                    aiSummaryCoordinator = aiSummaryCoordinator,
+                ),
+        )
+
+    val storageManagementCoordinator =
+        StorageManagementCoordinator(
+            application = application,
+            repository = recordingLibraryRepository,
+            canonicalAudioCoordinator = canonicalAudioCoordinator,
+            importCoordinator = localAudioImportCoordinator,
+            exportCoordinator = localAudioExportCoordinator,
+            modelManager = modelManager,
+            playbackController = playbackController,
         )
 
     private val processLifecycleObserver =
@@ -228,6 +271,8 @@ class AppContainer(
             recordingLibraryRepository.importLegacyStage5IfNeeded()
             recordingLibraryRepository.normalizeStandardDeviceDisplayNames()
             recordingLibraryRepository.reconcilePendingDeletes()
+            localAudioImportCoordinator.cleanupStaleStaging()
+            localAudioExportCoordinator.cleanupStaleShareCache()
             canonicalAudioCoordinator.reconcileOnStartup()
             transcriptionCoordinator.reconcileOnStartup()
             diarizationCoordinator.reconcileOnStartup()

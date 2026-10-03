@@ -80,10 +80,34 @@ object SummaryPromptFactory {
             append(taskInstruction(mode, template, partial = false))
         }
 
-    fun repairInstruction(): String =
-        "Repair the supplied invalid model output into exactly one JSON object matching the schema. " +
-            "Keep all human-readable summary content in Simplified Chinese unless the original user customization explicitly requested another language. " +
-            "Do not add facts or evidence refs that are not already present in the supplied data."
+    fun repairInstruction(
+        failure: SummaryStructuredOutputException? = null,
+        allowedEvidenceRefs: Set<String> = emptySet(),
+    ): String =
+        buildString {
+            append("Repair the supplied invalid model output into exactly one JSON object matching the schema. ")
+            append(
+                "Keep all human-readable summary content in Simplified Chinese unless the original user customization explicitly requested another language. ",
+            )
+            append("Do not add facts or evidence refs that are not already present in the supplied data. ")
+            failure?.let {
+                append("The previous output failed validation with ")
+                append(it.code.name)
+                append(": ")
+                append(it.message?.take(240).orEmpty())
+                append(". ")
+            }
+            if (allowedEvidenceRefs.isNotEmpty() && allowedEvidenceRefs.size <= 256) {
+                append("Allowed evidenceRefs for this repair are exactly: ")
+                append(allowedEvidenceRefs.sorted().joinToString(","))
+                append(". ")
+            } else if (allowedEvidenceRefs.isNotEmpty()) {
+                append(
+                    "Use only evidenceRefs that already appear in the supplied source data; never invent a new S-number. ",
+                )
+            }
+            append("Return JSON only, without Markdown fences or explanation.")
+        }
 
     val resultSchemaJson: String =
         """

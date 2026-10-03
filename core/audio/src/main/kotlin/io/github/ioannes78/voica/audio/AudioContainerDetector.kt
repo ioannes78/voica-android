@@ -9,6 +9,38 @@ object AudioContainerDetector {
             return AudioContainerKind.WAV
         }
 
+        if (prefix.size >= 4 && prefix.matchesAscii(0, "fLaC")) {
+            return AudioContainerKind.FLAC
+        }
+
+        if (prefix.size >= 8 && prefix.matchesAscii(4, "ftyp")) {
+            return AudioContainerKind.MP4
+        }
+
+        if (
+            prefix.size >= 3 &&
+            prefix[0] == 'I'.code.toByte() &&
+            prefix[1] == 'D'.code.toByte() &&
+            prefix[2] == '3'.code.toByte()
+        ) {
+            return AudioContainerKind.MP3
+        }
+
+        if (prefix.size >= 2) {
+            val b0 = prefix[0].toInt() and 0xFF
+            val b1 = prefix[1].toInt() and 0xFF
+            if (b0 == 0xFF && (b1 and 0xF6) == 0xF0) {
+                return AudioContainerKind.AAC_ADTS
+            }
+            if (
+                b0 == 0xFF &&
+                (b1 and 0xE0) == 0xE0 &&
+                (b1 and 0x18) != 0x08
+            ) {
+                return AudioContainerKind.MP3
+            }
+        }
+
         if (prefix.size >= 8 && prefix.matchesAscii(0, "OggS")) {
             val searchEnd = minOf(prefix.size - OPUS_HEAD.length, MAX_OGG_PREFIX_SEARCH)
             if (searchEnd >= 0) {
@@ -20,11 +52,7 @@ object AudioContainerDetector {
             }
         }
 
-        return if (prefix.isNotEmpty()) {
-            AudioContainerKind.DEVICE_RAW_CANDIDATE
-        } else {
-            AudioContainerKind.UNKNOWN
-        }
+        return AudioContainerKind.UNKNOWN
     }
 
     private fun ByteArray.matchesAscii(offset: Int, value: String): Boolean {

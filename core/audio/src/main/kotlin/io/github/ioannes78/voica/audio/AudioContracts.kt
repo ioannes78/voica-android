@@ -21,6 +21,10 @@ object CanonicalPcmProfile {
 
 enum class AudioContainerKind {
     WAV,
+    MP3,
+    MP4,
+    AAC_ADTS,
+    FLAC,
     OGG_OPUS,
     DEVICE_RAW_CANDIDATE,
     UNKNOWN,

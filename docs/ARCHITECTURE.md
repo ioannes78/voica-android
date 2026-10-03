@@ -8,7 +8,7 @@ Voica 是全新 Android 工程，不从 `voice-card-android` 继承任何代码�
 
 ## 2. 当前已落地模块
 
-Stage 12A 当前物理模块：
+Stage 12B 当前物理模块：
 
 ```
 :app
@@ -20,6 +20,8 @@ Stage 12A 当前物理模块：
 ├─ :core:transcript
 ├─ :core:ai
 ├─ :engine:opus
+│  └─ :core:audio
+├─ :engine:media
 │  └─ :core:audio
 ├─ :engine:playback
 │  └─ :core:audio
@@ -157,6 +159,63 @@ Device Home 只保留高频连接/录音任务。完整 BLE Diagnostics 继续�
 Recording Detail 的完整播放器、Transcript Mini Player、Summary Mini Player 共用同一 `PlaybackViewModel / PlaybackSnapshot`。任何 seek 继续使用 absolute canonical sample index；设备 Recording/Paused 优先于本地 playback。
 
 Stage 12A Room schema 保持 v4。收藏、标签、文件夹、导入 provenance 等本地管理数据留给 Stage 12B 显式 migration。
+
+## Stage 12B 本地录音库与全局任务架构
+
+Stage 12B 将 Room 从 v4 additive migration 到 v5，并继续以既有 Recording graph 为唯一录音库事实。
+
+本地组织：
+
+```
+Recording
+├─ RecordingUserMetadata
+│  ├─ favorite
+│  └─ folderId
+├─ Folder（一级逻辑目录）
+├─ Tag
+└─ RecordingTagCrossRef
+```
+
+手机导入：
+
+```
+SAF URI
+  ↓
+app-private staging
+  ↓
+size / SHA / free-space / cancellation
+  ↓
+container + codec detect
+  ↓
+Android MediaExtractor / MediaCodec
+  ↓
+IMPORTED_ORIGINAL
+  ↓
+canonical 16k mono PCM16 WAV
+```
+
+外部 URI 不作为长期唯一播放源。Imported original、DEVICE_OPUS、DEVICE_WAV 属于可追溯源资产；CANONICAL_WAV 属于可再生成处理资产。
+
+本地删除统一走 LocalRecordingDeleteCoordinator：
+
+`ACTIVE → DELETING → cancel/wait playback/canonical/transcription/diarization/summary → files → Room cascade`
+
+删除手机本地 Recording 不发送 BLE remote delete。
+
+导出默认 canonical WAV；Android 10+ 进入 MediaStore `Downloads/Voica`，旧 API 使用 SAF。分享使用受限 FileProvider + temporary read grant。raw recorder Opus 保持保守 MIME。
+
+全局播放与任务状态：
+
+- PlaybackController / PlaybackSnapshot 仍是唯一播放状态
+- 播放结束后全局 Mini Player 隐藏；暂停保留
+- Transcription / Diarization / AiSummary Coordinator 仍是任务唯一事实
+- 当前就在对应 Recording/Tab 时不重复显示全局状态
+- 离开页面时显示 Running
+- Completed / Failed 转为 App 内未读任务通知，进入对应页面后 acknowledged
+
+AI Summary QA 收口增加 model-level structured-output compatibility、strict JSON Schema 优先、truncation/error classification 与 bounded targeted repair。Summary version 持久化实际 Provider/Model lineage；每次生成可临时选择 Provider/Model，但不修改全局默认。
+
+Stage 12B Room schema = 5。
 
 
 ## 3. Stage 2 BLE 数据流

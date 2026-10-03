@@ -5,6 +5,8 @@ import io.github.ioannes78.voica.ai.ProviderCapabilities
 import io.github.ioannes78.voica.ai.ProviderErrorCode
 import io.github.ioannes78.voica.ai.ProviderPresetIds
 import io.github.ioannes78.voica.ai.ProviderProfile
+import io.github.ioannes78.voica.ai.StructuredOutputMode
+import io.github.ioannes78.voica.ai.StructuredSummaryCompatibility
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -90,6 +92,16 @@ class ProviderAdaptersTest {
                                 """{"choices":[{"message":{"content":"OK"},"finish_reason":"stop"}]}""",
                                 emptyMap(),
                             ),
+                            LlmHttpResponse(
+                                400,
+                                """{"error":{"message":"json_schema unsupported"}}""",
+                                emptyMap(),
+                            ),
+                            LlmHttpResponse(
+                                200,
+                                """{"choices":[{"message":{"content":"{\"schemaVersion\":1,\"contentType\":\"GENERAL\",\"classificationConfidence\":1.0,\"title\":\"Voica probe\",\"overview\":\"结构化输出测试\",\"sections\":[]}"},"finish_reason":"stop"}]}""",
+                                emptyMap(),
+                            ),
                         ),
                     ),
                 )
@@ -113,9 +125,22 @@ class ProviderAdaptersTest {
             val result = provider.testConnection(doubaoProfile)
 
             assertTrue(result.success)
-            val body = transport.requests.single().second.body.orEmpty()
-            assertFalse(body.contains("response_format"))
-            assertTrue(body.contains("Plain text only"))
+            assertEquals(3, transport.requests.size)
+            val plainBody = transport.requests[0].second.body.orEmpty()
+            val strictBody = transport.requests[1].second.body.orEmpty()
+            val structuredBody = transport.requests[2].second.body.orEmpty()
+            assertFalse(plainBody.contains("response_format"))
+            assertTrue(plainBody.contains("Plain text only"))
+            assertTrue(strictBody.contains("\"type\":\"json_schema\""))
+            assertTrue(structuredBody.contains("\"response_format\":{\"type\":\"json_object\"}"))
+            assertEquals(
+                StructuredSummaryCompatibility.VERIFIED_COMPATIBLE,
+                result.structuredSummaryProbe?.compatibility,
+            )
+            assertEquals(
+                StructuredOutputMode.JSON_OBJECT,
+                result.structuredSummaryProbe?.mode,
+            )
         }
 
     @Test
@@ -135,6 +160,11 @@ class ProviderAdaptersTest {
                                 """{"choices":[{"message":{"content":"OK"},"finish_reason":"stop"}]}""",
                                 emptyMap(),
                             ),
+                            LlmHttpResponse(
+                                200,
+                                """{"choices":[{"message":{"content":"{\"schemaVersion\":1,\"contentType\":\"GENERAL\",\"classificationConfidence\":1.0,\"title\":\"Voica probe\",\"overview\":\"结构化输出测试\",\"sections\":[]}"},"finish_reason":"stop"}]}""",
+                                emptyMap(),
+                            ),
                         ),
                     ),
                 )
@@ -147,9 +177,18 @@ class ProviderAdaptersTest {
             val result = provider.testConnection(profile())
 
             assertTrue(result.success)
-            assertEquals(2, transport.requests.size)
+            assertEquals(3, transport.requests.size)
             assertEquals("GET", transport.requests[0].second.method)
             assertEquals("POST", transport.requests[1].second.method)
+            assertEquals("POST", transport.requests[2].second.method)
+            assertTrue(
+                transport.requests[2].second.body.orEmpty()
+                    .contains("\"type\":\"json_schema\""),
+            )
+            assertEquals(
+                StructuredSummaryCompatibility.VERIFIED_STRICT,
+                result.structuredSummaryProbe?.compatibility,
+            )
         }
 
     @Test
@@ -480,6 +519,56 @@ class ProviderAdaptersTest {
             assertTrue(transport.requests[1].second.body.orEmpty().contains("responseJsonSchema"))
         }
 
+
+    @Test
+    fun grokStructuredSummaryKeepsNativeStrictJsonSchemaPath() =
+        runTest {
+            val transport =
+                FakeTransport(
+                    ArrayDeque(
+                        listOf(
+                            LlmHttpResponse(
+                                200,
+                                """{"choices":[{"message":{"content":"{\"schemaVersion\":1}"},"finish_reason":"stop"}]}""",
+                                emptyMap(),
+                            ),
+                        ),
+                    ),
+                )
+            val provider =
+                OpenAiCompatibleTextLlmProvider(
+                    transport,
+                    FakeCredentials("secret"),
+                )
+            val grokProfile =
+                profile(
+                    presetId = ProviderPresetIds.XAI_GROK,
+                    baseUrl = "https://api.x.ai/v1",
+                ).copy(
+                    capabilityOverrides = null,
+                )
+
+            provider.generate(
+                grokProfile,
+                LlmGenerationRequest(
+                    requestId = "grok-strict-regression",
+                    model = "grok-test",
+                    systemInstruction = "Summarize.",
+                    taskInstruction = "Return JSON.",
+                    transcriptPayload = "synthetic",
+                    structuredOutputSchema =
+                        """{"type":"object","required":["schemaVersion"],"properties":{"schemaVersion":{"type":"integer"}}}""",
+                    maxOutputTokens = 256,
+                ),
+            ).getOrThrow()
+
+            val body = transport.requests.single().second.body.orEmpty()
+            assertTrue(body.contains("\"response_format\":{\"type\":\"json_schema\""))
+            assertTrue(body.contains("\"strict\":true"))
+            assertFalse(body.contains("NATIVE JSON SCHEMA MODE IS NOT AVAILABLE"))
+            assertFalse(body.contains("\"enable_thinking\":false"))
+            assertFalse(body.contains("\"thinking\":{\"type\":\"disabled\"}"))
+        }
 
     @Test
     fun openAiPresetUsesCurrentCompletionTokenParameter() =

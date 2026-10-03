@@ -159,7 +159,7 @@
     <string name="local_file_rename_title">重命名本地录音</string>
     <string name="local_file_rename_label">显示名称</string>
     <string name="local_file_rename_confirm">保存</string>
-    <string name="local_recording_delete_message">此操作会删除这条录音在手机中的所有本地音频资产，不会删除录音设备中的录音。</string>
+    <string name="local_recording_delete_message">此操作会删除这条录音的本地音频、标准化音频、转写、说话人分离/对齐和 AI 总结；不会删除录音卡设备上的文件。此操作不可恢复。</string>
     <string name="local_asset_device_opus">设备 OPUS</string>
     <string name="local_asset_device_wav">设备 WAV</string>
     <string name="local_asset_canonical_wav">标准 WAV · 16 kHz · 单声道 · PCM16</string>

@@ -9,6 +9,7 @@ import io.github.ioannes78.voica.ai.ProviderFailureCarrier
 import io.github.ioannes78.voica.ai.ProviderProfile
 import io.github.ioannes78.voica.ai.SummaryDisplayFormatter
 import io.github.ioannes78.voica.ai.SummaryPromptFactory
+import io.github.ioannes78.voica.ai.SummaryStructuredOutputErrorCode
 import io.github.ioannes78.voica.ai.SummaryStructuredOutputException
 import io.github.ioannes78.voica.ai.SummaryTemplateCatalog
 import io.github.ioannes78.voica.ai.SummaryTemplateSnapshotCodec
@@ -24,6 +25,7 @@ import io.github.ioannes78.voica.llm.ProviderAdapterRegistry
 import io.github.ioannes78.voica.llm.ProviderProfileStore
 import java.util.concurrent.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -52,6 +54,7 @@ sealed interface AiSummaryRunState {
 
     data class Failed(
         val summaryId: String?,
+        val recordingId: String?,
         val transcriptionId: String,
         val errorCode: String,
         val message: String,
@@ -70,68 +73,141 @@ class AiSummaryCoordinator(
     private val profileStore: ProviderProfileStore,
     private val providerRegistry: ProviderAdapterRegistry,
     private val engine: AiSummaryEngine = AiSummaryEngine(),
+    private val isRecordingActive: suspend (String) -> Boolean = { true },
 ) {
     private val mutableState = MutableStateFlow<AiSummaryRunState>(AiSummaryRunState.Idle)
     val state: StateFlow<AiSummaryRunState> = mutableState.asStateFlow()
 
+    private val activeLock = Any()
     private var activeJob: Job? = null
+    private var activeTarget: ActiveTarget? = null
+
+    private sealed interface ActiveTarget {
+        data class Transcription(val transcriptionId: String) : ActiveTarget
+        data class Summary(val summaryId: String) : ActiveTarget
+    }
 
     fun start(
         transcriptionId: String,
         mode: AiSummaryMode,
         template: SummaryTemplateSpec,
+        providerProfileId: String? = null,
+        modelOverride: String? = null,
     ): Boolean {
-        if (activeJob?.isActive == true) return false
         require(transcriptionId.isNotBlank())
-        activeJob =
-            scope.launch {
-                generateNew(
-                    transcriptionId = transcriptionId,
-                    mode = mode,
-                    template = template,
-                )
-            }
-        return true
+        synchronized(activeLock) {
+            if (activeJob?.isActive == true) return false
+            val job =
+                scope.launch(start = CoroutineStart.LAZY) {
+                    generateNew(
+                        transcriptionId = transcriptionId,
+                        mode = mode,
+                        template = template,
+                        providerProfileId = providerProfileId,
+                        modelOverride = modelOverride,
+                    )
+                }
+            installActiveJob(job, ActiveTarget.Transcription(transcriptionId))
+            job.start()
+            return true
+        }
     }
 
-    fun startSmart(transcriptionId: String): Boolean =
+    fun startSmart(
+        transcriptionId: String,
+        providerProfileId: String? = null,
+        modelOverride: String? = null,
+    ): Boolean =
         start(
             transcriptionId = transcriptionId,
             mode = AiSummaryMode.SMART,
             template = SummaryTemplateCatalog.smart(),
+            providerProfileId = providerProfileId,
+            modelOverride = modelOverride,
         )
 
     fun cancel() {
-        activeJob?.cancel()
+        synchronized(activeLock) {
+            activeJob?.cancel(CancellationException("user cancelled AI summary"))
+        }
+    }
+
+    suspend fun cancelAndAwait(recordingId: String) {
+        val snapshot =
+            synchronized(activeLock) {
+                activeJob to activeTarget
+            }
+        val job = snapshot.first ?: return
+        val target = snapshot.second ?: return
+        val targetRecordingId =
+            when (target) {
+                is ActiveTarget.Transcription ->
+                    repository.recordingIdForTranscription(target.transcriptionId)
+                is ActiveTarget.Summary ->
+                    repository.find(target.summaryId)?.recordingId
+            }
+        if (targetRecordingId != recordingId) return
+        job.cancel(CancellationException("recording deletion"))
+        runCatching { job.join() }
     }
 
     fun resumeInterrupted(summaryId: String): Boolean {
-        if (activeJob?.isActive == true) return false
         require(summaryId.isNotBlank())
-        activeJob =
-            scope.launch {
-                resume(summaryId)
+        synchronized(activeLock) {
+            if (activeJob?.isActive == true) return false
+            val job =
+                scope.launch(start = CoroutineStart.LAZY) {
+                    resume(summaryId)
+                }
+            installActiveJob(job, ActiveTarget.Summary(summaryId))
+            job.start()
+            return true
+        }
+    }
+
+    private fun installActiveJob(
+        job: Job,
+        target: ActiveTarget,
+    ) {
+        activeJob = job
+        activeTarget = target
+        job.invokeOnCompletion {
+            synchronized(activeLock) {
+                if (activeJob === job) {
+                    activeJob = null
+                    activeTarget = null
+                }
             }
-        return true
+        }
     }
 
     private suspend fun generateNew(
         transcriptionId: String,
         mode: AiSummaryMode,
         template: SummaryTemplateSpec,
+        providerProfileId: String?,
+        modelOverride: String?,
     ) {
         var summaryId: String? = null
         try {
+            val recordingId =
+                repository.recordingIdForTranscription(transcriptionId)
+                    ?: throw AiSummaryConfigurationException("转写记录不存在")
+            if (!isRecordingActive(recordingId)) return
+
             mutableState.value =
                 AiSummaryRunState.Running(
                     summaryId = null,
-                    recordingId = null,
+                    recordingId = recordingId,
                     transcriptionId = transcriptionId,
                     phase = AiSummaryEnginePhase.PREPARING,
                 )
             val input = inputBuilder.build(transcriptionId)
-            val profile = resolveDefaultProfile()
+            val profile = resolveProfile(providerProfileId, modelOverride)
             validateProfileForGeneration(profile)
+            if (!isRecordingActive(input.recordingId)) {
+                throw CancellationException("recording is being deleted")
+            }
             summaryId =
                 repository.create(
                     NewAiSummaryRequest(
@@ -182,8 +258,6 @@ class AiSummaryCoordinator(
             throw cancelled
         } catch (error: Throwable) {
             fail(summaryId, transcriptionId, error)
-        } finally {
-            activeJob = null
         }
     }
 
@@ -198,6 +272,7 @@ class AiSummaryCoordinator(
             if (summary.status != AiSummaryStateValue.INTERRUPTED) {
                 throw AiSummaryConfigurationException("只有中断的总结任务可以继续")
             }
+            if (!isRecordingActive(summary.recordingId)) return
             val profileSnapshot = profileStore.load()
             val storedProfile =
                 profileSnapshot.profiles.firstOrNull {
@@ -216,6 +291,9 @@ class AiSummaryCoordinator(
             val mode =
                 AiSummaryMode.entries.firstOrNull { it.databaseValue() == summary.mode }
                     ?: AiSummaryMode.SMART
+            if (!isRecordingActive(summary.recordingId)) {
+                throw CancellationException("recording is being deleted")
+            }
             check(repository.resumeInterrupted(summaryId)) {
                 "AI summary resume state changed"
             }
@@ -243,8 +321,6 @@ class AiSummaryCoordinator(
             throw cancelled
         } catch (error: Throwable) {
             fail(summaryId, transcriptionId, error)
-        } finally {
-            activeJob = null
         }
     }
 
@@ -354,16 +430,34 @@ class AiSummaryCoordinator(
             )
     }
 
-    private suspend fun resolveDefaultProfile(): ProviderProfile {
+    private suspend fun resolveProfile(
+        providerProfileId: String?,
+        modelOverride: String?,
+    ): ProviderProfile {
         val snapshot = profileStore.load()
         val selected =
-            snapshot.defaultProfileId?.let { defaultId ->
-                snapshot.profiles.firstOrNull {
-                    it.providerProfileId == defaultId && it.enabled
+            providerProfileId
+                ?.let { requestedId ->
+                    snapshot.profiles.firstOrNull {
+                        it.providerProfileId == requestedId && it.enabled
+                    }
                 }
-            } ?: snapshot.profiles.firstOrNull { it.enabled }
-        return selected
-            ?: throw AiSummaryConfigurationException("请先在设置中配置文本大模型")
+                ?: snapshot.defaultProfileId?.let { defaultId ->
+                    snapshot.profiles.firstOrNull {
+                        it.providerProfileId == defaultId && it.enabled
+                    }
+                }
+                ?: snapshot.profiles.firstOrNull { it.enabled }
+                ?: throw AiSummaryConfigurationException("请先在设置中配置文本大模型")
+
+        val requestedModel = modelOverride?.trim().orEmpty()
+        if (requestedModel.isBlank() || requestedModel == selected.defaultModel) {
+            return selected
+        }
+        return selected.copy(
+            defaultModel = requestedModel,
+            capabilityOverrides = null,
+        )
     }
 
     private fun validateProfileForGeneration(profile: ProviderProfile) {
@@ -388,9 +482,15 @@ class AiSummaryCoordinator(
                 )
             }
         }
+        val recordingId =
+            runCatching {
+                summaryId?.let { repository.find(it)?.recordingId }
+                    ?: repository.recordingIdForTranscription(transcriptionId)
+            }.getOrNull()
         mutableState.value =
             AiSummaryRunState.Failed(
                 summaryId = summaryId,
+                recordingId = recordingId,
                 transcriptionId = transcriptionId,
                 errorCode = failure.first,
                 message = failure.second,
@@ -407,7 +507,13 @@ class AiSummaryCoordinator(
                     (failure.sanitizedMessage ?: "文本模型请求失败")
             }
             is SummaryStructuredOutputException ->
-                "STRUCTURED_OUTPUT_INVALID" to "AI 返回结果结构无法验证，请重试或更换模型"
+                if (error.code == SummaryStructuredOutputErrorCode.TRUNCATED_JSON) {
+                    "STRUCTURED_OUTPUT_TRUNCATED" to
+                        "AI 输出达到模型长度限制，无法完成结构化结果，请重试或更换支持更长输出的模型"
+                } else {
+                    ("STRUCTURED_OUTPUT_" + error.code.name) to
+                        "AI 返回结果结构无法验证，请重试或更换模型"
+                }
             else ->
                 "AI_SUMMARY_FAILED" to "AI 总结生成失败，请重试"
         }

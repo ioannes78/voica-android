@@ -9,6 +9,11 @@ import io.github.ioannes78.voica.ai.ProviderErrorCode
 import io.github.ioannes78.voica.ai.ProviderFailure
 import io.github.ioannes78.voica.ai.ProviderModel
 import io.github.ioannes78.voica.ai.ProviderProfile
+import io.github.ioannes78.voica.ai.StructuredOutputMode
+import io.github.ioannes78.voica.ai.StructuredSummaryCompatibility
+import io.github.ioannes78.voica.ai.StructuredSummaryProbeResult
+import io.github.ioannes78.voica.ai.SummaryPromptFactory
+import io.github.ioannes78.voica.ai.SummaryResultCodec
 import io.github.ioannes78.voica.ai.TextLlmProvider
 import java.net.URLEncoder
 import java.util.UUID
@@ -69,18 +74,81 @@ class GeminiTextLlmProvider(
     override suspend fun testConnection(profile: ProviderProfile): ConnectionTestResult {
         val caps = capabilities(profile)
         val models = discoverModels(profile)
-        if (models.isSuccess) {
+        if (models.isFailure) {
+            val failure = (models.exceptionOrNull() as? ProviderCallException)?.failure
+            return ConnectionTestResult(
+                success = false,
+                capabilities = caps,
+                failure = failure,
+            )
+        }
+        val discovered = models.getOrThrow()
+        if (profile.defaultModel.isBlank()) {
             return ConnectionTestResult(
                 success = true,
                 capabilities = caps,
-                models = models.getOrThrow(),
+                models = discovered,
             )
         }
-        val failure = (models.exceptionOrNull() as? ProviderCallException)?.failure
+
+        val probe =
+            generate(
+                profile,
+                LlmGenerationRequest(
+                    requestId = "structured-probe-" + UUID.randomUUID(),
+                    model = profile.defaultModel,
+                    systemInstruction = "This is a synthetic structured-output test. No user data is present.",
+                    taskInstruction =
+                        "Return a valid Voica summary for the synthetic source. " +
+                            "Use contentType GENERAL, title \"Voica probe\", a short overview, " +
+                            "classificationConfidence 1.0, and an empty sections array.",
+                    transcriptPayload = "[S00001] synthetic probe text",
+                    structuredOutputSchema = SummaryPromptFactory.resultSchemaJson,
+                    maxOutputTokens = 512,
+                ),
+            )
+        val structuredProbe =
+            if (probe.isSuccess) {
+                val valid =
+                    runCatching {
+                        SummaryResultCodec.decode(
+                            probe.getOrThrow().content,
+                            allowedEvidenceRefs = emptySet(),
+                        ).title == "Voica probe"
+                    }.getOrDefault(false)
+                if (valid) {
+                    StructuredSummaryProbeResult(
+                        compatibility = StructuredSummaryCompatibility.VERIFIED_STRICT,
+                        mode = StructuredOutputMode.STRICT_JSON_SCHEMA,
+                    )
+                } else {
+                    StructuredSummaryProbeResult(
+                        compatibility = StructuredSummaryCompatibility.INCOMPATIBLE,
+                        mode = StructuredOutputMode.STRICT_JSON_SCHEMA,
+                        failure =
+                            ProviderFailure(
+                                ProviderErrorCode.STRUCTURED_OUTPUT_INVALID,
+                                "连接正常，但当前模型未通过智能总结结构化输出测试。",
+                            ),
+                    )
+                }
+            } else {
+                StructuredSummaryProbeResult(
+                    compatibility = StructuredSummaryCompatibility.INCOMPATIBLE,
+                    mode = StructuredOutputMode.STRICT_JSON_SCHEMA,
+                    failure =
+                        (probe.exceptionOrNull() as? ProviderCallException)?.failure
+                            ?: ProviderFailure(
+                                ProviderErrorCode.STRUCTURED_OUTPUT_INVALID,
+                                "智能总结结构化输出测试失败。",
+                            ),
+                )
+            }
         return ConnectionTestResult(
-            success = false,
+            success = true,
             capabilities = caps,
-            failure = failure,
+            models = discovered,
+            structuredSummaryProbe = structuredProbe,
         )
     }
 
@@ -239,6 +307,7 @@ class GeminiTextLlmProvider(
                         obj["inputTokenLimit"]?.jsonPrimitive?.intOrNull,
                     maxOutputTokens =
                         obj["outputTokenLimit"]?.jsonPrimitive?.intOrNull,
+                    structuredOutputMode = StructuredOutputMode.STRICT_JSON_SCHEMA,
                 )
             }
             ?: throw ProviderCallException(
@@ -295,6 +364,13 @@ class GeminiTextLlmProvider(
                         totalTokens = it["totalTokenCount"]?.jsonPrimitive?.longOrNull,
                     )
                 },
+            finishReason =
+                root["candidates"]?.jsonArray
+                    ?.firstOrNull()
+                    ?.jsonObject
+                    ?.get("finishReason")
+                    ?.jsonPrimitive
+                    ?.contentOrNull,
         )
     }
 

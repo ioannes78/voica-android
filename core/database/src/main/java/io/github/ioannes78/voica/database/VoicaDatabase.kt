@@ -12,6 +12,11 @@ import androidx.room.RoomDatabase
         AudioDerivationEntity::class,
         LibraryMetaEntity::class,
         MigrationDiagnosticEntity::class,
+        RecordingImportProvenanceEntity::class,
+        FolderEntity::class,
+        RecordingUserMetadataEntity::class,
+        TagEntity::class,
+        RecordingTagCrossRef::class,
         TranscriptionEntity::class,
         TranscriptSegmentEntity::class,
         TranscriptTokenEntity::class,
@@ -25,7 +30,7 @@ import androidx.room.RoomDatabase
         AiSummaryEvidenceEntity::class,
         AiSummaryChunkEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class VoicaDatabase : RoomDatabase() {
@@ -46,7 +51,7 @@ abstract class VoicaDatabase : RoomDatabase() {
                 VoicaDatabase::class.java,
                 DATABASE_NAME,
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .build()
     }
 }

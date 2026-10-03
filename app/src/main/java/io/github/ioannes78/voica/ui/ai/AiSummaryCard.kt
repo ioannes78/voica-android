@@ -57,6 +57,8 @@ fun AiSummaryCard(
     val history by viewModel.history.collectAsState()
     val selected by viewModel.selected.collectAsState()
     val provider by viewModel.provider.collectAsState()
+    val providers by viewModel.providers.collectAsState()
+    val generationModels by viewModel.generationModels.collectAsState()
     val customTemplates by viewModel.customTemplates.collectAsState()
     val notice by viewModel.notice.collectAsState()
 
@@ -65,6 +67,10 @@ fun AiSummaryCard(
     var generationSheetOpen by remember { mutableStateOf(false) }
     var templateEditorOpen by remember { mutableStateOf(false) }
     var presetExpanded by remember { mutableStateOf(false) }
+    var generationProviderExpanded by remember { mutableStateOf(false) }
+    var generationModelExpanded by remember { mutableStateOf(false) }
+    var selectedGenerationProviderId by remember { mutableStateOf<String?>(null) }
+    var selectedGenerationModel by remember { mutableStateOf("") }
     var selectedPresetId by remember { mutableStateOf(SummaryTemplateCatalog.GENERIC) }
     var customName by remember { mutableStateOf("") }
     var customFocus by remember { mutableStateOf("") }
@@ -84,6 +90,36 @@ fun AiSummaryCard(
     }
     LaunchedEffect(Unit) {
         viewModel.refreshProvider()
+    }
+    LaunchedEffect(generationSheetOpen, providers, provider?.providerProfileId) {
+        if (!generationSheetOpen) return@LaunchedEffect
+        val selectedProfile =
+            provider
+                ?: providers.firstOrNull {
+                    it.providerProfileId == selectedGenerationProviderId
+                }
+                ?: providers.firstOrNull()
+        if (selectedProfile != null) {
+            selectedGenerationProviderId = selectedProfile.providerProfileId
+            selectedGenerationModel = selectedProfile.model
+            viewModel.loadGenerationModels(selectedProfile.providerProfileId)
+        }
+    }
+
+    LaunchedEffect(generationModels, selectedGenerationProviderId) {
+        if (!generationSheetOpen) return@LaunchedEffect
+        if (
+            selectedGenerationModel.isBlank() ||
+            generationModels.none { it.id == selectedGenerationModel }
+        ) {
+            val fallback =
+                providers.firstOrNull {
+                    it.providerProfileId == selectedGenerationProviderId
+                }?.model
+            selectedGenerationModel =
+                fallback?.takeIf { it.isNotBlank() }
+                    ?: generationModels.firstOrNull()?.id.orEmpty()
+        }
     }
 
     val running =
@@ -106,9 +142,20 @@ fun AiSummaryCard(
                     style = MaterialTheme.typography.titleLarge,
                     maxLines = 1,
                 )
-                provider?.let {
+                val selectedEntity = selected?.entity
+                val providerModelLabel =
+                    if (selectedEntity != null) {
+                        selectedEntity.providerNameSnapshot +
+                            " · " +
+                            selectedEntity.model.ifBlank { "未选择模型" }
+                    } else {
+                        provider?.let {
+                            it.displayName + " · " + it.model.ifBlank { "未选择模型" }
+                        }
+                    }
+                providerModelLabel?.let {
                     Text(
-                        it.displayName + " · " + it.model.ifBlank { "未选择模型" },
+                        it,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -222,10 +269,10 @@ fun AiSummaryCard(
 
         val document = selected
         if (document == null && running == null) {
-            if (provider != null) {
+            if (providers.isNotEmpty()) {
                 Button(
                     onClick = { generationSheetOpen = true },
-                    enabled = provider?.model?.isNotBlank() == true,
+                    enabled = providers.any { it.model.isNotBlank() },
                 ) {
                     Text("生成 AI 总结")
                 }
@@ -322,7 +369,7 @@ fun AiSummaryCard(
                         onClick = { viewModel.regenerateSelected() },
                         enabled =
                             running == null &&
-                                provider?.model?.isNotBlank() == true,
+                                document.entity.model.isNotBlank(),
                     ) {
                         Text("按原模板重新生成")
                     }
@@ -355,20 +402,108 @@ fun AiSummaryCard(
                     "生成 AI 总结",
                     style = MaterialTheme.typography.headlineSmall,
                 )
-                provider?.let {
-                    Text(
-                        it.displayName + " · " + it.model.ifBlank { "未选择模型" },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                val selectedGenerationProvider =
+                    providers.firstOrNull {
+                        it.providerProfileId == selectedGenerationProviderId
+                    }
+
+                Text(
+                    "AI 服务",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { generationProviderExpanded = true },
+                        enabled = providers.isNotEmpty(),
+                    ) {
+                        Text(selectedGenerationProvider?.displayName ?: "选择 AI 服务")
+                    }
+                    DropdownMenu(
+                        expanded = generationProviderExpanded,
+                        onDismissRequest = { generationProviderExpanded = false },
+                    ) {
+                        providers.forEach { option ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        option.displayName +
+                                            " · " +
+                                            option.model.ifBlank { "未选择模型" },
+                                    )
+                                },
+                                onClick = {
+                                    generationProviderExpanded = false
+                                    selectedGenerationProviderId = option.providerProfileId
+                                    selectedGenerationModel = option.model
+                                    viewModel.loadGenerationModels(option.providerProfileId)
+                                },
+                            )
+                        }
+                    }
+                }
+
+                Text(
+                    "模型",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { generationModelExpanded = true },
+                        enabled =
+                            selectedGenerationProvider != null &&
+                                generationModels.isNotEmpty(),
+                    ) {
+                        Text(
+                            selectedGenerationModel.ifBlank {
+                                selectedGenerationProvider?.model ?: "选择模型"
+                            },
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = generationModelExpanded,
+                        onDismissRequest = { generationModelExpanded = false },
+                    ) {
+                        generationModels.forEach { model ->
+                            DropdownMenuItem(
+                                text = { Text(model.displayName.ifBlank { model.id }) },
+                                onClick = {
+                                    generationModelExpanded = false
+                                    selectedGenerationModel = model.id
+                                },
+                            )
+                        }
+                    }
+                }
+
+                selectedGenerationProvider?.let { option ->
+                    val compatibilityText =
+                        if (selectedGenerationModel == option.model) {
+                            option.structuredCompatibilityLabel
+                        } else {
+                            "本次模型未单独验证，将使用兼容策略"
+                        }
+                    compatibilityText?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
 
                 Button(
                     onClick = {
                         generationSheetOpen = false
-                        viewModel.generateSmart()
+                        viewModel.generateSmart(
+                            providerProfileId = selectedGenerationProviderId,
+                            model = selectedGenerationModel,
+                        )
                     },
-                    enabled = provider?.model?.isNotBlank() == true,
+                    enabled =
+                        selectedGenerationProviderId != null &&
+                            selectedGenerationModel.isNotBlank(),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text("智能总结")
@@ -387,7 +522,9 @@ fun AiSummaryCard(
                         OutlinedButton(
                             modifier = Modifier.fillMaxWidth(),
                             onClick = { presetExpanded = true },
-                            enabled = provider?.model?.isNotBlank() == true,
+                            enabled =
+                            selectedGenerationProviderId != null &&
+                                selectedGenerationModel.isNotBlank(),
                         ) {
                             val template = SummaryTemplateCatalog.find(selectedPresetId)
                             Text(template?.name ?: "选择模板")
@@ -411,9 +548,15 @@ fun AiSummaryCard(
                     Button(
                         onClick = {
                             generationSheetOpen = false
-                            viewModel.generatePreset(selectedPresetId)
+                            viewModel.generatePreset(
+                                presetId = selectedPresetId,
+                                providerProfileId = selectedGenerationProviderId,
+                                model = selectedGenerationModel,
+                            )
                         },
-                        enabled = provider?.model?.isNotBlank() == true,
+                        enabled =
+                            selectedGenerationProviderId != null &&
+                                selectedGenerationModel.isNotBlank(),
                     ) {
                         Text("生成")
                     }
@@ -437,7 +580,11 @@ fun AiSummaryCard(
                             TextButton(
                                 onClick = {
                                     generationSheetOpen = false
-                                    viewModel.generateCustom(template.id)
+                                    viewModel.generateCustom(
+                                        templateId = template.id,
+                                        providerProfileId = selectedGenerationProviderId,
+                                        model = selectedGenerationModel,
+                                    )
                                 },
                             ) {
                                 Text("生成")
@@ -564,7 +711,8 @@ private fun historyLabel(
     return (if (selected) "✓ " else "") +
         created + " · " +
         summaryStatusLabel(summary.status) + " · " +
-        summary.providerNameSnapshot
+        summary.providerNameSnapshot + " · " +
+        summary.model
 }
 
 private fun formatEvidenceTime(sampleIndex: Long): String {

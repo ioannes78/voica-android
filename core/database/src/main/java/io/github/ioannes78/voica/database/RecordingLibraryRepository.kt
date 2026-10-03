@@ -3,6 +3,7 @@ package io.github.ioannes78.voica.database
 import androidx.room.withTransaction
 import java.io.File
 import java.security.MessageDigest
+import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -18,6 +19,12 @@ data class LibraryDeleteResult(
     val failedPaths: List<String> = emptyList(),
 )
 
+enum class LocalDeletePreparation {
+    READY,
+    ALREADY_DELETING,
+    MISSING,
+}
+
 data class CanonicalConversionSource(
     val recordingId: String,
     val sourceAssetId: String,
@@ -27,6 +34,7 @@ data class CanonicalConversionSource(
     val sourceSha256: String,
     val sourceSizeBytes: Long,
     val deviceReportedDurationMs: Long?,
+    val mediaDurationMs: Long?,
     val existingCanonical: RecordingAsset?,
     val derivationState: String?,
 )
@@ -86,6 +94,196 @@ class RecordingLibraryRepository(
     val recordings: Flow<List<RecordingLibraryItem>> =
         dao.observeAll().map { rows -> rows.map(RecordingWithAssets::toLibraryItem) }
 
+    val folders: Flow<List<FolderEntity>> = dao.observeFolders()
+
+    val tags: Flow<List<TagEntity>> = dao.observeTags()
+
+    fun observeLibrary(criteria: LibraryQueryCriteria): Flow<List<RecordingLibraryRow>> =
+        dao.observeLibrary(LibraryQueryBuilder.build(criteria))
+            .map { rows -> rows.map(RecordingLibraryProjection::toLibraryRow) }
+
+    suspend fun findExactAudioDuplicates(
+        sha256: String,
+        sizeBytes: Long,
+    ): List<AudioDuplicateMatch> {
+        val normalized = sha256.lowercase()
+        require(SHA256.matches(normalized)) { "invalid SHA-256" }
+        require(sizeBytes >= 0L) { "sizeBytes must be non-negative" }
+        return dao.findAudioDuplicates(normalized, sizeBytes)
+    }
+
+    suspend fun registerImportedOriginal(
+        registration: ImportedOriginalRegistration,
+    ): String {
+        val sha = registration.sha256.lowercase()
+        require(SHA256.matches(sha)) { "invalid SHA-256" }
+        require(registration.sizeBytes > 0L) { "imported source must not be empty" }
+        require(registration.relativePath.isNotBlank()) { "relativePath must not be blank" }
+        val relativeFile = File(recordingsRoot, registration.relativePath)
+        require(isManagedPath(relativeFile)) { "import path must stay inside recordings root" }
+
+        val recordingId = UUID.randomUUID().toString()
+        val assetId = UUID.randomUUID().toString()
+        val displayName =
+            sanitizeDisplayName(registration.displayName)
+                ?: RecordingDisplayNamePolicy.defaultDisplayName(
+                    registration.originalFilename,
+                )
+
+        database.withTransaction {
+            check(
+                dao.insertRecordingIgnore(
+                    RecordingEntity(
+                        id = recordingId,
+                        sourceType = RecordingSourceType.LOCAL_IMPORT,
+                        sourceRemoteIdentity = null,
+                        sourceDeviceAddress = null,
+                        originalFilename = registration.originalFilename,
+                        displayName = displayName,
+                        recordedAtLocalIso = null,
+                        deviceReportedDurationMs = null,
+                        mediaDurationMs = registration.mediaDurationMs,
+                        downloadedAtMs = null,
+                        createdAtMs = registration.importedAtMs,
+                        updatedAtMs = registration.importedAtMs,
+                    ),
+                ) != -1L,
+            ) { "recording id collision" }
+
+            check(
+                dao.insertUserMetadataIgnore(
+                    RecordingUserMetadataEntity(
+                        recordingId = recordingId,
+                        folderId = null,
+                        isFavorite = false,
+                        updatedAtMs = registration.importedAtMs,
+                    ),
+                ) != -1L,
+            ) { "failed to create recording metadata" }
+
+            dao.insertImportProvenance(
+                RecordingImportProvenanceEntity(
+                    recordingId = recordingId,
+                    importedAtMs = registration.importedAtMs,
+                    originalDisplayName = registration.originalFilename,
+                    sourceMimeType = registration.sourceMimeType,
+                    sourceSizeBytes = registration.sizeBytes,
+                    providerAuthority = registration.providerAuthority,
+                    sourceLastModifiedMs = registration.sourceLastModifiedMs,
+                ),
+            )
+
+            check(
+                dao.insertAssetIgnore(
+                    AudioAssetEntity(
+                        assetId = assetId,
+                        recordingId = recordingId,
+                        role = AudioAssetRole.IMPORTED_ORIGINAL,
+                        relativePath = registration.relativePath,
+                        container = registration.container,
+                        codec = registration.codec,
+                        sampleFormat = registration.sampleFormat,
+                        sampleRateHz = registration.sampleRateHz,
+                        channelCount = registration.channelCount,
+                        sizeBytes = registration.sizeBytes,
+                        sha256 = sha,
+                        integrityState = AudioIntegrityState.VERIFIED,
+                        formatValidationState = AudioValidationState.VALID,
+                        createdAtMs = registration.importedAtMs,
+                        verifiedAtMs = registration.importedAtMs,
+                    ),
+                ) != -1L,
+            ) { "failed to register imported asset" }
+        }
+        return recordingId
+    }
+
+    suspend fun setFavorite(recordingIds: Collection<String>, favorite: Boolean): Int {
+        val ids = recordingIds.distinct()
+        if (ids.isEmpty()) return 0
+        return dao.setFavorite(ids, favorite, nowMs())
+    }
+
+    suspend fun moveToFolder(recordingIds: Collection<String>, folderId: String?): Int {
+        val ids = recordingIds.distinct()
+        if (ids.isEmpty()) return 0
+        if (folderId != null) {
+            requireNotNull(dao.findFolder(folderId)) { "folder does not exist" }
+        }
+        return dao.moveToFolder(ids, folderId, nowMs())
+    }
+
+    suspend fun addTag(recordingIds: Collection<String>, tagId: String): Int {
+        val ids = recordingIds.distinct()
+        if (ids.isEmpty()) return 0
+        requireNotNull(dao.findTag(tagId)) { "tag does not exist" }
+        return dao.insertRecordingTagCrossRefs(
+            ids.map { recordingId ->
+                RecordingTagCrossRef(recordingId = recordingId, tagId = tagId)
+            },
+        ).count { it != -1L }
+    }
+
+    suspend fun removeTag(recordingIds: Collection<String>, tagId: String): Int {
+        val ids = recordingIds.distinct()
+        if (ids.isEmpty()) return 0
+        return dao.removeTagFromRecordings(ids, tagId)
+    }
+
+    suspend fun createFolder(name: String): FolderEntity =
+        database.withTransaction {
+            val normalized = normalizeLibraryName(name, maxLength = 60)
+            dao.findFolderByName(normalized)?.let { return@withTransaction it }
+            val now = nowMs()
+            val folder =
+                FolderEntity(
+                    folderId = UUID.randomUUID().toString(),
+                    name = normalized,
+                    createdAtMs = now,
+                    updatedAtMs = now,
+                )
+            dao.insertFolder(folder)
+            folder
+        }
+
+    suspend fun renameFolder(folderId: String, name: String): Boolean =
+        database.withTransaction {
+            val normalized = normalizeLibraryName(name, maxLength = 60)
+            val conflict = dao.findFolderByName(normalized)
+            if (conflict != null && conflict.folderId != folderId) return@withTransaction false
+            dao.renameFolder(folderId, normalized, nowMs()) == 1
+        }
+
+    suspend fun deleteFolder(folderId: String): Boolean =
+        dao.deleteFolder(folderId) == 1
+
+    suspend fun createTag(name: String): TagEntity =
+        database.withTransaction {
+            val normalized = normalizeLibraryName(name, maxLength = 40)
+            dao.findTagByName(normalized)?.let { return@withTransaction it }
+            val now = nowMs()
+            val tag =
+                TagEntity(
+                    tagId = UUID.randomUUID().toString(),
+                    name = normalized,
+                    createdAtMs = now,
+                    updatedAtMs = now,
+                )
+            dao.insertTag(tag)
+            tag
+        }
+
+    suspend fun renameTag(tagId: String, name: String): Boolean =
+        database.withTransaction {
+            val normalized = normalizeLibraryName(name, maxLength = 40)
+            val conflict = dao.findTagByName(normalized)
+            if (conflict != null && conflict.tagId != tagId) return@withTransaction false
+            dao.renameTag(tagId, normalized, nowMs()) == 1
+        }
+
+    suspend fun deleteTag(tagId: String): Boolean =
+        dao.deleteTag(tagId) == 1
+
     suspend fun importLegacyStage5IfNeeded(): LegacyImportReport {
         if (dao.readMeta(LEGACY_IMPORT_META_KEY) == LEGACY_IMPORT_VERSION) {
             return LegacyImportReport(
@@ -112,6 +310,14 @@ class RecordingLibraryRepository(
                     if (dao.insertRecordingIgnore(recording) != -1L) {
                         insertedRecordings += 1
                     }
+                    dao.insertUserMetadataIgnore(
+                        RecordingUserMetadataEntity(
+                            recordingId = recording.id,
+                            folderId = null,
+                            isFavorite = false,
+                            updatedAtMs = now,
+                        ),
+                    )
                     assets.forEach { candidate ->
                         if (dao.insertAssetIgnore(candidate.toAssetEntity(now)) != -1L) {
                             insertedAssets += 1
@@ -177,6 +383,14 @@ class RecordingLibraryRepository(
                     deviceReportedDurationMs = asset.deviceReportedDurationMs,
                     downloadedAtMs = asset.downloadedAtMs,
                     createdAtMs = asset.downloadedAtMs,
+                    updatedAtMs = now,
+                ),
+            )
+            dao.insertUserMetadataIgnore(
+                RecordingUserMetadataEntity(
+                    recordingId = recordingId,
+                    folderId = null,
+                    isFavorite = false,
                     updatedAtMs = now,
                 ),
             )
@@ -277,12 +491,16 @@ class RecordingLibraryRepository(
         profileId: String,
     ): CanonicalConversionSource? {
         val row = dao.findWithAssets(recordingId) ?: return null
+        if (row.recording.state != RecordingState.ACTIVE) return null
         val source =
             row.assets.firstOrNull {
                 it.role == AudioAssetRole.DEVICE_OPUS &&
                     it.integrityState == AudioIntegrityState.VERIFIED
             } ?: row.assets.firstOrNull {
                 it.role == AudioAssetRole.DEVICE_WAV &&
+                    it.integrityState == AudioIntegrityState.VERIFIED
+            } ?: row.assets.firstOrNull {
+                it.role == AudioAssetRole.IMPORTED_ORIGINAL &&
                     it.integrityState == AudioIntegrityState.VERIFIED
             } ?: return null
         val existingCanonical = row.assets.firstOrNull {
@@ -303,6 +521,7 @@ class RecordingLibraryRepository(
             sourceSha256 = source.sha256,
             sourceSizeBytes = source.sizeBytes,
             deviceReportedDurationMs = row.recording.deviceReportedDurationMs,
+            mediaDurationMs = row.recording.mediaDurationMs,
             existingCanonical = existingCanonical,
             derivationState = derivation?.state,
         )
@@ -458,10 +677,158 @@ class RecordingLibraryRepository(
         return dao.rename(recordingId, displayName, nowMs()) == 1
     }
 
-    suspend fun deleteLocalRecording(recordingId: String): LibraryDeleteResult {
+    suspend fun isRecordingActive(recordingId: String): Boolean =
+        dao.isRecordingActive(recordingId)
+
+    suspend fun recordingStorageUsage(): RecordingStorageUsage {
+        val assets = dao.allAssets()
+        val sourceRoles =
+            setOf(
+                AudioAssetRole.DEVICE_OPUS,
+                AudioAssetRole.DEVICE_WAV,
+                AudioAssetRole.IMPORTED_ORIGINAL,
+            )
+        val sourcePaths =
+            assets
+                .filter { it.role in sourceRoles }
+                .groupBy { it.relativePath }
+                .mapValues { (_, values) -> values.maxOf { it.sizeBytes } }
+        val canonicalPaths =
+            assets
+                .filter { it.role == AudioAssetRole.CANONICAL_WAV }
+                .filterNot { it.relativePath in sourcePaths }
+                .groupBy { it.relativePath }
+                .mapValues { (_, values) -> values.maxOf { it.sizeBytes } }
+        val reclaimable =
+            dao.findReclaimableCanonicalAssets()
+                .filter { candidate ->
+                    val row = dao.findWithAssets(candidate.recordingId) ?: return@filter false
+                    hasVerifiedCleanupLineage(candidate, row) &&
+                        managedExistingFile(candidate.relativePath)?.length() ==
+                        candidate.sizeBytes
+                }
+                .distinctBy(CanonicalCleanupCandidate::assetId)
+                .sumOf { it.sizeBytes }
+
+        return RecordingStorageUsage(
+            originalAudioBytes = sourcePaths.values.sum(),
+            canonicalAudioBytes = canonicalPaths.values.sum(),
+            reclaimableCanonicalBytes = reclaimable,
+        )
+    }
+
+    suspend fun reclaimableCanonicalCandidates(): List<CanonicalCleanupCandidate> =
+        dao.findReclaimableCanonicalAssets()
+            .filter { candidate ->
+                val row = dao.findWithAssets(candidate.recordingId) ?: return@filter false
+                hasVerifiedCleanupLineage(candidate, row) &&
+                    managedExistingFile(candidate.relativePath)?.length() ==
+                    candidate.sizeBytes
+            }
+            .distinctBy(CanonicalCleanupCandidate::assetId)
+
+    suspend fun cleanupReclaimableCanonicalAudio(): CanonicalCleanupResult {
+        var reclaimed = 0L
+        var deleted = 0
+        val failed = mutableListOf<String>()
+
+        reclaimableCanonicalCandidates().forEach { candidate ->
+            val row = dao.findWithAssets(candidate.recordingId) ?: return@forEach
+            if (!hasVerifiedCleanupLineage(candidate, row)) return@forEach
+
+            val canonicalAsset =
+                row.assets.firstOrNull { it.assetId == candidate.assetId }
+                    ?: return@forEach
+            val affectedDerivations =
+                row.derivations.filter { it.outputAssetId == candidate.assetId }
+            val file = managedExistingFile(candidate.relativePath) ?: return@forEach
+            if (file.length() != candidate.sizeBytes) {
+                failed += candidate.relativePath
+                return@forEach
+            }
+
+            val detached =
+                runCatching {
+                    database.withTransaction {
+                        val stillReclaimable =
+                            dao.findReclaimableCanonicalAssets()
+                                .any {
+                                    it.assetId == candidate.assetId &&
+                                        it.sourceAssetId == candidate.sourceAssetId &&
+                                        it.sourceSha256.equals(
+                                            candidate.sourceSha256,
+                                            ignoreCase = true,
+                                        )
+                                }
+                        check(stillReclaimable) {
+                            "canonical asset became in-use during cleanup"
+                        }
+                        dao.resetCanonicalDerivations(
+                            recordingId = candidate.recordingId,
+                            assetId = candidate.assetId,
+                            updatedAtMs = nowMs(),
+                        )
+                        check(dao.deleteAsset(candidate.assetId) == 1) {
+                            "canonical asset disappeared during cleanup"
+                        }
+                    }
+                }.isSuccess
+
+            if (!detached) {
+                failed += candidate.relativePath
+                return@forEach
+            }
+
+            if (file.delete()) {
+                reclaimed += candidate.sizeBytes
+                deleted += 1
+                return@forEach
+            }
+
+            // The file still exists, so restore the database lineage rather than
+            // leaving an untracked canonical file after an I/O deletion failure.
+            runCatching {
+                database.withTransaction {
+                    dao.upsertAsset(canonicalAsset)
+                    affectedDerivations.forEach { dao.upsertDerivation(it) }
+                }
+            }
+            failed += candidate.relativePath
+        }
+
+        return CanonicalCleanupResult(
+            reclaimedBytes = reclaimed,
+            deletedAssets = deleted,
+            failedPaths = failed,
+        )
+    }
+
+    suspend fun prepareLocalDelete(recordingId: String): LocalDeletePreparation {
+        val state = dao.recordingState(recordingId) ?: return LocalDeletePreparation.MISSING
+        if (state == RecordingState.DELETING) {
+            return LocalDeletePreparation.ALREADY_DELETING
+        }
+        if (state != RecordingState.ACTIVE) {
+            return LocalDeletePreparation.MISSING
+        }
+
+        if (dao.markDeletingIfActive(recordingId, nowMs()) == 1) {
+            return LocalDeletePreparation.READY
+        }
+
+        return when (dao.recordingState(recordingId)) {
+            null -> LocalDeletePreparation.MISSING
+            RecordingState.DELETING -> LocalDeletePreparation.ALREADY_DELETING
+            else -> LocalDeletePreparation.MISSING
+        }
+    }
+
+    suspend fun finishLocalDelete(recordingId: String): LibraryDeleteResult {
         val recording = dao.findWithAssets(recordingId)
             ?: return LibraryDeleteResult(deleted = true)
-        dao.updateState(recordingId, RecordingState.DELETING, nowMs())
+        if (recording.recording.state != RecordingState.DELETING) {
+            return LibraryDeleteResult(deleted = false)
+        }
 
         val failed = deleteManagedFiles(recording)
         return if (failed.isEmpty()) {
@@ -470,6 +837,17 @@ class RecordingLibraryRepository(
         } else {
             LibraryDeleteResult(deleted = false, failedPaths = failed)
         }
+    }
+
+    @Deprecated("Use LocalRecordingDeleteCoordinator so active jobs are cancelled before files are removed.")
+    suspend fun deleteLocalRecording(recordingId: String): LibraryDeleteResult {
+        when (prepareLocalDelete(recordingId)) {
+            LocalDeletePreparation.MISSING -> return LibraryDeleteResult(deleted = true)
+            LocalDeletePreparation.READY,
+            LocalDeletePreparation.ALREADY_DELETING,
+            -> Unit
+        }
+        return finishLocalDelete(recordingId)
     }
 
     suspend fun reconcilePendingDeletes() {
@@ -555,6 +933,58 @@ class RecordingLibraryRepository(
 
     private fun canonicalAssetId(recordingId: String, profileId: String): String =
         stableRecordingId("$recordingId|canonical=$profileId")
+
+    private fun hasVerifiedCleanupLineage(
+        candidate: CanonicalCleanupCandidate,
+        recording: RecordingWithAssets,
+    ): Boolean {
+        val sourceRoles =
+            setOf(
+                AudioAssetRole.DEVICE_OPUS,
+                AudioAssetRole.DEVICE_WAV,
+                AudioAssetRole.IMPORTED_ORIGINAL,
+            )
+        val source =
+            recording.assets.firstOrNull { asset ->
+                asset.assetId == candidate.sourceAssetId &&
+                    asset.role in sourceRoles &&
+                    asset.relativePath == candidate.sourceRelativePath &&
+                    asset.sizeBytes == candidate.sourceSizeBytes &&
+                    asset.sha256.equals(candidate.sourceSha256, ignoreCase = true) &&
+                    asset.integrityState == AudioIntegrityState.VERIFIED &&
+                    asset.formatValidationState == AudioValidationState.VALID
+            } ?: return false
+
+        return managedExistingFile(source.relativePath)?.length() == source.sizeBytes
+    }
+
+    private fun hasVerifiedPhysicalSource(recording: RecordingWithAssets): Boolean {
+        val sourceRoles =
+            setOf(
+                AudioAssetRole.DEVICE_OPUS,
+                AudioAssetRole.DEVICE_WAV,
+                AudioAssetRole.IMPORTED_ORIGINAL,
+            )
+        return recording.assets.any { asset ->
+            asset.role in sourceRoles &&
+                asset.integrityState == AudioIntegrityState.VERIFIED &&
+                managedExistingFile(asset.relativePath)?.length() == asset.sizeBytes
+        }
+    }
+
+    private fun managedExistingFile(relativePath: String): File? {
+        val candidate = File(recordingsRoot, relativePath)
+        if (!isManagedPath(candidate)) return null
+        return candidate.takeIf(File::isFile)
+    }
+
+    private fun normalizeLibraryName(name: String, maxLength: Int): String {
+        val normalized = name.trim().replace(Regex("\\s+"), " ")
+        require(normalized.isNotEmpty()) { "name must not be blank" }
+        require(normalized.length <= maxLength) { "name is too long" }
+        require(normalized.none { it.isISOControl() }) { "name contains control characters" }
+        return normalized
+    }
 
     private companion object {
         const val LEGACY_IMPORT_META_KEY = "legacy_stage5_import"

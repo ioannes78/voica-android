@@ -439,6 +439,7 @@ class TranscriptionViewModel(
             repository.observeVersions(recordingId)
                 .first()
                 .filter { it.state == TranscriptionStateValue.COMPLETED }
+                .sortedByDescending { it.completedAtMs ?: it.updatedAtMs }
 
         if (completed.isEmpty()) {
             mutableVersionsRecordingId.value = recordingId
@@ -460,6 +461,16 @@ class TranscriptionViewModel(
                     latest = index == 0,
                 )
             }
+        val currentDocument = mutableDocument.value
+        val currentStillValid =
+            currentDocument?.recordingId == recordingId &&
+                completed.any { it.id == currentDocument.transcriptionId }
+        if (!currentStillValid) {
+            requestDocumentLoad(
+                transcriptionId = completed.first().id,
+                clearCurrent = true,
+            )
+        }
         mutableNotice.value = null
     }
 

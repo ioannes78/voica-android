@@ -17,6 +17,7 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.SmartToy
+import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -36,9 +37,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.ioannes78.voica.BuildConfig
 import io.github.ioannes78.voica.ModelUpdateController
 import io.github.ioannes78.voica.R
+import io.github.ioannes78.voica.StorageManagementCoordinator
 import io.github.ioannes78.voica.model.ModelManager
 import io.github.ioannes78.voica.sherpa.SherpaRuntime
 import io.github.ioannes78.voica.ui.ai.ProviderSettingsCard
@@ -54,6 +57,7 @@ private enum class SettingsPage {
     HOME,
     AI,
     MODELS,
+    STORAGE,
     THEME,
     ADVANCED,
     ABOUT,
@@ -64,11 +68,19 @@ fun ProductSettingsScreen(
     padding: PaddingValues,
     modelManager: ModelManager,
     modelUpdateController: ModelUpdateController,
+    storageManagementCoordinator: StorageManagementCoordinator,
     providerSettingsViewModel: ProviderSettingsViewModel,
     themeSettingsStore: ThemeSettingsStore,
     onSecondaryPageChanged: (Boolean) -> Unit,
 ) {
     var page by rememberSaveable { mutableStateOf(SettingsPage.HOME) }
+    val storageViewModel: StorageManagementViewModel =
+        viewModel(
+            factory =
+                remember(storageManagementCoordinator) {
+                    StorageManagementViewModel.Factory(storageManagementCoordinator)
+                },
+        )
 
     androidx.compose.runtime.LaunchedEffect(page) {
         onSecondaryPageChanged(page != SettingsPage.HOME)
@@ -109,6 +121,13 @@ fun ProductSettingsScreen(
                     )
                 }
             }
+
+        SettingsPage.STORAGE ->
+            StorageManagementScreen(
+                padding = padding,
+                viewModel = storageViewModel,
+                onBack = { page = SettingsPage.HOME },
+            )
 
         SettingsPage.THEME ->
             SettingsSubpage(
@@ -193,6 +212,13 @@ private fun SettingsHome(
                         subtitle = "ASR、VAD、标点、说话人模型",
                         icon = { Icon(Icons.Outlined.Psychology, contentDescription = null) },
                         onClick = { onOpen(SettingsPage.MODELS) },
+                    )
+                    HorizontalDivider()
+                    SettingsRow(
+                        title = "存储空间",
+                        subtitle = "录音、标准化音频、模型与缓存",
+                        icon = { Icon(Icons.Outlined.Storage, contentDescription = null) },
+                        onClick = { onOpen(SettingsPage.STORAGE) },
                     )
                     HorizontalDivider()
                     SettingsRow(
