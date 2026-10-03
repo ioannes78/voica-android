@@ -521,6 +521,56 @@ class ProviderAdaptersTest {
 
 
     @Test
+    fun grokStructuredSummaryKeepsNativeStrictJsonSchemaPath() =
+        runTest {
+            val transport =
+                FakeTransport(
+                    ArrayDeque(
+                        listOf(
+                            LlmHttpResponse(
+                                200,
+                                """{"choices":[{"message":{"content":"{\"schemaVersion\":1}"},"finish_reason":"stop"}]}""",
+                                emptyMap(),
+                            ),
+                        ),
+                    ),
+                )
+            val provider =
+                OpenAiCompatibleTextLlmProvider(
+                    transport,
+                    FakeCredentials("secret"),
+                )
+            val grokProfile =
+                profile(
+                    presetId = ProviderPresetIds.XAI_GROK,
+                    baseUrl = "https://api.x.ai/v1",
+                ).copy(
+                    capabilityOverrides = null,
+                )
+
+            provider.generate(
+                grokProfile,
+                LlmGenerationRequest(
+                    requestId = "grok-strict-regression",
+                    model = "grok-test",
+                    systemInstruction = "Summarize.",
+                    taskInstruction = "Return JSON.",
+                    transcriptPayload = "synthetic",
+                    structuredOutputSchema =
+                        """{"type":"object","required":["schemaVersion"],"properties":{"schemaVersion":{"type":"integer"}}}""",
+                    maxOutputTokens = 256,
+                ),
+            ).getOrThrow()
+
+            val body = transport.requests.single().second.body.orEmpty()
+            assertTrue(body.contains("\"response_format\":{\"type\":\"json_schema\""))
+            assertTrue(body.contains("\"strict\":true"))
+            assertFalse(body.contains("NATIVE JSON SCHEMA MODE IS NOT AVAILABLE"))
+            assertFalse(body.contains("\"enable_thinking\":false"))
+            assertFalse(body.contains("\"thinking\":{\"type\":\"disabled\"}"))
+        }
+
+    @Test
     fun openAiPresetUsesCurrentCompletionTokenParameter() =
         runTest {
             val transport =
