@@ -238,42 +238,42 @@ fun VoicaApp(
                         selectedTab = 0
                     },
                 )
-                }
             }
         },
         bottomBar = {
             if (!secondaryPageActive) {
                 NavigationBar(modifier = Modifier.height(64.dp)) {
-                NavigationBarItem(
-                    selected = selectedTab == 0,
-                    onClick = {
-                        secondaryPageActive = false
-                        selectedTab = 0
-                    },
-                    icon = { Icon(Icons.Outlined.Bluetooth, contentDescription = null) },
-                    label = { Text(stringResource(R.string.tab_device)) },
-                    colors = navigationColors,
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 1,
-                    onClick = {
-                        secondaryPageActive = false
-                        selectedTab = 1
-                    },
-                    icon = { Icon(Icons.Outlined.Folder, contentDescription = null) },
-                    label = { Text(stringResource(R.string.tab_library)) },
-                    colors = navigationColors,
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 2,
-                    onClick = {
-                        secondaryPageActive = false
-                        selectedTab = 2
-                    },
-                    icon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
-                    label = { Text(stringResource(R.string.tab_settings)) },
-                    colors = navigationColors,
-                )
+                    NavigationBarItem(
+                        selected = selectedTab == 0,
+                        onClick = {
+                            secondaryPageActive = false
+                            selectedTab = 0
+                        },
+                        icon = { Icon(Icons.Outlined.Bluetooth, contentDescription = null) },
+                        label = { Text(stringResource(R.string.tab_device)) },
+                        colors = navigationColors,
+                    )
+                    NavigationBarItem(
+                        selected = selectedTab == 1,
+                        onClick = {
+                            secondaryPageActive = false
+                            selectedTab = 1
+                        },
+                        icon = { Icon(Icons.Outlined.Folder, contentDescription = null) },
+                        label = { Text(stringResource(R.string.tab_library)) },
+                        colors = navigationColors,
+                    )
+                    NavigationBarItem(
+                        selected = selectedTab == 2,
+                        onClick = {
+                            secondaryPageActive = false
+                            selectedTab = 2
+                        },
+                        icon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
+                        label = { Text(stringResource(R.string.tab_settings)) },
+                        colors = navigationColors,
+                    )
+                }
             }
         },
     ) { padding ->
