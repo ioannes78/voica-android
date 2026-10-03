@@ -43,6 +43,19 @@ interface AiSummaryDao {
 
     @Query(
         """
+        SELECT * FROM ai_summaries
+        WHERE recordingId = :recordingId AND status = 'COMPLETED'
+        ORDER BY completedAtMs DESC, createdAtMs DESC
+        LIMIT 1
+        """,
+    )
+    suspend fun findLatestCompleted(recordingId: String): AiSummaryEntity?
+
+    @Query("SELECT COUNT(*) FROM ai_summaries WHERE transcriptionId = :transcriptionId")
+    suspend fun countForTranscription(transcriptionId: String): Int
+
+    @Query(
+        """
         SELECT * FROM ai_summary_evidence
         WHERE aiSummaryId = :summaryId
         ORDER BY summaryItemId ASC, startSampleIndex ASC
@@ -168,4 +181,7 @@ interface AiSummaryDao {
 
     @Query("DELETE FROM ai_custom_templates WHERE id = :templateId")
     suspend fun deleteCustomTemplate(templateId: String): Int
+
+    @Query("DELETE FROM ai_summaries WHERE id = :summaryId")
+    suspend fun deleteVersion(summaryId: String): Int
 }
