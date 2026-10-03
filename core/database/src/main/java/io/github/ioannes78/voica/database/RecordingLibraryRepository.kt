@@ -716,12 +716,21 @@ class RecordingLibraryRepository(
         )
     }
 
+    suspend fun reclaimableCanonicalCandidates(): List<CanonicalCleanupCandidate> =
+        dao.findReclaimableCanonicalAssets()
+            .filter { candidate ->
+                val row = dao.findWithAssets(candidate.recordingId) ?: return@filter false
+                hasVerifiedPhysicalSource(row) &&
+                    managedExistingFile(candidate.relativePath)?.length() ==
+                    candidate.sizeBytes
+            }
+
     suspend fun cleanupReclaimableCanonicalAudio(): CanonicalCleanupResult {
         var reclaimed = 0L
         var deleted = 0
         val failed = mutableListOf<String>()
 
-        dao.findReclaimableCanonicalAssets().forEach { candidate ->
+        reclaimableCanonicalCandidates().forEach { candidate ->
             val row = dao.findWithAssets(candidate.recordingId)
             if (row == null || !hasVerifiedPhysicalSource(row)) {
                 return@forEach
