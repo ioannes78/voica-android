@@ -92,47 +92,44 @@ fun ThemeSettingsCard(
                     label = { Text(stringResource(R.string.theme_palette_purple)) },
                 )
             }
+            FilterChip(
+                selected = settings.preset == VoicaColorPreset.CUSTOM,
+                onClick = { store.setPreset(VoicaColorPreset.CUSTOM) },
+                label = { Text("自定义") },
+            )
 
-            Text(
-                stringResource(R.string.theme_custom_accent_title),
-                style = MaterialTheme.typography.labelLarge,
-            )
-            OutlinedTextField(
-                value = customHex,
-                onValueChange = {
-                    customHex = it
-                    invalidCustomColor = false
-                },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                label = { Text(stringResource(R.string.theme_custom_accent_hint)) },
-                isError = invalidCustomColor,
-                supportingText = {
-                    if (invalidCustomColor) {
-                        Text(stringResource(R.string.theme_custom_accent_error))
-                    }
-                },
-            )
-            Button(
-                onClick = {
-                    val parsed = parseRgb(customHex)
-                    if (parsed == null) {
-                        invalidCustomColor = true
-                    } else {
+            if (settings.preset == VoicaColorPreset.CUSTOM) {
+                OutlinedTextField(
+                    value = customHex,
+                    onValueChange = {
+                        customHex = it
                         invalidCustomColor = false
-                        customHex = formatRgb(parsed)
-                        store.setCustomAccent(parsed)
-                    }
-                },
-            ) {
-                Text(stringResource(R.string.theme_custom_accent_apply))
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.theme_custom_accent_hint)) },
+                    isError = invalidCustomColor,
+                    supportingText = {
+                        if (invalidCustomColor) {
+                            Text(stringResource(R.string.theme_custom_accent_error))
+                        }
+                    },
+                )
+                Button(
+                    onClick = {
+                        val parsed = parseRgb(customHex)
+                        if (parsed == null) {
+                            invalidCustomColor = true
+                        } else {
+                            invalidCustomColor = false
+                            customHex = formatRgb(parsed)
+                            store.setCustomAccent(parsed)
+                        }
+                    },
+                ) {
+                    Text(stringResource(R.string.theme_custom_accent_apply))
+                }
             }
-
-            Text(
-                stringResource(R.string.theme_settings_note),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }
