@@ -8,13 +8,26 @@ import androidx.sqlite.execSQL
 val MIGRATION_4_5: Migration =
     object : Migration(4, 5) {
         override fun migrate(db: SupportSQLiteDatabase) {
-            MIGRATION_4_5_SQL.forEach(db::execSQL)
+            runStage12BMigration(db::execSQL)
         }
 
         override fun migrate(connection: SQLiteConnection) {
-            MIGRATION_4_5_SQL.forEach(connection::execSQL)
+            runStage12BMigration(connection::execSQL)
         }
     }
+
+private inline fun runStage12BMigration(execSql: (String) -> Unit) {
+    MIGRATION_4_5_SQL.forEachIndexed { index, sql ->
+        try {
+            execSql(sql)
+        } catch (error: Throwable) {
+            throw IllegalStateException(
+                "Stage 12B migration statement #$index failed: $sql",
+                error,
+            )
+        }
+    }
+}
 
 private val STAGE12B_RECORDING_GRAPH_TABLES =
     listOf(
@@ -48,9 +61,27 @@ internal val MIGRATION_4_5_SQL =
             )
         }
 
-        // Empty every FK descendant through the existing ON DELETE actions before
-        // replacing the parent table. This keeps foreign_keys enabled throughout
-        // the migration instead of weakening integrity checks.
+        // Clear the dependent graph explicitly from leaves to parents. The v4
+        // graph contains multiple cascade paths (transcription/alignment/summary
+        // and diarization/speaker/span), so deterministic deletion avoids asking
+        // SQLite to resolve all of those paths from one parent DELETE.
+        listOf(
+            "ai_summary_evidence",
+            "ai_summary_chunks",
+            "transcript_speaker_spans",
+            "speaker_turns",
+            "transcript_speaker_alignments",
+            "ai_summaries",
+            "transcript_tokens",
+            "transcript_segments",
+            "diarization_speakers",
+            "diarization_runs",
+            "transcriptions",
+            "audio_derivations",
+            "audio_assets",
+        ).forEach { table ->
+            add("DELETE FROM `$table`")
+        }
         add("DELETE FROM `recordings`")
         add("DROP TABLE `recordings`")
 
