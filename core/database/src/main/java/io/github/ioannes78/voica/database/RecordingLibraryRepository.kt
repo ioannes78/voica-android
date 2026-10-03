@@ -491,6 +491,7 @@ class RecordingLibraryRepository(
         profileId: String,
     ): CanonicalConversionSource? {
         val row = dao.findWithAssets(recordingId) ?: return null
+        if (row.recording.state != RecordingState.ACTIVE) return null
         val source =
             row.assets.firstOrNull {
                 it.role == AudioAssetRole.DEVICE_OPUS &&
