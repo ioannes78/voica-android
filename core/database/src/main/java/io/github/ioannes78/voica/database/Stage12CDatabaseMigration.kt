@@ -137,4 +137,58 @@ internal val MIGRATION_5_6_SQL =
         "CREATE INDEX IF NOT EXISTS index_recording_content_selection_currentTranscriptionId ON recording_content_selection (currentTranscriptionId)",
         "CREATE INDEX IF NOT EXISTS index_recording_content_selection_currentAiSummaryId ON recording_content_selection (currentAiSummaryId)",
         "CREATE INDEX IF NOT EXISTS index_recording_content_selection_updatedAtMs ON recording_content_selection (updatedAtMs)",
+        """
+        CREATE TABLE IF NOT EXISTS search_documents (
+            rowId INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+            documentId TEXT NOT NULL,
+            documentType TEXT NOT NULL,
+            recordingId TEXT,
+            transcriptionId TEXT,
+            revisionId TEXT,
+            sourceAnchorId TEXT,
+            aiSummaryId TEXT,
+            sectionId TEXT,
+            itemId TEXT,
+            folderId TEXT,
+            tagId TEXT,
+            displayTitle TEXT NOT NULL,
+            displayText TEXT NOT NULL,
+            indexTitle TEXT NOT NULL,
+            indexBody TEXT NOT NULL,
+            updatedAtMs INTEGER NOT NULL,
+            FOREIGN KEY(recordingId) REFERENCES recordings(id)
+                ON UPDATE NO ACTION ON DELETE CASCADE
+        )
+        """.trimIndent(),
+        "CREATE UNIQUE INDEX IF NOT EXISTS index_search_documents_documentId ON search_documents (documentId)",
+        "CREATE INDEX IF NOT EXISTS index_search_documents_recordingId ON search_documents (recordingId)",
+        "CREATE INDEX IF NOT EXISTS index_search_documents_documentType ON search_documents (documentType)",
+        "CREATE INDEX IF NOT EXISTS index_search_documents_transcriptionId ON search_documents (transcriptionId)",
+        "CREATE INDEX IF NOT EXISTS index_search_documents_aiSummaryId ON search_documents (aiSummaryId)",
+        "CREATE INDEX IF NOT EXISTS index_search_documents_folderId ON search_documents (folderId)",
+        "CREATE INDEX IF NOT EXISTS index_search_documents_tagId ON search_documents (tagId)",
+        "CREATE INDEX IF NOT EXISTS index_search_documents_updatedAtMs ON search_documents (updatedAtMs)",
+        """
+        CREATE VIRTUAL TABLE IF NOT EXISTS search_documents_fts
+        USING FTS4(documentId TEXT NOT NULL, indexTitle TEXT NOT NULL, indexBody TEXT NOT NULL, tokenize=unicode61)
+        """.trimIndent(),
+        """
+        CREATE TABLE IF NOT EXISTS search_index_state (
+            id INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            indexedDocumentCount INTEGER NOT NULL,
+            startedAtMs INTEGER,
+            updatedAtMs INTEGER NOT NULL,
+            completedAtMs INTEGER,
+            errorMessage TEXT,
+            PRIMARY KEY(id)
+        )
+        """.trimIndent(),
+        """
+        INSERT OR REPLACE INTO search_index_state (
+            id, status, indexedDocumentCount, startedAtMs,
+            updatedAtMs, completedAtMs, errorMessage
+        )
+        VALUES (1, 'REBUILD_REQUIRED', 0, NULL, 0, NULL, NULL)
+        """.trimIndent(),
     )

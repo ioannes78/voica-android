@@ -35,6 +35,9 @@ import androidx.room.RoomDatabase
         AiSummaryUserMetadataEntity::class,
         AiSummaryRevisionEntity::class,
         RecordingContentSelectionEntity::class,
+        SearchDocumentEntity::class,
+        SearchDocumentFtsEntity::class,
+        SearchIndexStateEntity::class,
     ],
     version = 6,
     exportSchema = true,
@@ -49,6 +52,8 @@ abstract class VoicaDatabase : RoomDatabase() {
     abstract fun aiSummaryDao(): AiSummaryDao
 
     abstract fun stage12cContentDao(): Stage12CContentDao
+
+    abstract fun searchDao(): SearchDao
 
     companion object {
         const val DATABASE_NAME = "voica-recordings.db"
