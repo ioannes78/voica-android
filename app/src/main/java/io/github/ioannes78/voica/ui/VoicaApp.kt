@@ -498,9 +498,11 @@ fun VoicaApp(
                 playbackViewModel,
                 localAudioExportCoordinator,
                 transcriptionViewModel,
+                transcriptContentViewModel,
                 diarizationViewModel,
                 transcriptPlaybackSyncViewModel,
                 aiSummaryViewModel,
+                aiSummaryContentViewModel,
                 openRequest = libraryOpenRequest,
                 onOpenRequestConsumed = { request ->
                     if (libraryOpenRequest?.token == request.token) {
@@ -715,9 +717,11 @@ private fun LocalFilesScreen(
     playbackViewModel: PlaybackViewModel,
     localAudioExportCoordinator: LocalAudioExportCoordinator,
     transcriptionViewModel: TranscriptionViewModel,
+    transcriptContentViewModel: TranscriptContentViewModel,
     diarizationViewModel: DiarizationViewModel,
     transcriptPlaybackSyncViewModel: TranscriptPlaybackSyncViewModel,
     aiSummaryViewModel: AiSummaryViewModel,
+    aiSummaryContentViewModel: AiSummaryContentViewModel,
     openRequest: GlobalRecordingOpenRequest?,
     onOpenRequestConsumed: (GlobalRecordingOpenRequest) -> Unit,
     onOpenSettings: () -> Unit,
