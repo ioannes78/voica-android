@@ -95,6 +95,102 @@ class RecordingLibraryRepository(
         dao.observeLibrary(LibraryQueryBuilder.build(criteria))
             .map { rows -> rows.map(RecordingLibraryProjection::toLibraryRow) }
 
+    suspend fun findExactAudioDuplicates(
+        sha256: String,
+        sizeBytes: Long,
+    ): List<AudioDuplicateMatch> {
+        val normalized = sha256.lowercase()
+        require(SHA256.matches(normalized)) { "invalid SHA-256" }
+        require(sizeBytes >= 0L) { "sizeBytes must be non-negative" }
+        return dao.findAudioDuplicates(normalized, sizeBytes)
+    }
+
+    suspend fun registerImportedOriginal(
+        registration: ImportedOriginalRegistration,
+    ): String {
+        val sha = registration.sha256.lowercase()
+        require(SHA256.matches(sha)) { "invalid SHA-256" }
+        require(registration.sizeBytes > 0L) { "imported source must not be empty" }
+        require(registration.relativePath.isNotBlank()) { "relativePath must not be blank" }
+        val relativeFile = File(recordingsRoot, registration.relativePath)
+        require(isManagedPath(relativeFile)) { "import path must stay inside recordings root" }
+
+        val recordingId = UUID.randomUUID().toString()
+        val assetId = UUID.randomUUID().toString()
+        val displayName =
+            sanitizeDisplayName(registration.displayName)
+                ?: RecordingDisplayNamePolicy.defaultDisplayName(
+                    registration.originalFilename,
+                )
+
+        database.withTransaction {
+            check(
+                dao.insertRecordingIgnore(
+                    RecordingEntity(
+                        id = recordingId,
+                        sourceType = RecordingSourceType.LOCAL_IMPORT,
+                        sourceRemoteIdentity = null,
+                        sourceDeviceAddress = null,
+                        originalFilename = registration.originalFilename,
+                        displayName = displayName,
+                        recordedAtLocalIso = null,
+                        deviceReportedDurationMs = null,
+                        mediaDurationMs = registration.mediaDurationMs,
+                        downloadedAtMs = null,
+                        createdAtMs = registration.importedAtMs,
+                        updatedAtMs = registration.importedAtMs,
+                    ),
+                ) != -1L,
+            ) { "recording id collision" }
+
+            check(
+                dao.insertUserMetadataIgnore(
+                    RecordingUserMetadataEntity(
+                        recordingId = recordingId,
+                        folderId = null,
+                        isFavorite = false,
+                        updatedAtMs = registration.importedAtMs,
+                    ),
+                ) != -1L,
+            ) { "failed to create recording metadata" }
+
+            dao.insertImportProvenance(
+                RecordingImportProvenanceEntity(
+                    recordingId = recordingId,
+                    importedAtMs = registration.importedAtMs,
+                    originalDisplayName = registration.originalFilename,
+                    sourceMimeType = registration.sourceMimeType,
+                    sourceSizeBytes = registration.sizeBytes,
+                    providerAuthority = registration.providerAuthority,
+                    sourceLastModifiedMs = registration.sourceLastModifiedMs,
+                ),
+            )
+
+            check(
+                dao.insertAssetIgnore(
+                    AudioAssetEntity(
+                        assetId = assetId,
+                        recordingId = recordingId,
+                        role = AudioAssetRole.IMPORTED_ORIGINAL,
+                        relativePath = registration.relativePath,
+                        container = registration.container,
+                        codec = registration.codec,
+                        sampleFormat = registration.sampleFormat,
+                        sampleRateHz = registration.sampleRateHz,
+                        channelCount = registration.channelCount,
+                        sizeBytes = registration.sizeBytes,
+                        sha256 = sha,
+                        integrityState = AudioIntegrityState.VERIFIED,
+                        formatValidationState = AudioValidationState.VALID,
+                        createdAtMs = registration.importedAtMs,
+                        verifiedAtMs = registration.importedAtMs,
+                    ),
+                ) != -1L,
+            ) { "failed to register imported asset" }
+        }
+        return recordingId
+    }
+
     suspend fun setFavorite(recordingIds: Collection<String>, favorite: Boolean): Int {
         val ids = recordingIds.distinct()
         if (ids.isEmpty()) return 0
