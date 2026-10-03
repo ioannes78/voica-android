@@ -2,5 +2,5 @@
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/voica_launcher_background" />
     <foreground android:drawable="@drawable/ic_voica_reference_foreground" />
-    <monochrome android:drawable="@drawable/ic_voica_monochrome" />
+    <monochrome android:drawable="@drawable/ic_voica_reference_monochrome" />
 </adaptive-icon>
