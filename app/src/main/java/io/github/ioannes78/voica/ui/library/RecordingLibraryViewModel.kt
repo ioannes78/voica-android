@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import io.github.ioannes78.voica.LocalAudioImportCoordinator
 import io.github.ioannes78.voica.LocalAudioImportOutcome
+import io.github.ioannes78.voica.LocalRecordingDeleteCoordinator
 import io.github.ioannes78.voica.database.FolderEntity
 import io.github.ioannes78.voica.database.LibraryQueryCriteria
 import io.github.ioannes78.voica.database.LibrarySort
@@ -55,6 +56,7 @@ data class RecordingLibraryUiState(
 class RecordingLibraryViewModel(
     private val repository: RecordingLibraryRepository,
     private val importCoordinator: LocalAudioImportCoordinator,
+    private val deleteCoordinator: LocalRecordingDeleteCoordinator,
 ) : ViewModel() {
     private val queryText = MutableStateFlow("")
     private val criteria = MutableStateFlow(LibraryQueryCriteria())
@@ -62,6 +64,7 @@ class RecordingLibraryViewModel(
     private val operationMessage = MutableStateFlow<String?>(null)
     private val importState = MutableStateFlow<LibraryImportState>(LibraryImportState.Idle)
     private var importJob: Job? = null
+    private var deleteJob: Job? = null
 
     private val effectiveCriteria =
         combine(
@@ -361,6 +364,31 @@ class RecordingLibraryViewModel(
         }
     }
 
+    fun deleteSelected() {
+        val ids = uiState.value.selectedIds.toList()
+        if (ids.isEmpty() || deleteJob?.isActive == true) return
+        deleteJob =
+            viewModelScope.launch {
+                try {
+                    val result = deleteCoordinator.deleteBatch(ids)
+                    selectedIds.value = selectedIds.value - ids.toSet()
+                    operationMessage.value =
+                        when {
+                            result.failedCount == 0 ->
+                                "已删除 " + result.deletedCount + " 条本地录音"
+                            result.deletedCount == 0 ->
+                                result.failedCount.toString() +
+                                    " 条录音删除未完成，将在下次启动继续清理"
+                            else ->
+                                "已删除 " + result.deletedCount + " 条；" +
+                                    result.failedCount + " 条未完成，将在下次启动继续清理"
+                        }
+                } finally {
+                    deleteJob = null
+                }
+            }
+    }
+
     fun consumeOperationMessage() {
         operationMessage.value = null
     }
@@ -450,9 +478,14 @@ class RecordingLibraryViewModel(
     class Factory(
         private val repository: RecordingLibraryRepository,
         private val importCoordinator: LocalAudioImportCoordinator,
+        private val deleteCoordinator: LocalRecordingDeleteCoordinator,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            RecordingLibraryViewModel(repository, importCoordinator) as T
+            RecordingLibraryViewModel(
+                repository = repository,
+                importCoordinator = importCoordinator,
+                deleteCoordinator = deleteCoordinator,
+            ) as T
     }
 }
