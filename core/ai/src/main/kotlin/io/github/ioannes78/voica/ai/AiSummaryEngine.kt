@@ -7,14 +7,14 @@ import kotlinx.coroutines.delay
 data class AiSummaryEngineConfig(
     val outputReserveTokens: Int = 2_048,
     val safetyMarginTokens: Int = 1_024,
-    val maxOutputTokens: Int = 2_048,
-    val maxRepairAttempts: Int = 1,
+    val maxOutputTokens: Int = 4_096,
+    val maxRepairAttempts: Int = 2,
 ) {
     init {
         require(outputReserveTokens > 0)
         require(safetyMarginTokens > 0)
         require(maxOutputTokens > 0)
-        require(maxRepairAttempts in 0..1)
+        require(maxRepairAttempts in 0..2)
     }
 }
 
@@ -92,11 +92,32 @@ class AiSummaryEngine(
         var providerCalls = 0
         var activeRequestId: String? = null
 
-        suspend fun call(
+        fun outputLimitFor(payload: String, repairAttempt: Int = 0): Int {
+            val estimatedInput = estimator.estimate(payload)
+            val desired =
+                when {
+                    estimatedInput >= 12_000 -> 4_096
+                    estimatedInput >= 4_000 -> 3_072
+                    else -> 2_048
+                } + (repairAttempt * 512)
+            return minOf(
+                config.maxOutputTokens,
+                capabilities.maxOutputTokens ?: config.maxOutputTokens,
+                desired,
+            ).coerceAtLeast(512)
+        }
+
+        fun LlmGenerationResponse.isLengthTruncated(): Boolean =
+            finishReason
+                ?.lowercase()
+                ?.let { it == "length" || it == "max_tokens" || it == "max_output_tokens" }
+                ?: false
+
+        suspend fun providerCall(
             task: String,
             dataPayload: String,
-            allowedEvidenceRefs: Set<String>,
-        ): ParsedCall {
+            maxOutputTokens: Int,
+        ): LlmGenerationResponse {
             var attempt = 1
             while (true) {
                 val requestId = newRequestId()
@@ -112,12 +133,7 @@ class AiSummaryEngine(
                                 taskInstruction = task,
                                 transcriptPayload = dataPayload,
                                 structuredOutputSchema = SummaryPromptFactory.resultSchemaJson,
-                                maxOutputTokens =
-                                    minOf(
-                                        config.maxOutputTokens,
-                                        capabilities.maxOutputTokens
-                                            ?: config.maxOutputTokens,
-                                    ),
+                                maxOutputTokens = maxOutputTokens,
                             ),
                         ).getOrThrow()
                     } catch (cancelled: CancellationException) {
@@ -125,10 +141,7 @@ class AiSummaryEngine(
                         throw cancelled
                     } catch (error: Throwable) {
                         val failure = (error as? ProviderFailureCarrier)?.failure
-                        if (
-                            failure != null &&
-                            retryPolicy.shouldRetry(failure, attempt)
-                        ) {
+                        if (failure != null && retryPolicy.shouldRetry(failure, attempt)) {
                             sleeper(retryPolicy.delayMs(failure, attempt))
                             attempt++
                             continue
@@ -139,6 +152,32 @@ class AiSummaryEngine(
                     }
                 providerCalls++
                 accumulator.add(response.usage)
+                return response
+            }
+        }
+
+        suspend fun call(
+            task: String,
+            dataPayload: String,
+            allowedEvidenceRefs: Set<String>,
+        ): ParsedCall {
+            var nextTask = task
+            var nextPayload = dataPayload
+            var repairAttempt = 0
+            while (true) {
+                val response =
+                    providerCall(
+                        task = nextTask,
+                        dataPayload = nextPayload,
+                        maxOutputTokens = outputLimitFor(dataPayload, repairAttempt),
+                    )
+
+                if (response.isLengthTruncated()) {
+                    throw SummaryStructuredOutputException(
+                        SummaryStructuredOutputErrorCode.TRUNCATED_JSON,
+                        "provider stopped because the output token limit was reached",
+                    )
+                }
 
                 onProgress(AiSummaryEngineProgress(AiSummaryEnginePhase.VALIDATING))
                 val parsed =
@@ -151,45 +190,25 @@ class AiSummaryEngine(
                 if (parsed.isSuccess) {
                     return ParsedCall(parsed.getOrThrow())
                 }
-                if (config.maxRepairAttempts == 0) {
-                    throw parsed.exceptionOrNull()!!
+
+                val failure =
+                    (parsed.exceptionOrNull() as? SummaryStructuredOutputException)
+                        ?: SummaryStructuredOutputException(
+                            SummaryStructuredOutputErrorCode.INVALID_VALUE,
+                            parsed.exceptionOrNull()?.message
+                                ?: "summary result failed validation",
+                        )
+                if (repairAttempt >= config.maxRepairAttempts) {
+                    throw failure
                 }
 
-                val repairRequestId = newRequestId()
-                activeRequestId = repairRequestId
-                val repaired =
-                    try {
-                        provider.generate(
-                            request.profile,
-                            LlmGenerationRequest(
-                                requestId = repairRequestId,
-                                model = request.profile.defaultModel,
-                                systemInstruction = SummaryPromptFactory.systemInstruction,
-                                taskInstruction = SummaryPromptFactory.repairInstruction(),
-                                transcriptPayload = response.content,
-                                structuredOutputSchema = SummaryPromptFactory.resultSchemaJson,
-                                maxOutputTokens =
-                                    minOf(
-                                        config.maxOutputTokens,
-                                        capabilities.maxOutputTokens
-                                            ?: config.maxOutputTokens,
-                                    ),
-                            ),
-                        ).getOrThrow()
-                    } catch (cancelled: CancellationException) {
-                        provider.cancel(repairRequestId)
-                        throw cancelled
-                    } finally {
-                        activeRequestId = null
-                    }
-                providerCalls++
-                accumulator.add(repaired.usage)
-                return ParsedCall(
-                    SummaryResultCodec.decode(
-                        repaired.content,
-                        allowedEvidenceRefs,
-                    ),
-                )
+                repairAttempt++
+                nextTask =
+                    SummaryPromptFactory.repairInstruction(
+                        failure = failure,
+                        allowedEvidenceRefs = allowedEvidenceRefs,
+                    )
+                nextPayload = response.content
             }
         }
 
@@ -238,8 +257,13 @@ class AiSummaryEngine(
                     try {
                         call(taskInstruction, fullPayload, allRefs)
                     } catch (error: Throwable) {
-                        val failure = (error as? ProviderFailureCarrier)?.failure
-                        if (failure?.code != ProviderErrorCode.CONTEXT_LIMIT_EXCEEDED) {
+                        val providerFailure = (error as? ProviderFailureCarrier)?.failure
+                        val structuredFailure = error as? SummaryStructuredOutputException
+                        if (
+                            providerFailure?.code != ProviderErrorCode.CONTEXT_LIMIT_EXCEEDED &&
+                            structuredFailure?.code !=
+                            SummaryStructuredOutputErrorCode.TRUNCATED_JSON
+                        ) {
                             throw error
                         }
                         null
