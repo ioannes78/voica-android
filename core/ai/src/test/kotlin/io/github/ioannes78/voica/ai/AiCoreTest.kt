@@ -139,6 +139,37 @@ class AiCoreTest {
     }
 
     @Test
+    fun summaryCodecAcceptsSingleJsonObjectWithHarmlessWrapperText() {
+        val raw =
+            """
+            Here is the requested JSON:
+            {"schemaVersion":1,"contentType":"GENERAL","classificationConfidence":null,"title":"标题","overview":"概述","sections":[]}
+            End of response.
+            """.trimIndent()
+
+        val decoded = SummaryResultCodec.decode(raw, emptySet())
+
+        assertEquals("标题", decoded.title)
+        assertEquals(AiContentType.GENERAL, decoded.contentType)
+    }
+
+    @Test
+    fun summaryCodecClassifiesIncompleteObjectAsTruncated() {
+        val failure =
+            runCatching {
+                SummaryResultCodec.decode(
+                    """{"schemaVersion":1,"contentType":"GENERAL"""",
+                    emptySet(),
+                )
+            }.exceptionOrNull() as SummaryStructuredOutputException
+
+        assertEquals(
+            SummaryStructuredOutputErrorCode.TRUNCATED_JSON,
+            failure.code,
+        )
+    }
+
+    @Test
     fun structuredTranscriptRejectsOutOfRangeEvidence() {
         val bad =
             runCatching {
