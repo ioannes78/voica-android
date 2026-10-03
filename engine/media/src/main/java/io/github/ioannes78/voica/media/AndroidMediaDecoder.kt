@@ -50,16 +50,15 @@ class AndroidMediaDecoder : CompressedAudioDecoder {
                         decoderName = decoderName,
                     )
 
-                val decodeFormat = MediaFormat(sourceFormat)
                 runCatching {
-                    decodeFormat.setInteger(
+                    sourceFormat.setInteger(
                         MediaFormat.KEY_PCM_ENCODING,
                         AudioFormat.ENCODING_PCM_16BIT,
                     )
                 }
 
                 codec = MediaCodec.createByCodecName(decoderName)
-                codec.configure(decodeFormat, null, null, 0)
+                codec.configure(sourceFormat, null, null, 0)
                 codec.start()
 
                 val bufferInfo = MediaCodec.BufferInfo()
