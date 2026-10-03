@@ -180,6 +180,12 @@ private fun RecordingLibraryRow(
     recording: RecordingLibraryItem,
     onClick: () -> Unit,
 ) {
+    val recordedAtText =
+        recording.recordedAtLocalIso
+            ?.let { runCatching { LocalDateTime.parse(it) }.getOrNull() }
+            ?.format(DISPLAY_TIME)
+            ?: stringResource(R.string.device_file_unknown)
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -195,12 +201,7 @@ private fun RecordingLibraryRow(
         )
         Text(
             buildString {
-                append(
-                    recording.recordedAtLocalIso
-                        ?.let { runCatching { LocalDateTime.parse(it) }.getOrNull() }
-                        ?.format(DISPLAY_TIME)
-                        ?: stringResource(R.string.device_file_unknown),
-                )
+                append(recordedAtText)
                 append(" · ")
                 append(recording.deviceReportedDurationMs?.let(::formatDurationMs) ?: "--")
                 append(" · ")
