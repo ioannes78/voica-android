@@ -1,5 +1,6 @@
 package io.github.ioannes78.voica.ui.ai
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -51,11 +52,54 @@ fun ProviderSettingsCard(
     var modelSearch by remember { mutableStateOf("") }
     var showApiKey by remember { mutableStateOf(false) }
     var advancedExpanded by remember { mutableStateOf(false) }
+    var baselineProfileId by remember { mutableStateOf<String?>(null) }
+    var baselineSignature by remember { mutableStateOf<String?>(null) }
+    var discardConfirmOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.profiles.size) {
         if (state.profiles.isEmpty()) {
             editing = true
         }
+    }
+
+    LaunchedEffect(editing, state.selectedProfileId) {
+        if (
+            editing &&
+            baselineProfileId != state.selectedProfileId
+        ) {
+            baselineProfileId = state.selectedProfileId
+            baselineSignature = state.editSignature()
+        }
+    }
+
+    LaunchedEffect(state.notice, state.busy) {
+        if (
+            editing &&
+            !state.busy &&
+            state.notice?.contains("已保存") == true
+        ) {
+            baselineSignature = state.editSignature()
+        }
+    }
+
+    val dirty =
+        editing &&
+            baselineSignature != null &&
+            state.editSignature() != baselineSignature
+
+    fun requestEditorExit() {
+        if (dirty) {
+            discardConfirmOpen = true
+        } else {
+            editing = false
+            viewModel.refresh()
+        }
+    }
+
+    BackHandler(
+        enabled = editing && state.profiles.isNotEmpty(),
+    ) {
+        requestEditorExit()
     }
 
     if (!editing) {
@@ -140,7 +184,7 @@ fun ProviderSettingsCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (state.profiles.isNotEmpty()) {
-                TextButton(onClick = { editing = false }) {
+                TextButton(onClick = { requestEditorExit() }) {
                     Text("返回")
                 }
             }
@@ -354,7 +398,41 @@ fun ProviderSettingsCard(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+
+    if (discardConfirmOpen) {
+        AlertDialog(
+            onDismissRequest = { discardConfirmOpen = false },
+            title = { Text("放弃未保存的修改？") },
+            text = { Text("当前 Provider 配置有尚未保存的修改。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        discardConfirmOpen = false
+                        editing = false
+                        viewModel.refresh()
+                    },
+                ) {
+                    Text("放弃")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { discardConfirmOpen = false }) {
+                    Text("继续编辑")
+                }
+            },
+        )
+    }
 }
+
+private fun ProviderEditorState.editSignature(): String =
+    listOf(
+        presetId,
+        displayName,
+        baseUrl,
+        apiKeyInput,
+        defaultModel,
+        manualContextWindowTokens,
+    ).joinToString("\u001F")
 
 @Composable
 private fun ModelPickerDialog(
