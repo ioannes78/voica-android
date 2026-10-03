@@ -28,16 +28,20 @@ data class RecordingDerivation(
 
 data class RecordingLibraryItem(
     val id: String,
-    val sourceRemoteIdentity: String,
-    val sourceDeviceAddress: String,
+    val sourceRemoteIdentity: String?,
+    val sourceDeviceAddress: String?,
     val originalFilename: String,
     val displayName: String,
     val recordedAtLocalIso: String?,
     val deviceReportedDurationMs: Long?,
-    val downloadedAtMs: Long,
+    val downloadedAtMs: Long?,
     val state: String,
     val assets: List<RecordingAsset>,
     val derivations: List<RecordingDerivation>,
+    val sourceType: String = RecordingSourceType.DEVICE_DOWNLOAD,
+    val mediaDurationMs: Long? = null,
+    val createdAtMs: Long = 0L,
+    val updatedAtMs: Long = 0L,
 )
 
 internal fun RecordingWithAssets.toLibraryItem(): RecordingLibraryItem =
@@ -51,6 +55,10 @@ internal fun RecordingWithAssets.toLibraryItem(): RecordingLibraryItem =
         deviceReportedDurationMs = recording.deviceReportedDurationMs,
         downloadedAtMs = recording.downloadedAtMs,
         state = recording.state,
+        sourceType = recording.sourceType,
+        mediaDurationMs = recording.mediaDurationMs,
+        createdAtMs = recording.createdAtMs,
+        updatedAtMs = recording.updatedAtMs,
         assets = assets.map { asset ->
             RecordingAsset(
                 assetId = asset.assetId,
