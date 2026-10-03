@@ -14,9 +14,25 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
+enum class SummaryStructuredOutputErrorCode {
+    INVALID_JSON,
+    TRUNCATED_JSON,
+    MISSING_FIELD,
+    WRONG_FIELD_TYPE,
+    INVALID_ENUM,
+    INVALID_VALUE,
+    INVALID_EVIDENCE_REF,
+    MISSING_EVIDENCE,
+    DUPLICATE_ID,
+    EMPTY_FINAL_CONTENT,
+}
+
 class SummaryStructuredOutputException(
+    val code: SummaryStructuredOutputErrorCode,
     message: String,
-) : IllegalArgumentException(message)
+) : IllegalArgumentException(message) {
+    constructor(message: String) : this(SummaryStructuredOutputErrorCode.INVALID_VALUE, message)
+}
 
 object SummaryResultCodec {
     private val json =
@@ -28,28 +44,63 @@ object SummaryResultCodec {
     fun decode(
         raw: String,
         allowedEvidenceRefs: Set<String>,
+    ): AiSummaryResult =
+        try {
+            decodeValidated(
+                normalized = normalizeJsonObject(raw),
+                allowedEvidenceRefs = allowedEvidenceRefs,
+            )
+        } catch (error: SummaryStructuredOutputException) {
+            throw error
+        } catch (error: Throwable) {
+            throw SummaryStructuredOutputException(
+                SummaryStructuredOutputErrorCode.WRONG_FIELD_TYPE,
+                error.message?.take(180) ?: "summary field has an invalid type",
+            )
+        }
+
+    private fun decodeValidated(
+        normalized: String,
+        allowedEvidenceRefs: Set<String>,
     ): AiSummaryResult {
-        val normalized = normalizeJsonObject(raw)
+        if (normalized.isBlank()) {
+            throw SummaryStructuredOutputException(
+                SummaryStructuredOutputErrorCode.EMPTY_FINAL_CONTENT,
+                "summary output is empty",
+            )
+        }
         val root =
             runCatching { json.parseToJsonElement(normalized).jsonObject }
                 .getOrElse {
-                    throw SummaryStructuredOutputException("summary output is not a JSON object")
+                    throw SummaryStructuredOutputException(
+                        if (looksTruncatedJson(normalized)) {
+                            SummaryStructuredOutputErrorCode.TRUNCATED_JSON
+                        } else {
+                            SummaryStructuredOutputErrorCode.INVALID_JSON
+                        },
+                        "summary output is not a complete JSON object",
+                    )
                 }
 
         val schemaVersion = root.required("schemaVersion").jsonPrimitive.int
         if (schemaVersion != SummaryPromptFactory.RESULT_SCHEMA_VERSION) {
-            throw SummaryStructuredOutputException("unsupported summary schemaVersion")
+            throw SummaryStructuredOutputException(
+                SummaryStructuredOutputErrorCode.INVALID_VALUE,
+                "unsupported summary schemaVersion: $schemaVersion",
+            )
         }
 
         val contentType =
             enumValue<AiContentType>(root.requiredString("contentType"), "contentType")
         val confidence =
             root["classificationConfidence"]
+                ?.takeUnless { it is JsonNull }
                 ?.jsonPrimitive
                 ?.doubleOrNull
                 ?.also {
                     if (it !in 0.0..1.0) {
                         throw SummaryStructuredOutputException(
+                            SummaryStructuredOutputErrorCode.INVALID_VALUE,
                             "classificationConfidence out of range",
                         )
                     }
@@ -64,7 +115,10 @@ object SummaryResultCodec {
                 val section = sectionElement.jsonObject
                 val id = section.requiredString("id").trim()
                 if (id.isBlank() || !sectionIds.add(id)) {
-                    throw SummaryStructuredOutputException("duplicate or blank section id")
+                    throw SummaryStructuredOutputException(
+                        SummaryStructuredOutputErrorCode.DUPLICATE_ID,
+                        "duplicate or blank section id",
+                    )
                 }
                 val type =
                     enumValue<AiSummarySectionType>(
@@ -73,18 +127,27 @@ object SummaryResultCodec {
                     )
                 val label = section.requiredString("label").trim()
                 if (label.isBlank()) {
-                    throw SummaryStructuredOutputException("blank section label")
+                    throw SummaryStructuredOutputException(
+                        SummaryStructuredOutputErrorCode.INVALID_VALUE,
+                        "blank section label",
+                    )
                 }
                 val items =
                     section.required("items").jsonArray.map { itemElement ->
                         val item = itemElement.jsonObject
                         val itemId = item.requiredString("id").trim()
                         if (itemId.isBlank() || !itemIds.add(itemId)) {
-                            throw SummaryStructuredOutputException("duplicate or blank item id")
+                            throw SummaryStructuredOutputException(
+                                SummaryStructuredOutputErrorCode.DUPLICATE_ID,
+                                "duplicate or blank item id",
+                            )
                         }
                         val text = item.requiredString("text").trim()
                         if (text.isBlank()) {
-                            throw SummaryStructuredOutputException("blank summary item")
+                            throw SummaryStructuredOutputException(
+                                SummaryStructuredOutputErrorCode.INVALID_VALUE,
+                                "blank summary item",
+                            )
                         }
                         val evidenceRefs =
                             item.required("evidenceRefs").jsonArray
@@ -93,6 +156,7 @@ object SummaryResultCodec {
                         val invalidRefs = evidenceRefs.filterNot(allowedEvidenceRefs::contains)
                         if (invalidRefs.isNotEmpty()) {
                             throw SummaryStructuredOutputException(
+                                SummaryStructuredOutputErrorCode.INVALID_EVIDENCE_REF,
                                 "unknown evidence refs: " + invalidRefs.joinToString(),
                             )
                         }
@@ -106,6 +170,7 @@ object SummaryResultCodec {
                             evidenceRefs.isEmpty()
                         ) {
                             throw SummaryStructuredOutputException(
+                                SummaryStructuredOutputErrorCode.MISSING_EVIDENCE,
                                 "TRANSCRIPT_STATED item requires evidence",
                             )
                         }
@@ -140,22 +205,59 @@ object SummaryResultCodec {
     }
 
     internal fun normalizeJsonObject(raw: String): String {
-        val trimmed = raw.trim()
-        if (!trimmed.startsWith("```")) return trimmed
-
-        val firstLineEnd = trimmed.indexOf('\n')
-        if (firstLineEnd < 0) return trimmed
-        val opening = trimmed.substring(0, firstLineEnd).trim()
-        if (
-            opening != "```" &&
-            !opening.equals("```json", ignoreCase = true)
-        ) {
-            return trimmed
+        var trimmed = raw.trim().removePrefix("\uFEFF").trim()
+        if (trimmed.startsWith("```")) {
+            val firstLineEnd = trimmed.indexOf('\n')
+            if (firstLineEnd >= 0) {
+                val opening = trimmed.substring(0, firstLineEnd).trim()
+                if (opening == "```" || opening.equals("```json", ignoreCase = true)) {
+                    val remainder = trimmed.substring(firstLineEnd + 1).trim()
+                    if (remainder.endsWith("```")) {
+                        trimmed = remainder.removeSuffix("```").trim()
+                    }
+                }
+            }
         }
+        if (trimmed.startsWith("{") && trimmed.endsWith("}")) return trimmed
+        return extractSingleJsonObject(trimmed) ?: trimmed
+    }
 
-        val remainder = trimmed.substring(firstLineEnd + 1).trim()
-        if (!remainder.endsWith("```")) return trimmed
-        return remainder.removeSuffix("```").trim()
+    private fun extractSingleJsonObject(value: String): String? {
+        val start = value.indexOf('{')
+        if (start < 0) return null
+        var depth = 0
+        var inString = false
+        var escaped = false
+        for (index in start until value.length) {
+            val ch = value[index]
+            if (inString) {
+                if (escaped) {
+                    escaped = false
+                } else if (ch == '\\') {
+                    escaped = true
+                } else if (ch == '"') {
+                    inString = false
+                }
+                continue
+            }
+            when (ch) {
+                '"' -> inString = true
+                '{' -> depth++
+                '}' -> {
+                    depth--
+                    if (depth == 0) {
+                        return value.substring(start, index + 1)
+                    }
+                }
+            }
+        }
+        return null
+    }
+
+    private fun looksTruncatedJson(value: String): Boolean {
+        val trimmed = value.trim()
+        if (!trimmed.startsWith("{")) return false
+        return !trimmed.endsWith("}")
     }
 
     fun encode(result: AiSummaryResult): String =
@@ -224,16 +326,26 @@ object SummaryResultCodec {
             .toCollection(LinkedHashSet())
 
     private fun JsonObject.required(key: String) =
-        this[key] ?: throw SummaryStructuredOutputException("missing field: $key")
+        this[key]
+            ?: throw SummaryStructuredOutputException(
+                SummaryStructuredOutputErrorCode.MISSING_FIELD,
+                "missing field: $key",
+            )
 
     private fun JsonObject.requiredString(key: String): String =
         this[key]?.jsonPrimitive?.contentOrNull
-            ?: throw SummaryStructuredOutputException("missing string field: $key")
+            ?: throw SummaryStructuredOutputException(
+                SummaryStructuredOutputErrorCode.MISSING_FIELD,
+                "missing string field: $key",
+            )
 
     private inline fun <reified T : Enum<T>> enumValue(
         value: String,
         field: String,
     ): T =
         enumValues<T>().firstOrNull { it.name == value }
-            ?: throw SummaryStructuredOutputException("invalid $field: $value")
+            ?: throw SummaryStructuredOutputException(
+                SummaryStructuredOutputErrorCode.INVALID_ENUM,
+                "invalid $field: $value",
+            )
 }
