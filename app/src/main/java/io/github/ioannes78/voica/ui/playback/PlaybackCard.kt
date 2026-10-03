@@ -72,8 +72,8 @@ fun PlaybackCard(
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
                 stringResource(R.string.playback_title),
@@ -116,7 +116,7 @@ fun PlaybackCard(
                         snapshot.state != PlaybackState.RELEASED,
             )
 
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 when (snapshot.state) {
                     PlaybackState.PLAYING -> {
                         Button(onClick = onPause) {
