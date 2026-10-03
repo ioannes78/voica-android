@@ -20,7 +20,7 @@ data class StorageManagementUiState(
 class StorageManagementViewModel(
     private val coordinator: StorageManagementCoordinator,
 ) : ViewModel() {
-    private val mutableState = MutableStateFlow(StorageManagementUiState(loading = true))
+    private val mutableState = MutableStateFlow(StorageManagementUiState())
     val state: StateFlow<StorageManagementUiState> = mutableState.asStateFlow()
 
     init {
@@ -28,12 +28,7 @@ class StorageManagementViewModel(
     }
 
     fun refresh() {
-        if (mutableState.value.loading || mutableState.value.operationRunning) {
-            if (mutableState.value.snapshot == null) {
-                loadSnapshot()
-            }
-            return
-        }
+        if (mutableState.value.loading || mutableState.value.operationRunning) return
         loadSnapshot()
     }
 
