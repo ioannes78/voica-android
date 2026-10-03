@@ -4,15 +4,15 @@
 
 当前 `ioannes78/voica-android` 仓库是 Voica 项目实现状态的唯一事实来源。
 
-当前已冻结基线：**Stage 11**
+当前已冻结基线：**Stage 12A**
 
-Stage 11 Freeze/Handoff：
+Stage 12A Freeze/Handoff：
 
-- `docs/STAGE_11_FREEZE.md`
-- `docs/STAGE_11_HANDOFF.md`
-- `docs/STAGE_11_TEST.md`
+- `docs/STAGE_12A_FREEZE.md`
+- `docs/STAGE_12A_HANDOFF.md`
+- `docs/STAGE_12A_TEST.md`
 
-下一阶段：**Stage 12 — 产品 UI / UX 完整化 + 本地内容管理**
+下一子阶段：**Stage 12B — 本地录音库增强**
 
 协议与行为参考：
 
@@ -83,8 +83,8 @@ Stage 11 Freeze/Handoff：
 - Compose BOM：2026.09.00
 - Application ID：`io.github.ioannes78.voica`
 - QA Application ID：`io.github.ioannes78.voica.qa`
-- versionCode：32
-- versionName：`0.11.5-stage11-qa-fix5`
+- versionCode：36
+- versionName：`0.12.0-stage12a-uxv3-qa1`
 - sherpa-onnx：1.13.8
 - Room schema：4
 - ABI：arm64-v8a

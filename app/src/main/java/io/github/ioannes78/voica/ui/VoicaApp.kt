@@ -16,12 +16,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Bluetooth
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -82,10 +88,16 @@ import io.github.ioannes78.voica.ui.ai.ProviderSettingsViewModel
 import io.github.ioannes78.voica.ui.diarization.DiarizationStatusCard
 import io.github.ioannes78.voica.ui.diarization.DiarizationViewModel
 import io.github.ioannes78.voica.ui.files.DeviceFilesCard
-import io.github.ioannes78.voica.ui.files.LocalRecordingsCard
+import io.github.ioannes78.voica.ui.device.CompactScanDeviceRow
+import io.github.ioannes78.voica.ui.device.DeviceProductScreen
+import io.github.ioannes78.voica.ui.device.DeviceStatusPanel
+import io.github.ioannes78.voica.ui.library.RecordingDetailScreen
+import io.github.ioannes78.voica.ui.library.RecordingLibraryScreen
 import io.github.ioannes78.voica.ui.playback.PlaybackCard
 import io.github.ioannes78.voica.ui.playback.PlaybackViewModel
+import io.github.ioannes78.voica.ui.recording.GlobalRecordingStatusBar
 import io.github.ioannes78.voica.ui.recording.RecordingCard
+import io.github.ioannes78.voica.ui.settings.ProductSettingsScreen
 import io.github.ioannes78.voica.ui.transcript.TranscriptDocumentHeader
 import io.github.ioannes78.voica.ui.transcript.TranscriptFollowMode
 import io.github.ioannes78.voica.ui.transcript.TranscriptPlaybackSyncViewModel
@@ -93,6 +105,8 @@ import io.github.ioannes78.voica.ui.transcript.TranscriptSegmentCard
 import io.github.ioannes78.voica.ui.transcript.TranscriptVersionListCard
 import io.github.ioannes78.voica.ui.transcript.TranscriptionStatusCard
 import io.github.ioannes78.voica.ui.transcript.TranscriptionViewModel
+import io.github.ioannes78.voica.ui.theme.ThemeSettingsCard
+import io.github.ioannes78.voica.ui.theme.ThemeSettingsStore
 import io.github.ioannes78.voica.ui.model.ModelManagerCard
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
@@ -119,8 +133,11 @@ fun VoicaApp(
     providerProfileStore: ProviderProfileStore,
     providerConfigurationRepository: ProviderConfigurationRepository,
     providerAdapterRegistry: ProviderAdapterRegistry,
+    themeSettingsStore: ThemeSettingsStore,
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    var secondaryPageActive by rememberSaveable { mutableStateOf(false) }
+    var deviceHomeRequest by rememberSaveable { mutableIntStateOf(0) }
     val deviceViewModel: DeviceViewModel = viewModel(
         factory = remember(
             repository,
@@ -202,32 +219,74 @@ fun VoicaApp(
         },
     )
 
+    val globalRecording by deviceViewModel.recordingState.collectAsState()
+    val navigationColors =
+        NavigationBarItemDefaults.colors(
+            selectedIconColor = MaterialTheme.colorScheme.primary,
+            selectedTextColor = MaterialTheme.colorScheme.primary,
+            indicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
     Scaffold(
+        topBar = {
+            if (selectedTab != 0 || secondaryPageActive) {
+                GlobalRecordingStatusBar(
+                    state = globalRecording,
+                    onClick = {
+                        secondaryPageActive = false
+                        selectedTab = 0
+                        deviceHomeRequest += 1
+                    },
+                )
+            }
+        },
         bottomBar = {
-            NavigationBar {
-                NavigationBarItem(
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    icon = { Text("蓝") },
-                    label = { Text(stringResource(R.string.tab_device)) },
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
-                    icon = { Text("文") },
-                    label = { Text(stringResource(R.string.tab_local_files)) },
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 2,
-                    onClick = { selectedTab = 2 },
-                    icon = { Text("设") },
-                    label = { Text(stringResource(R.string.tab_settings)) },
-                )
+            if (!secondaryPageActive) {
+                NavigationBar(modifier = Modifier.height(64.dp)) {
+                    NavigationBarItem(
+                        selected = selectedTab == 0,
+                        onClick = {
+                            secondaryPageActive = false
+                            selectedTab = 0
+                            deviceHomeRequest += 1
+                        },
+                        icon = { Icon(Icons.Outlined.Bluetooth, contentDescription = null) },
+                        label = { Text(stringResource(R.string.tab_device)) },
+                        colors = navigationColors,
+                    )
+                    NavigationBarItem(
+                        selected = selectedTab == 1,
+                        onClick = {
+                            secondaryPageActive = false
+                            selectedTab = 1
+                        },
+                        icon = { Icon(Icons.Outlined.Folder, contentDescription = null) },
+                        label = { Text(stringResource(R.string.tab_library)) },
+                        colors = navigationColors,
+                    )
+                    NavigationBarItem(
+                        selected = selectedTab == 2,
+                        onClick = {
+                            secondaryPageActive = false
+                            selectedTab = 2
+                        },
+                        icon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
+                        label = { Text(stringResource(R.string.tab_settings)) },
+                        colors = navigationColors,
+                    )
+                }
             }
         },
     ) { padding ->
         when (selectedTab) {
-            0 -> DeviceScreen(padding, deviceViewModel)
+            0 -> DeviceProductScreen(
+                padding = padding,
+                viewModel = deviceViewModel,
+                homeRequestToken = deviceHomeRequest,
+                onSecondaryPageChanged = { secondaryPageActive = it },
+            )
             1 -> LocalFilesScreen(
                 padding,
                 deviceViewModel,
@@ -236,13 +295,19 @@ fun VoicaApp(
                 diarizationViewModel,
                 transcriptPlaybackSyncViewModel,
                 aiSummaryViewModel,
-                onOpenSettings = { selectedTab = 2 },
+                onOpenSettings = {
+                    secondaryPageActive = false
+                    selectedTab = 2
+                },
+                onSecondaryPageChanged = { secondaryPageActive = it },
             )
-            else -> SettingsScreen(
+            else -> ProductSettingsScreen(
                 padding = padding,
                 modelManager = modelManager,
                 modelUpdateController = modelUpdateController,
                 providerSettingsViewModel = providerSettingsViewModel,
+                themeSettingsStore = themeSettingsStore,
+                onSecondaryPageChanged = { secondaryPageActive = it },
             )
         }
     }
@@ -284,88 +349,59 @@ private fun DeviceScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(padding),
-        contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {
             Text(
-                stringResource(R.string.app_name),
-                style = MaterialTheme.typography.headlineLarge,
+                stringResource(R.string.device_screen_title),
+                style = MaterialTheme.typography.headlineMedium,
             )
             Text(
-                stringResource(R.string.stage11_subtitle),
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Text(
-                stringResource(R.string.version_label),
+                stringResource(R.string.device_screen_subtitle),
                 style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
         item {
-            StatusCard(
+            DeviceStatusPanel(
                 connection = connection,
+                info = info,
+                isScanning = scan.isScanning,
+                timedOut = scan.timedOut,
+                discoveredCount = scan.devices.size,
                 missingPermissions = missingPermissions,
+                onScan = viewModel::startScan,
+                onStopScan = viewModel::stopScan,
                 onRequestPermissions = {
                     permissionLauncher.launch(missingPermissions.toTypedArray())
                 },
+                onRefresh = viewModel::refreshDeviceInfo,
+                onSyncTime = viewModel::syncTime,
+                onDisconnect = viewModel::disconnect,
             )
         }
 
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
+        if (connection !is DeviceConnectionState.Ready) {
+            scan.error?.let { error ->
+                item {
                     Text(
-                        stringResource(R.string.scan_title),
-                        style = MaterialTheme.typography.titleLarge,
+                        errorText(error),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(
-                            onClick = viewModel::startScan,
-                            enabled = !scan.isScanning && missingPermissions.isEmpty(),
-                        ) {
-                            Text(stringResource(R.string.scan_start))
-                        }
-                        OutlinedButton(
-                            onClick = viewModel::stopScan,
-                            enabled = scan.isScanning,
-                        ) {
-                            Text(stringResource(R.string.scan_stop))
-                        }
-                    }
-                    Text(
-                        if (scan.isScanning) {
-                            stringResource(R.string.scan_scanning)
-                        } else if (scan.timedOut) {
-                            stringResource(R.string.scan_timeout)
-                        } else {
-                            stringResource(R.string.scan_idle)
-                        },
-                    )
-                    scan.error?.let {
-                        Text(errorText(it), style = MaterialTheme.typography.bodySmall)
-                    }
                 }
             }
-        }
-
-        items(scan.devices, key = { it.address }) { device ->
-            ScanDeviceCard(device = device, onConnect = viewModel::connect)
+            items(scan.devices, key = { it.address }) { device ->
+                CompactScanDeviceRow(
+                    device = device,
+                    onConnect = viewModel::connect,
+                )
+            }
         }
 
         if (connection is DeviceConnectionState.Ready) {
-            item {
-                DeviceInfoCard(
-                    info = info,
-                    connection = connection as DeviceConnectionState.Ready,
-                    onRefresh = viewModel::refreshDeviceInfo,
-                    onSyncTime = viewModel::syncTime,
-                    onDisconnect = viewModel::disconnect,
-                )
-            }
             item {
                 RecordingCard(
                     state = recording,
@@ -395,17 +431,6 @@ private fun DeviceScreen(
                     onDeleteRemote = viewModel::deleteRemoteRecording,
                     onRangeProbe = viewModel::runRangeProbe,
                 )
-            }
-        } else if (connection !is DeviceConnectionState.Idle &&
-            connection !is DeviceConnectionState.Scanning &&
-            connection !is DeviceConnectionState.PermissionRequired &&
-            connection !is DeviceConnectionState.Unavailable &&
-            connection !is DeviceConnectionState.BluetoothOff
-        ) {
-            item {
-                OutlinedButton(onClick = viewModel::disconnect) {
-                    Text(stringResource(R.string.disconnect))
-                }
             }
         }
 
@@ -465,288 +490,45 @@ private fun LocalFilesScreen(
     transcriptPlaybackSyncViewModel: TranscriptPlaybackSyncViewModel,
     aiSummaryViewModel: AiSummaryViewModel,
     onOpenSettings: () -> Unit,
+    onSecondaryPageChanged: (Boolean) -> Unit,
 ) {
     val recordings by viewModel.libraryRecordings.collectAsState(initial = emptyList())
-    val transcriptionState by transcriptionViewModel.runState.collectAsState()
-    val transcriptDocument by transcriptionViewModel.document.collectAsState()
-    val transcriptVersions by transcriptionViewModel.versions.collectAsState()
-    val transcriptVersionsRecordingId by transcriptionViewModel.versionsRecordingId.collectAsState()
-    val transcriptionNotice by transcriptionViewModel.notice.collectAsState()
-    val diarizationState by diarizationViewModel.runState.collectAsState()
-    val diarizationNotice by diarizationViewModel.notice.collectAsState()
-    val syncState by transcriptPlaybackSyncViewModel.state.collectAsState()
-    val listState = rememberLazyListState()
-    val programmaticScroll = remember { AtomicBoolean(false) }
-    var selectedTranscriptionId by rememberSaveable { mutableStateOf<String?>(null) }
-
-    val transcriptionRecordingId =
-        when (val state = transcriptionState) {
-            TranscriptionRunState.Idle -> null
-            is TranscriptionRunState.Running -> state.recordingId
-            is TranscriptionRunState.Completed -> state.recordingId
-            is TranscriptionRunState.Failed -> state.recordingId
-            is TranscriptionRunState.Cancelled -> state.recordingId
+    var selectedRecordingId by rememberSaveable { mutableStateOf<String?>(null) }
+    val selectedRecording =
+        selectedRecordingId?.let { id ->
+            recordings.firstOrNull { it.id == id }
         }
-    val transcriptionRecordingName =
-        recordings.firstOrNull { it.id == transcriptionRecordingId }?.displayName
-    val transcriptRecordingName =
-        recordings.firstOrNull { it.id == transcriptDocument?.recordingId }?.displayName
-    val transcriptVersionsRecordingName =
-        recordings.firstOrNull { it.id == transcriptVersionsRecordingId }?.displayName
-    val transcriptionBusy = transcriptionState is TranscriptionRunState.Running
-    val diarizationRecordingId =
-        when (val state = diarizationState) {
-            DiarizationRunState.Idle -> null
-            is DiarizationRunState.Running -> state.recordingId
-            is DiarizationRunState.Completed -> state.recordingId
-            is DiarizationRunState.Failed -> state.recordingId
-            is DiarizationRunState.Cancelled -> state.recordingId
-        }
-    val diarizationRecordingName =
-        recordings.firstOrNull { it.id == diarizationRecordingId }?.displayName
-    val diarizationBusy = diarizationState is DiarizationRunState.Running
+    val deviceRecording by viewModel.recordingState.collectAsState()
 
-    LaunchedEffect(Unit) {
-        selectedTranscriptionId?.let(transcriptionViewModel::selectVersion)
+    LaunchedEffect(selectedRecording != null) {
+        onSecondaryPageChanged(selectedRecording != null)
     }
-    LaunchedEffect(transcriptDocument?.transcriptionId) {
-        transcriptDocument?.transcriptionId?.let { selectedTranscriptionId = it }
-    }
-    LaunchedEffect(
-        transcriptDocument?.transcriptionId,
-        transcriptDocument?.alignmentId,
-        transcriptDocument?.compatiblePlaybackAssetId,
-    ) {
-        transcriptPlaybackSyncViewModel.bind(
-            timeline = transcriptDocument?.timeline,
-            compatiblePlaybackAssetId = transcriptDocument?.compatiblePlaybackAssetId,
+
+    if (selectedRecording == null) {
+        RecordingLibraryScreen(
+            padding = padding,
+            recordings = recordings,
+            onOpenRecording = { selectedRecordingId = it },
         )
-    }
-    LaunchedEffect(listState) {
-        snapshotFlow { listState.isScrollInProgress }
-            .distinctUntilChanged()
-            .collect { scrolling ->
-                if (scrolling && !programmaticScroll.get()) {
-                    transcriptPlaybackSyncViewModel.suspendFollowing()
-                }
-            }
-    }
-    LaunchedEffect(
-        syncState.activeRowId,
-        syncState.followMode,
-        transcriptDocument?.transcriptionId,
-        syncState.discontinuityGeneration,
-    ) {
-        if (
-            syncState.followMode != TranscriptFollowMode.FOLLOWING ||
-            syncState.activeRowId == null
-        ) {
-            return@LaunchedEffect
-        }
-        val document = transcriptDocument ?: return@LaunchedEffect
-        val rowIndex =
-            document.segments.indexOfFirst { segment ->
-                segment.stableId == syncState.activeRowId
-            }
-        if (rowIndex < 0) return@LaunchedEffect
-
-        val targetIndex = TRANSCRIPT_ROW_START_INDEX + rowIndex
-        val alreadyVisible =
-            listState.layoutInfo.visibleItemsInfo.any { item ->
-                item.index == targetIndex
-            }
-        if (alreadyVisible) return@LaunchedEffect
-
-        val destinationIndex = (targetIndex - 2).coerceAtLeast(0)
-        val distance = abs(listState.firstVisibleItemIndex - targetIndex)
-        programmaticScroll.set(true)
-        try {
-            if (distance > 12) {
-                listState.scrollToItem(destinationIndex)
-            } else {
-                listState.animateScrollToItem(destinationIndex)
-            }
-        } finally {
-            programmaticScroll.set(false)
-            if (listState.isScrollInProgress) {
-                transcriptPlaybackSyncViewModel.suspendFollowing()
-            }
-        }
-    }
-
-    LazyColumn(
-        state = listState,
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(padding),
-        contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        item(key = "local-title") {
-            Text(
-                stringResource(R.string.local_files_screen_title),
-                style = MaterialTheme.typography.headlineLarge,
-            )
-            Text(
-                stringResource(R.string.local_files_screen_subtitle),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
-
-        item(key = "playback-slot") {
-            PlaybackSlot(
-                playbackViewModel = playbackViewModel,
-                recordings = recordings,
-            )
-        }
-
-        item(key = "transcription-status-slot") {
-            if (transcriptionState !is TranscriptionRunState.Idle ||
-                transcriptionNotice != null
-            ) {
-                TranscriptionStatusCard(
-                    state = transcriptionState,
-                    recordingName = transcriptionRecordingName,
-                    notice = transcriptionNotice,
-                    onCancel = transcriptionViewModel::cancel,
-                )
-            }
-        }
-
-        item(key = "diarization-status-slot") {
-            if (diarizationState !is DiarizationRunState.Idle ||
-                diarizationNotice != null
-            ) {
-                DiarizationStatusCard(
-                    state = diarizationState,
-                    recordingName = diarizationRecordingName,
-                    notice = diarizationNotice,
-                    onCancel = diarizationViewModel::cancel,
-                    onRetry = diarizationViewModel::retry,
-                    onOpenSettings = onOpenSettings,
-                )
-            }
-        }
-
-        item(key = "transcript-versions-slot") {
-            if (transcriptVersions.isNotEmpty()) {
-                TranscriptVersionListCard(
-                    versions = transcriptVersions,
-                    recordingName = transcriptVersionsRecordingName,
-                    selectedTranscriptionId = transcriptDocument?.transcriptionId,
-                    onSelect = { transcriptionId ->
-                        selectedTranscriptionId = transcriptionId
-                        transcriptionViewModel.selectVersion(transcriptionId)
-                    },
-                )
-            }
-        }
-
-        item(key = "transcript-header-slot") {
-            transcriptDocument?.let { document ->
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    TranscriptDocumentHeader(
-                        document = document,
-                        recordingName = transcriptRecordingName,
-                        onRenameSpeaker = transcriptionViewModel::renameSpeaker,
-                    )
-                    AiSummaryCard(
-                        transcriptionId = document.transcriptionId,
-                        recordingName = transcriptRecordingName,
-                        viewModel = aiSummaryViewModel,
-                        onOpenSettings = onOpenSettings,
-                        onSeekEvidence = { sampleIndex ->
-                            playbackViewModel.seekAndPlay(
-                                recordingId = document.recordingId,
-                                sampleIndex = sampleIndex,
-                            )
-                        },
-                    )
-                }
-            }
-        }
-
-        item(key = "transcript-follow-slot") {
-            val document = transcriptDocument
-            if (document?.timeline != null &&
-                document.compatiblePlaybackAssetId == null
-            ) {
-                Text(
-                    "当前转写与现有标准 WAV 不兼容，已停止播放同步",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-            if (syncState.followMode == TranscriptFollowMode.USER_SUSPENDED) {
-                OutlinedButton(
-                    onClick = transcriptPlaybackSyncViewModel::resumeFollowing,
-                ) {
-                    Text("跟随播放")
-                }
-            }
-        }
-
-        val document = transcriptDocument
-        if (document != null) {
-            items(
-                items = document.segments,
-                key = { segment ->
-                    document.transcriptionId + ":" + segment.stableId
-                },
-            ) { segment ->
-                val syncEnabled = document.compatiblePlaybackAssetId != null
-                TranscriptSegmentCard(
-                    segment = segment,
-                    isActive =
-                        syncState.playbackCompatible &&
-                            syncState.activeRowId == segment.stableId,
-                    activeCueId =
-                        if (syncState.playbackCompatible &&
-                            syncState.activeRowId == segment.stableId
-                        ) {
-                            syncState.activeCueId
-                        } else {
-                            null
-                        },
-                    syncEnabled = syncEnabled,
-                    onSeek = { sampleIndex ->
-                        if (syncEnabled) {
-                            playbackViewModel.seekAndPlay(
-                                recordingId = document.recordingId,
-                                sampleIndex = sampleIndex,
-                            )
-                        }
-                    },
-                )
-            }
-        }
-
-        item(key = "local-recordings") {
-            LocalRecordingsCard(
-                recordings = recordings,
-                onPlay = playbackViewModel::loadAndPlay,
-                onRename = viewModel::renameLocalRecording,
-                onDeleteLocal = playbackViewModel::deleteRecording,
-                onGenerateCanonical = viewModel::generateCanonicalAudio,
-                onCancelCanonical = viewModel::cancelCanonicalAudio,
-                transcriptionBusy = transcriptionBusy,
-                diarizationBusy = diarizationBusy,
-                onTranscribeFast = { recordingId ->
-                    selectedTranscriptionId = null
-                    transcriptionViewModel.startFast(recordingId)
-                },
-                onTranscribeHighQuality = { recordingId ->
-                    selectedTranscriptionId = null
-                    transcriptionViewModel.startHighQuality(recordingId)
-                },
-                onDiarize = diarizationViewModel::start,
-                onViewTranscript = { recordingId ->
-                    selectedTranscriptionId = null
-                    transcriptionViewModel.viewVersions(recordingId)
-                },
-            )
-        }
+    } else {
+        RecordingDetailScreen(
+            padding = padding,
+            recording = selectedRecording,
+            playbackViewModel = playbackViewModel,
+            transcriptionViewModel = transcriptionViewModel,
+            diarizationViewModel = diarizationViewModel,
+            transcriptPlaybackSyncViewModel = transcriptPlaybackSyncViewModel,
+            aiSummaryViewModel = aiSummaryViewModel,
+            onBack = { selectedRecordingId = null },
+            onOpenSettings = onOpenSettings,
+            onRename = viewModel::renameLocalRecording,
+            onDelete = playbackViewModel::deleteRecording,
+            onGenerateCanonical = viewModel::generateCanonicalAudio,
+            onCancelCanonical = viewModel::cancelCanonicalAudio,
+            deviceRecordingActive =
+                deviceRecording.status == RecordingStatus.Recording ||
+                    deviceRecording.status == RecordingStatus.Paused,
+        )
     }
 }
 
@@ -839,49 +621,52 @@ private fun DeviceInfoCard(
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(7.dp),
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(
-                stringResource(R.string.device_info),
-                style = MaterialTheme.typography.titleLarge,
-            )
-            InfoRow(stringResource(R.string.info_name), info.name ?: "--")
-            InfoRow(stringResource(R.string.info_address), info.address ?: connection.address)
-            InfoRow(stringResource(R.string.info_battery), batteryText(info.battery))
-            InfoRow(
-                stringResource(R.string.info_capacity_remaining),
-                formatCapacity(info.remainingKb),
-            )
-            InfoRow(
-                stringResource(R.string.info_capacity_total),
-                formatCapacity(info.totalKb),
-            )
-            InfoRow(
-                stringResource(R.string.info_firmware),
-                info.firmwareVersion ?: "--",
-            )
-            InfoRow(
-                stringResource(R.string.info_auth),
-                if (info.authAvailable) {
-                    stringResource(R.string.auth_read_ok)
-                } else {
-                    stringResource(R.string.auth_unknown)
-                },
-            )
-            InfoRow(
-                stringResource(R.string.info_mtu),
-                connection.negotiatedMtu.toString(),
-            )
-            InfoRow(
-                stringResource(R.string.info_atomic36),
-                yesNo(connection.capability.atomic36Supported),
-            )
-            InfoRow(
-                stringResource(R.string.info_data168),
-                yesNo(connection.capability.data168Supported),
-            )
-            HorizontalDivider()
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        info.name ?: "CB08 / QS668",
+                        style = MaterialTheme.typography.titleLarge,
+                    )
+                    Text(
+                        info.address ?: connection.address,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text(
+                    stringResource(R.string.device_connected),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                DeviceMetric(
+                    value = batteryText(info.battery),
+                    label = stringResource(R.string.device_metric_battery),
+                    modifier = Modifier.weight(1f),
+                )
+                DeviceMetric(
+                    value = formatCapacity(info.remainingKb),
+                    label = stringResource(R.string.device_metric_remaining),
+                    modifier = Modifier.weight(1f),
+                )
+                DeviceMetric(
+                    value = info.firmwareVersion ?: "--",
+                    label = stringResource(R.string.device_metric_firmware),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onRefresh) {
                     Text(stringResource(R.string.refresh))
@@ -890,9 +675,38 @@ private fun DeviceInfoCard(
                     Text(stringResource(R.string.sync_time))
                 }
             }
-            OutlinedButton(onClick = onDisconnect) {
+            OutlinedButton(
+                onClick = onDisconnect,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
                 Text(stringResource(R.string.disconnect))
             }
+        }
+    }
+}
+
+@Composable
+private fun DeviceMetric(
+    value: String,
+    label: String,
+    modifier: Modifier = Modifier,
+) {
+    Card(modifier = modifier) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            Text(
+                value,
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -1395,6 +1209,7 @@ private fun SettingsScreen(
     modelManager: ModelManager,
     modelUpdateController: ModelUpdateController,
     providerSettingsViewModel: ProviderSettingsViewModel,
+    themeSettingsStore: ThemeSettingsStore,
 ) {
     val scope = rememberCoroutineScope()
     var runtimeProbeRunning by remember { mutableStateOf(false) }
@@ -1407,8 +1222,8 @@ private fun SettingsScreen(
             .fillMaxSize()
             .padding(padding)
             .verticalScroll(rememberScrollState())
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
             stringResource(R.string.settings_title),
@@ -1475,6 +1290,7 @@ private fun SettingsScreen(
                 }
             }
         }
+        ThemeSettingsCard(store = themeSettingsStore)
         ProviderSettingsCard(
             viewModel = providerSettingsViewModel,
         )

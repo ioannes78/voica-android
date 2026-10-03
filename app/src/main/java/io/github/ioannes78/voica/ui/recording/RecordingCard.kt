@@ -5,16 +5,29 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Text
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.ble.RecordingCommandState
 import io.github.ioannes78.voica.ble.RecordingDeviceState
@@ -35,92 +48,182 @@ fun RecordingCard(
     val synchronized = state.freshness == RecordingFreshness.FRESH
     val busy = state.commandState != RecordingCommandState.IDLE
     val controlsEnabled = synchronized && !busy && state.status !is RecordingStatus.UnknownRaw
+    var menuExpanded by remember { mutableStateOf(false) }
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = recordingTitle(state.status),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = { menuExpanded = true }) {
+                    Icon(
+                        Icons.Outlined.MoreVert,
+                        contentDescription = "更多录音设置",
+                    )
+                }
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
+                ) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                "增益：${gainText(state.gain)}",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        },
+                        onClick = {},
+                        enabled = false,
+                    )
+                    DropdownMenuItem(
+                        text = { Text("低增益") },
+                        onClick = {
+                            menuExpanded = false
+                            onSetGain(RecordingGain.Low)
+                        },
+                        enabled = synchronized && !busy,
+                    )
+                    DropdownMenuItem(
+                        text = { Text("中增益") },
+                        onClick = {
+                            menuExpanded = false
+                            onSetGain(RecordingGain.Medium)
+                        },
+                        enabled = synchronized && !busy,
+                    )
+                    DropdownMenuItem(
+                        text = { Text("高增益") },
+                        onClick = {
+                            menuExpanded = false
+                            onSetGain(RecordingGain.High)
+                        },
+                        enabled = synchronized && !busy,
+                    )
+                    DropdownMenuItem(
+                        text = { Text("刷新录音状态") },
+                        onClick = {
+                            menuExpanded = false
+                            onRefresh()
+                        },
+                        enabled = !busy,
+                    )
+                }
+            }
+
             Text(
-                stringResource(R.string.recording_title),
-                style = MaterialTheme.typography.titleLarge,
-            )
-            RecordingInfoRow(
-                stringResource(R.string.recording_status),
-                recordingStatusText(state.status),
-            )
-            RecordingInfoRow(
-                stringResource(R.string.recording_freshness),
-                freshnessText(state.freshness),
-            )
-            RecordingInfoRow(
-                stringResource(R.string.recording_duration),
-                formatDuration(state.durationSeconds),
-            )
-            RecordingInfoRow(
-                stringResource(R.string.recording_size),
-                formatBytes(state.currentSizeBytes),
-            )
-            RecordingInfoRow(
-                stringResource(R.string.recording_filename),
-                state.filename ?: "--",
-            )
-            RecordingInfoRow(
-                stringResource(R.string.recording_gain),
-                gainText(state.gain),
+                text = formatDuration(state.durationSeconds),
+                style =
+                    MaterialTheme.typography.headlineLarge.copy(
+                        fontSize = 36.sp,
+                        lineHeight = 42.sp,
+                    ),
+                fontWeight = FontWeight.Medium,
             )
 
-            state.lastError?.let { error ->
+            if (
+                (state.status == RecordingStatus.Recording ||
+                    state.status == RecordingStatus.Paused) &&
+                !state.filename.isNullOrBlank()
+            ) {
                 Text(
-                    stringResource(R.string.recording_last_error) + ": " +
-                        error.code.name +
-                        (error.detail?.let { " · " + it } ?: ""),
+                    text =
+                        state.filename +
+                            (state.currentSizeBytes?.let {
+                                " · " + formatBytes(it)
+                            } ?: ""),
                     style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
 
-            HorizontalDivider()
+            if (!synchronized) {
+                Text(
+                    freshnessText(state.freshness),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else if (state.status != RecordingStatus.Idle) {
+                Text(
+                    recordingStatusText(state.status),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = recordingStatusColor(state.status),
+                )
+            }
 
             when (state.status) {
                 RecordingStatus.Idle -> {
                     Button(
                         onClick = onStart,
                         enabled = controlsEnabled,
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text(stringResource(R.string.recording_start))
                     }
                 }
 
                 RecordingStatus.Recording -> {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         Button(
                             onClick = onPause,
                             enabled = controlsEnabled,
+                            modifier = Modifier.weight(1f),
                         ) {
                             Text(stringResource(R.string.recording_pause))
                         }
-                        OutlinedButton(
+                        Button(
                             onClick = onSave,
                             enabled = controlsEnabled,
+                            modifier = Modifier.weight(1f),
+                            colors =
+                                ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.error,
+                                    contentColor = MaterialTheme.colorScheme.onError,
+                                ),
                         ) {
-                            Text(stringResource(R.string.recording_save))
+                            Text(stringResource(R.string.recording_stop))
                         }
                     }
                 }
 
                 RecordingStatus.Paused -> {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         Button(
                             onClick = onResume,
                             enabled = controlsEnabled,
+                            modifier = Modifier.weight(1f),
                         ) {
                             Text(stringResource(R.string.recording_resume))
                         }
-                        OutlinedButton(
+                        Button(
                             onClick = onSave,
                             enabled = controlsEnabled,
+                            modifier = Modifier.weight(1f),
+                            colors =
+                                ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.error,
+                                    contentColor = MaterialTheme.colorScheme.onError,
+                                ),
                         ) {
-                            Text(stringResource(R.string.recording_save))
+                            Text(stringResource(R.string.recording_stop))
                         }
                     }
                 }
@@ -134,69 +237,31 @@ fun RecordingCard(
                 Text(
                     commandText(state.commandState),
                     style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
                 )
             }
 
-            OutlinedButton(
-                onClick = onRefresh,
-                enabled = !busy,
-            ) {
-                Text(stringResource(R.string.recording_refresh))
+            state.lastError?.let { error ->
+                Text(
+                    error.code.name + (error.detail?.let { " · $it" } ?: ""),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
             }
-
-            HorizontalDivider()
-            Text(
-                stringResource(R.string.recording_gain),
-                style = MaterialTheme.typography.titleSmall,
-            )
-            GainButton(
-                label = stringResource(R.string.recording_gain_low),
-                target = RecordingGain.Low,
-                current = state.gain,
-                enabled = synchronized && !busy,
-                onSetGain = onSetGain,
-            )
-            GainButton(
-                label = stringResource(R.string.recording_gain_medium),
-                target = RecordingGain.Medium,
-                current = state.gain,
-                enabled = synchronized && !busy,
-                onSetGain = onSetGain,
-            )
-            GainButton(
-                label = stringResource(R.string.recording_gain_high),
-                target = RecordingGain.High,
-                current = state.gain,
-                enabled = synchronized && !busy,
-                onSetGain = onSetGain,
-            )
         }
     }
 }
 
 @Composable
-private fun GainButton(
-    label: String,
-    target: RecordingGain,
-    current: RecordingGain?,
-    enabled: Boolean,
-    onSetGain: (RecordingGain) -> Unit,
-) {
-    OutlinedButton(
-        onClick = { onSetGain(target) },
-        enabled = enabled && current != target,
-    ) {
-        Text(label)
+private fun recordingTitle(status: RecordingStatus?): String =
+    when (status) {
+        RecordingStatus.Idle -> stringResource(R.string.recording_ready_title)
+        RecordingStatus.Recording -> stringResource(R.string.recording_active_title)
+        RecordingStatus.Paused -> stringResource(R.string.recording_paused_title)
+        is RecordingStatus.UnknownRaw,
+        null,
+        -> stringResource(R.string.recording_unknown_title)
     }
-}
-
-@Composable
-private fun RecordingInfoRow(label: String, value: String) {
-    Row(modifier = Modifier.fillMaxWidth()) {
-        Text(label, modifier = Modifier.weight(1f))
-        Text(value)
-    }
-}
 
 @Composable
 private fun recordingStatusText(status: RecordingStatus?): String =
@@ -210,6 +275,15 @@ private fun recordingStatusText(status: RecordingStatus?): String =
     }
 
 @Composable
+private fun recordingStatusColor(status: RecordingStatus?) =
+    when (status) {
+        RecordingStatus.Recording -> MaterialTheme.colorScheme.error
+        RecordingStatus.Paused -> MaterialTheme.colorScheme.secondary
+        RecordingStatus.Idle -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+@Composable
 private fun freshnessText(freshness: RecordingFreshness): String =
     when (freshness) {
         RecordingFreshness.NOT_SYNCED -> stringResource(R.string.recording_not_synced)
@@ -217,17 +291,6 @@ private fun freshnessText(freshness: RecordingFreshness): String =
         RecordingFreshness.FRESH -> stringResource(R.string.recording_synced)
         RecordingFreshness.STALE -> stringResource(R.string.recording_stale)
         RecordingFreshness.FAILED -> stringResource(R.string.recording_sync_failed)
-    }
-
-@Composable
-private fun gainText(gain: RecordingGain?): String =
-    when (gain) {
-        RecordingGain.Low -> stringResource(R.string.recording_gain_low)
-        RecordingGain.Medium -> stringResource(R.string.recording_gain_medium)
-        RecordingGain.High -> stringResource(R.string.recording_gain_high)
-        is RecordingGain.UnknownRaw ->
-            stringResource(R.string.recording_unknown_raw, gain.rawValue)
-        null -> "--"
     }
 
 @Composable
@@ -242,16 +305,21 @@ private fun commandText(state: RecordingCommandState): String =
         RecordingCommandState.RECONCILING -> stringResource(R.string.recording_syncing)
     }
 
-private fun formatDuration(seconds: Int?): String {
-    if (seconds == null) return "--"
-    val hours = seconds / 3600
-    val minutes = (seconds % 3600) / 60
-    val remainingSeconds = seconds % 60
-    return if (hours > 0) {
-        "%02d:%02d:%02d".format(hours, minutes, remainingSeconds)
-    } else {
-        "%02d:%02d".format(minutes, remainingSeconds)
+private fun gainText(gain: RecordingGain?): String =
+    when (gain) {
+        RecordingGain.Low -> "低"
+        RecordingGain.Medium -> "中"
+        RecordingGain.High -> "高"
+        is RecordingGain.UnknownRaw -> "未知(" + gain.rawValue + ")"
+        null -> "未知"
     }
+
+private fun formatDuration(seconds: Int?): String {
+    val value = seconds ?: 0
+    val hours = value / 3600
+    val minutes = (value % 3600) / 60
+    val remainingSeconds = value % 60
+    return "%02d:%02d:%02d".format(hours, minutes, remainingSeconds)
 }
 
 private fun formatBytes(bytes: Long?): String {

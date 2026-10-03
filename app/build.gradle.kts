@@ -14,8 +14,8 @@ android {
         applicationId = "io.github.ioannes78.voica"
         minSdk = 26
         targetSdk = 37
-        versionCode = 32
-        versionName = "0.11.5-stage11-qa-fix5"
+        versionCode = 36
+        versionName = "0.12.0-stage12a-uxv3-qa1"
         ndk {
             abiFilters += "arm64-v8a"
         }
@@ -23,6 +23,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     compileOptions {
@@ -89,6 +90,7 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     testImplementation(kotlin("test-junit"))

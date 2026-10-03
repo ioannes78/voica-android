@@ -1,5 +1,6 @@
 package io.github.ioannes78.voica.ui.transcript
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -7,10 +8,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -24,10 +26,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.TranscriptionRunState
@@ -47,104 +49,96 @@ fun TranscriptionStatusCard(
     onCancel: () -> Unit,
 ) {
     if (state is TranscriptionRunState.Idle && notice == null) return
+    if (state is TranscriptionRunState.Completed && state.warning == null && notice == null) return
 
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                stringResource(R.string.transcription_status_title),
-                style = MaterialTheme.typography.titleMedium,
-            )
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                    RoundedCornerShape(10.dp),
+                )
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        when (state) {
+            TranscriptionRunState.Idle -> Unit
 
-            when (state) {
-                TranscriptionRunState.Idle -> Unit
-
-                is TranscriptionRunState.Running -> {
-                    Text(
-                        recordingName ?: state.recordingId,
-                        style = MaterialTheme.typography.titleSmall,
-                    )
-                    Text(modeLabel(state.mode))
-                    Text(phaseLabel(state.progress.phase))
-                    val fraction = state.progress.fraction
-                    if (fraction != null) {
-                        LinearProgressIndicator(
-                            progress = { fraction.toFloat() },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+            is TranscriptionRunState.Running -> {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            stringResource(
-                                R.string.transcription_progress_percent,
-                                (fraction * 100.0).toInt().coerceIn(0, 100),
-                            ),
-                            style = MaterialTheme.typography.bodySmall,
+                            modeLabel(state.mode) + " · " + phaseLabel(state.progress.phase),
+                            style = MaterialTheme.typography.labelLarge,
                         )
-                    } else {
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        recordingName?.let {
+                            Text(
+                                it,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
-                    OutlinedButton(onClick = onCancel) {
+                    TextButton(onClick = onCancel) {
                         Text(stringResource(R.string.transcription_cancel))
                     }
                 }
-
-                is TranscriptionRunState.Completed -> {
-                    Text(
-                        recordingName ?: state.recordingId,
-                        style = MaterialTheme.typography.titleSmall,
+                val fraction = state.progress.fraction
+                if (fraction != null) {
+                    LinearProgressIndicator(
+                        progress = { fraction.toFloat() },
+                        modifier = Modifier.fillMaxWidth(),
                     )
-                    Text(
-                        stringResource(
-                            R.string.transcription_completed,
-                            modeLabel(state.mode),
-                        ),
-                    )
-                    state.warning?.let { warning ->
-                        Text(
-                            stringResource(
-                                R.string.transcription_completed_with_fallback,
-                                warning,
-                            ),
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                }
-
-                is TranscriptionRunState.Failed -> {
-                    Text(
-                        recordingName ?: state.recordingId,
-                        style = MaterialTheme.typography.titleSmall,
-                    )
-                    Text(
-                        stringResource(
-                            R.string.transcription_failed,
-                            state.message,
-                        ),
-                    )
-                    if (state.missingModelIds.isNotEmpty()) {
-                        Text(
-                            stringResource(
-                                R.string.transcription_missing_models,
-                                state.missingModelIds.joinToString(),
-                            ),
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                }
-
-                is TranscriptionRunState.Cancelled -> {
-                    Text(
-                        recordingName ?: state.recordingId,
-                        style = MaterialTheme.typography.titleSmall,
-                    )
-                    Text(stringResource(R.string.transcription_cancelled))
+                } else {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
             }
 
-            notice?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall)
+            is TranscriptionRunState.Completed -> {
+                state.warning?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
+
+            is TranscriptionRunState.Failed -> {
+                Text(
+                    stringResource(R.string.transcription_failed, state.message),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                if (state.missingModelIds.isNotEmpty()) {
+                    Text(
+                        stringResource(
+                            R.string.transcription_missing_models,
+                            state.missingModelIds.joinToString(),
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+
+            is TranscriptionRunState.Cancelled -> {
+                Text(
+                    stringResource(R.string.transcription_cancelled),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+
+        notice?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -158,49 +152,55 @@ fun TranscriptVersionListCard(
 ) {
     if (versions.isEmpty()) return
 
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+    var expanded by remember { mutableStateOf(false) }
+    val selected =
+        versions.firstOrNull { it.transcriptionId == selectedTranscriptionId }
+            ?: versions.first()
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
-                stringResource(R.string.transcript_versions_title),
-                style = MaterialTheme.typography.titleMedium,
+                modeLabel(selected.mode),
+                style = MaterialTheme.typography.titleSmall,
             )
-            recordingName?.let {
-                Text(it, style = MaterialTheme.typography.titleSmall)
+            Text(
+                formatCompletedAt(selected.completedAtMs) +
+                    " · " + selected.segmentCount + " 段",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Column {
+            OutlinedButton(onClick = { expanded = true }) {
+                Text("版本 " + versions.size)
             }
-            versions.forEach { version ->
-                val modeText = modeLabel(version.mode)
-                val latestText = stringResource(R.string.transcript_versions_latest)
-                val selectedText = stringResource(R.string.transcript_versions_selected)
-                val label =
-                    buildString {
-                        append(modeText)
-                        if (version.latest) {
-                            append(" · ")
-                            append(latestText)
-                        }
-                        if (version.transcriptionId == selectedTranscriptionId) {
-                            append(" · ")
-                            append(selectedText)
-                        }
-                    }
-                OutlinedButton(
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = { onSelect(version.transcriptionId) },
-                ) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Text(label)
-                        Text(
-                            stringResource(
-                                R.string.transcript_versions_meta,
-                                formatCompletedAt(version.completedAtMs),
-                                version.segmentCount,
-                            ),
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+            ) {
+                versions.forEach { version ->
+                    DropdownMenuItem(
+                        text = {
+                            Column {
+                                Text(
+                                    (if (version.transcriptionId == selected.transcriptionId) "✓ " else "") +
+                                        modeLabel(version.mode),
+                                )
+                                Text(
+                                    formatCompletedAt(version.completedAtMs) +
+                                        " · " + version.segmentCount + " 段",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                        },
+                        onClick = {
+                            expanded = false
+                            onSelect(version.transcriptionId)
+                        },
+                    )
                 }
             }
         }
@@ -213,75 +213,76 @@ fun TranscriptDocumentHeader(
     recordingName: String?,
     onRenameSpeaker: (speakerId: String, requestedName: String?) -> Unit,
 ) {
+    var speakerListOpen by remember(document.alignmentId) {
+        mutableStateOf(false)
+    }
     var pendingSpeaker by remember(document.alignmentId) {
         mutableStateOf<TranscriptSpeakerDisplay?>(null)
     }
     var renameValue by remember(document.alignmentId) {
         mutableStateOf("")
     }
+    val modeText = modeLabel(document.mode)
 
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Text(
-                stringResource(R.string.transcript_result_title),
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Text(recordingName ?: document.recordingId)
-            Text(
-                stringResource(
-                    R.string.transcript_result_mode,
-                    modeLabel(document.mode),
-                ),
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Text(
-                stringResource(
-                    R.string.transcript_result_segments,
-                    document.segments.size,
-                ),
-                style = MaterialTheme.typography.bodySmall,
-            )
-
-            if (document.alignmentId != null) {
-                Text(
-                    stringResource(R.string.diarization_transcript_applied),
-                    style = MaterialTheme.typography.bodySmall,
-                )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            buildString {
+                append(modeText)
+                append(" · ")
+                append(document.segments.size)
+                append(" 段")
+                if (document.speakers.isNotEmpty()) {
+                    append(" · ")
+                    append(document.speakers.size)
+                    append(" 位说话人")
+                }
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        if (document.speakers.isNotEmpty()) {
+            TextButton(onClick = { speakerListOpen = true }) {
+                Text("说话人")
             }
+        }
+    }
 
-            if (document.speakers.isNotEmpty()) {
-                Text(
-                    stringResource(R.string.diarization_speakers_title),
-                    style = MaterialTheme.typography.titleSmall,
-                )
-                document.speakers.forEach { speaker ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text(
-                            speaker.displayName
-                                ?: stringResource(
-                                    R.string.diarization_speaker_default,
-                                    speaker.speakerOrdinal,
-                                ),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
+    if (speakerListOpen) {
+        AlertDialog(
+            onDismissRequest = { speakerListOpen = false },
+            title = { Text("说话人") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    document.speakers.forEach { speaker ->
                         TextButton(
+                            modifier = Modifier.fillMaxWidth(),
                             onClick = {
+                                speakerListOpen = false
                                 pendingSpeaker = speaker
                                 renameValue = speaker.displayName.orEmpty()
                             },
                         ) {
-                            Text(stringResource(R.string.diarization_speaker_rename))
+                            Text(
+                                speaker.displayName
+                                    ?: stringResource(
+                                        R.string.diarization_speaker_default,
+                                        speaker.speakerOrdinal,
+                                    ),
+                            )
                         }
                     }
                 }
-            }
-        }
+            },
+            confirmButton = {
+                TextButton(onClick = { speakerListOpen = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
     }
 
     pendingSpeaker?.let { speaker ->
@@ -366,93 +367,93 @@ fun TranscriptSegmentCard(
         mutableStateOf<TextLayoutResult?>(null)
     }
 
-    Card(
+    val speakerLabel =
+        when {
+            !segment.speakerDisplayName.isNullOrBlank() -> segment.speakerDisplayName
+            segment.speakerOrdinal != null ->
+                stringResource(
+                    R.string.diarization_speaker_default,
+                    segment.speakerOrdinal,
+                )
+            segment.ambiguous ->
+                stringResource(R.string.diarization_speaker_overlap_ambiguous)
+            segment.speakerAssignmentAvailable ->
+                stringResource(R.string.diarization_speaker_unresolved)
+            else -> null
+        }
+
+    Column(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .clickable(
-                    enabled = syncEnabled,
-                    onClick = { onSeek(segment.startSampleIndex) },
-                ),
-        colors =
-            CardDefaults.cardColors(
-                containerColor =
+                .background(
                     if (isActive) {
-                        MaterialTheme.colorScheme.secondaryContainer
+                        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
                     } else {
                         MaterialTheme.colorScheme.surface
                     },
-            ),
+                    RoundedCornerShape(8.dp),
+                )
+                .clickable(
+                    enabled = syncEnabled,
+                    onClick = { onSeek(segment.startSampleIndex) },
+                )
+                .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            if (segment.speakerAssignmentAvailable) {
+            speakerLabel?.let {
                 Text(
-                    when {
-                        !segment.speakerDisplayName.isNullOrBlank() ->
-                            segment.speakerDisplayName
-                        segment.speakerOrdinal != null ->
-                            stringResource(
-                                R.string.diarization_speaker_default,
-                                segment.speakerOrdinal,
-                            )
-                        segment.ambiguous ->
-                            stringResource(R.string.diarization_speaker_overlap_ambiguous)
-                        else ->
-                            stringResource(R.string.diarization_speaker_unresolved)
-                    },
-                    style = MaterialTheme.typography.titleSmall,
+                    it,
+                    style = MaterialTheme.typography.labelMedium,
                     color =
                         if (isActive) {
                             MaterialTheme.colorScheme.primary
                         } else {
-                            MaterialTheme.colorScheme.onSurface
+                            MaterialTheme.colorScheme.onSurfaceVariant
                         },
+                    modifier = Modifier.weight(1f),
                 )
-                if (segment.overlap && !segment.ambiguous) {
-                    Text(
-                        stringResource(R.string.diarization_overlap_note),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
             }
             Text(
                 formatSampleRange(
                     segment.startSampleIndex,
                     segment.endSampleIndexExclusive,
                 ),
-                style = MaterialTheme.typography.labelMedium,
-            )
-            Text(
-                text = annotatedText,
-                style = MaterialTheme.typography.bodyMedium,
-                onTextLayout = { textLayout = it },
-                modifier =
-                    Modifier.pointerInput(
-                        segment.stableId,
-                        activeCueId,
-                        syncEnabled,
-                    ) {
-                        detectTapGestures { position ->
-                            if (!syncEnabled) return@detectTapGestures
-                            val offset =
-                                textLayout
-                                    ?.getOffsetForPosition(position)
-                                    ?: return@detectTapGestures
-                            val cue =
-                                segment.cues.firstOrNull { candidate ->
-                                    candidate.projectionQuality ==
-                                        TextProjectionQuality.EXACT &&
-                                        offset >= candidate.textStartOffset &&
-                                        offset < candidate.textEndOffsetExclusive
-                                }
-                            onSeek(cue?.startSampleIndex ?: segment.startSampleIndex)
-                        }
-                    },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        Text(
+            text = annotatedText,
+            style = MaterialTheme.typography.bodyMedium,
+            onTextLayout = { textLayout = it },
+            modifier =
+                Modifier.pointerInput(
+                    segment.stableId,
+                    activeCueId,
+                    syncEnabled,
+                ) {
+                    detectTapGestures { position ->
+                        if (!syncEnabled) return@detectTapGestures
+                        val offset =
+                            textLayout
+                                ?.getOffsetForPosition(position)
+                                ?: return@detectTapGestures
+                        val cue =
+                            segment.cues.firstOrNull { candidate ->
+                                candidate.projectionQuality ==
+                                    TextProjectionQuality.EXACT &&
+                                    offset >= candidate.textStartOffset &&
+                                    offset < candidate.textEndOffsetExclusive
+                            }
+                        onSeek(cue?.startSampleIndex ?: segment.startSampleIndex)
+                    }
+                },
+        )
     }
 }
 
@@ -503,7 +504,7 @@ private fun formatSampleRange(
     formatSampleTime(start) + " – " + formatSampleTime(end)
 
 private val COMPLETED_AT_FORMAT: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+    DateTimeFormatter.ofPattern("MM-dd HH:mm")
 
 private fun formatSampleTime(sampleIndex: Long): String {
     val seconds = sampleIndex.toDouble() / 16_000.0

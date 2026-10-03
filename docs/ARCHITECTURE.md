@@ -8,7 +8,7 @@ Voica 是全新 Android 工程，不从 `voice-card-android` 继承任何代码�
 
 ## 2. 当前已落地模块
 
-Stage 11 当前物理模块：
+Stage 12A 当前物理模块：
 
 ```
 :app
@@ -123,6 +123,41 @@ Compose Summary UI / evidence seek-to-play
 ```
 
 AI evidence 继续使用 Stage 7/10 的 16 kHz absolute canonical sample index，不建立第二套时间轴。
+
+## Stage 12A 产品 UI 架构
+
+Stage 12A 不增加新的 Gradle module，继续由 `:app` 承载产品层 Compose UI，但冻结以下页面与状态边界：
+
+```
+Root Scaffold
+├─ 设备（一级）
+│  ├─ Device Home
+│  ├─ Device Recordings（二级）
+│  └─ Full BLE Diagnostics（二级）
+├─ 录音库（一级）
+│  └─ Recording Detail（二级）
+│     ├─ 播放
+│     ├─ 转写
+│     └─ AI 总结
+└─ 设置（一级）
+   ├─ AI 智能
+   ├─ 本地模型
+   ├─ 主题与显示
+   └─ 高级设置
+```
+
+一级页面显示 Bottom Navigation；二级页面隐藏一级导航并通过 Back 返回。
+
+Device Home 只保留高频连接/录音任务。完整 BLE Diagnostics 继续消费 `DeviceRepository` 暴露的 diagnostics Flow，不复制第二套协议状态。
+
+设备录音批量删除仍复用 Stage 5 单录音 remote delete，并严格串行：
+
+`delete → refresh → verify → next`
+
+Recording Detail 的完整播放器、Transcript Mini Player、Summary Mini Player 共用同一 `PlaybackViewModel / PlaybackSnapshot`。任何 seek 继续使用 absolute canonical sample index；设备 Recording/Paused 优先于本地 playback。
+
+Stage 12A Room schema 保持 v4。收藏、标签、文件夹、导入 provenance 等本地管理数据留给 Stage 12B 显式 migration。
+
 
 ## 3. Stage 2 BLE 数据流
 

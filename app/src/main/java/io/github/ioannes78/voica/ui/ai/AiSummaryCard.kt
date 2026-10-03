@@ -6,13 +6,20 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -35,7 +42,9 @@ import io.github.ioannes78.voica.database.AiSummaryEntity
 import io.github.ioannes78.voica.database.AiSummaryStateValue
 import java.text.DateFormat
 import java.util.Date
+import java.util.Locale
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AiSummaryCard(
     transcriptionId: String,
@@ -51,9 +60,12 @@ fun AiSummaryCard(
     val customTemplates by viewModel.customTemplates.collectAsState()
     val notice by viewModel.notice.collectAsState()
 
+    var moreExpanded by remember { mutableStateOf(false) }
+    var historyExpanded by remember { mutableStateOf(false) }
+    var generationSheetOpen by remember { mutableStateOf(false) }
+    var templateEditorOpen by remember { mutableStateOf(false) }
     var presetExpanded by remember { mutableStateOf(false) }
     var selectedPresetId by remember { mutableStateOf(SummaryTemplateCatalog.GENERIC) }
-    var customExpanded by remember { mutableStateOf(false) }
     var customName by remember { mutableStateOf("") }
     var customFocus by remember { mutableStateOf("") }
     var customInstruction by remember { mutableStateOf("") }
@@ -78,64 +90,307 @@ fun AiSummaryCard(
         (runState as? AiSummaryRunState.Running)
             ?.takeIf { it.transcriptionId == transcriptionId }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("AI 智能总结", style = MaterialTheme.typography.titleLarge)
-            recordingName?.let {
-                Text(it, style = MaterialTheme.typography.bodyMedium)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    selected?.result?.title
+                        ?: selected?.entity?.displayText?.lineSequence()?.firstOrNull()
+                        ?: "AI 总结",
+                    style = MaterialTheme.typography.titleLarge,
+                    maxLines = 1,
+                )
+                provider?.let {
+                    Text(
+                        it.displayName + " · " + it.model.ifBlank { "未选择模型" },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                }
             }
 
-            if (provider == null) {
+            if (history.isNotEmpty()) {
+                Box {
+                    OutlinedButton(onClick = { historyExpanded = true }) {
+                        Text("版本 " + history.size)
+                    }
+                    DropdownMenu(
+                        expanded = historyExpanded,
+                        onDismissRequest = { historyExpanded = false },
+                    ) {
+                        history.forEach { summary ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        historyLabel(
+                                            summary = summary,
+                                            selected = selected?.entity?.id == summary.id,
+                                        ),
+                                    )
+                                },
+                                onClick = {
+                                    historyExpanded = false
+                                    viewModel.selectSummary(summary.id)
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+
+            Box {
+                IconButton(onClick = { moreExpanded = true }) {
+                    Icon(
+                        Icons.Outlined.MoreVert,
+                        contentDescription = "AI 总结操作",
+                    )
+                }
+                DropdownMenu(
+                    expanded = moreExpanded,
+                    onDismissRequest = { moreExpanded = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("生成新总结") },
+                        onClick = {
+                            moreExpanded = false
+                            generationSheetOpen = true
+                        },
+                        enabled = running == null,
+                    )
+                    DropdownMenuItem(
+                        text = { Text("新建自定义模板") },
+                        onClick = {
+                            moreExpanded = false
+                            templateEditorOpen = true
+                        },
+                        enabled = running == null,
+                    )
+                    DropdownMenuItem(
+                        text = { Text("文本模型设置") },
+                        onClick = {
+                            moreExpanded = false
+                            onOpenSettings()
+                        },
+                    )
+                }
+            }
+        }
+
+        if (provider == null) {
+            Column(
+                modifier = Modifier.padding(vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 Text(
-                    "尚未配置文本大模型。请先到设置页添加 Provider、API Key 与模型。",
-                    style = MaterialTheme.typography.bodySmall,
+                    "尚未配置文本大模型。",
+                    style = MaterialTheme.typography.bodyMedium,
                 )
                 OutlinedButton(onClick = onOpenSettings) {
-                    Text("前往文本模型设置")
+                    Text("前往 AI 设置")
                 }
-            } else {
-                val p = provider!!
-                Text(
-                    "Provider：" + p.displayName +
-                        " · 模型：" + p.model.ifBlank { "未选择" },
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
-                    "将发送：当前转写文本 + 必要的说话人/证据引用 → " +
-                        p.host.ifBlank { "已配置 Provider" } +
-                        "。不会上传原始录音。",
-                    style = MaterialTheme.typography.bodySmall,
-                )
             }
+        }
 
-            if (running != null) {
+        if (running != null) {
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 Text(
                     progressText(running),
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                OutlinedButton(onClick = viewModel::cancel) {
-                    Text("取消 AI 总结")
+                androidx.compose.material3.LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                TextButton(onClick = viewModel::cancel) {
+                    Text("取消生成")
                 }
-            } else {
+            }
+        }
+
+        val document = selected
+        if (document == null && running == null) {
+            if (provider != null) {
                 Button(
-                    onClick = { viewModel.generateSmart() },
+                    onClick = { generationSheetOpen = true },
                     enabled = provider?.model?.isNotBlank() == true,
+                ) {
+                    Text("生成 AI 总结")
+                }
+            }
+        } else if (document != null) {
+            Text(
+                summaryStatusLabel(document.entity.status),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            when {
+                document.result != null -> {
+                    val result = checkNotNull(document.result)
+                    if (result.overview.isNotBlank()) {
+                        Text(
+                            result.overview,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    result.sections.forEach { section ->
+                        if (section.items.isNotEmpty()) {
+                            Text(
+                                section.label,
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
+                            section.items.forEach { item ->
+                                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                    Text("• " + item.text)
+                                    if (item.evidenceRefs.isNotEmpty()) {
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                        ) {
+                                            item.evidenceRefs.forEach { ref ->
+                                                val evidence = document.evidenceByRef[ref]
+                                                if (evidence != null) {
+                                                    TextButton(
+                                                        onClick = {
+                                                            onSeekEvidence(
+                                                                evidence.startSampleIndex,
+                                                            )
+                                                        },
+                                                    ) {
+                                                        Text(
+                                                            formatEvidenceTime(
+                                                                evidence.startSampleIndex,
+                                                            ),
+                                                            style =
+                                                                MaterialTheme
+                                                                    .typography
+                                                                    .labelSmall,
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                !document.entity.displayText.isNullOrBlank() -> {
+                    Text(document.entity.displayText!!)
+                }
+
+                document.entity.status == AiSummaryStateValue.INTERRUPTED -> {
+                    Text("上次生成已中断，可继续生成。")
+                }
+
+                !document.entity.sanitizedErrorMessage.isNullOrBlank() -> {
+                    Text(
+                        document.entity.sanitizedErrorMessage!!,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (document.entity.status == AiSummaryStateValue.INTERRUPTED) {
+                    Button(
+                        onClick = { viewModel.resumeSelected() },
+                        enabled = running == null,
+                    ) {
+                        Text("继续生成")
+                    }
+                }
+                if (document.entity.status != AiSummaryStateValue.CREATED &&
+                    document.entity.status !in AiSummaryStateValue.ACTIVE
+                ) {
+                    TextButton(
+                        onClick = { viewModel.regenerateSelected() },
+                        enabled =
+                            running == null &&
+                                provider?.model?.isNotBlank() == true,
+                    ) {
+                        Text("按原模板重新生成")
+                    }
+                }
+            }
+        }
+
+        notice?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+
+    if (generationSheetOpen) {
+        ModalBottomSheet(
+            onDismissRequest = { generationSheetOpen = false },
+        ) {
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    "生成 AI 总结",
+                    style = MaterialTheme.typography.headlineSmall,
+                )
+                provider?.let {
+                    Text(
+                        it.displayName + " · " + it.model.ifBlank { "未选择模型" },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                Button(
+                    onClick = {
+                        generationSheetOpen = false
+                        viewModel.generateSmart()
+                    },
+                    enabled = provider?.model?.isNotBlank() == true,
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text("智能总结")
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box {
+                HorizontalDivider()
+                Text(
+                    "预设模板",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
                         OutlinedButton(
+                            modifier = Modifier.fillMaxWidth(),
                             onClick = { presetExpanded = true },
                             enabled = provider?.model?.isNotBlank() == true,
                         ) {
-                            val template =
-                                SummaryTemplateCatalog.find(selectedPresetId)
-                            Text(template?.name ?: "选择预设模板")
+                            val template = SummaryTemplateCatalog.find(selectedPresetId)
+                            Text(template?.name ?: "选择模板")
                         }
                         DropdownMenu(
                             expanded = presetExpanded,
@@ -145,29 +400,92 @@ fun AiSummaryCard(
                                 DropdownMenuItem(
                                     text = { Text(template.name) },
                                     onClick = {
-                                        selectedPresetId = template.id ?: SummaryTemplateCatalog.GENERIC
+                                        selectedPresetId =
+                                            template.id ?: SummaryTemplateCatalog.GENERIC
                                         presetExpanded = false
                                     },
                                 )
                             }
                         }
                     }
-                    OutlinedButton(
-                        onClick = { viewModel.generatePreset(selectedPresetId) },
+                    Button(
+                        onClick = {
+                            generationSheetOpen = false
+                            viewModel.generatePreset(selectedPresetId)
+                        },
                         enabled = provider?.model?.isNotBlank() == true,
                     ) {
-                        Text("按预设生成")
+                        Text("生成")
                     }
                 }
-            }
 
-            HorizontalDivider()
-            Text("自定义模板", style = MaterialTheme.typography.titleMedium)
-            OutlinedButton(onClick = { customExpanded = !customExpanded }) {
-                Text(if (customExpanded) "收起模板编辑" else "新建自定义模板")
-            }
+                if (customTemplates.isNotEmpty()) {
+                    HorizontalDivider()
+                    Text(
+                        "自定义模板",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    customTemplates.forEach { template ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                template.name,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(
+                                onClick = {
+                                    generationSheetOpen = false
+                                    viewModel.generateCustom(template.id)
+                                },
+                            ) {
+                                Text("生成")
+                            }
+                            TextButton(
+                                onClick = { viewModel.deleteCustomTemplate(template.id) },
+                            ) {
+                                Text("删除")
+                            }
+                        }
+                    }
+                }
 
-            if (customExpanded) {
+                TextButton(
+                    onClick = {
+                        generationSheetOpen = false
+                        templateEditorOpen = true
+                    },
+                ) {
+                    Text("新建自定义模板")
+                }
+
+                Text(
+                    "默认仅发送当前转写文本和必要的说话人/证据引用，不上传原始录音。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 24.dp),
+                )
+            }
+        }
+    }
+
+    if (templateEditorOpen) {
+        ModalBottomSheet(
+            onDismissRequest = { templateEditorOpen = false },
+        ) {
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    "新建自定义模板",
+                    style = MaterialTheme.typography.headlineSmall,
+                )
                 OutlinedTextField(
                     value = customName,
                     onValueChange = { customName = it.take(120) },
@@ -184,12 +502,12 @@ fun AiSummaryCard(
                     value = customInstruction,
                     onValueChange = { customInstruction = it.take(4_000) },
                     label = { Text("输出要求") },
-                    supportingText = {
-                        Text("自定义要求不会覆盖系统的隐私、证据和防提示注入规则。")
-                    },
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Text("输出章节", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "输出章节",
+                    style = MaterialTheme.typography.titleSmall,
+                )
                 AiSummarySectionType.entries.forEach { section ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -217,164 +535,43 @@ fun AiSummaryCard(
                             focus = customFocus,
                             instruction = customInstruction,
                         )
+                        templateEditorOpen = false
                     },
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("保存自定义模板")
+                    Text("保存模板")
                 }
-            }
-
-            customTemplates.forEach { template ->
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(
-                        onClick = { viewModel.generateCustom(template.id) },
-                        enabled =
-                            running == null &&
-                                provider?.model?.isNotBlank() == true,
-                    ) {
-                        Text(template.name)
-                    }
-                    TextButton(
-                        onClick = { viewModel.deleteCustomTemplate(template.id) },
-                        enabled = running == null,
-                    ) {
-                        Text("删除")
-                    }
-                }
-            }
-
-            if (history.isNotEmpty()) {
-                HorizontalDivider()
-                Text("AI 总结历史", style = MaterialTheme.typography.titleMedium)
-                history.forEach { summary ->
-                    SummaryHistoryRow(
-                        summary = summary,
-                        selected = selected?.entity?.id == summary.id,
-                        onSelect = { viewModel.selectSummary(summary.id) },
-                    )
-                }
-            }
-
-            selected?.let { document ->
-                HorizontalDivider()
                 Text(
-                    document.result?.title
-                        ?: document.entity.displayText?.lineSequence()?.firstOrNull()
-                        ?: "AI 总结",
-                    style = MaterialTheme.typography.titleLarge,
-                )
-                Text(
-                    summaryStatusLabel(document.entity.status),
+                    "自定义要求不会覆盖系统的隐私、证据和防提示注入规则。",
                     style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 24.dp),
                 )
-
-                when {
-                    document.result != null -> {
-                        val result = checkNotNull(document.result)
-                        if (result.overview.isNotBlank()) {
-                            Text(result.overview)
-                        }
-                        result.sections.forEach { section ->
-                            if (section.items.isNotEmpty()) {
-                                Text(
-                                    section.label,
-                                    style = MaterialTheme.typography.titleMedium,
-                                )
-                                section.items.forEach { item ->
-                                    Text("• " + item.text)
-                                    if (item.evidenceRefs.isNotEmpty()) {
-                                        Row(
-                                            horizontalArrangement =
-                                                Arrangement.spacedBy(4.dp),
-                                        ) {
-                                            item.evidenceRefs.forEach { ref ->
-                                                val evidence =
-                                                    document.evidenceByRef[ref]
-                                                if (evidence != null) {
-                                                    TextButton(
-                                                        onClick = {
-                                                            onSeekEvidence(
-                                                                evidence.startSampleIndex,
-                                                            )
-                                                        },
-                                                    ) {
-                                                        Text(ref + " · 跳转")
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    !document.entity.displayText.isNullOrBlank() -> {
-                        Text(document.entity.displayText!!)
-                    }
-
-                    document.entity.status == AiSummaryStateValue.INTERRUPTED -> {
-                        Text("上次生成因进程中断而停止；不会自动继续调用云端模型。")
-                    }
-
-                    !document.entity.sanitizedErrorMessage.isNullOrBlank() -> {
-                        Text(document.entity.sanitizedErrorMessage!!)
-                    }
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (document.entity.status == AiSummaryStateValue.INTERRUPTED) {
-                        Button(
-                            onClick = { viewModel.resumeSelected() },
-                            enabled = running == null,
-                        ) {
-                            Text("继续生成")
-                        }
-                    }
-                    if (document.entity.status != AiSummaryStateValue.CREATED &&
-                        document.entity.status !in AiSummaryStateValue.ACTIVE
-                    ) {
-                        OutlinedButton(
-                            onClick = { viewModel.regenerateSelected() },
-                            enabled =
-                                running == null &&
-                                    provider?.model?.isNotBlank() == true,
-                        ) {
-                            Text("按原模板重新生成")
-                        }
-                    }
-                }
-            }
-
-            notice?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall)
             }
         }
     }
 }
 
-@Composable
-private fun SummaryHistoryRow(
+private fun historyLabel(
     summary: AiSummaryEntity,
     selected: Boolean,
-    onSelect: () -> Unit,
-) {
-    OutlinedButton(
-        onClick = onSelect,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        val created =
-            DateFormat.getDateTimeInstance(
-                DateFormat.SHORT,
-                DateFormat.SHORT,
-            ).format(Date(summary.createdAtMs))
-        Text(
-            created + " · " +
-                summaryStatusLabel(summary.status) +
-                " · " +
-                summary.providerNameSnapshot +
-                (if (selected) " · 当前查看" else ""),
-        )
-    }
+): String {
+    val created =
+        DateFormat.getDateTimeInstance(
+            DateFormat.SHORT,
+            DateFormat.SHORT,
+        ).format(Date(summary.createdAtMs))
+    return (if (selected) "✓ " else "") +
+        created + " · " +
+        summaryStatusLabel(summary.status) + " · " +
+        summary.providerNameSnapshot
+}
+
+private fun formatEvidenceTime(sampleIndex: Long): String {
+    val totalSeconds = sampleIndex / 16_000L
+    val minutes = totalSeconds / 60L
+    val seconds = totalSeconds % 60L
+    return String.format(Locale.US, "%02d:%02d", minutes, seconds)
 }
 
 private fun progressText(state: AiSummaryRunState.Running): String =

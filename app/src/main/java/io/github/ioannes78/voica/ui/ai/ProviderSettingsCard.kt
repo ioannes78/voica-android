@@ -1,5 +1,7 @@
 package io.github.ioannes78.voica.ui.ai
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,6 +11,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -16,12 +20,15 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,230 +46,393 @@ fun ProviderSettingsCard(
     viewModel: ProviderSettingsViewModel,
 ) {
     val state by viewModel.state.collectAsState()
+    var editing by remember { mutableStateOf(state.profiles.isEmpty()) }
     var providerMenuExpanded by remember { mutableStateOf(false) }
     var modelPickerOpen by remember { mutableStateOf(false) }
     var modelSearch by remember { mutableStateOf("") }
     var showApiKey by remember { mutableStateOf(false) }
+    var advancedExpanded by remember { mutableStateOf(false) }
+    var baselineProfileId by remember { mutableStateOf<String?>(null) }
+    var baselineSignature by remember { mutableStateOf<String?>(null) }
+    var discardConfirmOpen by remember { mutableStateOf(false) }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+    LaunchedEffect(state.profiles.size) {
+        if (state.profiles.isEmpty()) {
+            editing = true
+        }
+    }
+
+    LaunchedEffect(editing, state.selectedProfileId) {
+        if (
+            editing &&
+            baselineProfileId != state.selectedProfileId
         ) {
-            Text("文本大模型 Provider", style = MaterialTheme.typography.titleLarge)
-            Text(
-                "用于 Stage 11 AI 智能总结。默认只发送转写文本与必要的说话人/证据引用，不上传原始录音。",
-                style = MaterialTheme.typography.bodySmall,
-            )
+            baselineProfileId = state.selectedProfileId
+            baselineSignature = state.editSignature()
+        }
+    }
 
-            if (state.profiles.isNotEmpty()) {
-                Text("已保存配置", style = MaterialTheme.typography.titleSmall)
-                state.profiles.forEach { profile ->
-                    OutlinedButton(
-                        onClick = { viewModel.selectProfile(profile.providerProfileId) },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        val defaultSuffix =
-                            if (profile.providerProfileId == state.defaultProfileId) {
-                                " · 默认"
-                            } else {
-                                ""
-                            }
-                        Text(profile.displayName + defaultSuffix)
-                    }
-                }
-            }
+    LaunchedEffect(state.notice, state.busy) {
+        if (
+            editing &&
+            !state.busy &&
+            state.notice?.contains("已保存") == true
+        ) {
+            baselineSignature = state.editSignature()
+        }
+    }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = viewModel::newProfile) {
-                    Text("新增 Provider")
-                }
-                if (state.persisted &&
-                    state.selectedProfileId != state.defaultProfileId
-                ) {
-                    OutlinedButton(
-                        onClick = viewModel::setDefault,
-                        enabled = !state.busy,
-                    ) {
-                        Text("设为默认")
-                    }
-                }
-            }
+    val dirty =
+        editing &&
+            baselineSignature != null &&
+            state.editSignature() != baselineSignature
 
-            HorizontalDivider()
+    fun requestEditorExit() {
+        if (dirty) {
+            discardConfirmOpen = true
+        } else {
+            editing = false
+            viewModel.refresh()
+        }
+    }
 
-            Box {
-                OutlinedButton(
-                    onClick = { providerMenuExpanded = true },
-                    enabled = !state.busy,
-                ) {
+    BackHandler(
+        enabled = editing && state.profiles.isNotEmpty(),
+    ) {
+        requestEditorExit()
+    }
+
+    if (!editing) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column {
                     Text(
-                        state.selectedPreset?.displayName
-                            ?: state.presetId,
+                        "文本大模型 Provider",
+                        style = MaterialTheme.typography.titleLarge,
+                    )
+                    Text(
+                        "管理 AI 总结使用的模型服务",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                DropdownMenu(
-                    expanded = providerMenuExpanded,
-                    onDismissRequest = { providerMenuExpanded = false },
+                Button(
+                    onClick = {
+                        viewModel.newProfile()
+                        editing = true
+                    },
                 ) {
-                    ProviderPresetCatalog.builtIn.forEach { preset ->
-                        DropdownMenuItem(
-                            text = { Text(preset.displayName) },
-                            onClick = {
-                                providerMenuExpanded = false
-                                viewModel.setPreset(preset.presetId)
-                            },
-                        )
-                    }
+                    Text("新增")
                 }
             }
 
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column {
+                    state.profiles.forEachIndexed { index, profile ->
+                        ListItem(
+                            headlineContent = {
+                                Text(
+                                    profile.displayName +
+                                        if (profile.providerProfileId == state.defaultProfileId) {
+                                            " · 默认"
+                                        } else {
+                                            ""
+                                        },
+                                )
+                            },
+                            supportingContent = {
+                                Text(
+                                    profile.defaultModel.ifBlank { "未选择模型" },
+                                    maxLines = 1,
+                                )
+                            },
+                            trailingContent = {
+                                Icon(
+                                    Icons.Outlined.ChevronRight,
+                                    contentDescription = null,
+                                )
+                            },
+                            modifier =
+                                Modifier.clickable {
+                                    viewModel.selectProfile(profile.providerProfileId)
+                                    editing = true
+                                },
+                        )
+                        if (index != state.profiles.lastIndex) {
+                            HorizontalDivider()
+                        }
+                    }
+                }
+            }
+        }
+        return
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (state.profiles.isNotEmpty()) {
+                TextButton(onClick = { requestEditorExit() }) {
+                    Text("返回")
+                }
+            }
+            Text(
+                state.displayName.ifBlank { "Provider 配置" },
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.weight(1f),
+            )
+            if (state.persisted &&
+                state.selectedProfileId != state.defaultProfileId
+            ) {
+                TextButton(
+                    onClick = viewModel::setDefault,
+                    enabled = !state.busy,
+                ) {
+                    Text("设为默认")
+                }
+            }
+        }
+
+        Box {
+            OutlinedButton(
+                onClick = { providerMenuExpanded = true },
+                enabled = !state.busy,
+            ) {
+                Text(
+                    state.selectedPreset?.displayName
+                        ?: state.presetId,
+                )
+            }
+            DropdownMenu(
+                expanded = providerMenuExpanded,
+                onDismissRequest = { providerMenuExpanded = false },
+            ) {
+                ProviderPresetCatalog.builtIn.forEach { preset ->
+                    DropdownMenuItem(
+                        text = { Text(preset.displayName) },
+                        onClick = {
+                            providerMenuExpanded = false
+                            viewModel.setPreset(preset.presetId)
+                        },
+                    )
+                }
+            }
+        }
+
+        OutlinedTextField(
+            value = state.displayName,
+            onValueChange = viewModel::setDisplayName,
+            label = { Text("配置名称") },
+            singleLine = true,
+            enabled = !state.busy,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = state.baseUrl,
+            onValueChange = viewModel::setBaseUrl,
+            label = { Text("Base URL（HTTPS）") },
+            singleLine = true,
+            enabled = !state.busy && !state.stage11Unsupported,
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        if (state.stage11Unsupported) {
+            Text(
+                "该 Provider 需要当前阶段未启用的 OAuth 配置。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
             OutlinedTextField(
-                value = state.displayName,
-                onValueChange = viewModel::setDisplayName,
-                label = { Text("配置名称") },
+                value = state.apiKeyInput,
+                onValueChange = viewModel::setApiKey,
+                label = {
+                    Text(
+                        if (state.credentialConfigured) {
+                            "API Key（已安全保存；留空保持不变）"
+                        } else {
+                            "API Key"
+                        },
+                    )
+                },
+                visualTransformation =
+                    if (showApiKey) {
+                        VisualTransformation.None
+                    } else {
+                        PasswordVisualTransformation()
+                    },
                 singleLine = true,
                 enabled = !state.busy,
                 modifier = Modifier.fillMaxWidth(),
             )
-            OutlinedTextField(
-                value = state.baseUrl,
-                onValueChange = viewModel::setBaseUrl,
-                label = { Text("Base URL（HTTPS）") },
-                singleLine = true,
-                enabled = !state.busy && !state.stage11Unsupported,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            if (state.stage11Unsupported) {
-                Text(
-                    "Vertex AI 需要 Google Cloud OAuth（project/location/访问令牌）。Stage 11 不在设备端保存服务账号私钥，因此当前仅冻结接口契约。",
-                    style = MaterialTheme.typography.bodySmall,
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = showApiKey,
+                    onCheckedChange = { showApiKey = it },
                 )
-            } else {
-                OutlinedTextField(
-                    value = state.apiKeyInput,
-                    onValueChange = viewModel::setApiKey,
-                    label = {
-                        Text(
-                            if (state.credentialConfigured) {
-                                "API Key（已安全保存；留空保持不变）"
-                            } else {
-                                "API Key"
-                            },
-                        )
-                    },
-                    visualTransformation =
-                        if (showApiKey) {
-                            VisualTransformation.None
-                        } else {
-                            PasswordVisualTransformation()
-                        },
-                    singleLine = true,
-                    enabled = !state.busy,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(
-                        checked = showApiKey,
-                        onCheckedChange = { showApiKey = it },
-                    )
-                    Text("显示本次输入的 API Key")
-                }
-            }
-
-            OutlinedTextField(
-                value = state.defaultModel,
-                onValueChange = viewModel::setModel,
-                label = { Text("模型 ID（支持手动填写）") },
-                singleLine = true,
-                enabled = !state.busy && !state.stage11Unsupported,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            if (state.discoveredModels.isNotEmpty()) {
-                OutlinedButton(
-                    onClick = {
-                        modelSearch = ""
-                        modelPickerOpen = true
-                    },
-                    enabled = !state.busy,
-                ) {
-                    Text(
-                        "从 " + state.discoveredModels.size + " 个模型中选择",
-                    )
-                }
                 Text(
-                    "模型较多时可搜索名称或 ID；请选择支持文本对话的模型。",
+                    "显示本次输入",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
+        }
 
-            if (modelPickerOpen) {
-                ModelPickerDialog(
-                    models = state.discoveredModels,
-                    query = modelSearch,
-                    onQueryChange = { modelSearch = it },
-                    onSelect = { modelId ->
-                        viewModel.setModel(modelId)
-                        modelPickerOpen = false
-                    },
-                    onDismiss = { modelPickerOpen = false },
-                )
+        OutlinedTextField(
+            value = state.defaultModel,
+            onValueChange = viewModel::setModel,
+            label = { Text("模型 ID") },
+            singleLine = true,
+            enabled = !state.busy && !state.stage11Unsupported,
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        if (state.discoveredModels.isNotEmpty()) {
+            OutlinedButton(
+                onClick = {
+                    modelSearch = ""
+                    modelPickerOpen = true
+                },
+                enabled = !state.busy,
+            ) {
+                Text("从 " + state.discoveredModels.size + " 个模型中选择")
             }
+        }
 
+        if (modelPickerOpen) {
+            ModelPickerDialog(
+                models = state.discoveredModels,
+                query = modelSearch,
+                onQueryChange = { modelSearch = it },
+                onSelect = { modelId ->
+                    viewModel.setModel(modelId)
+                    modelPickerOpen = false
+                },
+                onDismiss = { modelPickerOpen = false },
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Button(
+                onClick = viewModel::save,
+                enabled = !state.busy && !state.stage11Unsupported,
+            ) {
+                Text(if (state.busy) "处理中…" else "保存")
+            }
+            OutlinedButton(
+                onClick = viewModel::testConnection,
+                enabled = !state.busy && state.persisted && !state.stage11Unsupported,
+            ) {
+                Text("测试连接")
+            }
+            OutlinedButton(
+                onClick = viewModel::discoverModels,
+                enabled = !state.busy && state.persisted && !state.stage11Unsupported,
+            ) {
+                Text("获取模型")
+            }
+        }
+
+        TextButton(onClick = { advancedExpanded = !advancedExpanded }) {
+            Text(if (advancedExpanded) "收起高级设置" else "高级设置")
+        }
+
+        if (advancedExpanded) {
             OutlinedTextField(
                 value = state.manualContextWindowTokens,
                 onValueChange = viewModel::setManualContextWindow,
                 label = { Text("上下文窗口（可选，tokens）") },
-                supportingText = {
-                    Text("Provider 未返回上下文长度时可手动填写；留空使用保守估算。")
-                },
                 singleLine = true,
                 enabled = !state.busy && !state.stage11Unsupported,
                 modifier = Modifier.fillMaxWidth(),
             )
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = viewModel::save,
-                    enabled = !state.busy && !state.stage11Unsupported,
-                ) {
-                    Text(if (state.busy) "处理中…" else "保存")
-                }
-                OutlinedButton(
-                    onClick = viewModel::discoverModels,
-                    enabled = !state.busy && state.persisted && !state.stage11Unsupported,
-                ) {
-                    Text("获取模型")
-                }
-                OutlinedButton(
-                    onClick = viewModel::testConnection,
-                    enabled = !state.busy && state.persisted && !state.stage11Unsupported,
-                ) {
-                    Text("连接测试")
-                }
-            }
-
-            if (state.persisted) {
-                TextButton(
-                    onClick = viewModel::deleteSelected,
-                    enabled = !state.busy,
-                ) {
-                    Text("删除此 Provider 配置")
-                }
-            }
-
             state.host?.let {
-                Text("当前目标：" + it, style = MaterialTheme.typography.bodySmall)
-            }
-            state.notice?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall)
+                Text(
+                    "目标：" + it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
+
+        state.notice?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        if (state.persisted) {
+            TextButton(
+                onClick = {
+                    viewModel.deleteSelected()
+                    editing = false
+                },
+                enabled = !state.busy,
+            ) {
+                Text(
+                    "删除此 Provider 配置",
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+
+        Text(
+            "AI 总结默认只发送转写文本和必要的说话人/证据引用，不上传原始录音。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+
+    if (discardConfirmOpen) {
+        AlertDialog(
+            onDismissRequest = { discardConfirmOpen = false },
+            title = { Text("放弃未保存的修改？") },
+            text = { Text("当前 Provider 配置有尚未保存的修改。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        discardConfirmOpen = false
+                        editing = false
+                        viewModel.refresh()
+                    },
+                ) {
+                    Text("放弃")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { discardConfirmOpen = false }) {
+                    Text("继续编辑")
+                }
+            },
+        )
     }
 }
 
+private fun ProviderEditorState.editSignature(): String =
+    listOf(
+        presetId,
+        displayName,
+        baseUrl,
+        apiKeyInput,
+        defaultModel,
+        manualContextWindowTokens,
+    ).joinToString("\u001F")
 
 @Composable
 private fun ModelPickerDialog(
@@ -290,7 +460,7 @@ private fun ModelPickerDialog(
         title = { Text("选择文本模型") },
         text = {
             Column(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 OutlinedTextField(
                     value = query,
@@ -308,7 +478,7 @@ private fun ModelPickerDialog(
                         Modifier
                             .fillMaxWidth()
                             .heightIn(max = 480.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     items(
                         items = filtered,

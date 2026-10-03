@@ -3,6 +3,8 @@ package io.github.ioannes78.voica
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import io.github.ioannes78.voica.ble.DeviceRepository
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.ui.VoicaApp
@@ -24,7 +26,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            VoicaTheme {
+            val themeSettings by appContainer.themeSettingsStore.settings.collectAsState()
+            VoicaTheme(settings = themeSettings) {
                 VoicaApp(
                     repository = deviceRepository,
                     recordingLibraryRepository = recordingLibraryRepository,
@@ -42,6 +45,7 @@ class MainActivity : ComponentActivity() {
                     providerConfigurationRepository =
                         appContainer.providerConfigurationRepository,
                     providerAdapterRegistry = appContainer.providerAdapterRegistry,
+                    themeSettingsStore = appContainer.themeSettingsStore,
                 )
             }
         }

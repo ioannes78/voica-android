@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stage12_subtitle">UI/UX 产品化与本地内容管理</string>
+    <string name="device_screen_title">设备</string>
+    <string name="device_screen_subtitle">连接并控制 QS668 / CB08 录音卡</string>
+    <string name="device_connected">已连接</string>
+    <string name="device_not_connected">未连接</string>
+    <string name="device_connecting">正在连接…</string>
+    <string name="device_default_name">QS668 / CB08</string>
+    <string name="device_scan_found_count">已发现 %1$d 台设备</string>
+    <string name="device_metric_battery">电量</string>
+    <string name="device_metric_remaining">剩余空间</string>
+    <string name="device_metric_firmware">固件</string>
+    <string name="tab_library">录音库</string>
+
+    <string name="library_title">录音库</string>
+    <string name="library_subtitle">管理手机中的录音、转写和 AI 总结</string>
+    <string name="library_empty_title">暂无本地录音</string>
+    <string name="library_empty_body">从设备下载录音后，会自动显示在这里。</string>
+    <string name="back">返回</string>
+
+    <string name="detail_tab_playback">播放</string>
+    <string name="detail_tab_transcript">转写</string>
+    <string name="detail_tab_summary">AI 总结</string>
+    <string name="detail_tab_info">信息</string>
+    <string name="detail_canonical_required">需要先生成标准 WAV，才能播放和转写。</string>
+    <string name="detail_transcription_actions">转写与说话人</string>
+    <string name="detail_transcript_playback_incompatible">当前转写与现有标准 WAV 不兼容，已停止播放同步。</string>
+    <string name="detail_follow_playback">跟随播放</string>
+    <string name="detail_summary_title">AI 总结</string>
+    <string name="detail_summary_requires_transcript">需要先完成一个转写版本，才能生成 AI 总结。</string>
+    <string name="detail_go_transcript">前往转写</string>
+    <string name="detail_info_title">录音信息</string>
+    <string name="detail_source_device">来源设备</string>
+
+    <string name="global_recording_active">正在录音 · %1$s</string>
+    <string name="global_recording_paused">录音已暂停 · %1$s</string>
+    <string name="global_recording_open">查看</string>
+
+    <string name="recording_ready_title">准备录音</string>
+    <string name="recording_active_title">正在录音</string>
+    <string name="recording_paused_title">录音已暂停</string>
+    <string name="recording_unknown_title">录音状态</string>
+    <string name="recording_stop">停止</string>
+    <string name="recording_details_title">录音信息</string>
+
+    <string name="theme_settings_title">主题与显示</string>
+    <string name="theme_mode_title">显示模式</string>
+    <string name="theme_mode_system">跟随系统</string>
+    <string name="theme_mode_light">浅色</string>
+    <string name="theme_mode_dark">深色</string>
+    <string name="theme_palette_title">配色风格</string>
+    <string name="theme_palette_mint">Voica 青绿</string>
+    <string name="theme_palette_blue">Voica 蓝</string>
+    <string name="theme_palette_purple">Voica 紫</string>
+    <string name="theme_custom_accent_title">自定义强调色</string>
+    <string name="theme_custom_accent_hint">#RRGGBB</string>
+    <string name="theme_custom_accent_error">请输入有效的 6 位十六进制颜色，例如 #57D4B2。</string>
+    <string name="theme_custom_accent_apply">应用自定义颜色</string>
+    <string name="theme_settings_note">背景、正文、错误和警告等语义色由 Voica 自动保持可读性。</string>
+</resources>
