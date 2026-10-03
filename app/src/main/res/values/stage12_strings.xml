@@ -4,6 +4,10 @@
     <string name="device_screen_title">设备</string>
     <string name="device_screen_subtitle">连接并控制 QS668 / CB08 录音卡</string>
     <string name="device_connected">已连接</string>
+    <string name="device_not_connected">未连接</string>
+    <string name="device_connecting">正在连接…</string>
+    <string name="device_default_name">QS668 / CB08</string>
+    <string name="device_scan_found_count">已发现 %1$d 台设备</string>
     <string name="device_metric_battery">电量</string>
     <string name="device_metric_remaining">剩余空间</string>
     <string name="device_metric_firmware">固件</string>
