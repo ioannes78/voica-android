@@ -6,6 +6,7 @@ import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -46,12 +47,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.ioannes78.voica.AiSummaryCoordinator
+import io.github.ioannes78.voica.AiSummaryRunState
 import io.github.ioannes78.voica.CanonicalAudioCoordinator
 import io.github.ioannes78.voica.DiarizationCoordinator
 import io.github.ioannes78.voica.DiarizationRunState
@@ -66,6 +69,7 @@ import io.github.ioannes78.voica.StorageManagementCoordinator
 import io.github.ioannes78.voica.TranscriptionCoordinator
 import io.github.ioannes78.voica.TranscriptionRunState
 import io.github.ioannes78.voica.audio.PlaybackController
+import io.github.ioannes78.voica.audio.PlaybackState
 import io.github.ioannes78.voica.ble.BleDiagnostics
 import io.github.ioannes78.voica.ble.BleError
 import io.github.ioannes78.voica.ble.BleScanDevice
@@ -102,6 +106,7 @@ import io.github.ioannes78.voica.ui.files.DeviceFilesCard
 import io.github.ioannes78.voica.ui.device.CompactScanDeviceRow
 import io.github.ioannes78.voica.ui.device.DeviceProductScreen
 import io.github.ioannes78.voica.ui.device.DeviceStatusPanel
+import io.github.ioannes78.voica.ui.library.RecordingDetailDestination
 import io.github.ioannes78.voica.ui.library.RecordingDetailScreen
 import io.github.ioannes78.voica.ui.library.RecordingLibraryRoute
 import io.github.ioannes78.voica.ui.library.RecordingLibraryViewModel
@@ -122,11 +127,26 @@ import io.github.ioannes78.voica.ui.theme.ThemeSettingsStore
 import io.github.ioannes78.voica.ui.model.ModelManagerCard
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private data class GlobalRecordingOpenRequest(
+    val token: Int,
+    val recordingId: String,
+    val destination: RecordingDetailDestination,
+)
+
+private data class GlobalTaskItem(
+    val recordingId: String,
+    val recordingName: String,
+    val label: String,
+    val progress: String?,
+    val destination: RecordingDetailDestination,
+)
 
 @Composable
 fun VoicaApp(
@@ -252,6 +272,34 @@ fun VoicaApp(
     )
 
     val globalRecording by deviceViewModel.recordingState.collectAsState()
+    val libraryRecordings by deviceViewModel.libraryRecordings.collectAsState(initial = emptyList())
+    val globalTranscription by transcriptionViewModel.runState.collectAsState()
+    val globalDiarization by diarizationViewModel.runState.collectAsState()
+    val globalAiSummary by aiSummaryViewModel.runState.collectAsState()
+    val globalPlayback by playbackViewModel.snapshot.collectAsState()
+    var openRequestToken by rememberSaveable { mutableIntStateOf(0) }
+    var libraryOpenRequest by remember { mutableStateOf<GlobalRecordingOpenRequest?>(null) }
+
+    val globalTasks =
+        buildGlobalTaskItems(
+            transcription = globalTranscription,
+            diarization = globalDiarization,
+            aiSummary = globalAiSummary,
+            recordings = libraryRecordings,
+        )
+    val requestOpenRecording: (String, RecordingDetailDestination) -> Unit =
+        { recordingId, destination ->
+            openRequestToken += 1
+            libraryOpenRequest =
+                GlobalRecordingOpenRequest(
+                    token = openRequestToken,
+                    recordingId = recordingId,
+                    destination = destination,
+                )
+            secondaryPageActive = false
+            selectedTab = 1
+        }
+
     val navigationColors =
         NavigationBarItemDefaults.colors(
             selectedIconColor = MaterialTheme.colorScheme.primary,
@@ -263,20 +311,52 @@ fun VoicaApp(
 
     Scaffold(
         topBar = {
-            if (selectedTab != 0 || secondaryPageActive) {
-                GlobalRecordingStatusBar(
-                    state = globalRecording,
-                    onClick = {
-                        secondaryPageActive = false
-                        selectedTab = 0
-                        deviceHomeRequest += 1
-                    },
-                )
+            Column {
+                if (selectedTab != 0 || secondaryPageActive) {
+                    GlobalRecordingStatusBar(
+                        state = globalRecording,
+                        onClick = {
+                            secondaryPageActive = false
+                            selectedTab = 0
+                            deviceHomeRequest += 1
+                        },
+                    )
+                }
+                if (globalTasks.isNotEmpty()) {
+                    GlobalTaskStatusBar(
+                        tasks = globalTasks,
+                        onOpen = requestOpenRecording,
+                    )
+                }
             }
         },
         bottomBar = {
             if (!secondaryPageActive) {
-                NavigationBar(modifier = Modifier.height(64.dp)) {
+                Column {
+                    if (
+                        globalPlayback.recordingId != null &&
+                        globalPlayback.state != PlaybackState.IDLE &&
+                        globalPlayback.state != PlaybackState.RELEASED
+                    ) {
+                        GlobalPlaybackStatusBar(
+                            snapshot = globalPlayback,
+                            recordingName =
+                                libraryRecordings.firstOrNull {
+                                    it.id == globalPlayback.recordingId
+                                }?.displayName,
+                            onPlay = playbackViewModel::play,
+                            onPause = playbackViewModel::pause,
+                            onOpen = {
+                                globalPlayback.recordingId?.let { id ->
+                                    requestOpenRecording(
+                                        id,
+                                        RecordingDetailDestination.PLAYBACK,
+                                    )
+                                }
+                            },
+                        )
+                    }
+                    NavigationBar(modifier = Modifier.height(64.dp)) {
                     NavigationBarItem(
                         selected = selectedTab == 0,
                         onClick = {
@@ -308,6 +388,7 @@ fun VoicaApp(
                         label = { Text(stringResource(R.string.tab_settings)) },
                         colors = navigationColors,
                     )
+                    }
                 }
             }
         },
@@ -329,6 +410,12 @@ fun VoicaApp(
                 diarizationViewModel,
                 transcriptPlaybackSyncViewModel,
                 aiSummaryViewModel,
+                openRequest = libraryOpenRequest,
+                onOpenRequestConsumed = { request ->
+                    if (libraryOpenRequest?.token == request.token) {
+                        libraryOpenRequest = null
+                    }
+                },
                 onOpenSettings = {
                     secondaryPageActive = false
                     selectedTab = 2
