@@ -95,6 +95,7 @@ import io.github.ioannes78.voica.ui.playback.PlaybackCard
 import io.github.ioannes78.voica.ui.playback.PlaybackViewModel
 import io.github.ioannes78.voica.ui.recording.GlobalRecordingStatusBar
 import io.github.ioannes78.voica.ui.recording.RecordingCard
+import io.github.ioannes78.voica.ui.settings.ProductSettingsScreen
 import io.github.ioannes78.voica.ui.transcript.TranscriptDocumentHeader
 import io.github.ioannes78.voica.ui.transcript.TranscriptFollowMode
 import io.github.ioannes78.voica.ui.transcript.TranscriptPlaybackSyncViewModel
@@ -258,7 +259,7 @@ fun VoicaApp(
                 aiSummaryViewModel,
                 onOpenSettings = { selectedTab = 2 },
             )
-            else -> SettingsScreen(
+            else -> ProductSettingsScreen(
                 padding = padding,
                 modelManager = modelManager,
                 modelUpdateController = modelUpdateController,
