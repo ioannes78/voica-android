@@ -136,6 +136,7 @@ fun VoicaApp(
     themeSettingsStore: ThemeSettingsStore,
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    var secondaryPageActive by rememberSaveable { mutableStateOf(false) }
     val deviceViewModel: DeviceViewModel = viewModel(
         factory = remember(
             repository,
@@ -229,30 +230,46 @@ fun VoicaApp(
 
     Scaffold(
         topBar = {
-            GlobalRecordingStatusBar(
-                state = globalRecording,
-                onClick = { selectedTab = 0 },
-            )
+            if (selectedTab != 0 || secondaryPageActive) {
+                GlobalRecordingStatusBar(
+                    state = globalRecording,
+                    onClick = {
+                        secondaryPageActive = false
+                        selectedTab = 0
+                    },
+                )
+                }
+            }
         },
         bottomBar = {
-            NavigationBar(modifier = Modifier.height(64.dp)) {
+            if (!secondaryPageActive) {
+                NavigationBar(modifier = Modifier.height(64.dp)) {
                 NavigationBarItem(
                     selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
+                    onClick = {
+                        secondaryPageActive = false
+                        selectedTab = 0
+                    },
                     icon = { Icon(Icons.Outlined.Bluetooth, contentDescription = null) },
                     label = { Text(stringResource(R.string.tab_device)) },
                     colors = navigationColors,
                 )
                 NavigationBarItem(
                     selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
+                    onClick = {
+                        secondaryPageActive = false
+                        selectedTab = 1
+                    },
                     icon = { Icon(Icons.Outlined.Folder, contentDescription = null) },
                     label = { Text(stringResource(R.string.tab_library)) },
                     colors = navigationColors,
                 )
                 NavigationBarItem(
                     selected = selectedTab == 2,
-                    onClick = { selectedTab = 2 },
+                    onClick = {
+                        secondaryPageActive = false
+                        selectedTab = 2
+                    },
                     icon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
                     label = { Text(stringResource(R.string.tab_settings)) },
                     colors = navigationColors,
@@ -261,7 +278,11 @@ fun VoicaApp(
         },
     ) { padding ->
         when (selectedTab) {
-            0 -> DeviceProductScreen(padding, deviceViewModel)
+            0 -> DeviceProductScreen(
+                padding = padding,
+                viewModel = deviceViewModel,
+                onSecondaryPageChanged = { secondaryPageActive = it },
+            )
             1 -> LocalFilesScreen(
                 padding,
                 deviceViewModel,
@@ -270,7 +291,11 @@ fun VoicaApp(
                 diarizationViewModel,
                 transcriptPlaybackSyncViewModel,
                 aiSummaryViewModel,
-                onOpenSettings = { selectedTab = 2 },
+                onOpenSettings = {
+                    secondaryPageActive = false
+                    selectedTab = 2
+                },
+                onSecondaryPageChanged = { secondaryPageActive = it },
             )
             else -> ProductSettingsScreen(
                 padding = padding,
@@ -278,6 +303,7 @@ fun VoicaApp(
                 modelUpdateController = modelUpdateController,
                 providerSettingsViewModel = providerSettingsViewModel,
                 themeSettingsStore = themeSettingsStore,
+                onSecondaryPageChanged = { secondaryPageActive = it },
             )
         }
     }
@@ -460,6 +486,7 @@ private fun LocalFilesScreen(
     transcriptPlaybackSyncViewModel: TranscriptPlaybackSyncViewModel,
     aiSummaryViewModel: AiSummaryViewModel,
     onOpenSettings: () -> Unit,
+    onSecondaryPageChanged: (Boolean) -> Unit,
 ) {
     val recordings by viewModel.libraryRecordings.collectAsState(initial = emptyList())
     var selectedRecordingId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -467,6 +494,11 @@ private fun LocalFilesScreen(
         selectedRecordingId?.let { id ->
             recordings.firstOrNull { it.id == id }
         }
+    val deviceRecording by viewModel.recordingState.collectAsState()
+
+    LaunchedEffect(selectedRecording != null) {
+        onSecondaryPageChanged(selectedRecording != null)
+    }
 
     if (selectedRecording == null) {
         RecordingLibraryScreen(
@@ -489,6 +521,9 @@ private fun LocalFilesScreen(
             onDelete = playbackViewModel::deleteRecording,
             onGenerateCanonical = viewModel::generateCanonicalAudio,
             onCancelCanonical = viewModel::cancelCanonicalAudio,
+            deviceRecordingActive =
+                deviceRecording.status == RecordingStatus.Recording ||
+                    deviceRecording.status == RecordingStatus.Paused,
         )
     }
 }
