@@ -147,6 +147,15 @@ interface RecordingDao {
     @Query("UPDATE recordings SET state = :state, updatedAtMs = :updatedAtMs WHERE id = :recordingId")
     suspend fun updateState(recordingId: String, state: String, updatedAtMs: Long): Int
 
+    @Query("SELECT state FROM recordings WHERE id = :recordingId LIMIT 1")
+    suspend fun recordingState(recordingId: String): String?
+
+    @Query("SELECT COUNT(*) > 0 FROM recordings WHERE id = :recordingId AND state = 'ACTIVE'")
+    suspend fun isRecordingActive(recordingId: String): Boolean
+
+    @Query("UPDATE recordings SET state = 'DELETING', updatedAtMs = :updatedAtMs WHERE id = :recordingId AND state = 'ACTIVE'")
+    suspend fun markDeletingIfActive(recordingId: String, updatedAtMs: Long): Int
+
     @Query("UPDATE recording_user_metadata SET isFavorite = :favorite, updatedAtMs = :updatedAtMs WHERE recordingId IN (:recordingIds)")
     suspend fun setFavorite(
         recordingIds: List<String>,
