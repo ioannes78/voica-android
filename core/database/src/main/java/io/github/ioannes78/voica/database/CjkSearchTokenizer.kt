@@ -69,7 +69,11 @@ object CjkSearchTokenizer {
     }
 
     private fun quote(token: String): String =
-        """ + token.replace(""", """") + """
+        buildString {
+            append('"')
+            append(token.replace("\\\"", "\\\"\\\""))
+            append('"')
+        }
 
     private fun isCjk(codePoint: Int): Boolean =
         codePoint in 0x3400..0x4DBF ||
