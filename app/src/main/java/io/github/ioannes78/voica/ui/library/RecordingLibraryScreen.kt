@@ -9,13 +9,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.LibraryMusic
-import androidx.compose.material3.Card
-import androidx.compose.material3.FilterChip
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -27,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.database.RecordingLibraryItem
@@ -48,6 +51,8 @@ fun RecordingLibraryScreen(
     onOpenRecording: (String) -> Unit,
 ) {
     var sort by rememberSaveable { mutableStateOf(LibrarySort.RECORDED) }
+    var menuExpanded by rememberSaveable { mutableStateOf(false) }
+
     val sorted = remember(recordings, sort) {
         when (sort) {
             LibrarySort.RECORDED ->
@@ -56,6 +61,7 @@ fun RecordingLibraryScreen(
                         it.recordedAtLocalIso ?: ""
                     }.thenByDescending { it.downloadedAtMs },
                 )
+
             LibrarySort.DOWNLOADED -> recordings.sortedByDescending { it.downloadedAtMs }
             LibrarySort.NAME -> recordings.sortedBy { it.displayName.lowercase(Locale.ROOT) }
             LibrarySort.SIZE -> recordings.sortedByDescending { item ->
@@ -68,79 +74,102 @@ fun RecordingLibraryScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(padding),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
     ) {
         item {
-            Text(
-                stringResource(R.string.library_title),
-                style = MaterialTheme.typography.headlineMedium,
-            )
-            Text(
-                stringResource(R.string.library_subtitle),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FilterChip(
-                    selected = sort == LibrarySort.RECORDED,
-                    onClick = { sort = LibrarySort.RECORDED },
-                    label = { Text(stringResource(R.string.local_sort_recorded)) },
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    stringResource(R.string.library_title),
+                    style = MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier.weight(1f),
                 )
-                FilterChip(
-                    selected = sort == LibrarySort.DOWNLOADED,
-                    onClick = { sort = LibrarySort.DOWNLOADED },
-                    label = { Text(stringResource(R.string.local_sort_downloaded)) },
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FilterChip(
-                    selected = sort == LibrarySort.NAME,
-                    onClick = { sort = LibrarySort.NAME },
-                    label = { Text(stringResource(R.string.local_sort_name)) },
-                )
-                FilterChip(
-                    selected = sort == LibrarySort.SIZE,
-                    onClick = { sort = LibrarySort.SIZE },
-                    label = { Text(stringResource(R.string.local_sort_size)) },
-                )
+                Column {
+                    IconButton(onClick = { menuExpanded = true }) {
+                        Icon(
+                            Icons.Outlined.MoreVert,
+                            contentDescription = "录音库菜单",
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(sortLabel(LibrarySort.RECORDED, sort)) },
+                            onClick = {
+                                sort = LibrarySort.RECORDED
+                                menuExpanded = false
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(sortLabel(LibrarySort.DOWNLOADED, sort)) },
+                            onClick = {
+                                sort = LibrarySort.DOWNLOADED
+                                menuExpanded = false
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(sortLabel(LibrarySort.NAME, sort)) },
+                            onClick = {
+                                sort = LibrarySort.NAME
+                                menuExpanded = false
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(sortLabel(LibrarySort.SIZE, sort)) },
+                            onClick = {
+                                sort = LibrarySort.SIZE
+                                menuExpanded = false
+                            },
+                        )
+                    }
+                }
             }
         }
 
         if (sorted.isEmpty()) {
             item {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.LibraryMusic,
-                            contentDescription = null,
-                        )
-                        Text(
-                            stringResource(R.string.library_empty_title),
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        Text(
-                            stringResource(R.string.library_empty_body),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 28.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.LibraryMusic,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        stringResource(R.string.library_empty_title),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        stringResource(R.string.library_empty_body),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         } else {
-            items(
+            itemsIndexed(
                 items = sorted,
-                key = { it.id },
-            ) { recording ->
+                key = { _, item -> item.id },
+            ) { index, recording ->
                 RecordingLibraryRow(
                     recording = recording,
                     onClick = { onOpenRecording(recording.id) },
                 )
+                if (index != sorted.lastIndex) {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(start = 4.dp),
+                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f),
+                    )
+                }
             }
         }
     }
@@ -151,50 +180,53 @@ private fun RecordingLibraryRow(
     recording: RecordingLibraryItem,
     onClick: () -> Unit,
 ) {
-    Card(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    recording.displayName,
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Text(
+        Text(
+            recording.displayName,
+            style = MaterialTheme.typography.titleMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            buildString {
+                append(
                     recording.recordedAtLocalIso
                         ?.let { runCatching { LocalDateTime.parse(it) }.getOrNull() }
                         ?.format(DISPLAY_TIME)
                         ?: stringResource(R.string.device_file_unknown),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        recording.deviceReportedDurationMs?.let(::formatDurationMs) ?: "--",
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                    Text(
-                        formatBytes(recording.assets.sumOf { it.sizeBytes }),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            Icon(
-                imageVector = Icons.Outlined.ChevronRight,
-                contentDescription = null,
-            )
-        }
+                append(" · ")
+                append(recording.deviceReportedDurationMs?.let(::formatDurationMs) ?: "--")
+                append(" · ")
+                append(formatBytes(recording.assets.sumOf { it.sizeBytes }))
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
+}
+
+@Composable
+private fun sortLabel(
+    option: LibrarySort,
+    selected: LibrarySort,
+): String {
+    val label =
+        when (option) {
+            LibrarySort.RECORDED -> stringResource(R.string.local_sort_recorded)
+            LibrarySort.DOWNLOADED -> stringResource(R.string.local_sort_downloaded)
+            LibrarySort.NAME -> stringResource(R.string.local_sort_name)
+            LibrarySort.SIZE -> stringResource(R.string.local_sort_size)
+        }
+    return if (option == selected) "✓ $label" else label
 }
 
 private fun formatDurationMs(durationMs: Long): String {
@@ -219,4 +251,4 @@ private fun formatBytes(bytes: Long): String {
 }
 
 private val DISPLAY_TIME: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+    DateTimeFormatter.ofPattern("MM-dd HH:mm")
