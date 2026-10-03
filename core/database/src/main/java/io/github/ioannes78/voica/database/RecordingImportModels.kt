@@ -14,6 +14,7 @@ data class ImportedOriginalRegistration(
     val sourceMimeType: String?,
     val container: String,
     val codec: String?,
+    val sampleFormat: String?,
     val sampleRateHz: Int?,
     val channelCount: Int?,
     val mediaDurationMs: Long?,
