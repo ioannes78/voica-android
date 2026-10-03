@@ -680,6 +680,92 @@ class RecordingLibraryRepository(
     suspend fun isRecordingActive(recordingId: String): Boolean =
         dao.isRecordingActive(recordingId)
 
+    suspend fun recordingStorageUsage(): RecordingStorageUsage {
+        val assets = dao.allAssets()
+        val sourceRoles =
+            setOf(
+                AudioAssetRole.DEVICE_OPUS,
+                AudioAssetRole.DEVICE_WAV,
+                AudioAssetRole.IMPORTED_ORIGINAL,
+            )
+        val sourcePaths =
+            assets
+                .filter { it.role in sourceRoles }
+                .groupBy { it.relativePath }
+                .mapValues { (_, values) -> values.maxOf { it.sizeBytes } }
+        val canonicalPaths =
+            assets
+                .filter { it.role == AudioAssetRole.CANONICAL_WAV }
+                .filterNot { it.relativePath in sourcePaths }
+                .groupBy { it.relativePath }
+                .mapValues { (_, values) -> values.maxOf { it.sizeBytes } }
+        val reclaimable =
+            dao.findReclaimableCanonicalAssets()
+                .filter { candidate ->
+                    val row = dao.findWithAssets(candidate.recordingId) ?: return@filter false
+                    hasVerifiedPhysicalSource(row) &&
+                        managedExistingFile(candidate.relativePath)?.length() ==
+                        candidate.sizeBytes
+                }
+                .sumOf { it.sizeBytes }
+
+        return RecordingStorageUsage(
+            originalAudioBytes = sourcePaths.values.sum(),
+            canonicalAudioBytes = canonicalPaths.values.sum(),
+            reclaimableCanonicalBytes = reclaimable,
+        )
+    }
+
+    suspend fun cleanupReclaimableCanonicalAudio(): CanonicalCleanupResult {
+        var reclaimed = 0L
+        var deleted = 0
+        val failed = mutableListOf<String>()
+
+        dao.findReclaimableCanonicalAssets().forEach { candidate ->
+            val row = dao.findWithAssets(candidate.recordingId)
+            if (row == null || !hasVerifiedPhysicalSource(row)) {
+                return@forEach
+            }
+            val file = managedExistingFile(candidate.relativePath) ?: return@forEach
+            if (file.length() != candidate.sizeBytes) {
+                failed += candidate.relativePath
+                return@forEach
+            }
+
+            if (!file.delete()) {
+                failed += candidate.relativePath
+                return@forEach
+            }
+
+            val committed =
+                runCatching {
+                    database.withTransaction {
+                        dao.resetCanonicalDerivations(
+                            recordingId = candidate.recordingId,
+                            assetId = candidate.assetId,
+                            updatedAtMs = nowMs(),
+                        )
+                        check(dao.deleteAsset(candidate.assetId) == 1) {
+                            "canonical asset disappeared during cleanup"
+                        }
+                    }
+                }.isSuccess
+
+            if (committed) {
+                reclaimed += candidate.sizeBytes
+                deleted += 1
+            } else {
+                failed += candidate.relativePath
+            }
+        }
+
+        return CanonicalCleanupResult(
+            reclaimedBytes = reclaimed,
+            deletedAssets = deleted,
+            failedPaths = failed,
+        )
+    }
+
     suspend fun prepareLocalDelete(recordingId: String): LocalDeletePreparation {
         val state = dao.recordingState(recordingId) ?: return LocalDeletePreparation.MISSING
         if (state == RecordingState.DELETING) {
@@ -810,6 +896,26 @@ class RecordingLibraryRepository(
 
     private fun canonicalAssetId(recordingId: String, profileId: String): String =
         stableRecordingId("$recordingId|canonical=$profileId")
+
+    private fun hasVerifiedPhysicalSource(recording: RecordingWithAssets): Boolean {
+        val sourceRoles =
+            setOf(
+                AudioAssetRole.DEVICE_OPUS,
+                AudioAssetRole.DEVICE_WAV,
+                AudioAssetRole.IMPORTED_ORIGINAL,
+            )
+        return recording.assets.any { asset ->
+            asset.role in sourceRoles &&
+                asset.integrityState == AudioIntegrityState.VERIFIED &&
+                managedExistingFile(asset.relativePath)?.length() == asset.sizeBytes
+        }
+    }
+
+    private fun managedExistingFile(relativePath: String): File? {
+        val candidate = File(recordingsRoot, relativePath)
+        if (!isManagedPath(candidate)) return null
+        return candidate.takeIf(File::isFile)
+    }
 
     private fun normalizeLibraryName(name: String, maxLength: Int): String {
         val normalized = name.trim().replace(Regex("\\s+"), " ")
