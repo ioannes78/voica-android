@@ -57,8 +57,8 @@ fun DeviceFilesCard(
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -197,7 +197,7 @@ private fun DeviceFileRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp),
+            .padding(vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(file.displayFilename, style = MaterialTheme.typography.titleSmall)
@@ -283,7 +283,7 @@ private fun DeviceFileRow(
                 val opusAvailable = file.downloadFilename(DeviceAudioFormat.OPUS) != null
                 val wavAvailable = file.downloadFilename(DeviceAudioFormat.WAV) != null
                 if (opusAvailable) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(
                             if (opusDownloaded) {
                                 stringResource(R.string.device_file_opus_downloaded)
@@ -303,7 +303,7 @@ private fun DeviceFileRow(
                     }
                 }
                 if (wavAvailable) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(
                             if (wavDownloaded) {
                                 stringResource(R.string.device_file_wav_downloaded)
@@ -322,7 +322,7 @@ private fun DeviceFileRow(
                         }
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (opusDownloaded) {
                         OutlinedButton(
                             onClick = onRangeProbe,
