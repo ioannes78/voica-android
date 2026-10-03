@@ -99,6 +99,70 @@ class LibraryQueryRepositoryTest {
     }
 
     @Test
+    fun folderAndTagManagementPreservesRecordingsAndRelationships() = runBlocking {
+        val folder = repository.createFolder("  项目资料  ")
+        val tag = repository.createTag("  高优先  ")
+
+        assertEquals("项目资料", folder.name)
+        assertEquals("高优先", tag.name)
+
+        assertEquals(1, repository.moveToFolder(listOf("rec-import"), folder.folderId))
+        assertEquals(1, repository.addTag(listOf("rec-import"), tag.tagId))
+
+        val assigned =
+            repository.observeLibrary(
+                LibraryQueryCriteria(
+                    folderId = folder.folderId,
+                    tagIds = setOf(tag.tagId),
+                ),
+            ).first()
+        assertEquals(listOf("rec-import"), assigned.map { it.id })
+        assertEquals("项目资料", assigned.single().folderName)
+        assertTrue("高优先" in assigned.single().tagNames)
+
+        assertTrue(repository.renameFolder(folder.folderId, "归档项目"))
+        assertTrue(repository.renameTag(tag.tagId, "重点"))
+        val renamed =
+            repository.observeLibrary(
+                LibraryQueryCriteria(folderId = folder.folderId),
+            ).first().single()
+        assertEquals("归档项目", renamed.folderName)
+        assertTrue("重点" in renamed.tagNames)
+
+        assertTrue(repository.deleteFolder(folder.folderId))
+        val uncategorized =
+            repository.observeLibrary(
+                LibraryQueryCriteria(uncategorizedOnly = true),
+            ).first()
+        assertTrue(uncategorized.any { it.id == "rec-import" && it.folderId == null })
+
+        assertTrue(repository.deleteTag(tag.tagId))
+        val afterTagDelete =
+            repository.observeLibrary(
+                LibraryQueryCriteria(query = "重点"),
+            ).first()
+        assertTrue(afterTagDelete.isEmpty())
+        assertTrue(
+            repository.observeLibrary(LibraryQueryCriteria()).first()
+                .any { it.id == "rec-import" },
+        )
+    }
+
+    @Test
+    fun renameFolderAndTagRejectCaseInsensitiveNameConflicts() = runBlocking {
+        val folderA = repository.createFolder("研发")
+        val folderB = repository.createFolder("销售")
+        assertTrue(!repository.renameFolder(folderB.folderId, "研发"))
+
+        val tagA = repository.createTag("内部")
+        val tagB = repository.createTag("外部")
+        assertTrue(!repository.renameTag(tagB.tagId, "内部"))
+
+        assertEquals(folderA.folderId, repository.createFolder("研发").folderId)
+        assertEquals(tagA.tagId, repository.createTag("内部").tagId)
+    }
+
+    @Test
     fun searchEscapesSqlWildcardsInsteadOfTreatingThemAsPatterns() = runBlocking {
         val noLiteralPercent =
             repository.observeLibrary(
