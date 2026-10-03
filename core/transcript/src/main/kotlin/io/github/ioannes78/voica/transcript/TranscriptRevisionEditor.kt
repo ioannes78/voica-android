@@ -110,6 +110,34 @@ object TranscriptRevisionEditor {
         }
     }
 
+    fun arrangeForReading(
+        paragraphs: List<RevisionParagraphDraft>,
+        maxParagraphChars: Int = 220,
+    ): List<RevisionParagraphDraft> {
+        require(maxParagraphChars >= 40)
+        if (paragraphs.size < 2) return paragraphs
+        var result = paragraphs
+        var index = 0
+        while (index < result.lastIndex) {
+            val current = result[index]
+            val next = result[index + 1]
+            val sameSpeaker =
+                current.speakerId == null ||
+                    next.speakerId == null ||
+                    current.speakerId == next.speakerId
+            val combinedLength =
+                current.text.trim().length + next.text.trim().length
+            val sentenceContinues =
+                current.text.trimEnd().lastOrNull() !in TERMINAL_PUNCTUATION
+            if (sameSpeaker && sentenceContinues && combinedLength <= maxParagraphChars) {
+                result = mergeWithNext(result, index)
+            } else {
+                index += 1
+            }
+        }
+        return result
+    }
+
     fun editText(
         paragraphs: List<RevisionParagraphDraft>,
         index: Int,
@@ -175,6 +203,8 @@ object TranscriptRevisionEditor {
             code in 0xF900..0xFAFF
     }
 
+    private val TERMINAL_PUNCTUATION =
+        setOf('。', '！', '？', '.', '!', '?')
     private val NO_LEADING_SPACE_PUNCTUATION =
         setOf('，', '。', '！', '？', '；', '：', '、', ',', '.', '!', '?', ';', ':', ')', ']', '}')
     private val OPENING_PUNCTUATION =

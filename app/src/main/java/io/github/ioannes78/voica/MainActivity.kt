@@ -44,6 +44,7 @@ class MainActivity : ComponentActivity() {
                     modelUpdateController = appContainer.modelUpdateController,
                     transcriptionCoordinator = appContainer.transcriptionCoordinator,
                     transcriptionRepository = appContainer.transcriptionRepository,
+                    stage12CContentRepository = appContainer.stage12CContentRepository,
                     diarizationCoordinator = appContainer.diarizationCoordinator,
                     diarizationRepository = appContainer.diarizationRepository,
                     aiSummaryCoordinator = appContainer.aiSummaryCoordinator,

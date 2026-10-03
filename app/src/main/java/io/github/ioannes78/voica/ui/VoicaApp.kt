@@ -90,6 +90,7 @@ import io.github.ioannes78.voica.database.AiSummaryRepository
 import io.github.ioannes78.voica.database.DiarizationRepository
 import io.github.ioannes78.voica.database.RecordingLibraryItem
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
+import io.github.ioannes78.voica.database.Stage12CContentRepository
 import io.github.ioannes78.voica.database.TranscriptionRepository
 import io.github.ioannes78.voica.llm.ProviderAdapterRegistry
 import io.github.ioannes78.voica.llm.ProviderConfigurationRepository
@@ -124,6 +125,7 @@ import io.github.ioannes78.voica.ui.transcript.TranscriptPlaybackSyncViewModel
 import io.github.ioannes78.voica.ui.transcript.TranscriptSegmentCard
 import io.github.ioannes78.voica.ui.transcript.TranscriptVersionListCard
 import io.github.ioannes78.voica.ui.transcript.TranscriptionStatusCard
+import io.github.ioannes78.voica.ui.transcript.TranscriptContentViewModel
 import io.github.ioannes78.voica.ui.transcript.TranscriptionViewModel
 import io.github.ioannes78.voica.ui.theme.ThemeSettingsCard
 import io.github.ioannes78.voica.ui.theme.ThemeSettingsStore
@@ -172,6 +174,7 @@ fun VoicaApp(
     modelUpdateController: ModelUpdateController,
     transcriptionCoordinator: TranscriptionCoordinator,
     transcriptionRepository: TranscriptionRepository,
+    stage12CContentRepository: Stage12CContentRepository,
     diarizationCoordinator: DiarizationCoordinator,
     diarizationRepository: DiarizationRepository,
     aiSummaryCoordinator: AiSummaryCoordinator,
@@ -246,6 +249,11 @@ fun VoicaApp(
                 diarizationRepository,
                 recordingLibraryRepository,
             )
+        },
+    )
+    val transcriptContentViewModel: TranscriptContentViewModel = viewModel(
+        factory = remember(stage12CContentRepository) {
+            TranscriptContentViewModel.Factory(stage12CContentRepository)
         },
     )
     val transcriptPlaybackSyncViewModel: TranscriptPlaybackSyncViewModel = viewModel(
@@ -858,6 +866,7 @@ private fun LocalFilesScreen(
             recording = selectedRecording,
             playbackViewModel = playbackViewModel,
             transcriptionViewModel = transcriptionViewModel,
+            transcriptContentViewModel = transcriptContentViewModel,
             diarizationViewModel = diarizationViewModel,
             transcriptPlaybackSyncViewModel = transcriptPlaybackSyncViewModel,
             aiSummaryViewModel = aiSummaryViewModel,

@@ -12,6 +12,7 @@ import io.github.ioannes78.voica.ble.DeviceRepository
 import io.github.ioannes78.voica.database.AiSummaryRepository
 import io.github.ioannes78.voica.database.DiarizationRepository
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
+import io.github.ioannes78.voica.database.Stage12CContentRepository
 import io.github.ioannes78.voica.database.StructuredTranscriptInputBuilder
 import io.github.ioannes78.voica.database.TranscriptionRepository
 import io.github.ioannes78.voica.database.VoicaDatabase
@@ -107,6 +108,8 @@ class AppContainer(
 
     val transcriptionRepository =
         TranscriptionRepository(recordingDatabase)
+    val stage12CContentRepository =
+        Stage12CContentRepository(recordingDatabase)
 
     val diarizationRepository =
         DiarizationRepository(recordingDatabase)

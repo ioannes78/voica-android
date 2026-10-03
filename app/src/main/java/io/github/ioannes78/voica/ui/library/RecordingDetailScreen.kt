@@ -58,11 +58,15 @@ import io.github.ioannes78.voica.ui.diarization.DiarizationViewModel
 import io.github.ioannes78.voica.ui.playback.MiniPlaybackBar
 import io.github.ioannes78.voica.ui.playback.PlaybackViewModel
 import io.github.ioannes78.voica.ui.playback.RecordingPlaybackCard
+import io.github.ioannes78.voica.ui.transcript.TranscriptContentActionBar
+import io.github.ioannes78.voica.ui.transcript.TranscriptContentViewModel
 import io.github.ioannes78.voica.ui.transcript.TranscriptDocumentHeader
 import io.github.ioannes78.voica.ui.transcript.TranscriptFollowMode
 import io.github.ioannes78.voica.ui.transcript.TranscriptPlaybackSyncViewModel
+import io.github.ioannes78.voica.ui.transcript.TranscriptReadingParagraphCard
 import io.github.ioannes78.voica.ui.transcript.TranscriptSegmentCard
 import io.github.ioannes78.voica.ui.transcript.TranscriptVersionListCard
+import io.github.ioannes78.voica.ui.transcript.TranscriptViewMode
 import io.github.ioannes78.voica.ui.transcript.TranscriptionStatusCard
 import io.github.ioannes78.voica.ui.transcript.TranscriptionViewModel
 import java.time.Instant
@@ -92,6 +96,7 @@ fun RecordingDetailScreen(
     recording: RecordingLibraryItem,
     playbackViewModel: PlaybackViewModel,
     transcriptionViewModel: TranscriptionViewModel,
+    transcriptContentViewModel: TranscriptContentViewModel,
     diarizationViewModel: DiarizationViewModel,
     transcriptPlaybackSyncViewModel: TranscriptPlaybackSyncViewModel,
     aiSummaryViewModel: AiSummaryViewModel,
@@ -121,6 +126,9 @@ fun RecordingDetailScreen(
         mutableStateOf(recording.displayName)
     }
     var deleteOpen by rememberSaveable { mutableStateOf(false) }
+    var transcriptViewMode by rememberSaveable(recording.id) {
+        mutableStateOf(TranscriptViewMode.TIMELINE)
+    }
 
     BackHandler {
         if (selectedTab == DetailTab.INFO) {
@@ -135,6 +143,7 @@ fun RecordingDetailScreen(
     val transcriptVersions by transcriptionViewModel.versions.collectAsState()
     val transcriptVersionsRecordingId by transcriptionViewModel.versionsRecordingId.collectAsState()
     val transcriptionNotice by transcriptionViewModel.notice.collectAsState()
+    val transcriptContentState by transcriptContentViewModel.state.collectAsState()
     val diarizationState by diarizationViewModel.runState.collectAsState()
     val diarizationNotice by diarizationViewModel.notice.collectAsState()
     val syncState by transcriptPlaybackSyncViewModel.state.collectAsState()
@@ -179,8 +188,25 @@ fun RecordingDetailScreen(
     LaunchedEffect(recording.id) {
         transcriptionViewModel.viewVersions(recording.id)
     }
-    LaunchedEffect(document?.transcriptionId) {
+    LaunchedEffect(document?.transcriptionId, document?.alignmentId) {
         document?.transcriptionId?.let { selectedTranscriptionId = it }
+        transcriptContentViewModel.bind(document)
+    }
+    LaunchedEffect(
+        transcriptContentState.transcriptionId,
+        transcriptContentState.currentRevisionId,
+    ) {
+        if (
+            transcriptContentState.transcriptionId != null &&
+            transcriptContentState.transcriptionId == document?.transcriptionId
+        ) {
+            transcriptViewMode =
+                if (transcriptContentState.currentRevisionId == null) {
+                    TranscriptViewMode.TIMELINE
+                } else {
+                    TranscriptViewMode.READING
+                }
+        }
     }
     LaunchedEffect(
         document?.transcriptionId,
@@ -192,8 +218,11 @@ fun RecordingDetailScreen(
             compatiblePlaybackAssetId = document?.compatiblePlaybackAssetId,
         )
     }
-    LaunchedEffect(transcriptListState, selectedTab) {
-        if (selectedTab != DetailTab.TRANSCRIPT) return@LaunchedEffect
+    LaunchedEffect(transcriptListState, selectedTab, transcriptViewMode) {
+        if (
+            selectedTab != DetailTab.TRANSCRIPT ||
+            transcriptViewMode != TranscriptViewMode.TIMELINE
+        ) return@LaunchedEffect
         snapshotFlow { transcriptListState.isScrollInProgress }
             .distinctUntilChanged()
             .collect { scrolling ->
@@ -208,9 +237,11 @@ fun RecordingDetailScreen(
         document?.transcriptionId,
         syncState.discontinuityGeneration,
         selectedTab,
+        transcriptViewMode,
     ) {
         if (
             selectedTab != DetailTab.TRANSCRIPT ||
+            transcriptViewMode != TranscriptViewMode.TIMELINE ||
             syncState.followMode != TranscriptFollowMode.FOLLOWING ||
             syncState.activeRowId == null
         ) {
@@ -519,68 +550,103 @@ fun RecordingDetailScreen(
                                 )
                             }
                         }
-                        item(key = "transcript-header") {
-                            document?.let {
-                                TranscriptDocumentHeader(
-                                    document = it,
-                                    recordingName = recording.displayName,
-                                    onRenameSpeaker = transcriptionViewModel::renameSpeaker,
-                                )
-                            }
-                        }
-                        item(key = "transcript-follow") {
-                            if (document?.timeline != null &&
-                                document.compatiblePlaybackAssetId == null
-                            ) {
-                                Text(
-                                    stringResource(
-                                        R.string.detail_transcript_playback_incompatible,
-                                    ),
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                            }
-                            if (syncState.followMode == TranscriptFollowMode.USER_SUSPENDED) {
-                                OutlinedButton(
-                                    onClick = transcriptPlaybackSyncViewModel::resumeFollowing,
-                                ) {
-                                    Text(stringResource(R.string.detail_follow_playback))
-                                }
-                            }
-                        }
-                        val currentDocument = document
-                        if (currentDocument != null) {
-                            items(
-                                items = currentDocument.segments,
-                                key = {
-                                    currentDocument.transcriptionId + ":" + it.stableId
-                                },
-                            ) { segment ->
-                                val syncEnabled =
-                                    currentDocument.compatiblePlaybackAssetId != null
-                                TranscriptSegmentCard(
-                                    segment = segment,
-                                    isActive =
-                                        syncState.playbackCompatible &&
-                                            syncState.activeRowId == segment.stableId,
-                                    activeCueId =
-                                        if (
-                                            syncState.playbackCompatible &&
-                                            syncState.activeRowId == segment.stableId
-                                        ) {
-                                            syncState.activeCueId
-                                        } else {
-                                            null
-                                        },
-                                    syncEnabled = syncEnabled,
-                                    onSeek = { sampleIndex ->
-                                        if (syncEnabled) {
-                                            playbackViewModel.seekAndPlay(
-                                                recordingId = recording.id,
-                                                sampleIndex = sampleIndex,
-                                            )
-                                        }
+                        item(key = "transcript-content-actions") {
+                            if (document != null) {
+                                TranscriptContentActionBar(
+                                    mode = transcriptViewMode,
+                                    state = transcriptContentState,
+                                    viewModel = transcriptContentViewModel,
+                                    onModeChange = { transcriptViewMode = it },
+                                    onVersionDeleted = {
+                                        transcriptionViewModel.viewVersions(recording.id)
                                     },
                                 )
+                            }
+                        }
+
+                        if (transcriptViewMode == TranscriptViewMode.TIMELINE) {
+                            item(key = "transcript-header") {
+                                document?.let {
+                                    TranscriptDocumentHeader(
+                                        document = it,
+                                        recordingName = recording.displayName,
+                                        onRenameSpeaker = transcriptionViewModel::renameSpeaker,
+                                    )
+                                }
+                            }
+                            item(key = "transcript-follow") {
+                                if (document?.timeline != null &&
+                                    document.compatiblePlaybackAssetId == null
+                                ) {
+                                    Text(
+                                        stringResource(
+                                            R.string.detail_transcript_playback_incompatible,
+                                        ),
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                                if (syncState.followMode == TranscriptFollowMode.USER_SUSPENDED) {
+                                    OutlinedButton(
+                                        onClick = transcriptPlaybackSyncViewModel::resumeFollowing,
+                                    ) {
+                                        Text(stringResource(R.string.detail_follow_playback))
+                                    }
+                                }
+                            }
+                            val currentDocument = document
+                            if (currentDocument != null) {
+                                items(
+                                    items = currentDocument.segments,
+                                    key = {
+                                        currentDocument.transcriptionId + ":" + it.stableId
+                                    },
+                                ) { segment ->
+                                    val syncEnabled =
+                                        currentDocument.compatiblePlaybackAssetId != null
+                                    TranscriptSegmentCard(
+                                        segment = segment,
+                                        isActive =
+                                            syncState.playbackCompatible &&
+                                                syncState.activeRowId == segment.stableId,
+                                        activeCueId =
+                                            if (
+                                                syncState.playbackCompatible &&
+                                                syncState.activeRowId == segment.stableId
+                                            ) {
+                                                syncState.activeCueId
+                                            } else {
+                                                null
+                                            },
+                                        syncEnabled = syncEnabled,
+                                        onSeek = { sampleIndex ->
+                                            if (syncEnabled) {
+                                                playbackViewModel.seekAndPlay(
+                                                    recordingId = recording.id,
+                                                    sampleIndex = sampleIndex,
+                                                )
+                                            }
+                                        },
+                                    )
+                                }
+                            }
+                        } else {
+                            if (transcriptContentState.loading) {
+                                item(key = "transcript-reading-loading") {
+                                    Text(
+                                        "正在准备阅读稿…",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            } else {
+                                items(
+                                    items = transcriptContentState.paragraphs,
+                                    key = { paragraph ->
+                                        "reading:" + paragraph.stableId
+                                    },
+                                ) { paragraph ->
+                                    TranscriptReadingParagraphCard(paragraph = paragraph)
+                                }
                             }
                         }
                     }
@@ -958,7 +1024,7 @@ internal fun shouldShowDiarizationStatus(
         -> false
     }
 
-private const val TRANSCRIPT_ROW_START_INDEX = 5
+private const val TRANSCRIPT_ROW_START_INDEX = 6
 
 private val ACTIVE_DERIVATION_STATES = setOf(
     "PREPARING",
