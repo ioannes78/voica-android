@@ -56,7 +56,7 @@ fun FullDiagnosticsScreen(
     rangeProbe: RangeProbeDiagnostics,
     onBack: () -> Unit,
 ) {
-    var expanded by rememberSaveable {
+    var expanded by androidx.compose.runtime.remember {
         mutableStateOf(setOf(DiagnosticSection.CONNECTION))
     }
     var menuExpanded by rememberSaveable { mutableStateOf(false) }
