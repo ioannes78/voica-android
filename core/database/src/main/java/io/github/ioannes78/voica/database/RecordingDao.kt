@@ -54,13 +54,14 @@ interface RecordingDao {
         SELECT
             r.id AS recordingId,
             r.displayName AS displayName,
-            a.role AS role,
-            a.relativePath AS relativePath
+            MIN(a.role) AS role,
+            MIN(a.relativePath) AS relativePath
         FROM audio_assets a
         JOIN recordings r ON r.id = a.recordingId
         WHERE LOWER(a.sha256) = LOWER(:sha256)
           AND a.sizeBytes = :sizeBytes
           AND r.state = 'ACTIVE'
+        GROUP BY r.id, r.displayName, r.createdAtMs
         ORDER BY r.createdAtMs DESC
         """
     )
