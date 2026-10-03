@@ -88,6 +88,7 @@ import io.github.ioannes78.voica.ui.diarization.DiarizationStatusCard
 import io.github.ioannes78.voica.ui.diarization.DiarizationViewModel
 import io.github.ioannes78.voica.ui.files.DeviceFilesCard
 import io.github.ioannes78.voica.ui.device.CompactScanDeviceRow
+import io.github.ioannes78.voica.ui.device.DeviceProductScreen
 import io.github.ioannes78.voica.ui.device.DeviceStatusPanel
 import io.github.ioannes78.voica.ui.library.RecordingDetailScreen
 import io.github.ioannes78.voica.ui.library.RecordingLibraryScreen
@@ -248,7 +249,7 @@ fun VoicaApp(
         },
     ) { padding ->
         when (selectedTab) {
-            0 -> DeviceScreen(padding, deviceViewModel)
+            0 -> DeviceProductScreen(padding, deviceViewModel)
             1 -> LocalFilesScreen(
                 padding,
                 deviceViewModel,
