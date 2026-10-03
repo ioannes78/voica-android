@@ -5,20 +5,28 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.ble.RecordingCommandState
 import io.github.ioannes78.voica.ble.RecordingDeviceState
@@ -39,28 +47,114 @@ fun RecordingCard(
     val synchronized = state.freshness == RecordingFreshness.FRESH
     val busy = state.commandState != RecordingCommandState.IDLE
     val controlsEnabled = synchronized && !busy && state.status !is RecordingStatus.UnknownRaw
+    var menuExpanded by remember { mutableStateOf(false) }
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(
-                text = recordingTitle(state.status),
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = recordingTitle(state.status),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = { menuExpanded = true }) {
+                    Icon(
+                        Icons.Outlined.MoreVert,
+                        contentDescription = "更多录音设置",
+                    )
+                }
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
+                ) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                "增益：\${gainText(state.gain)}",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        },
+                        onClick = {},
+                        enabled = false,
+                    )
+                    DropdownMenuItem(
+                        text = { Text("低增益") },
+                        onClick = {
+                            menuExpanded = false
+                            onSetGain(RecordingGain.Low)
+                        },
+                        enabled = synchronized && !busy,
+                    )
+                    DropdownMenuItem(
+                        text = { Text("中增益") },
+                        onClick = {
+                            menuExpanded = false
+                            onSetGain(RecordingGain.Medium)
+                        },
+                        enabled = synchronized && !busy,
+                    )
+                    DropdownMenuItem(
+                        text = { Text("高增益") },
+                        onClick = {
+                            menuExpanded = false
+                            onSetGain(RecordingGain.High)
+                        },
+                        enabled = synchronized && !busy,
+                    )
+                    DropdownMenuItem(
+                        text = { Text("刷新录音状态") },
+                        onClick = {
+                            menuExpanded = false
+                            onRefresh()
+                        },
+                        enabled = !busy,
+                    )
+                    state.filename?.let { filename ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    "\$filename · \${formatBytes(state.currentSizeBytes)}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            },
+                            onClick = {},
+                            enabled = false,
+                        )
+                    }
+                }
+            }
+
             Text(
                 text = formatDuration(state.durationSeconds),
-                style = MaterialTheme.typography.displaySmall,
+                style =
+                    MaterialTheme.typography.headlineLarge.copy(
+                        fontSize = 36.sp,
+                        lineHeight = 42.sp,
+                    ),
                 fontWeight = FontWeight.Medium,
             )
-            Text(
-                text = recordingStatusText(state.status),
-                style = MaterialTheme.typography.bodyMedium,
-                color = recordingStatusColor(state.status),
-            )
+
+            if (!synchronized) {
+                Text(
+                    freshnessText(state.freshness),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else if (state.status != RecordingStatus.Idle) {
+                Text(
+                    recordingStatusText(state.status),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = recordingStatusColor(state.status),
+                )
+            }
 
             when (state.status) {
                 RecordingStatus.Idle -> {
@@ -142,107 +236,12 @@ fun RecordingCard(
 
             state.lastError?.let { error ->
                 Text(
-                    stringResource(R.string.recording_last_error) + ": " +
-                        error.code.name +
-                        (error.detail?.let { " · $it" } ?: ""),
+                    error.code.name + (error.detail?.let { " · \$it" } ?: ""),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
             }
-
-            HorizontalDivider()
-
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    stringResource(R.string.recording_details_title),
-                    style = MaterialTheme.typography.titleSmall,
-                )
-                RecordingInfoRow(
-                    stringResource(R.string.recording_freshness),
-                    freshnessText(state.freshness),
-                )
-                RecordingInfoRow(
-                    stringResource(R.string.recording_size),
-                    formatBytes(state.currentSizeBytes),
-                )
-                RecordingInfoRow(
-                    stringResource(R.string.recording_filename),
-                    state.filename ?: "--",
-                )
-            }
-
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    stringResource(R.string.recording_gain),
-                    style = MaterialTheme.typography.titleSmall,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    GainChip(
-                        label = stringResource(R.string.recording_gain_low),
-                        target = RecordingGain.Low,
-                        current = state.gain,
-                        enabled = synchronized && !busy,
-                        onSetGain = onSetGain,
-                    )
-                    GainChip(
-                        label = stringResource(R.string.recording_gain_medium),
-                        target = RecordingGain.Medium,
-                        current = state.gain,
-                        enabled = synchronized && !busy,
-                        onSetGain = onSetGain,
-                    )
-                    GainChip(
-                        label = stringResource(R.string.recording_gain_high),
-                        target = RecordingGain.High,
-                        current = state.gain,
-                        enabled = synchronized && !busy,
-                        onSetGain = onSetGain,
-                    )
-                }
-            }
-
-            OutlinedButton(
-                onClick = onRefresh,
-                enabled = !busy,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(stringResource(R.string.recording_refresh))
-            }
         }
-    }
-}
-
-@Composable
-private fun GainChip(
-    label: String,
-    target: RecordingGain,
-    current: RecordingGain?,
-    enabled: Boolean,
-    onSetGain: (RecordingGain) -> Unit,
-) {
-    FilterChip(
-        selected = current == target,
-        onClick = { onSetGain(target) },
-        enabled = enabled,
-        label = { Text(label) },
-    )
-}
-
-@Composable
-private fun RecordingInfoRow(label: String, value: String) {
-    Row(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            label,
-            modifier = Modifier.weight(1f),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(value)
     }
 }
 
@@ -299,6 +298,14 @@ private fun commandText(state: RecordingCommandState): String =
         RecordingCommandState.RECONCILING -> stringResource(R.string.recording_syncing)
     }
 
+private fun gainText(gain: RecordingGain?): String =
+    when (gain) {
+        RecordingGain.Low -> "低"
+        RecordingGain.Medium -> "中"
+        RecordingGain.High -> "高"
+        null -> "未知"
+    }
+
 private fun formatDuration(seconds: Int?): String {
     val value = seconds ?: 0
     val hours = value / 3600
@@ -316,6 +323,6 @@ private fun formatBytes(bytes: Long?): String {
             "%.2f MB".format(bytes.toDouble() / 1024.0 / 1024.0)
         bytes >= 1024L ->
             "%.1f KB".format(bytes.toDouble() / 1024.0)
-        else -> "$bytes B"
+        else -> "\$bytes B"
     }
 }
