@@ -410,18 +410,7 @@ fun VoicaApp(
         bottomBar = {
             if (!secondaryPageActive) {
                 Column {
-                    if (
-                        globalPlayback.recordingId != null &&
-                        globalPlayback.state in
-                            setOf(
-                                PlaybackState.PREPARING,
-                                PlaybackState.READY,
-                                PlaybackState.PLAYING,
-                                PlaybackState.PAUSED,
-                                PlaybackState.SEEKING,
-                                PlaybackState.ERROR,
-                            )
-                    ) {
+                    if (shouldShowGlobalPlayback(globalPlayback)) {
                         GlobalPlaybackStatusBar(
                             snapshot = globalPlayback,
                             recordingName =
@@ -904,7 +893,19 @@ private fun LocalFilesScreen(
     }
 }
 
-private fun buildGlobalTaskItems(
+internal fun shouldShowGlobalPlayback(snapshot: PlaybackSnapshot): Boolean =
+    snapshot.recordingId != null &&
+        snapshot.state in
+            setOf(
+                PlaybackState.PREPARING,
+                PlaybackState.READY,
+                PlaybackState.PLAYING,
+                PlaybackState.PAUSED,
+                PlaybackState.SEEKING,
+                PlaybackState.ERROR,
+            )
+
+internal fun buildGlobalTaskItems(
     transcription: TranscriptionRunState,
     diarization: DiarizationRunState,
     aiSummary: AiSummaryRunState,
@@ -945,6 +946,21 @@ private fun buildGlobalTaskItems(
                         terminal = true,
                     ),
                 )
+            is TranscriptionRunState.Failed ->
+                add(
+                    GlobalTaskItem(
+                        key =
+                            "transcription-failed-" +
+                                transcription.recordingId + "-" +
+                                transcription.mode.name,
+                        recordingId = transcription.recordingId,
+                        recordingName = recordingName(transcription.recordingId),
+                        label = "转写失败",
+                        progress = "查看",
+                        destination = RecordingDetailDestination.TRANSCRIPT,
+                        terminal = true,
+                    ),
+                )
             else -> Unit
         }
 
@@ -974,6 +990,18 @@ private fun buildGlobalTaskItems(
                         recordingName = recordingName(diarization.recordingId),
                         label = "说话人分离完成",
                         progress = "完成",
+                        destination = RecordingDetailDestination.TRANSCRIPT,
+                        terminal = true,
+                    ),
+                )
+            is DiarizationRunState.Failed ->
+                add(
+                    GlobalTaskItem(
+                        key = "diarization-failed-" + diarization.recordingId,
+                        recordingId = diarization.recordingId,
+                        recordingName = recordingName(diarization.recordingId),
+                        label = "说话人分离失败",
+                        progress = "查看",
                         destination = RecordingDetailDestination.TRANSCRIPT,
                         terminal = true,
                     ),
@@ -1027,6 +1055,24 @@ private fun buildGlobalTaskItems(
                         terminal = true,
                     ),
                 )
+            is AiSummaryRunState.Failed -> {
+                val recordingId = aiSummary.recordingId
+                if (recordingId != null) {
+                    add(
+                        GlobalTaskItem(
+                            key =
+                                "summary-failed-" +
+                                    (aiSummary.summaryId ?: aiSummary.transcriptionId),
+                            recordingId = recordingId,
+                            recordingName = recordingName(recordingId),
+                            label = "AI 总结失败",
+                            progress = "查看",
+                            destination = RecordingDetailDestination.SUMMARY,
+                            terminal = true,
+                        ),
+                    )
+                }
+            }
             else -> Unit
         }
     }
@@ -1044,7 +1090,7 @@ private fun GlobalTaskStatusBar(
         ) {
             Text(
                 when {
-                    tasks.all { it.terminal } -> if (tasks.size == 1) "任务完成" else tasks.size.toString() + " 条任务通知"
+                    tasks.all { it.terminal } -> if (tasks.size == 1) "任务通知" else tasks.size.toString() + " 条任务通知"
                     tasks.none { it.terminal } -> if (tasks.size == 1) "正在处理" else tasks.size.toString() + " 个任务正在处理"
                     else -> "任务状态"
                 },
