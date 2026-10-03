@@ -64,6 +64,7 @@ private enum class DevicePage {
 fun DeviceProductScreen(
     padding: PaddingValues,
     viewModel: DeviceViewModel,
+    homeRequestToken: Int,
     onSecondaryPageChanged: (Boolean) -> Unit,
 ) {
     val scan by viewModel.scanState.collectAsState()
@@ -85,6 +86,12 @@ fun DeviceProductScreen(
 
     LaunchedEffect(page) {
         onSecondaryPageChanged(page != DevicePage.HOME)
+    }
+
+    LaunchedEffect(homeRequestToken) {
+        if (homeRequestToken > 0) {
+            page = DevicePage.HOME
+        }
     }
 
     LaunchedEffect(connection) {
