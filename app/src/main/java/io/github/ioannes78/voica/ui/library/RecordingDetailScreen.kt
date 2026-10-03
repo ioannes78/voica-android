@@ -612,47 +612,53 @@ private fun TranscriptionActionsCard(
     onHighQuality: () -> Unit,
     onDiarize: () -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Text(
-                stringResource(R.string.detail_transcription_actions),
-                style = MaterialTheme.typography.titleMedium,
-            )
-            if (!canonicalReady) {
-                if (canonicalBusy) {
-                    OutlinedButton(onClick = onCancelCanonical) {
-                        Text(stringResource(R.string.local_standard_audio_cancel))
-                    }
-                } else {
-                    Button(onClick = onGenerateCanonical) {
-                        Text(stringResource(R.string.local_standard_audio_generate))
-                    }
-                }
-            } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        enabled = !transcriptionBusy && !diarizationBusy,
-                        onClick = onFast,
-                    ) {
-                        Text(stringResource(R.string.transcription_start_fast))
-                    }
-                    OutlinedButton(
-                        enabled = !transcriptionBusy && !diarizationBusy,
-                        onClick = onHighQuality,
-                    ) {
-                        Text(stringResource(R.string.transcription_start_high_quality))
-                    }
-                }
-                OutlinedButton(
-                    enabled = !transcriptionBusy && !diarizationBusy,
-                    onClick = onDiarize,
-                ) {
-                    Text(stringResource(R.string.diarization_start))
-                }
+    var expanded by rememberSaveable { mutableStateOf(false) }
+
+    if (!canonicalReady) {
+        if (canonicalBusy) {
+            OutlinedButton(onClick = onCancelCanonical) {
+                Text(stringResource(R.string.local_standard_audio_cancel))
             }
+        } else {
+            Button(onClick = onGenerateCanonical) {
+                Text(stringResource(R.string.local_standard_audio_generate))
+            }
+        }
+        return
+    }
+
+    Column {
+        OutlinedButton(
+            enabled = !transcriptionBusy && !diarizationBusy,
+            onClick = { expanded = true },
+        ) {
+            Text("转写操作")
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.transcription_start_fast)) },
+                onClick = {
+                    expanded = false
+                    onFast()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.transcription_start_high_quality)) },
+                onClick = {
+                    expanded = false
+                    onHighQuality()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.diarization_start)) },
+                onClick = {
+                    expanded = false
+                    onDiarize()
+                },
+            )
         }
     }
 }
