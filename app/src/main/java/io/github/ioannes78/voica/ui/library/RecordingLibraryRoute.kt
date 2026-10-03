@@ -55,6 +55,10 @@ fun RecordingLibraryRoute(
             onRemoveTagFromSelected = viewModel::removeTagFromSelected,
             onCreateFolder = viewModel::createFolder,
             onCreateTag = viewModel::createTag,
+            onRenameFolder = viewModel::renameFolder,
+            onDeleteFolder = viewModel::deleteFolder,
+            onRenameTag = viewModel::renameTag,
+            onDeleteTag = viewModel::deleteTag,
         )
         SnackbarHost(
             hostState = snackbarHostState,
