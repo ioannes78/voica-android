@@ -80,8 +80,8 @@ fun AiSummaryCard(
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text("AI 智能总结", style = MaterialTheme.typography.titleLarge)
             recordingName?.let {
@@ -127,7 +127,7 @@ fun AiSummaryCard(
                     Text("智能总结")
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Box {
                         OutlinedButton(
                             onClick = { presetExpanded = true },
@@ -224,7 +224,7 @@ fun AiSummaryCard(
             }
 
             customTemplates.forEach { template ->
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     OutlinedButton(
                         onClick = { viewModel.generateCustom(template.id) },
                         enabled =
@@ -321,7 +321,7 @@ fun AiSummaryCard(
                     }
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (document.entity.status == AiSummaryStateValue.INTERRUPTED) {
                         Button(
                             onClick = { viewModel.resumeSelected() },
