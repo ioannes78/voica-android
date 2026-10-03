@@ -10,7 +10,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -18,7 +17,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -49,21 +47,26 @@ fun ThemeSettingsCard(
                 style = MaterialTheme.typography.labelLarge,
             )
 
-            ThemeModeOption(
-                label = stringResource(R.string.theme_mode_system),
-                selected = settings.mode == VoicaThemeMode.SYSTEM,
-                onClick = { store.setMode(VoicaThemeMode.SYSTEM) },
-            )
-            ThemeModeOption(
-                label = stringResource(R.string.theme_mode_light),
-                selected = settings.mode == VoicaThemeMode.LIGHT,
-                onClick = { store.setMode(VoicaThemeMode.LIGHT) },
-            )
-            ThemeModeOption(
-                label = stringResource(R.string.theme_mode_dark),
-                selected = settings.mode == VoicaThemeMode.DARK,
-                onClick = { store.setMode(VoicaThemeMode.DARK) },
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                FilterChip(
+                    selected = settings.mode == VoicaThemeMode.SYSTEM,
+                    onClick = { store.setMode(VoicaThemeMode.SYSTEM) },
+                    label = { Text(stringResource(R.string.theme_mode_system)) },
+                )
+                FilterChip(
+                    selected = settings.mode == VoicaThemeMode.LIGHT,
+                    onClick = { store.setMode(VoicaThemeMode.LIGHT) },
+                    label = { Text(stringResource(R.string.theme_mode_light)) },
+                )
+                FilterChip(
+                    selected = settings.mode == VoicaThemeMode.DARK,
+                    onClick = { store.setMode(VoicaThemeMode.DARK) },
+                    label = { Text(stringResource(R.string.theme_mode_dark)) },
+                )
+            }
 
             Text(
                 stringResource(R.string.theme_palette_title),
@@ -131,23 +134,6 @@ fun ThemeSettingsCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-    }
-}
-
-@Composable
-private fun ThemeModeOption(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        RadioButton(
-            selected = selected,
-            onClick = onClick,
-        )
-        Text(label)
     }
 }
 
