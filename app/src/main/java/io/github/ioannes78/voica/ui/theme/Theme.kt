@@ -3,15 +3,20 @@ package io.github.ioannes78.voica.ui.theme
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 
 private val MintDark =
     darkColorScheme(
-        primary = Color(0xFF57D4B2),
+        primary = Color(0xFF58D6B5),
         onPrimary = Color(0xFF00382D),
         primaryContainer = Color(0xFF0C4F41),
         onPrimaryContainer = Color(0xFFB8F4E2),
@@ -19,13 +24,13 @@ private val MintDark =
         onSecondary = Color(0xFF1D352E),
         secondaryContainer = Color(0xFF334B43),
         onSecondaryContainer = Color(0xFFCDE8DE),
-        background = Color(0xFF11181D),
-        onBackground = Color(0xFFE1E8EB),
-        surface = Color(0xFF11181D),
-        onSurface = Color(0xFFE1E8EB),
-        surfaceVariant = Color(0xFF202A30),
-        onSurfaceVariant = Color(0xFFBFC8CC),
-        outline = Color(0xFF3A484E),
+        background = Color(0xFF10171B),
+        onBackground = Color(0xFFEEF3F2),
+        surface = Color(0xFF171F24),
+        onSurface = Color(0xFFEEF3F2),
+        surfaceVariant = Color(0xFF253139),
+        onSurfaceVariant = Color(0xFFAAB6B8),
+        outline = Color(0xFF35434A),
         error = Color(0xFFFFB4AB),
         onError = Color(0xFF690005),
         errorContainer = Color(0xFF93000A),
@@ -34,21 +39,21 @@ private val MintDark =
 
 private val MintLight =
     lightColorScheme(
-        primary = Color(0xFF006B57),
+        primary = Color(0xFF087D67),
         onPrimary = Color.White,
-        primaryContainer = Color(0xFF79F8D3),
+        primaryContainer = Color(0xFFC9F4E6),
         onPrimaryContainer = Color(0xFF002019),
         secondary = Color(0xFF4B635B),
         onSecondary = Color.White,
         secondaryContainer = Color(0xFFCDE8DE),
         onSecondaryContainer = Color(0xFF072019),
-        background = Color(0xFFF7FAF9),
-        onBackground = Color(0xFF191C1B),
-        surface = Color(0xFFF7FAF9),
-        onSurface = Color(0xFF191C1B),
-        surfaceVariant = Color(0xFFDEE5E2),
-        onSurfaceVariant = Color(0xFF414946),
-        outline = Color(0xFF717975),
+        background = Color(0xFFF6F8F8),
+        onBackground = Color(0xFF17201E),
+        surface = Color(0xFFFFFFFF),
+        onSurface = Color(0xFF17201E),
+        surfaceVariant = Color(0xFFEEF2F1),
+        onSurfaceVariant = Color(0xFF5E6B68),
+        outline = Color(0xFFD8E0DE),
     )
 
 private val BlueDark =
@@ -93,6 +98,94 @@ private val PurpleLight =
         surface = Color(0xFFFFF7FF),
     )
 
+private val VoicaTypography =
+    Typography(
+        headlineLarge =
+            TextStyle(
+                fontFamily = FontFamily.SansSerif,
+                fontWeight = FontWeight.Medium,
+                fontSize = 24.sp,
+                lineHeight = 30.sp,
+            ),
+        headlineMedium =
+            TextStyle(
+                fontFamily = FontFamily.SansSerif,
+                fontWeight = FontWeight.Medium,
+                fontSize = 24.sp,
+                lineHeight = 30.sp,
+            ),
+        headlineSmall =
+            TextStyle(
+                fontFamily = FontFamily.SansSerif,
+                fontWeight = FontWeight.Medium,
+                fontSize = 20.sp,
+                lineHeight = 26.sp,
+            ),
+        titleLarge =
+            TextStyle(
+                fontFamily = FontFamily.SansSerif,
+                fontWeight = FontWeight.Medium,
+                fontSize = 17.sp,
+                lineHeight = 23.sp,
+            ),
+        titleMedium =
+            TextStyle(
+                fontFamily = FontFamily.SansSerif,
+                fontWeight = FontWeight.Medium,
+                fontSize = 16.sp,
+                lineHeight = 22.sp,
+            ),
+        titleSmall =
+            TextStyle(
+                fontFamily = FontFamily.SansSerif,
+                fontWeight = FontWeight.Medium,
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+            ),
+        bodyLarge =
+            TextStyle(
+                fontFamily = FontFamily.SansSerif,
+                fontWeight = FontWeight.Normal,
+                fontSize = 15.sp,
+                lineHeight = 21.sp,
+            ),
+        bodyMedium =
+            TextStyle(
+                fontFamily = FontFamily.SansSerif,
+                fontWeight = FontWeight.Normal,
+                fontSize = 15.sp,
+                lineHeight = 21.sp,
+            ),
+        bodySmall =
+            TextStyle(
+                fontFamily = FontFamily.SansSerif,
+                fontWeight = FontWeight.Normal,
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
+            ),
+        labelLarge =
+            TextStyle(
+                fontFamily = FontFamily.SansSerif,
+                fontWeight = FontWeight.Medium,
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+            ),
+        labelMedium =
+            TextStyle(
+                fontFamily = FontFamily.SansSerif,
+                fontWeight = FontWeight.Normal,
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
+            ),
+        labelSmall =
+            TextStyle(
+                fontFamily = FontFamily.SansSerif,
+                fontWeight = FontWeight.Normal,
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+            ),
+    )
+
 @Composable
 fun VoicaTheme(
     settings: VoicaThemeSettings = VoicaThemeSettings(),
@@ -119,6 +212,7 @@ fun VoicaTheme(
 
     MaterialTheme(
         colorScheme = scheme,
+        typography = VoicaTypography,
         content = content,
     )
 }
