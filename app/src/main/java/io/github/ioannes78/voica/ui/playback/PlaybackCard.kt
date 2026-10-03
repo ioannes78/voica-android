@@ -1,19 +1,17 @@
 package io.github.ioannes78.voica.ui.playback
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -31,6 +29,8 @@ import io.github.ioannes78.voica.audio.PlaybackSnapshot
 import io.github.ioannes78.voica.audio.PlaybackState
 import io.github.ioannes78.voica.audio.sampleIndexToTimeUs
 import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
 @Composable
@@ -46,7 +46,6 @@ fun PlaybackCard(
     val totalSamples = snapshot.durationSampleCount.coerceAtLeast(0L)
     var dragging by remember(snapshot.recordingId) { mutableStateOf(false) }
     var previewRatio by remember(snapshot.recordingId) { mutableFloatStateOf(0f) }
-    var speedMenuExpanded by remember { mutableStateOf(false) }
 
     val actualRatio =
         if (totalSamples > 0L) {
@@ -70,10 +69,36 @@ fun PlaybackCard(
             snapshot.positionSampleIndex.coerceIn(0L, totalSamples)
         }
 
+    val actualSpeedIndex =
+        SUPPORTED_SPEEDS.indices.minByOrNull { index ->
+            abs(SUPPORTED_SPEEDS[index] - snapshot.speed)
+        } ?: DEFAULT_SPEED_INDEX
+    var speedDragging by remember(snapshot.recordingId) { mutableStateOf(false) }
+    var previewSpeedIndex by remember(snapshot.recordingId) {
+        mutableFloatStateOf(actualSpeedIndex.toFloat())
+    }
+
+    LaunchedEffect(actualSpeedIndex, speedDragging) {
+        if (!speedDragging) {
+            previewSpeedIndex = actualSpeedIndex.toFloat()
+        }
+    }
+
+    val selectedSpeed =
+        SUPPORTED_SPEEDS[
+            previewSpeedIndex.roundToInt().coerceIn(0, SUPPORTED_SPEEDS.lastIndex)
+        ]
+    val playbackControlsEnabled =
+        snapshot.state != PlaybackState.PREPARING &&
+            snapshot.state != PlaybackState.SEEKING &&
+            snapshot.state != PlaybackState.ERROR &&
+            snapshot.state != PlaybackState.RELEASED &&
+            snapshot.state != PlaybackState.IDLE
+
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
                 playbackStateText(snapshot.state),
@@ -101,23 +126,40 @@ fun PlaybackCard(
                     dragging = false
                     onSeek(target)
                 },
-                enabled =
-                    totalSamples > 0L &&
-                        snapshot.state != PlaybackState.PREPARING &&
-                        snapshot.state != PlaybackState.SEEKING &&
-                        snapshot.state != PlaybackState.ERROR &&
-                        snapshot.state != PlaybackState.RELEASED,
+                enabled = totalSamples > 0L && playbackControlsEnabled,
             )
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = {
+                        onSeek(
+                            (displaySample - SEEK_STEP_SAMPLES)
+                                .coerceAtLeast(0L),
+                        )
+                    },
+                    enabled = totalSamples > 0L && playbackControlsEnabled,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("-10s")
+                }
+
                 when (snapshot.state) {
                     PlaybackState.PLAYING -> {
-                        Button(onClick = onPause) {
+                        Button(
+                            onClick = onPause,
+                            modifier = Modifier.weight(1f),
+                        ) {
                             Text(stringResource(R.string.playback_pause))
                         }
                     }
                     PlaybackState.ERROR -> {
-                        Button(onClick = onRetry) {
+                        Button(
+                            onClick = onRetry,
+                            modifier = Modifier.weight(1f),
+                        ) {
                             Text(stringResource(R.string.playback_retry))
                         }
                     }
@@ -126,48 +168,91 @@ fun PlaybackCard(
                     PlaybackState.RELEASED,
                     PlaybackState.IDLE,
                     -> {
-                        Button(onClick = {}, enabled = false) {
+                        Button(
+                            onClick = {},
+                            enabled = false,
+                            modifier = Modifier.weight(1f),
+                        ) {
                             Text(stringResource(R.string.playback_play))
                         }
                     }
                     else -> {
-                        Button(onClick = onPlay) {
+                        Button(
+                            onClick = onPlay,
+                            modifier = Modifier.weight(1f),
+                        ) {
                             Text(stringResource(R.string.playback_play))
                         }
                     }
                 }
 
-                Box {
-                    OutlinedButton(
-                        onClick = { speedMenuExpanded = true },
-                        enabled =
-                            snapshot.state != PlaybackState.PREPARING &&
-                                snapshot.state != PlaybackState.RELEASED &&
-                                snapshot.state != PlaybackState.IDLE,
-                    ) {
-                        Text(formatSpeed(snapshot.speed))
-                    }
-                    DropdownMenu(
-                        expanded = speedMenuExpanded,
-                        onDismissRequest = { speedMenuExpanded = false },
-                    ) {
-                        SUPPORTED_SPEEDS.forEach { speed ->
-                            DropdownMenuItem(
-                                text = { Text(formatSpeed(speed)) },
-                                onClick = {
-                                    speedMenuExpanded = false
-                                    onSpeed(speed)
-                                },
-                            )
-                        }
-                    }
+                OutlinedButton(
+                    onClick = {
+                        onSeek(
+                            (displaySample + SEEK_STEP_SAMPLES)
+                                .coerceAtMost(totalSamples),
+                        )
+                    },
+                    enabled = totalSamples > 0L && playbackControlsEnabled,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("+10s")
                 }
+            }
+
+            Text(
+                "播放速度",
+                style = MaterialTheme.typography.labelLarge,
+            )
+            Slider(
+                value = previewSpeedIndex,
+                onValueChange = {
+                    speedDragging = true
+                    previewSpeedIndex =
+                        it.coerceIn(0f, SUPPORTED_SPEEDS.lastIndex.toFloat())
+                },
+                onValueChangeFinished = {
+                    val index =
+                        previewSpeedIndex.roundToInt()
+                            .coerceIn(0, SUPPORTED_SPEEDS.lastIndex)
+                    speedDragging = false
+                    previewSpeedIndex = index.toFloat()
+                    onSpeed(SUPPORTED_SPEEDS[index])
+                },
+                valueRange = 0f..SUPPORTED_SPEEDS.lastIndex.toFloat(),
+                steps = SUPPORTED_SPEEDS.size - 2,
+                enabled = playbackControlsEnabled,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    formatSpeed(SUPPORTED_SPEEDS.first()),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(
+                    onClick = {
+                        previewSpeedIndex = DEFAULT_SPEED_INDEX.toFloat()
+                        onSpeed(1.0f)
+                    },
+                    enabled = playbackControlsEnabled,
+                ) {
+                    Text(formatSpeed(selectedSpeed))
+                }
+                Text(
+                    formatSpeed(SUPPORTED_SPEEDS.last()),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
 
             snapshot.error?.let { error ->
                 Text(
                     playbackErrorText(error.code),
                     style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
         }
@@ -215,7 +300,7 @@ private fun playbackErrorText(code: PlaybackErrorCode): String =
             stringResource(R.string.playback_error_internal)
     }
 
-private fun formatPlaybackTime(sampleIndex: Long): String {
+internal fun formatPlaybackTime(sampleIndex: Long): String {
     val seconds =
         sampleIndexToTimeUs(
             sampleIndex.coerceAtLeast(0L),
@@ -255,3 +340,8 @@ private fun formatSpeed(speed: Float): String =
 
 private val SUPPORTED_SPEEDS =
     listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
+
+private const val DEFAULT_SPEED_INDEX = 2
+private const val SEEK_STEP_SECONDS = 10L
+private const val SEEK_STEP_SAMPLES =
+    SEEK_STEP_SECONDS * CanonicalPcmProfile.SAMPLE_RATE_HZ
