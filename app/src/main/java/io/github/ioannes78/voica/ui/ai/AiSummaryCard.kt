@@ -94,9 +94,10 @@ fun AiSummaryCard(
     LaunchedEffect(generationSheetOpen, providers, provider?.providerProfileId) {
         if (!generationSheetOpen) return@LaunchedEffect
         val selectedProfile =
-            providers.firstOrNull {
-                it.providerProfileId == selectedGenerationProviderId
-            } ?: provider
+            provider
+                ?: providers.firstOrNull {
+                    it.providerProfileId == selectedGenerationProviderId
+                }
                 ?: providers.firstOrNull()
         if (selectedProfile != null) {
             selectedGenerationProviderId = selectedProfile.providerProfileId
@@ -270,10 +271,10 @@ fun AiSummaryCard(
 
         val document = selected
         if (document == null && running == null) {
-            if (provider != null) {
+            if (providers.isNotEmpty()) {
                 Button(
                     onClick = { generationSheetOpen = true },
-                    enabled = provider?.model?.isNotBlank() == true,
+                    enabled = providers.any { it.model.isNotBlank() },
                 ) {
                     Text("生成 AI 总结")
                 }
@@ -370,7 +371,7 @@ fun AiSummaryCard(
                         onClick = { viewModel.regenerateSelected() },
                         enabled =
                             running == null &&
-                                provider?.model?.isNotBlank() == true,
+                                document.entity.model.isNotBlank(),
                     ) {
                         Text("按原模板重新生成")
                     }
@@ -555,7 +556,9 @@ fun AiSummaryCard(
                                 model = selectedGenerationModel,
                             )
                         },
-                        enabled = provider?.model?.isNotBlank() == true,
+                        enabled =
+                            selectedGenerationProviderId != null &&
+                                selectedGenerationModel.isNotBlank(),
                     ) {
                         Text("生成")
                     }
