@@ -68,6 +68,7 @@ fun RecordingLibraryRoute(
             onSelectAll = viewModel::selectAllVisible,
             onToggleFavorite = viewModel::toggleFavorite,
             onSetSelectedFavorite = viewModel::setSelectedFavorite,
+            onDeleteSelected = viewModel::deleteSelected,
             onMoveSelectedToFolder = viewModel::moveSelectedToFolder,
             onAddTagToSelected = viewModel::addTagToSelected,
             onRemoveTagFromSelected = viewModel::removeTagFromSelected,
