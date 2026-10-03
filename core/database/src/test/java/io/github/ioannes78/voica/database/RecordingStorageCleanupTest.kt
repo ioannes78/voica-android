@@ -158,6 +158,56 @@ class RecordingStorageCleanupTest {
         )
     }
 
+    @Test
+    fun cleanupRejectsCanonicalWhenDerivationSourceShaDoesNotMatchAsset() = runBlocking {
+        seedRecording("mismatch")
+        seedAsset(
+            recordingId = "mismatch",
+            assetId = "mismatch-source",
+            role = AudioAssetRole.IMPORTED_ORIGINAL,
+            path = "imported/mismatch.mp3",
+            size = 140,
+            container = "MP3",
+        )
+        seedAsset(
+            recordingId = "mismatch",
+            assetId = "mismatch-canonical",
+            role = AudioAssetRole.CANONICAL_WAV,
+            path = "canonical/mismatch.wav",
+            size = 240,
+            container = "WAV",
+        )
+
+        database.recordingDao().upsertDerivation(
+            AudioDerivationEntity(
+                recordingId = "mismatch",
+                profileId = "CANONICAL_PCM16_16000_MONO_WAV_V1",
+                sourceSha256 = "c".repeat(64),
+                sourceAssetId = "mismatch-source",
+                outputAssetId = "mismatch-canonical",
+                pipelineVersion = 1,
+                state = AudioDerivationState.READY,
+                startedAtMs = 1L,
+                updatedAtMs = 1L,
+                completedAtMs = 1L,
+                errorCode = null,
+                errorDetail = null,
+            ),
+        )
+
+        assertTrue(repository.reclaimableCanonicalCandidates().isEmpty())
+        val result = repository.cleanupReclaimableCanonicalAudio()
+        assertEquals(0L, result.reclaimedBytes)
+        assertEquals(0, result.deletedAssets)
+        assertTrue(File(root, "canonical/mismatch.wav").isFile)
+        assertNotNull(
+            database.recordingDao().findAsset(
+                recordingId = "mismatch",
+                role = AudioAssetRole.CANONICAL_WAV,
+            ),
+        )
+    }
+
     private suspend fun seedRecording(id: String) {
         database.recordingDao().insertRecordingIgnore(
             RecordingEntity(
