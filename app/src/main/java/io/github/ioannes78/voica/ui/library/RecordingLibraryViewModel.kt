@@ -6,6 +6,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import io.github.ioannes78.voica.LocalAudioImportCoordinator
 import io.github.ioannes78.voica.LocalAudioImportOutcome
+import io.github.ioannes78.voica.LocalAudioExportCoordinator
+import io.github.ioannes78.voica.LocalAudioBatchExportResult
 import io.github.ioannes78.voica.LocalRecordingDeleteCoordinator
 import io.github.ioannes78.voica.database.FolderEntity
 import io.github.ioannes78.voica.database.LibraryQueryCriteria
@@ -13,11 +15,13 @@ import io.github.ioannes78.voica.database.LibrarySort
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.database.RecordingLibraryRow
 import io.github.ioannes78.voica.database.TagEntity
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
@@ -57,6 +61,7 @@ class RecordingLibraryViewModel(
     private val repository: RecordingLibraryRepository,
     private val importCoordinator: LocalAudioImportCoordinator,
     private val deleteCoordinator: LocalRecordingDeleteCoordinator,
+    private val exportCoordinator: LocalAudioExportCoordinator,
 ) : ViewModel() {
     private val queryText = MutableStateFlow("")
     private val criteria = MutableStateFlow(LibraryQueryCriteria())
@@ -65,6 +70,9 @@ class RecordingLibraryViewModel(
     private val importState = MutableStateFlow<LibraryImportState>(LibraryImportState.Idle)
     private var importJob: Job? = null
     private var deleteJob: Job? = null
+    private var exportJob: Job? = null
+    private val exportBusy = MutableStateFlow(false)
+    val exportInProgress: StateFlow<Boolean> = exportBusy.asStateFlow()
 
     private val effectiveCriteria =
         combine(
@@ -389,6 +397,64 @@ class RecordingLibraryViewModel(
             }
     }
 
+    fun exportSelectedToDownloads() {
+        val ids = uiState.value.selectedIds.toList()
+        if (ids.isEmpty() || exportJob?.isActive == true) return
+        exportBusy.value = true
+        exportJob =
+            viewModelScope.launch {
+                try {
+                    publishExportResult(
+                        exportCoordinator.exportToDownloads(ids),
+                    )
+                } catch (cancelled: CancellationException) {
+                    operationMessage.value = "已取消导出，已完成的文件已保留"
+                    throw cancelled
+                } finally {
+                    exportBusy.value = false
+                    exportJob = null
+                }
+            }
+    }
+
+    fun exportSelectedToTree(treeUri: Uri) {
+        val ids = uiState.value.selectedIds.toList()
+        if (ids.isEmpty() || exportJob?.isActive == true) return
+        exportBusy.value = true
+        exportJob =
+            viewModelScope.launch {
+                try {
+                    publishExportResult(
+                        exportCoordinator.exportToTree(ids, treeUri),
+                    )
+                } catch (cancelled: CancellationException) {
+                    operationMessage.value = "已取消导出，已完成的文件已保留"
+                    throw cancelled
+                } finally {
+                    exportBusy.value = false
+                    exportJob = null
+                }
+            }
+    }
+
+    fun cancelExport() {
+        val job = exportJob ?: return
+        job.cancel(CancellationException("user cancelled export"))
+    }
+
+    private fun publishExportResult(result: LocalAudioBatchExportResult) {
+        operationMessage.value =
+            when {
+                result.failedCount == 0 ->
+                    "已导出 " + result.exportedCount + " 条录音"
+                result.exportedCount == 0 ->
+                    result.failedCount.toString() + " 条录音导出失败"
+                else ->
+                    "已导出 " + result.exportedCount + " 条；" +
+                        result.failedCount + " 条失败"
+            }
+    }
+
     fun consumeOperationMessage() {
         operationMessage.value = null
     }
@@ -479,6 +545,7 @@ class RecordingLibraryViewModel(
         private val repository: RecordingLibraryRepository,
         private val importCoordinator: LocalAudioImportCoordinator,
         private val deleteCoordinator: LocalRecordingDeleteCoordinator,
+        private val exportCoordinator: LocalAudioExportCoordinator,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
@@ -486,6 +553,7 @@ class RecordingLibraryViewModel(
                 repository = repository,
                 importCoordinator = importCoordinator,
                 deleteCoordinator = deleteCoordinator,
+                exportCoordinator = exportCoordinator,
             ) as T
     }
 }
