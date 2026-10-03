@@ -292,7 +292,7 @@ fun VoicaApp(
     var openRequestToken by rememberSaveable { mutableIntStateOf(0) }
     var libraryOpenRequest by remember { mutableStateOf<GlobalRecordingOpenRequest?>(null) }
     var activeDetailContext by remember { mutableStateOf<GlobalDetailContext?>(null) }
-    var dismissedTaskKeys by rememberSaveable { mutableStateOf(setOf<String>()) }
+    var dismissedTaskKeys by remember { mutableStateOf(setOf<String>()) }
 
     val allGlobalTasks =
         buildGlobalTaskItems(
@@ -356,6 +356,7 @@ fun VoicaApp(
                     GlobalRecordingStatusBar(
                         state = globalRecording,
                         onClick = {
+                            activeDetailContext = null
                             secondaryPageActive = false
                             selectedTab = 0
                             deviceHomeRequest += 1
@@ -412,6 +413,7 @@ fun VoicaApp(
                     NavigationBarItem(
                         selected = selectedTab == 0,
                         onClick = {
+                            activeDetailContext = null
                             secondaryPageActive = false
                             selectedTab = 0
                             deviceHomeRequest += 1
@@ -423,6 +425,7 @@ fun VoicaApp(
                     NavigationBarItem(
                         selected = selectedTab == 1,
                         onClick = {
+                            activeDetailContext = null
                             secondaryPageActive = false
                             selectedTab = 1
                         },
@@ -433,6 +436,7 @@ fun VoicaApp(
                     NavigationBarItem(
                         selected = selectedTab == 2,
                         onClick = {
+                            activeDetailContext = null
                             secondaryPageActive = false
                             selectedTab = 2
                         },
@@ -469,6 +473,7 @@ fun VoicaApp(
                     }
                 },
                 onOpenSettings = {
+                    activeDetailContext = null
                     secondaryPageActive = false
                     selectedTab = 2
                 },
