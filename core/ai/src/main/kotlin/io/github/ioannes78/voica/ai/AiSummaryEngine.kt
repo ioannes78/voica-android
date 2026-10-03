@@ -173,6 +173,19 @@ class AiSummaryEngine(
                     )
 
                 if (response.isLengthTruncated()) {
+                    val currentLimit = outputLimitFor(dataPayload, repairAttempt)
+                    val hardLimit =
+                        minOf(
+                            config.maxOutputTokens,
+                            capabilities.maxOutputTokens ?: config.maxOutputTokens,
+                        )
+                    if (
+                        repairAttempt < config.maxRepairAttempts &&
+                        currentLimit < hardLimit
+                    ) {
+                        repairAttempt++
+                        continue
+                    }
                     throw SummaryStructuredOutputException(
                         SummaryStructuredOutputErrorCode.TRUNCATED_JSON,
                         "provider stopped because the output token limit was reached",
