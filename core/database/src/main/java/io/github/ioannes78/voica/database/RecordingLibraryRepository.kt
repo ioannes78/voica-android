@@ -3,6 +3,7 @@ package io.github.ioannes78.voica.database
 import androidx.room.withTransaction
 import java.io.File
 import java.security.MessageDigest
+import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -85,6 +86,94 @@ class RecordingLibraryRepository(
 
     val recordings: Flow<List<RecordingLibraryItem>> =
         dao.observeAll().map { rows -> rows.map(RecordingWithAssets::toLibraryItem) }
+
+    val folders: Flow<List<FolderEntity>> = dao.observeFolders()
+
+    val tags: Flow<List<TagEntity>> = dao.observeTags()
+
+    fun observeLibrary(criteria: LibraryQueryCriteria): Flow<List<RecordingLibraryRow>> =
+        dao.observeLibrary(LibraryQueryBuilder.build(criteria))
+            .map { rows -> rows.map(RecordingLibraryProjection::toLibraryRow) }
+
+    suspend fun setFavorite(recordingIds: Collection<String>, favorite: Boolean): Int {
+        val ids = recordingIds.distinct()
+        if (ids.isEmpty()) return 0
+        return dao.setFavorite(ids, favorite, nowMs())
+    }
+
+    suspend fun moveToFolder(recordingIds: Collection<String>, folderId: String?): Int {
+        val ids = recordingIds.distinct()
+        if (ids.isEmpty()) return 0
+        if (folderId != null) {
+            requireNotNull(dao.findFolder(folderId)) { "folder does not exist" }
+        }
+        return dao.moveToFolder(ids, folderId, nowMs())
+    }
+
+    suspend fun addTag(recordingIds: Collection<String>, tagId: String): Int {
+        val ids = recordingIds.distinct()
+        if (ids.isEmpty()) return 0
+        requireNotNull(dao.findTag(tagId)) { "tag does not exist" }
+        return dao.insertRecordingTagCrossRefs(
+            ids.map { recordingId ->
+                RecordingTagCrossRef(recordingId = recordingId, tagId = tagId)
+            },
+        ).count { it != -1L }
+    }
+
+    suspend fun removeTag(recordingIds: Collection<String>, tagId: String): Int {
+        val ids = recordingIds.distinct()
+        if (ids.isEmpty()) return 0
+        return dao.removeTagFromRecordings(ids, tagId)
+    }
+
+    suspend fun createFolder(name: String): FolderEntity =
+        database.withTransaction {
+            val normalized = normalizeLibraryName(name, maxLength = 60)
+            dao.findFolderByName(normalized)?.let { return@withTransaction it }
+            val now = nowMs()
+            FolderEntity(
+                folderId = UUID.randomUUID().toString(),
+                name = normalized,
+                createdAtMs = now,
+                updatedAtMs = now,
+            ).also(dao::insertFolder)
+        }
+
+    suspend fun renameFolder(folderId: String, name: String): Boolean =
+        database.withTransaction {
+            val normalized = normalizeLibraryName(name, maxLength = 60)
+            val conflict = dao.findFolderByName(normalized)
+            if (conflict != null && conflict.folderId != folderId) return@withTransaction false
+            dao.renameFolder(folderId, normalized, nowMs()) == 1
+        }
+
+    suspend fun deleteFolder(folderId: String): Boolean =
+        dao.deleteFolder(folderId) == 1
+
+    suspend fun createTag(name: String): TagEntity =
+        database.withTransaction {
+            val normalized = normalizeLibraryName(name, maxLength = 40)
+            dao.findTagByName(normalized)?.let { return@withTransaction it }
+            val now = nowMs()
+            TagEntity(
+                tagId = UUID.randomUUID().toString(),
+                name = normalized,
+                createdAtMs = now,
+                updatedAtMs = now,
+            ).also(dao::insertTag)
+        }
+
+    suspend fun renameTag(tagId: String, name: String): Boolean =
+        database.withTransaction {
+            val normalized = normalizeLibraryName(name, maxLength = 40)
+            val conflict = dao.findTagByName(normalized)
+            if (conflict != null && conflict.tagId != tagId) return@withTransaction false
+            dao.renameTag(tagId, normalized, nowMs()) == 1
+        }
+
+    suspend fun deleteTag(tagId: String): Boolean =
+        dao.deleteTag(tagId) == 1
 
     suspend fun importLegacyStage5IfNeeded(): LegacyImportReport {
         if (dao.readMeta(LEGACY_IMPORT_META_KEY) == LEGACY_IMPORT_VERSION) {
@@ -571,6 +660,14 @@ class RecordingLibraryRepository(
 
     private fun canonicalAssetId(recordingId: String, profileId: String): String =
         stableRecordingId("$recordingId|canonical=$profileId")
+
+    private fun normalizeLibraryName(name: String, maxLength: Int): String {
+        val normalized = name.trim().replace(Regex("\\s+"), " ")
+        require(normalized.isNotEmpty()) { "name must not be blank" }
+        require(normalized.length <= maxLength) { "name is too long" }
+        require(normalized.none { it.isISOControl() }) { "name contains control characters" }
+        return normalized
+    }
 
     private companion object {
         const val LEGACY_IMPORT_META_KEY = "legacy_stage5_import"
