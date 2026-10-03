@@ -379,6 +379,7 @@ fun RecordingDetailScreen(
                                 recordingId = recording.id,
                                 recordingName = recording.displayName,
                                 canonicalReady = canonicalReady,
+                                deviceRecordingActive = deviceRecordingActive,
                                 playbackViewModel = playbackViewModel,
                             )
                         }
