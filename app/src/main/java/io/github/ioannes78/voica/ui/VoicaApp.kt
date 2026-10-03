@@ -449,14 +449,6 @@ fun VoicaApp(
                 viewModel = deviceViewModel,
                 homeRequestToken = deviceHomeRequest,
                 onSecondaryPageChanged = { secondaryPageActive = it },
-                onDetailContextChanged = { recordingId, destination ->
-                    activeDetailContext =
-                        if (recordingId != null && destination != null) {
-                            GlobalDetailContext(recordingId, destination)
-                        } else {
-                            null
-                        }
-                },
             )
             1 -> LocalFilesScreen(
                 padding,
@@ -479,6 +471,14 @@ fun VoicaApp(
                     selectedTab = 2
                 },
                 onSecondaryPageChanged = { secondaryPageActive = it },
+                onDetailContextChanged = { recordingId, destination ->
+                    activeDetailContext =
+                        if (recordingId != null && destination != null) {
+                            GlobalDetailContext(recordingId, destination)
+                        } else {
+                            null
+                        }
+                },
             )
             else -> ProductSettingsScreen(
                 padding = padding,
@@ -860,7 +860,7 @@ private fun LocalFilesScreen(
                     deviceRecording.status == RecordingStatus.Paused,
             initialDestination = requestedDestination,
             onDestinationChanged = { destination ->
-                onDetailContextChanged(recording.id, destination)
+                onDetailContextChanged(selectedRecording.id, destination)
             },
         )
     }
@@ -877,73 +877,127 @@ private fun buildGlobalTaskItems(
             ?: "录音"
 
     return buildList {
-        (transcription as? TranscriptionRunState.Running)?.let { state ->
-            val progress =
-                state.progress.fraction?.let {
-                    (it * 100.0).roundToInt().coerceIn(0, 100).toString() + "%"
-                }
-            add(
-                GlobalTaskItem(
-                    recordingId = state.recordingId,
-                    recordingName = recordingName(state.recordingId),
-                    label = "转写中",
-                    progress = progress,
-                    destination = RecordingDetailDestination.TRANSCRIPT,
-                ),
-            )
-        }
-        (diarization as? DiarizationRunState.Running)?.let { state ->
-            val progress =
-                state.progress.fraction?.let {
-                    (it * 100.0).roundToInt().coerceIn(0, 100).toString() + "%"
-                }
-            add(
-                GlobalTaskItem(
-                    recordingId = state.recordingId,
-                    recordingName = recordingName(state.recordingId),
-                    label = "说话人分离",
-                    progress = progress,
-                    destination = RecordingDetailDestination.TRANSCRIPT,
-                ),
-            )
-        }
-        (aiSummary as? AiSummaryRunState.Running)
-            ?.recordingId
-            ?.let { recordingId ->
-                val state = aiSummary as AiSummaryRunState.Running
+        when (transcription) {
+            is TranscriptionRunState.Running -> {
                 val progress =
-                    if (state.totalUnits > 0) {
-                        ((state.completedUnits.toDouble() / state.totalUnits.toDouble()) * 100.0)
-                            .roundToInt()
-                            .coerceIn(0, 100)
-                            .toString() + "%"
-                    } else {
-                        when (state.phase.name) {
-                            "PREPARING" -> "准备中"
-                            "ANALYZING" -> "分析中"
-                            "MAPPING" -> "分段总结"
-                            "REDUCING" -> "合并总结"
-                            "VALIDATING" -> "验证结果"
-                            else -> null
-                        }
+                    transcription.progress.fraction?.let {
+                        (it * 100.0).roundToInt().coerceIn(0, 100).toString() + "%"
                     }
                 add(
                     GlobalTaskItem(
-                        recordingId = recordingId,
-                        recordingName = recordingName(recordingId),
-                        label = "AI 总结",
+                        key = "transcription-running-" + transcription.recordingId,
+                        recordingId = transcription.recordingId,
+                        recordingName = recordingName(transcription.recordingId),
+                        label = "转写中",
                         progress = progress,
-                        destination = RecordingDetailDestination.SUMMARY,
+                        destination = RecordingDetailDestination.TRANSCRIPT,
+                        terminal = false,
                     ),
                 )
             }
+            is TranscriptionRunState.Completed ->
+                add(
+                    GlobalTaskItem(
+                        key = "transcription-completed-" + transcription.transcriptionId,
+                        recordingId = transcription.recordingId,
+                        recordingName = recordingName(transcription.recordingId),
+                        label = "转写完成",
+                        progress = "完成",
+                        destination = RecordingDetailDestination.TRANSCRIPT,
+                        terminal = true,
+                    ),
+                )
+            else -> Unit
+        }
+
+        when (diarization) {
+            is DiarizationRunState.Running -> {
+                val progress =
+                    diarization.progress.fraction?.let {
+                        (it * 100.0).roundToInt().coerceIn(0, 100).toString() + "%"
+                    }
+                add(
+                    GlobalTaskItem(
+                        key = "diarization-running-" + diarization.recordingId,
+                        recordingId = diarization.recordingId,
+                        recordingName = recordingName(diarization.recordingId),
+                        label = "说话人分离",
+                        progress = progress,
+                        destination = RecordingDetailDestination.TRANSCRIPT,
+                        terminal = false,
+                    ),
+                )
+            }
+            is DiarizationRunState.Completed ->
+                add(
+                    GlobalTaskItem(
+                        key = "diarization-completed-" + diarization.runId,
+                        recordingId = diarization.recordingId,
+                        recordingName = recordingName(diarization.recordingId),
+                        label = "说话人分离完成",
+                        progress = "完成",
+                        destination = RecordingDetailDestination.TRANSCRIPT,
+                        terminal = true,
+                    ),
+                )
+            else -> Unit
+        }
+
+        when (aiSummary) {
+            is AiSummaryRunState.Running -> {
+                val recordingId = aiSummary.recordingId
+                if (recordingId != null) {
+                    val progress =
+                        if (aiSummary.totalUnits > 0) {
+                            ((aiSummary.completedUnits.toDouble() /
+                                aiSummary.totalUnits.toDouble()) * 100.0)
+                                .roundToInt()
+                                .coerceIn(0, 100)
+                                .toString() + "%"
+                        } else {
+                            when (aiSummary.phase.name) {
+                                "PREPARING" -> "准备中"
+                                "ANALYZING" -> "分析中"
+                                "MAPPING" -> "分段总结"
+                                "REDUCING" -> "合并总结"
+                                "VALIDATING" -> "验证结果"
+                                else -> null
+                            }
+                        }
+                    add(
+                        GlobalTaskItem(
+                            key = "summary-running-" + aiSummary.transcriptionId,
+                            recordingId = recordingId,
+                            recordingName = recordingName(recordingId),
+                            label = "AI 总结",
+                            progress = progress,
+                            destination = RecordingDetailDestination.SUMMARY,
+                            terminal = false,
+                        ),
+                    )
+                }
+            }
+            is AiSummaryRunState.Completed ->
+                add(
+                    GlobalTaskItem(
+                        key = "summary-completed-" + aiSummary.summaryId,
+                        recordingId = aiSummary.recordingId,
+                        recordingName = recordingName(aiSummary.recordingId),
+                        label = "AI 总结完成",
+                        progress = "完成",
+                        destination = RecordingDetailDestination.SUMMARY,
+                        terminal = true,
+                    ),
+                )
+            else -> Unit
+        }
     }
 }
 
 @Composable
 private fun GlobalTaskStatusBar(
     tasks: List<GlobalTaskItem>,
-    onOpen: (String, RecordingDetailDestination) -> Unit,
+    onOpen: (GlobalTaskItem) -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -951,7 +1005,11 @@ private fun GlobalTaskStatusBar(
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             Text(
-                if (tasks.size == 1) "正在处理" else tasks.size.toString() + " 个任务正在处理",
+                when {
+                    tasks.all { it.terminal } -> if (tasks.size == 1) "任务完成" else tasks.size.toString() + " 条任务通知"
+                    tasks.none { it.terminal } -> if (tasks.size == 1) "正在处理" else tasks.size.toString() + " 个任务正在处理"
+                    else -> "任务状态"
+                },
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -961,7 +1019,7 @@ private fun GlobalTaskStatusBar(
                         Modifier
                             .fillMaxWidth()
                             .clickable {
-                                onOpen(task.recordingId, task.destination)
+                                onOpen(task)
                             }
                             .padding(vertical = 3.dp),
                     verticalAlignment = Alignment.CenterVertically,
