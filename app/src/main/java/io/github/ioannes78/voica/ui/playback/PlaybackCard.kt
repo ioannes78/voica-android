@@ -76,16 +76,9 @@ fun PlaybackCard(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
-                stringResource(R.string.playback_title),
-                style = MaterialTheme.typography.titleLarge,
-            )
-            Text(
-                recordingName ?: snapshot.recordingId.orEmpty(),
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Text(
                 playbackStateText(snapshot.state),
                 style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             Text(
