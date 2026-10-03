@@ -293,40 +293,69 @@ fun VoicaApp(
     var libraryOpenRequest by remember { mutableStateOf<GlobalRecordingOpenRequest?>(null) }
     var activeDetailContext by remember { mutableStateOf<GlobalDetailContext?>(null) }
     var dismissedTaskKeys by remember { mutableStateOf(setOf<String>()) }
+    var terminalTaskNotices by remember { mutableStateOf<List<GlobalTaskItem>>(emptyList()) }
 
-    val allGlobalTasks =
+    val liveGlobalTasks =
         buildGlobalTaskItems(
             transcription = globalTranscription,
             diarization = globalDiarization,
             aiSummary = globalAiSummary,
             recordings = libraryRecordings,
         )
+    val liveRunningTasks = liveGlobalTasks.filterNot { it.terminal }
+    val liveTerminalTasks = liveGlobalTasks.filter { it.terminal }
 
-    LaunchedEffect(activeDetailContext, allGlobalTasks.map { it.key }) {
-        val current = activeDetailContext ?: return@LaunchedEffect
-        val readKeys =
-            allGlobalTasks
-                .filter { task ->
-                    task.terminal &&
-                        task.recordingId == current.recordingId &&
+    LaunchedEffect(activeDetailContext, liveTerminalTasks.map { it.key }) {
+        val current = activeDetailContext
+        var nextNotices = terminalTaskNotices
+
+        liveTerminalTasks.forEach { task ->
+            val alreadyRead = task.key in dismissedTaskKeys
+            val visibleOnCurrentPage =
+                current != null &&
+                    task.recordingId == current.recordingId &&
+                    task.destination == current.destination
+            when {
+                visibleOnCurrentPage -> {
+                    dismissedTaskKeys = dismissedTaskKeys + task.key
+                    nextNotices = nextNotices.filterNot { it.key == task.key }
+                }
+                !alreadyRead && nextNotices.none { it.key == task.key } -> {
+                    nextNotices = nextNotices + task
+                }
+            }
+        }
+
+        if (current != null) {
+            val readFromQueue =
+                nextNotices.filter { task ->
+                    task.recordingId == current.recordingId &&
                         task.destination == current.destination
                 }
-                .mapTo(LinkedHashSet()) { it.key }
-        if (readKeys.isNotEmpty()) {
-            dismissedTaskKeys = dismissedTaskKeys + readKeys
+            if (readFromQueue.isNotEmpty()) {
+                dismissedTaskKeys =
+                    dismissedTaskKeys + readFromQueue.map { it.key }
+                nextNotices =
+                    nextNotices.filterNot { task ->
+                        readFromQueue.any { it.key == task.key }
+                    }
+            }
         }
+
+        terminalTaskNotices = nextNotices
     }
 
     val globalTasks =
-        allGlobalTasks.filter { task ->
-            val current = activeDetailContext
-            task.key !in dismissedTaskKeys &&
-                !(
-                    current != null &&
-                        task.recordingId == current.recordingId &&
-                        task.destination == current.destination
-                )
-        }
+        (liveRunningTasks + terminalTaskNotices)
+            .filter { task ->
+                val current = activeDetailContext
+                task.key !in dismissedTaskKeys &&
+                    !(
+                        current != null &&
+                            task.recordingId == current.recordingId &&
+                            task.destination == current.destination
+                    )
+            }
     val requestOpenRecording: (String, RecordingDetailDestination) -> Unit =
         { recordingId, destination ->
             openRequestToken += 1
@@ -369,6 +398,8 @@ fun VoicaApp(
                         onOpen = { task ->
                             if (task.terminal) {
                                 dismissedTaskKeys = dismissedTaskKeys + task.key
+                                terminalTaskNotices =
+                                    terminalTaskNotices.filterNot { it.key == task.key }
                             }
                             requestOpenRecording(task.recordingId, task.destination)
                         },
