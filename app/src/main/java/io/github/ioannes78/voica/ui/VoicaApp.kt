@@ -62,6 +62,7 @@ import io.github.ioannes78.voica.LocalAudioShareOutcome
 import io.github.ioannes78.voica.AudioExportVariant
 import io.github.ioannes78.voica.LocalRecordingDeleteCoordinator
 import io.github.ioannes78.voica.R
+import io.github.ioannes78.voica.StorageManagementCoordinator
 import io.github.ioannes78.voica.TranscriptionCoordinator
 import io.github.ioannes78.voica.TranscriptionRunState
 import io.github.ioannes78.voica.audio.PlaybackController
@@ -135,6 +136,7 @@ fun VoicaApp(
     localAudioImportCoordinator: LocalAudioImportCoordinator,
     localRecordingDeleteCoordinator: LocalRecordingDeleteCoordinator,
     localAudioExportCoordinator: LocalAudioExportCoordinator,
+    storageManagementCoordinator: StorageManagementCoordinator,
     playbackController: PlaybackController,
     modelManager: ModelManager,
     modelUpdateController: ModelUpdateController,
@@ -337,6 +339,7 @@ fun VoicaApp(
                 padding = padding,
                 modelManager = modelManager,
                 modelUpdateController = modelUpdateController,
+                storageManagementCoordinator = storageManagementCoordinator,
                 providerSettingsViewModel = providerSettingsViewModel,
                 themeSettingsStore = themeSettingsStore,
                 onSecondaryPageChanged = { secondaryPageActive = it },
