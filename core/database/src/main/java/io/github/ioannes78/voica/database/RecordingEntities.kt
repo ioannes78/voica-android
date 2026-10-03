@@ -75,7 +75,7 @@ data class RecordingEntity(
     val displayName: String,
     val recordedAtLocalIso: String?,
     val deviceReportedDurationMs: Long?,
-    val mediaDurationMs: Long?,
+    val mediaDurationMs: Long? = null,
     val downloadedAtMs: Long?,
     val createdAtMs: Long,
     val updatedAtMs: Long,
