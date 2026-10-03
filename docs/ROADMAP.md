@@ -561,6 +561,16 @@ Stage 12A 冻结补充：
 - 原始文件保护：DEVICE_OPUS / DEVICE_WAV / 用户导入原文件继续作为可追溯资产保存，除非用户明确删除
 - 导入/导出失败、低存储空间、权限/URI 失效等状态必须可恢复并明确提示
 
+Stage 12B QA 收口同时处理跨页面任务可见性与既有 Stage 11 回归问题：
+
+- 转写 / 说话人分离状态必须按 recordingId 作用域显示，不能把 A 录音任务错误显示到 B 录音详情
+- Completed/Cancelled 过程状态不得在所有录音详情长期常驻；结果由正式转写/说话人内容表达
+- 打开已有转写的录音时默认加载最后一次已完成的 Transcription version，同时允许用户切换历史版本
+- 播放退出录音详情后提供全局 Mini Player，明确显示当前真实播放录音并可一键返回
+- 转写 / 说话人分离 / AI 总结退出详情后提供全局运行状态，可一键回到对应录音和 Tab
+- AI Summary Provider 增加模型级 structured-output compatibility probe，优先 strict JSON Schema，失败时有限回退 JSON Object / prompt-compatible
+- AI Summary 对截断输出、非法 JSON、字段/枚举/evidence 错误分类并执行有界定向 repair；不降低本地 evidence 校验，不改变已正常 Grok strict 成功路径
+
 ### Stage 12C — 转写 / AI 总结内容管理 + 统一全文搜索
 
 #### 转写文本管理
@@ -582,6 +592,10 @@ Stage 12A 冻结补充：
 - 文本内搜索
 - 关键词高亮
 - 长按文本操作菜单
+- 人工修订转写正文：支持按全文/段落修改识别文字，但不得直接覆盖模型原始 ASR 结果
+- 人工修订结果必须作为独立可追溯修订层/版本保存，并明确标记“已人工修改”
+- 保留原始 ASR 文本、model lineage、speaker/alignment 与 absolute canonical sample timeline；人工修改不得重写原始时间事实
+- 支持查看/恢复模型原始文本；后续全文搜索与导出默认使用当前有效文本，同时保留原始版本可追溯
 - 复制/导出时可选择是否包含时间戳、说话人标签
 - 文本操作不得破坏 Stage 8 保存的原始转写版本及 model lineage
 
@@ -590,6 +604,10 @@ Stage 12A 冻结补充：
 基于 Stage 11 的智能总结、预设模板结果和自定义模板结果：
 
 - 修改 AI 总结标题
+- 人工编辑 AI 总结正文：支持 overview、章节正文、待办/决策等结构化 item 的修改、增删与整理
+- 人工编辑不得覆盖模型原始 Summary；必须保留原始 Provider / Model / Template / Input lineage、structured payload 与 evidence 关系
+- 人工编辑结果保存为独立修订层/版本，并明确标记“已人工编辑”；支持查看/恢复 AI 原始结果
+- 用户新增的人工内容不得伪装成模型原始 evidence；需要与原始 AI evidence/事实来源明确区分
 - 复制整份 AI 总结
 - 复制单个章节
 - 复制待办 / 决策等结构化内容
