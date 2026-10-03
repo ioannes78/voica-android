@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import io.github.ioannes78.voica.CanonicalAudioCoordinator
 import io.github.ioannes78.voica.ble.DeviceAudioFormat
 import io.github.ioannes78.voica.ble.DeviceRepository
+import io.github.ioannes78.voica.ble.DeviceFileOperationType
+import io.github.ioannes78.voica.ble.FileOperationState
 import io.github.ioannes78.voica.ble.RemoteDeviceFile
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.protocol.RecordingGain
@@ -18,6 +20,30 @@ import kotlinx.coroutines.launch
 enum class DeviceActionMessage {
     SYNC_SENT,
     SYNC_FAILED,
+}
+
+sealed interface RemoteDeleteBatchState {
+    data object Idle : RemoteDeleteBatchState
+
+    data class Running(
+        val total: Int,
+        val completed: Int,
+        val currentIdentity: String,
+    ) : RemoteDeleteBatchState
+
+    data class Completed(
+        val total: Int,
+        val succeeded: Int,
+        val failedIdentities: List<String>,
+    ) : RemoteDeleteBatchState
+
+    data class StoppedUnknown(
+        val total: Int,
+        val completed: Int,
+        val currentIdentity: String,
+        val succeeded: Int,
+        val failedIdentities: List<String>,
+    ) : RemoteDeleteBatchState
 }
 
 class DeviceViewModel(
@@ -47,6 +73,12 @@ class DeviceViewModel(
 
     private val mutableActionMessage = MutableStateFlow<DeviceActionMessage?>(null)
     val actionMessage: StateFlow<DeviceActionMessage?> = mutableActionMessage.asStateFlow()
+
+    private val mutableRemoteDeleteBatchState =
+        MutableStateFlow<RemoteDeleteBatchState>(RemoteDeleteBatchState.Idle)
+    val remoteDeleteBatchState: StateFlow<RemoteDeleteBatchState> =
+        mutableRemoteDeleteBatchState.asStateFlow()
+    private var remoteDeleteBatchJob: Job? = null
 
     fun refreshPermissions() {
         mutableMissingPermissions.value = repository.missingPermissions()
@@ -87,6 +119,10 @@ class DeviceViewModel(
         }
     }
 
+    fun consumeActionMessage() {
+        mutableActionMessage.value = null
+    }
+
     fun startRecording() {
         viewModelScope.launch { repository.startRecording() }
     }
@@ -125,6 +161,73 @@ class DeviceViewModel(
 
     fun deleteRemoteRecording(file: RemoteDeviceFile) {
         viewModelScope.launch { repository.deleteRemoteRecording(file) }
+    }
+
+    fun deleteRemoteRecordings(files: List<RemoteDeviceFile>) {
+        if (files.isEmpty() || remoteDeleteBatchJob?.isActive == true) return
+        remoteDeleteBatchJob =
+            viewModelScope.launch {
+                val ordered = files.distinctBy { it.identity }
+                var succeeded = 0
+                val failed = mutableListOf<String>()
+
+                for ((index, file) in ordered.withIndex()) {
+                    mutableRemoteDeleteBatchState.value =
+                        RemoteDeleteBatchState.Running(
+                            total = ordered.size,
+                            completed = index,
+                            currentIdentity = file.identity,
+                        )
+
+                    repository.deleteRemoteRecording(file)
+
+                    when (val state = repository.fileOperationState.value) {
+                        is FileOperationState.Completed -> {
+                            if (
+                                state.operation == DeviceFileOperationType.DELETE_REMOTE &&
+                                state.remoteIdentity == file.identity
+                            ) {
+                                succeeded += 1
+                            } else {
+                                failed += file.identity
+                            }
+                        }
+
+                        is FileOperationState.OutcomeUnknown -> {
+                            mutableRemoteDeleteBatchState.value =
+                                RemoteDeleteBatchState.StoppedUnknown(
+                                    total = ordered.size,
+                                    completed = index,
+                                    currentIdentity = file.identity,
+                                    succeeded = succeeded,
+                                    failedIdentities = failed.toList(),
+                                )
+                            return@launch
+                        }
+
+                        is FileOperationState.Failed,
+                        is FileOperationState.Cancelled,
+                        is FileOperationState.Active,
+                        FileOperationState.Idle,
+                        -> {
+                            failed += file.identity
+                        }
+                    }
+                }
+
+                mutableRemoteDeleteBatchState.value =
+                    RemoteDeleteBatchState.Completed(
+                        total = ordered.size,
+                        succeeded = succeeded,
+                        failedIdentities = failed.toList(),
+                    )
+            }
+    }
+
+    fun dismissRemoteDeleteBatchResult() {
+        if (mutableRemoteDeleteBatchState.value !is RemoteDeleteBatchState.Running) {
+            mutableRemoteDeleteBatchState.value = RemoteDeleteBatchState.Idle
+        }
     }
 
     fun runRangeProbe(file: RemoteDeviceFile) {
