@@ -9,6 +9,7 @@ import io.github.ioannes78.voica.ai.ProviderFailureCarrier
 import io.github.ioannes78.voica.ai.ProviderProfile
 import io.github.ioannes78.voica.ai.SummaryDisplayFormatter
 import io.github.ioannes78.voica.ai.SummaryPromptFactory
+import io.github.ioannes78.voica.ai.SummaryStructuredOutputErrorCode
 import io.github.ioannes78.voica.ai.SummaryStructuredOutputException
 import io.github.ioannes78.voica.ai.SummaryTemplateCatalog
 import io.github.ioannes78.voica.ai.SummaryTemplateSnapshotCodec
@@ -184,7 +185,7 @@ class AiSummaryCoordinator(
             mutableState.value =
                 AiSummaryRunState.Running(
                     summaryId = null,
-                    recordingId = null,
+                    recordingId = recordingId,
                     transcriptionId = transcriptionId,
                     phase = AiSummaryEnginePhase.PREPARING,
                 )
@@ -469,7 +470,13 @@ class AiSummaryCoordinator(
                     (failure.sanitizedMessage ?: "文本模型请求失败")
             }
             is SummaryStructuredOutputException ->
-                "STRUCTURED_OUTPUT_INVALID" to "AI 返回结果结构无法验证，请重试或更换模型"
+                if (error.code == SummaryStructuredOutputErrorCode.TRUNCATED_JSON) {
+                    "STRUCTURED_OUTPUT_TRUNCATED" to
+                        "AI 输出达到模型长度限制，无法完成结构化结果，请重试或更换支持更长输出的模型"
+                } else {
+                    ("STRUCTURED_OUTPUT_" + error.code.name) to
+                        "AI 返回结果结构无法验证，请重试或更换模型"
+                }
             else ->
                 "AI_SUMMARY_FAILED" to "AI 总结生成失败，请重试"
         }
