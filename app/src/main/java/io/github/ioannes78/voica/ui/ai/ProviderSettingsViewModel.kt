@@ -340,9 +340,10 @@ class ProviderSettingsViewModel(
                     providerRegistry.forProfile(profile).testConnection(profile)
                 }
             result.onSuccess { test ->
-                val negotiatedMode = test.structuredSummaryProbe?.mode
+                val structuredProbe = test.structuredSummaryProbe
+                val negotiatedMode = structuredProbe?.mode
                 val negotiatedCompatibility =
-                    test.structuredSummaryProbe?.compatibility
+                    structuredProbe?.compatibility
                 val negotiatedCaps =
                     test.capabilities?.let { capabilities ->
                         when (negotiatedCompatibility) {
@@ -379,14 +380,14 @@ class ProviderSettingsViewModel(
                             },
                         notice =
                             if (test.success) {
-                                when (test.structuredSummaryProbe?.compatibility) {
+                                when (negotiatedCompatibility) {
                                     StructuredSummaryCompatibility.VERIFIED_STRICT ->
                                         "连接测试成功；智能总结结构化输出已验证（严格模式）；测试未上传真实转写内容。"
                                     StructuredSummaryCompatibility.VERIFIED_COMPATIBLE ->
                                         "连接测试成功；智能总结结构化输出已验证（兼容模式）；测试未上传真实转写内容。"
                                     StructuredSummaryCompatibility.INCOMPATIBLE ->
-                                        test.structuredSummaryProbe.failure?.sanitizedMessage
-                                            ?: "连接正常，但当前模型未通过智能总结结构化输出测试。"
+                                        structuredProbe?.failure?.sanitizedMessage
+                                            ?: "连接正常，但当前模型未通过智能总结结构化输出测试."
                                     StructuredSummaryCompatibility.NOT_TESTED,
                                     null,
                                     -> "连接测试成功；测试未上传真实转写内容。"
