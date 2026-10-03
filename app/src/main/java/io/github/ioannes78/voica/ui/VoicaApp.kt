@@ -124,6 +124,7 @@ fun VoicaApp(
     recordingLibraryRepository: RecordingLibraryRepository,
     canonicalAudioCoordinator: CanonicalAudioCoordinator,
     localAudioImportCoordinator: LocalAudioImportCoordinator,
+    localRecordingDeleteCoordinator: LocalRecordingDeleteCoordinator,
     playbackController: PlaybackController,
     modelManager: ModelManager,
     modelUpdateController: ModelUpdateController,
@@ -155,21 +156,27 @@ fun VoicaApp(
         },
     )
     val recordingLibraryViewModel: RecordingLibraryViewModel = viewModel(
-        factory = remember(recordingLibraryRepository, localAudioImportCoordinator) {
-            RecordingLibraryViewModel.Factory(
-                repository = recordingLibraryRepository,
-                importCoordinator = localAudioImportCoordinator,
-            )
-        },
+        factory =
+            remember(
+                recordingLibraryRepository,
+                localAudioImportCoordinator,
+                localRecordingDeleteCoordinator,
+            ) {
+                RecordingLibraryViewModel.Factory(
+                    repository = recordingLibraryRepository,
+                    importCoordinator = localAudioImportCoordinator,
+                    deleteCoordinator = localRecordingDeleteCoordinator,
+                )
+            },
     )
     val playbackViewModel: PlaybackViewModel = viewModel(
         factory = remember(
             playbackController,
-            recordingLibraryRepository,
+            localRecordingDeleteCoordinator,
         ) {
             PlaybackViewModel.Factory(
                 playbackController,
-                recordingLibraryRepository,
+                localRecordingDeleteCoordinator,
             )
         },
     )
