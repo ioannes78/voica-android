@@ -52,6 +52,7 @@ import io.github.ioannes78.voica.database.AudioIntegrityState
 import io.github.ioannes78.voica.database.AudioValidationState
 import io.github.ioannes78.voica.database.RecordingLibraryItem
 import io.github.ioannes78.voica.ui.ai.AiSummaryCard
+import io.github.ioannes78.voica.ui.ai.AiSummaryContentViewModel
 import io.github.ioannes78.voica.ui.ai.AiSummaryViewModel
 import io.github.ioannes78.voica.ui.diarization.DiarizationStatusCard
 import io.github.ioannes78.voica.ui.diarization.DiarizationViewModel
@@ -100,6 +101,7 @@ fun RecordingDetailScreen(
     diarizationViewModel: DiarizationViewModel,
     transcriptPlaybackSyncViewModel: TranscriptPlaybackSyncViewModel,
     aiSummaryViewModel: AiSummaryViewModel,
+    aiSummaryContentViewModel: AiSummaryContentViewModel,
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
     onRename: (String, String) -> Unit,
@@ -695,6 +697,7 @@ fun RecordingDetailScreen(
                                     transcriptionId = document.transcriptionId,
                                     recordingName = recording.displayName,
                                     viewModel = aiSummaryViewModel,
+                                    contentViewModel = aiSummaryContentViewModel,
                                     onOpenSettings = onOpenSettings,
                                     onSeekEvidence = { sampleIndex ->
                                         playbackViewModel.seekAndPlay(

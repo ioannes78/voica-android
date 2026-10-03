@@ -50,6 +50,7 @@ fun AiSummaryCard(
     transcriptionId: String,
     recordingName: String?,
     viewModel: AiSummaryViewModel,
+    contentViewModel: AiSummaryContentViewModel,
     onOpenSettings: () -> Unit,
     onSeekEvidence: (Long) -> Unit,
 ) {
@@ -61,11 +62,15 @@ fun AiSummaryCard(
     val generationModels by viewModel.generationModels.collectAsState()
     val customTemplates by viewModel.customTemplates.collectAsState()
     val notice by viewModel.notice.collectAsState()
+    val contentState by contentViewModel.state.collectAsState()
 
     var moreExpanded by remember { mutableStateOf(false) }
     var historyExpanded by remember { mutableStateOf(false) }
     var generationSheetOpen by remember { mutableStateOf(false) }
     var templateEditorOpen by remember { mutableStateOf(false) }
+    var summaryEditorOpen by remember { mutableStateOf(false) }
+    var revisionHistoryOpen by remember { mutableStateOf(false) }
+    var deleteVersionOpen by remember { mutableStateOf(false) }
     var presetExpanded by remember { mutableStateOf(false) }
     var generationProviderExpanded by remember { mutableStateOf(false) }
     var generationModelExpanded by remember { mutableStateOf(false) }
@@ -90,6 +95,12 @@ fun AiSummaryCard(
     }
     LaunchedEffect(Unit) {
         viewModel.refreshProvider()
+    }
+    LaunchedEffect(selected?.entity?.id, selected?.result) {
+        contentViewModel.bind(
+            summary = selected?.entity,
+            original = selected?.result,
+        )
     }
     LaunchedEffect(generationSheetOpen, providers, provider?.providerProfileId) {
         if (!generationSheetOpen) return@LaunchedEffect
@@ -136,7 +147,10 @@ fun AiSummaryCard(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    selected?.result?.title
+                    contentState.document
+                        ?.takeIf { contentState.summaryId == selected?.entity?.id }
+                        ?.title
+                        ?: selected?.result?.title
                         ?: selected?.entity?.displayText?.lineSequence()?.firstOrNull()
                         ?: "AI 总结",
                     style = MaterialTheme.typography.titleLarge,
@@ -159,6 +173,16 @@ fun AiSummaryCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
+                    )
+                }
+                if (
+                    contentState.summaryId == selected?.entity?.id &&
+                    contentState.currentRevisionId != null
+                ) {
+                    Text(
+                        "已人工修改",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -203,6 +227,42 @@ fun AiSummaryCard(
                     expanded = moreExpanded,
                     onDismissRequest = { moreExpanded = false },
                 ) {
+                    DropdownMenuItem(
+                        text = { Text("编辑总结") },
+                        enabled =
+                            contentState.summaryId == selected?.entity?.id &&
+                                contentState.document != null &&
+                                selected?.entity?.status == AiSummaryStateValue.COMPLETED,
+                        onClick = {
+                            moreExpanded = false
+                            summaryEditorOpen = true
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("修订历史") },
+                        enabled = selected != null,
+                        onClick = {
+                            moreExpanded = false
+                            revisionHistoryOpen = true
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("恢复 AI 原始结果") },
+                        enabled = contentState.currentRevisionId != null,
+                        onClick = {
+                            moreExpanded = false
+                            contentViewModel.restoreOriginal()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("删除当前版本") },
+                        enabled = selected != null && running == null,
+                        onClick = {
+                            moreExpanded = false
+                            deleteVersionOpen = true
+                        },
+                    )
+                    HorizontalDivider()
                     DropdownMenuItem(
                         text = { Text("生成新总结") },
                         onClick = {
@@ -285,6 +345,15 @@ fun AiSummaryCard(
             )
 
             when {
+                contentState.summaryId == document.entity.id &&
+                    contentState.document != null -> {
+                    AiSummaryRevisionBody(
+                        document = checkNotNull(contentState.document),
+                        evidenceByRef = document.evidenceByRef,
+                        onSeekEvidence = onSeekEvidence,
+                    )
+                }
+
                 document.result != null -> {
                     val result = checkNotNull(document.result)
                     if (result.overview.isNotBlank()) {
@@ -384,6 +453,64 @@ fun AiSummaryCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+
+    if (summaryEditorOpen) {
+        contentState.document?.let { editable ->
+            AiSummaryEditorDialog(
+                initial = editable,
+                onDismiss = { summaryEditorOpen = false },
+                onSave = { revised ->
+                    summaryEditorOpen = false
+                    contentViewModel.saveRevision(revised)
+                },
+            )
+        }
+    }
+
+    if (revisionHistoryOpen) {
+        AiSummaryRevisionHistoryDialog(
+            state = contentState,
+            onDismiss = { revisionHistoryOpen = false },
+            onSelect = { revisionId ->
+                contentViewModel.selectRevision(revisionId)
+                revisionHistoryOpen = false
+            },
+            onDelete = contentViewModel::deleteRevision,
+        )
+    }
+
+    if (deleteVersionOpen) {
+        AlertDialog(
+            onDismissRequest = { deleteVersionOpen = false },
+            title = { Text("删除 AI 总结版本") },
+            text = {
+                Text("仅删除当前 AI 总结版本、Evidence、检查点和人工修订，不会删除录音或转写。")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        deleteVersionOpen = false
+                        contentViewModel.deleteVersion(onDeleted = {})
+                    },
+                ) {
+                    Text("删除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteVersionOpen = false }) {
+                    Text("取消")
+                }
+            },
+        )
+    }
+
+    contentState.notice?.let { contentNotice ->
+        Text(
+            contentNotice,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 
     if (generationSheetOpen) {

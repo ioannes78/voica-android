@@ -100,6 +100,7 @@ import io.github.ioannes78.voica.protocol.RecordingStatus
 import io.github.ioannes78.voica.model.ModelManager
 import io.github.ioannes78.voica.sherpa.SherpaRuntime
 import io.github.ioannes78.voica.ui.ai.AiSummaryCard
+import io.github.ioannes78.voica.ui.ai.AiSummaryContentViewModel
 import io.github.ioannes78.voica.ui.ai.AiSummaryViewModel
 import io.github.ioannes78.voica.ui.ai.ProviderSettingsCard
 import io.github.ioannes78.voica.ui.ai.ProviderSettingsViewModel
@@ -259,6 +260,12 @@ fun VoicaApp(
     val transcriptPlaybackSyncViewModel: TranscriptPlaybackSyncViewModel = viewModel(
         factory = remember(playbackController) {
             TranscriptPlaybackSyncViewModel.Factory(playbackController)
+        },
+    )
+
+    val aiSummaryContentViewModel: AiSummaryContentViewModel = viewModel(
+        factory = remember(stage12CContentRepository) {
+            AiSummaryContentViewModel.Factory(stage12CContentRepository)
         },
     )
 
@@ -870,6 +877,7 @@ private fun LocalFilesScreen(
             diarizationViewModel = diarizationViewModel,
             transcriptPlaybackSyncViewModel = transcriptPlaybackSyncViewModel,
             aiSummaryViewModel = aiSummaryViewModel,
+            aiSummaryContentViewModel = aiSummaryContentViewModel,
             onBack = {
                 selectedRecordingId = null
                 requestedDestination = RecordingDetailDestination.PLAYBACK
