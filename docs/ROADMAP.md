@@ -1,6 +1,6 @@
 # Voica Android 全项目 Stage 开发路线图
 
-当前状态：**Stage 12A 已完成、用户真机验收通过并冻结；下一子阶段为 Stage 12B。**
+当前状态：**Stage 12B 已完成、用户真机验收通过并冻结；下一子阶段为 Stage 12C。**
 
 整个 Voica 路线均为全新独立实现，不得从 `voice-card-android` 复制、迁移、继承、cherry-pick 或机械改写任何代码。
 
@@ -544,6 +544,8 @@ Stage 12A 冻结补充：
 
 ### Stage 12B — 本地录音库增强
 
+状态：**已完成 / 已真机验收 / 已冻结**
+
 在 Stage 6 已冻结的 Room 本地录音库基础上增强。
 
 - 搜索：按录音名称、时间及可用元数据搜索
@@ -570,6 +572,17 @@ Stage 12B QA 收口同时处理跨页面任务可见性与既有 Stage 11 回归
 - 转写 / 说话人分离 / AI 总结退出详情后提供全局运行状态，可一键回到对应录音和 Tab
 - AI Summary Provider 增加模型级 structured-output compatibility probe，优先 strict JSON Schema，失败时有限回退 JSON Object / prompt-compatible
 - AI Summary 对截断输出、非法 JSON、字段/枚举/evidence 错误分类并执行有界定向 repair；不降低本地 evidence 校验，不改变已正常 Grok strict 成功路径
+- QA3 全局 Mini Player 在播放完成后自动消失，暂停状态继续保留
+- 全局转写 / 说话人分离 / AI 总结任务在对应详情页内不重复显示；离开后显示 Running，Completed/Failed 保留未读通知直到用户查看
+- AI Summary 历史版本显示实际 providerNameSnapshot + model，不再读取当前默认模型
+- 每次 AI Summary 生成可临时选择 Provider / Model，本次选择不修改全局默认；Interrupted resume 保留原版本 Provider/Model lineage
+- Room v5，QA `0.12.3-stage12b-qa3` 真机验收通过
+
+冻结文档：
+
+- `docs/STAGE_12B_TEST.md`
+- `docs/STAGE_12B_FREEZE.md`
+- `docs/STAGE_12B_HANDOFF.md`
 
 ### Stage 12C — 转写 / AI 总结内容管理 + 统一全文搜索
 
