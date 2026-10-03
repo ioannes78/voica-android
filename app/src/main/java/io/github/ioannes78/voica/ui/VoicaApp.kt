@@ -137,6 +137,7 @@ fun VoicaApp(
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var secondaryPageActive by rememberSaveable { mutableStateOf(false) }
+    var deviceHomeRequest by rememberSaveable { mutableIntStateOf(0) }
     val deviceViewModel: DeviceViewModel = viewModel(
         factory = remember(
             repository,
@@ -236,6 +237,7 @@ fun VoicaApp(
                     onClick = {
                         secondaryPageActive = false
                         selectedTab = 0
+                        deviceHomeRequest += 1
                     },
                 )
             }
@@ -248,6 +250,7 @@ fun VoicaApp(
                         onClick = {
                             secondaryPageActive = false
                             selectedTab = 0
+                            deviceHomeRequest += 1
                         },
                         icon = { Icon(Icons.Outlined.Bluetooth, contentDescription = null) },
                         label = { Text(stringResource(R.string.tab_device)) },
@@ -281,6 +284,7 @@ fun VoicaApp(
             0 -> DeviceProductScreen(
                 padding = padding,
                 viewModel = deviceViewModel,
+                homeRequestToken = deviceHomeRequest,
                 onSecondaryPageChanged = { secondaryPageActive = it },
             )
             1 -> LocalFilesScreen(
