@@ -882,7 +882,6 @@ private fun InfoLine(label: String, value: String) {
     }
 }
 
-@Composable
 private fun RecordingDetailDestination.toDetailTab(): DetailTab =
     when (this) {
         RecordingDetailDestination.PLAYBACK -> DetailTab.PLAYBACK
@@ -890,6 +889,7 @@ private fun RecordingDetailDestination.toDetailTab(): DetailTab =
         RecordingDetailDestination.SUMMARY -> DetailTab.SUMMARY
     }
 
+@Composable
 private fun tabLabel(tab: DetailTab): String =
     stringResource(
         when (tab) {
