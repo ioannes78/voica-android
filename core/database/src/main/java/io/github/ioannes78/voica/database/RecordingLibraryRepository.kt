@@ -132,12 +132,15 @@ class RecordingLibraryRepository(
             val normalized = normalizeLibraryName(name, maxLength = 60)
             dao.findFolderByName(normalized)?.let { return@withTransaction it }
             val now = nowMs()
-            FolderEntity(
-                folderId = UUID.randomUUID().toString(),
-                name = normalized,
-                createdAtMs = now,
-                updatedAtMs = now,
-            ).also(dao::insertFolder)
+            val folder =
+                FolderEntity(
+                    folderId = UUID.randomUUID().toString(),
+                    name = normalized,
+                    createdAtMs = now,
+                    updatedAtMs = now,
+                )
+            dao.insertFolder(folder)
+            folder
         }
 
     suspend fun renameFolder(folderId: String, name: String): Boolean =
@@ -156,12 +159,15 @@ class RecordingLibraryRepository(
             val normalized = normalizeLibraryName(name, maxLength = 40)
             dao.findTagByName(normalized)?.let { return@withTransaction it }
             val now = nowMs()
-            TagEntity(
-                tagId = UUID.randomUUID().toString(),
-                name = normalized,
-                createdAtMs = now,
-                updatedAtMs = now,
-            ).also(dao::insertTag)
+            val tag =
+                TagEntity(
+                    tagId = UUID.randomUUID().toString(),
+                    name = normalized,
+                    createdAtMs = now,
+                    updatedAtMs = now,
+                )
+            dao.insertTag(tag)
+            tag
         }
 
     suspend fun renameTag(tagId: String, name: String): Boolean =
