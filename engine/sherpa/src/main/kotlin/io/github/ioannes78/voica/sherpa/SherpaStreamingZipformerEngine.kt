@@ -144,7 +144,7 @@ class SherpaStreamingZipformerEngine internal constructor(
     }
 }
 
-private class SherpaStreamingZipformerSession(
+internal class SherpaStreamingZipformerSession(
     private val native: NativeStreamingAsrSession,
 ) : StreamingAsrSession {
     private var acceptedSampleCount = 0L
