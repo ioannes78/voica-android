@@ -125,8 +125,54 @@ class TranscriptionCoordinatorTest {
                 .first()
 
         assertEquals(
+            (
+                Stage13ARealtimeModelIds.ALL +
+                    Stage8ModelIds.PUNCTUATION
+            ).distinct().sorted(),
+            failed.missingModelIds,
+        )
+        assertTrue(repository.observeVersions(RECORDING_ID).first().isEmpty())
+    }
+
+    @Test
+    fun explicitRealtimeSelectionReportsOnlySelectedAsrWhenMissing() = runBlocking {
+        val vad = active(descriptor(Stage8ModelIds.VAD, ModelKind.VAD))
+        val modelManager = FakeModelManager(mapOf(Stage8ModelIds.VAD to vad))
+        val coordinator =
+            TranscriptionCoordinator(
+                scope = scope,
+                pcmSourceResolver = FakePcmSourceResolver(),
+                transcriptionRepository = repository,
+                loadCanonicalLineage = { recordingId, profileId ->
+                    CanonicalTranscriptionLineage(
+                        recordingId = recordingId,
+                        canonicalAssetId = "canonical-1",
+                        canonicalSha256 = "a".repeat(64),
+                        canonicalProfileId = profileId,
+                        canonicalPipelineVersion = 1,
+                    )
+                },
+                modelManager = modelManager,
+                modelUseRegistry = ModelUseRegistry(),
+                engineProvider = FakeEngineProvider,
+                localSpeechSettings = {
+                    LocalSpeechSettings(
+                        realtimeAsrModel =
+                            RealtimeAsrModelChoice.CHINESE_LARGE_TRANSDUCER,
+                    )
+                },
+            )
+
+        assertTrue(coordinator.start(RECORDING_ID, TranscriptionMode.FAST))
+
+        val failed =
+            coordinator.state
+                .filterIsInstance<TranscriptionRunState.Failed>()
+                .first()
+
+        assertEquals(
             listOf(
-                Stage8ModelIds.FIRST_PASS_ASR,
+                Stage13ARealtimeModelIds.CHINESE_LARGE_TRANSDUCER,
                 Stage8ModelIds.PUNCTUATION,
             ).sorted(),
             failed.missingModelIds,

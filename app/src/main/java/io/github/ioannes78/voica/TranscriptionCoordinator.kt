@@ -476,7 +476,26 @@ class TranscriptionCoordinator(
     private suspend fun resolveActiveModels(mode: TranscriptionMode): ActiveModels {
         val settings = localSpeechSettings()
         val performance = settings.resolvePerformance()
-        val firstPassSelection = resolveRealtimeAsr(settings.realtimeAsrModel)
+        val realtimeCandidates = settings.realtimeAsrModel.preferredModelIds()
+        val realtimeMatches =
+            realtimeCandidates.mapIndexedNotNull { index, modelId ->
+                modelManager.activeModel(modelId)?.let { active ->
+                    index to active
+                }
+            }
+        val firstPassSelection =
+            realtimeMatches.firstOrNull()?.let { (index, model) ->
+                require(model.descriptor.kind == ModelKind.ASR_STREAMING) {
+                    "selected realtime ASR is not ASR_STREAMING: ${model.descriptor.modelId}"
+                }
+                ResolvedRealtimeAsr(
+                    model = model,
+                    fallbackUsed =
+                        settings.realtimeAsrModel == RealtimeAsrModelChoice.AUTO &&
+                            index > 0,
+                )
+            }
+
         val requiredIds =
             buildList {
                 add(Stage8ModelIds.VAD)
@@ -490,15 +509,29 @@ class TranscriptionCoordinator(
                 modelManager.activeModel(id)
             }
         val missing =
-            active.filterValues { it == null }
-                .keys
-                .sorted()
+            buildList {
+                addAll(
+                    active.filterValues { it == null }
+                        .keys,
+                )
+                if (firstPassSelection == null) {
+                    addAll(
+                        if (settings.realtimeAsrModel == RealtimeAsrModelChoice.AUTO) {
+                            Stage13ARealtimeModelIds.ALL
+                        } else {
+                            realtimeCandidates
+                        },
+                    )
+                }
+            }.distinct().sorted()
         if (missing.isNotEmpty()) {
             throw MissingTranscriptionModelsException(missing)
         }
+
+        val resolvedFirstPass = checkNotNull(firstPassSelection)
         return ActiveModels(
             vad = checkNotNull(active[Stage8ModelIds.VAD]),
-            firstPass = firstPassSelection.model,
+            firstPass = resolvedFirstPass.model,
             punctuation = checkNotNull(active[Stage8ModelIds.PUNCTUATION]),
             secondPass =
                 if (mode == TranscriptionMode.HIGH_QUALITY) {
@@ -507,33 +540,9 @@ class TranscriptionCoordinator(
                     null
                 },
             realtimeAsrChoice = settings.realtimeAsrModel,
-            realtimeAsrFallbackUsed = firstPassSelection.fallbackUsed,
+            realtimeAsrFallbackUsed = resolvedFirstPass.fallbackUsed,
             performance = performance,
             vadSettings = settings.vad,
-        )
-    }
-
-    private suspend fun resolveRealtimeAsr(
-        choice: RealtimeAsrModelChoice,
-    ): ResolvedRealtimeAsr {
-        val candidates = choice.preferredModelIds()
-        for ((index, modelId) in candidates.withIndex()) {
-            val model = modelManager.activeModel(modelId) ?: continue
-            require(model.descriptor.kind == ModelKind.ASR_STREAMING) {
-                "selected realtime ASR is not ASR_STREAMING: $modelId"
-            }
-            return ResolvedRealtimeAsr(
-                model = model,
-                fallbackUsed = choice == RealtimeAsrModelChoice.AUTO && index > 0,
-            )
-        }
-
-        throw MissingTranscriptionModelsException(
-            if (choice == RealtimeAsrModelChoice.AUTO) {
-                Stage13ARealtimeModelIds.ALL
-            } else {
-                candidates
-            },
         )
     }
 
