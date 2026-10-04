@@ -352,13 +352,11 @@ class TranscriptionCoordinator(
                                     engineProvider.firstPassFactory(
                                         models.firstPass,
                                         models.performance.effectiveThreads,
-                                        models.vadSettings,
                                     ),
                                 punctuationEngineFactory =
                                     engineProvider.punctuationFactory(
                                         models.punctuation,
                                         models.performance.effectiveThreads,
-                                        models.vadSettings,
                                     ),
                             ).transcribe(
                                 recordingId = recordingId,
@@ -387,19 +385,16 @@ class TranscriptionCoordinator(
                                     engineProvider.firstPassFactory(
                                         models.firstPass,
                                         models.performance.effectiveThreads,
-                                        models.vadSettings,
                                     ),
                                 secondPassAsrEngineFactory =
                                     engineProvider.secondPassFactory(
                                         secondPass,
                                         models.performance.effectiveThreads,
-                                        models.vadSettings,
                                     ),
                                 punctuationEngineFactory =
                                     engineProvider.punctuationFactory(
                                         models.punctuation,
                                         models.performance.effectiveThreads,
-                                        models.vadSettings,
                                     ),
                             ).transcribe(
                                 recordingId = recordingId,
