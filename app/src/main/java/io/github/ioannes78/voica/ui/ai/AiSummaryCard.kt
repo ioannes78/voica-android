@@ -52,6 +52,7 @@ fun AiSummaryCard(
     recordingName: String?,
     viewModel: AiSummaryViewModel,
     contentViewModel: AiSummaryContentViewModel,
+    initialSummaryId: String? = null,
     onOpenSettings: () -> Unit,
     onSeekEvidence: (Long) -> Unit,
 ) {
@@ -96,6 +97,15 @@ fun AiSummaryCard(
     }
     LaunchedEffect(Unit) {
         viewModel.refreshProvider()
+    }
+    LaunchedEffect(initialSummaryId, history) {
+        val summaryId = initialSummaryId ?: return@LaunchedEffect
+        if (
+            history.any { it.id == summaryId } &&
+            selected?.entity?.id != summaryId
+        ) {
+            viewModel.selectSummary(summaryId)
+        }
     }
     LaunchedEffect(selected?.entity?.id, selected?.result) {
         contentViewModel.bind(

@@ -51,6 +51,8 @@ import io.github.ioannes78.voica.database.AudioAssetRole
 import io.github.ioannes78.voica.database.AudioIntegrityState
 import io.github.ioannes78.voica.database.AudioValidationState
 import io.github.ioannes78.voica.database.RecordingLibraryItem
+import io.github.ioannes78.voica.database.SearchDocumentEntity
+import io.github.ioannes78.voica.database.SearchDocumentTypeValue
 import io.github.ioannes78.voica.ui.ai.AiSummaryCard
 import io.github.ioannes78.voica.ui.ai.AiSummaryContentViewModel
 import io.github.ioannes78.voica.ui.ai.AiSummaryViewModel
@@ -102,6 +104,7 @@ fun RecordingDetailScreen(
     transcriptPlaybackSyncViewModel: TranscriptPlaybackSyncViewModel,
     aiSummaryViewModel: AiSummaryViewModel,
     aiSummaryContentViewModel: AiSummaryContentViewModel,
+    initialSearchTarget: SearchDocumentEntity? = null,
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
     onRename: (String, String) -> Unit,
@@ -187,12 +190,36 @@ fun RecordingDetailScreen(
             },
         )
     }
-    LaunchedEffect(recording.id) {
+    LaunchedEffect(recording.id, initialSearchTarget?.documentId) {
         transcriptionViewModel.viewVersions(recording.id)
+        initialSearchTarget
+            ?.transcriptionId
+            ?.takeIf { initialSearchTarget.recordingId == recording.id }
+            ?.let { transcriptionId ->
+                selectedTranscriptionId = transcriptionId
+                transcriptionViewModel.selectVersion(transcriptionId)
+            }
     }
     LaunchedEffect(document?.transcriptionId, document?.alignmentId) {
         document?.transcriptionId?.let { selectedTranscriptionId = it }
         transcriptContentViewModel.bind(document)
+    }
+    LaunchedEffect(
+        initialSearchTarget?.documentId,
+        document?.transcriptionId,
+        transcriptContentState.transcriptionId,
+        transcriptContentState.currentRevisionId,
+    ) {
+        val target = initialSearchTarget
+        if (
+            target?.documentType == SearchDocumentTypeValue.TRANSCRIPT_UNIT &&
+            target.transcriptionId == document?.transcriptionId &&
+            target.transcriptionId == transcriptContentState.transcriptionId &&
+            target.revisionId != null &&
+            target.revisionId != transcriptContentState.currentRevisionId
+        ) {
+            transcriptContentViewModel.selectRevision(target.revisionId)
+        }
     }
     LaunchedEffect(
         transcriptContentState.transcriptionId,
@@ -267,6 +294,46 @@ fun RecordingDetailScreen(
             } else {
                 transcriptListState.animateScrollToItem(destination)
             }
+        } finally {
+            programmaticScroll.set(false)
+        }
+    }
+
+    LaunchedEffect(
+        initialSearchTarget?.documentId,
+        selectedTab,
+        transcriptViewMode,
+        document?.transcriptionId,
+        transcriptContentState.currentRevisionId,
+        transcriptContentState.paragraphs,
+    ) {
+        val target = initialSearchTarget
+        if (
+            target?.documentType != SearchDocumentTypeValue.TRANSCRIPT_UNIT ||
+            selectedTab != DetailTab.TRANSCRIPT ||
+            target.transcriptionId != document?.transcriptionId
+        ) {
+            return@LaunchedEffect
+        }
+        val anchor = target.sourceAnchorId ?: return@LaunchedEffect
+        val rowIndex =
+            if (transcriptViewMode == TranscriptViewMode.READING) {
+                transcriptContentState.paragraphs.indexOfFirst { it.stableId == anchor }
+            } else {
+                document?.segments?.indexOfFirst {
+                    it.stableId == anchor || it.sourceSegmentId == anchor
+                } ?: -1
+            }
+        if (rowIndex < 0) return@LaunchedEffect
+        val baseIndex =
+            if (transcriptViewMode == TranscriptViewMode.READING) {
+                TRANSCRIPT_READING_ROW_START_INDEX
+            } else {
+                TRANSCRIPT_ROW_START_INDEX
+            }
+        programmaticScroll.set(true)
+        try {
+            transcriptListState.scrollToItem(baseIndex + rowIndex)
         } finally {
             programmaticScroll.set(false)
         }
@@ -698,6 +765,15 @@ fun RecordingDetailScreen(
                                     recordingName = recording.displayName,
                                     viewModel = aiSummaryViewModel,
                                     contentViewModel = aiSummaryContentViewModel,
+                                    initialSummaryId =
+                                        initialSearchTarget
+                                            ?.takeIf {
+                                                it.documentType ==
+                                                    SearchDocumentTypeValue.SUMMARY_TITLE_OVERVIEW ||
+                                                    it.documentType ==
+                                                        SearchDocumentTypeValue.SUMMARY_ITEM
+                                            }
+                                            ?.aiSummaryId,
                                     onOpenSettings = onOpenSettings,
                                     onSeekEvidence = { sampleIndex ->
                                         playbackViewModel.seekAndPlay(
@@ -1028,6 +1104,7 @@ internal fun shouldShowDiarizationStatus(
     }
 
 private const val TRANSCRIPT_ROW_START_INDEX = 6
+private const val TRANSCRIPT_READING_ROW_START_INDEX = 4
 
 private val ACTIVE_DERIVATION_STATES = setOf(
     "PREPARING",

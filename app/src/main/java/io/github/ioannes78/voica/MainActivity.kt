@@ -45,6 +45,8 @@ class MainActivity : ComponentActivity() {
                     transcriptionCoordinator = appContainer.transcriptionCoordinator,
                     transcriptionRepository = appContainer.transcriptionRepository,
                     stage12CContentRepository = appContainer.stage12CContentRepository,
+                    unifiedSearchRepository = appContainer.unifiedSearchRepository,
+                    searchIndexRebuilder = appContainer.searchIndexRebuilder,
                     diarizationCoordinator = appContainer.diarizationCoordinator,
                     diarizationRepository = appContainer.diarizationRepository,
                     aiSummaryCoordinator = appContainer.aiSummaryCoordinator,
