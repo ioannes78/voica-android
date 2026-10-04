@@ -257,7 +257,6 @@ fun VoicaApp(
             diarizationRepository,
             recordingLibraryRepository,
             stage12CContentRepository,
-            localSpeechSettingsStore,
         ) {
             TranscriptionViewModel.Factory(
                 transcriptionCoordinator,
@@ -266,7 +265,6 @@ fun VoicaApp(
                 diarizationRepository,
                 recordingLibraryRepository,
                 stage12CContentRepository,
-                localSpeechSettings = { localSpeechSettingsStore.settings.value },
             )
         },
     )
