@@ -184,7 +184,7 @@ enum class SenseVoiceLanguageChoice(
 
 data class LocalSenseVoiceSettings(
     val language: SenseVoiceLanguageChoice = SenseVoiceLanguageChoice.AUTO,
-    val useInverseTextNormalization: Boolean = true,
+    val useInverseTextNormalization: Boolean = false,
 )
 
 data class LocalQwenAsrSettings(

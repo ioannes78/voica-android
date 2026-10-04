@@ -393,6 +393,7 @@ class TranscriptionRepository(
 
             TranscriptionStateValue.VAD_ANALYZING ->
                 to == TranscriptionStateValue.FIRST_PASS_TRANSCRIBING ||
+                    to == TranscriptionStateValue.SECOND_PASS_TRANSCRIBING ||
                     to == TranscriptionStateValue.PERSISTING
 
             TranscriptionStateValue.FIRST_PASS_TRANSCRIBING ->

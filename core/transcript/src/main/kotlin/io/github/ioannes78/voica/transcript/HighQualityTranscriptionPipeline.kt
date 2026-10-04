@@ -14,24 +14,18 @@ data class HighQualityTranscriptionResult(
     val secondPassApplied: Boolean,
     val secondPassFallbackError: String? = null,
     val punctuationFallbackError: String? = null,
+    val timelineAlignmentFallbackError: String? = null,
 )
 
 class HighQualityTranscriptionPipeline(
     private val pcmSourceResolver: PcmSourceResolver,
-    vadEngineFactory: VadEngineFactory,
-    asrEngineFactory: StreamingAsrEngineFactory,
+    private val vadEngineFactory: VadEngineFactory,
     private val secondPassAsrEngineFactory: SecondPassAsrEngineFactory,
-    private val punctuationEngineFactory: PunctuationEngineFactory,
+    private val punctuationEngineFactory: PunctuationEngineFactory?,
+    private val timelineAlignmentAsrEngineFactory: StreamingAsrEngineFactory? = null,
     readChunkSamples: Int = DEFAULT_READ_CHUNK_SAMPLES,
     private val maxSecondPassSegmentSamples: Long = DEFAULT_MAX_SECOND_PASS_SEGMENT_SAMPLES,
 ) {
-    private val firstPassRunner =
-        FirstPassTranscriptionRunner(
-            pcmSourceResolver = pcmSourceResolver,
-            vadEngineFactory = vadEngineFactory,
-            asrEngineFactory = asrEngineFactory,
-            readChunkSamples = readChunkSamples,
-        )
     private val readChunkSamples = readChunkSamples
 
     init {
@@ -43,105 +37,144 @@ class HighQualityTranscriptionPipeline(
         recordingId: String,
         progressListener: ProgressListener? = null,
     ): HighQualityTranscriptionResult {
-        val firstPass =
-            firstPassRunner.run(
-                recordingId = recordingId,
-                progressListener = progressListener,
-            )
+        require(recordingId.isNotBlank())
+        progressListener?.onProgress(
+            TranscriptionProgress(phase = TranscriptionPhase.PREPARING),
+        )
 
-        if (firstPass.segments.isEmpty()) {
+        val vadSource =
+            pcmSourceResolver.resolvePcmSource(recordingId)
+                ?: error("canonical PCM source is unavailable for recording $recordingId")
+        val totalSampleCount = vadSource.totalSampleCount
+        val speechSegments =
+            try {
+                val vad = vadEngineFactory.open()
+                try {
+                    vad.analyze(vadSource, progressListener)
+                } finally {
+                    vad.close()
+                }
+            } finally {
+                vadSource.close()
+            }
+
+        validateSpeechSegments(speechSegments, totalSampleCount)
+        val speechSampleCount =
+            speechSegments.fold(0L) { total, segment ->
+                Math.addExact(total, segment.sampleCount)
+            }
+
+        if (speechSegments.isEmpty()) {
             return HighQualityTranscriptionResult(
-                totalSampleCount = firstPass.totalSampleCount,
-                speechSegments = firstPass.speechSegments,
+                totalSampleCount = totalSampleCount,
+                speechSegments = emptyList(),
                 transcriptSegments = emptyList(),
                 secondPassApplied = false,
             )
         }
 
-        val secondPassAttempt =
-            try {
-                SecondPassAttempt.Success(
-                    runSecondPass(
+        val offlineSegments =
+            runOfflineAsr(
+                recordingId = recordingId,
+                totalSampleCount = totalSampleCount,
+                speechSegments = speechSegments,
+                speechSampleCount = speechSampleCount,
+                progressListener = progressListener,
+            )
+
+        var timelineFallbackError: String? = null
+        val timelineReferences =
+            if (
+                timelineAlignmentAsrEngineFactory != null &&
+                offlineSegments.any { it.absoluteTokens.isEmpty() }
+            ) {
+                try {
+                    TimelineReferenceRunner(
+                        pcmSourceResolver = pcmSourceResolver,
+                        asrEngineFactory = timelineAlignmentAsrEngineFactory,
+                        readChunkSamples = readChunkSamples,
+                    ).run(
                         recordingId = recordingId,
-                        firstPass = firstPass,
-                        progressListener = progressListener,
-                    ),
-                )
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                SecondPassAttempt.Fallback(
-                    error.message ?: error::class.java.simpleName,
-                )
+                        expectedTotalSampleCount = totalSampleCount,
+                        speechSegments = speechSegments,
+                    )
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    timelineFallbackError =
+                        "精确时间轴对齐失败：" +
+                            (error.message ?: error::class.java.simpleName)
+                    emptyList()
+                }
+            } else {
+                emptyList()
             }
 
+        val referenceByIndex = timelineReferences.associateBy { it.segmentIndex }
         val bases =
-            when (secondPassAttempt) {
-                is SecondPassAttempt.Success ->
-                    firstPass.segments.zip(secondPassAttempt.segments).map { (first, second) ->
-                        require(first.segmentIndex == second.segmentIndex)
-                        FinalizationBase(
-                            firstPass = first,
-                            text = second.hypothesis.text,
-                            secondPassRawText = second.hypothesis.text,
-                            punctuationCapability = second.hypothesis.punctuationCapability,
-                            detectedLanguage =
-                                second.hypothesis.detectedLanguage
-                                    ?: first.hypothesis.detectedLanguage,
-                            confidence =
-                                second.hypothesis.confidence
-                                    ?: first.hypothesis.confidence,
-                            tokens =
-                                second.absoluteTokens.ifEmpty {
-                                    first.absoluteTokens
-                                },
-                        )
+            offlineSegments.map { offline ->
+                val alignedTokens =
+                    if (offline.absoluteTokens.isNotEmpty()) {
+                        offline.absoluteTokens
+                    } else {
+                        referenceByIndex[offline.segmentIndex]?.let { reference ->
+                            val aligned =
+                                alignFinalTextToReferenceTiming(
+                                    finalText = offline.hypothesis.text,
+                                    referenceText = reference.text,
+                                    referenceTokens = reference.absoluteTokens,
+                                    segment = offline.speechSegment,
+                                )
+                            if (aligned.quality == TimelineAlignmentQuality.FAILED) {
+                                emptyList()
+                            } else {
+                                aligned.tokens
+                            }
+                        }.orEmpty()
                     }
 
-                is SecondPassAttempt.Fallback ->
-                    firstPass.segments.map { first ->
-                        FinalizationBase(
-                            firstPass = first,
-                            text = first.hypothesis.text,
-                            secondPassRawText = null,
-                            punctuationCapability = first.hypothesis.punctuationCapability,
-                            detectedLanguage = first.hypothesis.detectedLanguage,
-                            confidence = first.hypothesis.confidence,
-                            tokens = first.absoluteTokens,
-                        )
-                    }
+                FinalizationBase(
+                    segmentIndex = offline.segmentIndex,
+                    speechSegment = offline.speechSegment,
+                    text = offline.hypothesis.text,
+                    punctuationCapability = offline.hypothesis.punctuationCapability,
+                    detectedLanguage = offline.hypothesis.detectedLanguage,
+                    confidence = offline.hypothesis.confidence,
+                    tokens = alignedTokens,
+                )
             }
 
         val finalized = finalizeText(bases, progressListener)
 
         return HighQualityTranscriptionResult(
-            totalSampleCount = firstPass.totalSampleCount,
-            speechSegments = firstPass.speechSegments,
+            totalSampleCount = totalSampleCount,
+            speechSegments = speechSegments,
             transcriptSegments = finalized.segments,
-            secondPassApplied = secondPassAttempt is SecondPassAttempt.Success,
-            secondPassFallbackError =
-                (secondPassAttempt as? SecondPassAttempt.Fallback)?.error,
+            secondPassApplied = true,
             punctuationFallbackError = finalized.fallbackError,
+            timelineAlignmentFallbackError = timelineFallbackError,
         )
     }
 
-    private suspend fun runSecondPass(
+    private suspend fun runOfflineAsr(
         recordingId: String,
-        firstPass: FirstPassComputation,
+        totalSampleCount: Long,
+        speechSegments: List<SpeechSegment>,
+        speechSampleCount: Long,
         progressListener: ProgressListener?,
-    ): List<SecondPassSegment> {
-        firstPass.speechSegments.forEach { segment ->
+    ): List<OfflineSegment> {
+        speechSegments.forEach { segment ->
             require(segment.sampleCount <= maxSecondPassSegmentSamples) {
-                "speech segment exceeds second-pass safety bound"
+                "speech segment exceeds offline ASR safety bound"
             }
             require(segment.sampleCount <= Int.MAX_VALUE.toLong())
         }
 
         val source =
             pcmSourceResolver.resolvePcmSource(recordingId)
-                ?: error("canonical PCM source disappeared before second-pass ASR")
-        require(source.totalSampleCount == firstPass.totalSampleCount) {
-            "canonical PCM sample count changed before second pass"
+                ?: error("canonical PCM source disappeared before offline ASR")
+        require(source.totalSampleCount == totalSampleCount) {
+            "canonical PCM sample count changed before offline ASR"
         }
 
         val engine =
@@ -152,11 +185,11 @@ class HighQualityTranscriptionPipeline(
                 throw error
             }
         require(engine.capabilities.supportsSecondPass) {
-            "high-quality transcription requires a second-pass ASR engine"
+            "high-quality transcription requires an offline ASR engine"
         }
 
         try {
-            val output = ArrayList<SecondPassSegment>(firstPass.speechSegments.size)
+            val output = ArrayList<OfflineSegment>(speechSegments.size)
             val readBuffer = ShortArray(readChunkSamples)
             var sourceCursor = 0L
             var segmentIndex = 0
@@ -168,7 +201,7 @@ class HighQualityTranscriptionPipeline(
                 TranscriptionProgress(
                     phase = TranscriptionPhase.SECOND_PASS,
                     processedUnits = 0L,
-                    totalUnits = firstPass.speechSampleCount,
+                    totalUnits = speechSampleCount,
                 ),
             )
 
@@ -176,20 +209,20 @@ class HighQualityTranscriptionPipeline(
                 currentCoroutineContext().ensureActive()
                 val read = source.read(readBuffer) ?: break
                 require(read.startSampleIndex == sourceCursor) {
-                    "PCM source is not sequential during second pass"
+                    "PCM source is not sequential during offline ASR"
                 }
                 require(read.sampleCount in 1..readBuffer.size)
                 val readEnd = Math.addExact(read.startSampleIndex, read.sampleCount.toLong())
-                require(readEnd <= firstPass.totalSampleCount)
+                require(readEnd <= totalSampleCount)
 
                 while (
-                    segmentIndex < firstPass.speechSegments.size &&
-                    firstPass.speechSegments[segmentIndex].startSampleIndex < readEnd
+                    segmentIndex < speechSegments.size &&
+                    speechSegments[segmentIndex].startSampleIndex < readEnd
                 ) {
                     currentCoroutineContext().ensureActive()
-                    val segment = firstPass.speechSegments[segmentIndex]
+                    val segment = speechSegments[segmentIndex]
                     require(segment.endSampleIndexExclusive > read.startSampleIndex) {
-                        "speech segment was skipped during second pass"
+                        "speech segment was skipped during offline ASR"
                     }
 
                     if (segmentPcm == null) {
@@ -207,7 +240,7 @@ class HighQualityTranscriptionPipeline(
                             Math.toIntExact(overlapStart - segment.startSampleIndex)
                         val pcm =
                             segmentPcm
-                                ?: error("second-pass segment buffer is missing")
+                                ?: error("offline ASR segment buffer is missing")
                         readBuffer.copyInto(
                             destination = pcm,
                             destinationOffset = destinationOffset,
@@ -220,9 +253,9 @@ class HighQualityTranscriptionPipeline(
                     if (segment.endSampleIndexExclusive <= readEnd) {
                         val pcm =
                             segmentPcm
-                                ?: error("second-pass segment completed without PCM")
+                                ?: error("offline ASR segment completed without PCM")
                         require(writtenForSegment == pcm.size) {
-                            "second-pass segment PCM is incomplete"
+                            "offline ASR segment PCM is incomplete"
                         }
 
                         val result =
@@ -231,12 +264,13 @@ class HighQualityTranscriptionPipeline(
                                 sampleRateHz = source.sampleRateHz,
                             )
                         require(result.isFinal) {
-                            "second-pass ASR did not return a final hypothesis"
+                            "offline ASR did not return a final hypothesis"
                         }
 
                         output +=
-                            SecondPassSegment(
+                            OfflineSegment(
                                 segmentIndex = segmentIndex,
+                                speechSegment = segment,
                                 hypothesis = result,
                                 absoluteTokens =
                                     safeMapRelativeTokens(
@@ -252,7 +286,7 @@ class HighQualityTranscriptionPipeline(
                             TranscriptionProgress(
                                 phase = TranscriptionPhase.SECOND_PASS,
                                 processedUnits = processedSpeechSamples,
-                                totalUnits = firstPass.speechSampleCount,
+                                totalUnits = speechSampleCount,
                             ),
                         )
 
@@ -267,12 +301,12 @@ class HighQualityTranscriptionPipeline(
                 sourceCursor = readEnd
             }
 
-            require(sourceCursor == firstPass.totalSampleCount)
-            require(segmentIndex == firstPass.speechSegments.size) {
-                "PCM source ended before all second-pass segments"
+            require(sourceCursor == totalSampleCount)
+            require(segmentIndex == speechSegments.size) {
+                "PCM source ended before all offline ASR segments"
             }
             require(segmentPcm == null)
-            require(processedSpeechSamples == firstPass.speechSampleCount)
+            require(processedSpeechSamples == speechSampleCount)
             return output
         } finally {
             engine.close()
@@ -295,12 +329,17 @@ class HighQualityTranscriptionPipeline(
         var engine: PunctuationEngine? = null
         var fallbackError: String? = null
         if (requiresPunctuation) {
-            try {
-                engine = punctuationEngineFactory.open()
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                fallbackError = error.message ?: error::class.java.simpleName
+            val factory = punctuationEngineFactory
+            if (factory == null) {
+                fallbackError = "当前离线模型需要外部标点模型，但标点模型不可用"
+            } else {
+                try {
+                    engine = factory.open()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    fallbackError = error.message ?: error::class.java.simpleName
+                }
             }
         }
 
@@ -340,14 +379,13 @@ class HighQualityTranscriptionPipeline(
                         }
                     }
 
-                val first = base.firstPass
                 output +=
                     TranscriptSegment(
-                        segmentIndex = first.segmentIndex,
-                        startSampleIndex = first.speechSegment.startSampleIndex,
-                        endSampleIndexExclusive = first.speechSegment.endSampleIndexExclusive,
-                        firstPassRawText = first.hypothesis.text,
-                        secondPassRawText = base.secondPassRawText,
+                        segmentIndex = base.segmentIndex,
+                        startSampleIndex = base.speechSegment.startSampleIndex,
+                        endSampleIndexExclusive = base.speechSegment.endSampleIndexExclusive,
+                        firstPassRawText = "",
+                        secondPassRawText = base.text,
                         finalText = finalText,
                         detectedLanguage = base.detectedLanguage,
                         confidence = base.confidence,
@@ -368,26 +406,17 @@ class HighQualityTranscriptionPipeline(
         }
     }
 
-    private sealed interface SecondPassAttempt {
-        data class Success(
-            val segments: List<SecondPassSegment>,
-        ) : SecondPassAttempt
-
-        data class Fallback(
-            val error: String,
-        ) : SecondPassAttempt
-    }
-
-    private data class SecondPassSegment(
+    private data class OfflineSegment(
         val segmentIndex: Int,
+        val speechSegment: SpeechSegment,
         val hypothesis: AsrHypothesis,
         val absoluteTokens: List<TranscriptToken>,
     )
 
     private data class FinalizationBase(
-        val firstPass: FirstPassSegment,
+        val segmentIndex: Int,
+        val speechSegment: SpeechSegment,
         val text: String,
-        val secondPassRawText: String?,
         val punctuationCapability: PunctuationCapability,
         val detectedLanguage: String?,
         val confidence: Float?,
@@ -413,12 +442,6 @@ internal fun needsPunctuationFallback(
     return when (capability) {
         PunctuationCapability.NONE -> true
         PunctuationCapability.RELIABLE -> false
-        PunctuationCapability.PARTIAL -> {
-            val last = text.trimEnd().lastOrNull() ?: return false
-            last !in TERMINAL_PUNCTUATION
-        }
+        PunctuationCapability.PARTIAL -> true
     }
 }
-
-private val TERMINAL_PUNCTUATION =
-    setOf('。', '！', '？', '.', '!', '?', '…')

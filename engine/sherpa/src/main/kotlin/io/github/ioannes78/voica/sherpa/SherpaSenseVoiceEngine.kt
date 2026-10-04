@@ -22,7 +22,7 @@ object SenseVoiceLayout {
 data class SenseVoiceSettings(
     val numThreads: Int = SherpaRuntime.DEFAULT_NUM_THREADS,
     val language: String = "",
-    val useInverseTextNormalization: Boolean = true,
+    val useInverseTextNormalization: Boolean = false,
     val debug: Boolean = false,
 ) {
     init {
@@ -33,6 +33,7 @@ data class SenseVoiceSettings(
 class SherpaSenseVoiceEngine internal constructor(
     override val model: ModelDescriptor,
     private val native: NativeSecondPassRecognizer,
+    private val useInverseTextNormalization: Boolean = false,
 ) : SecondPassAsrEngine {
     private var closed = false
 
@@ -47,6 +48,7 @@ class SherpaSenseVoiceEngine internal constructor(
                 files = SenseVoiceFiles.fromDirectory(modelDirectory),
                 settings = settings,
             ),
+        useInverseTextNormalization = settings.useInverseTextNormalization,
     )
 
     init {
@@ -63,7 +65,12 @@ class SherpaSenseVoiceEngine internal constructor(
             supportsLanguageDetection = true,
             supportsConfidence = false,
             supportsInverseTextNormalization = true,
-            punctuationCapability = PunctuationCapability.PARTIAL,
+            punctuationCapability =
+                if (useInverseTextNormalization) {
+                    PunctuationCapability.RELIABLE
+                } else {
+                    PunctuationCapability.NONE
+                },
             supportsSecondPass = true,
         )
 
@@ -93,7 +100,12 @@ class SherpaSenseVoiceEngine internal constructor(
                 ),
             detectedLanguage = result.language.takeIf { it.isNotBlank() },
             confidence = null,
-            punctuationCapability = PunctuationCapability.PARTIAL,
+            punctuationCapability =
+                if (useInverseTextNormalization) {
+                    PunctuationCapability.RELIABLE
+                } else {
+                    PunctuationCapability.NONE
+                },
             isFinal = true,
         )
     }
