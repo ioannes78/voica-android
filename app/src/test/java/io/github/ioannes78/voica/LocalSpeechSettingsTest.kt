@@ -127,12 +127,12 @@ class LocalSpeechSettingsTest {
     }
 
     @Test
-    fun senseVoiceDefaultsPreserveAutoLanguageAndItn() {
+    fun senseVoiceDefaultsUseAutoLanguageAndStableExternalPunctuation() {
         val senseVoice = LocalSenseVoiceSettings()
 
         assertEquals(SenseVoiceLanguageChoice.AUTO, senseVoice.language)
         assertEquals("", senseVoice.language.runtimeValue)
-        assertEquals(true, senseVoice.useInverseTextNormalization)
+        assertEquals(false, senseVoice.useInverseTextNormalization)
         assertEquals("zh", SenseVoiceLanguageChoice.ZH.runtimeValue)
         assertEquals("yue", SenseVoiceLanguageChoice.YUE.runtimeValue)
     }
