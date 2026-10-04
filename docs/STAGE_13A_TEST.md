@@ -1,259 +1,228 @@
-# Voica Stage 13A — 本地语音引擎 V2 真机验收
+# Voica Stage 13A — QA5 真机验收
 
-状态：**QA4 候选 / 待用户真机验收 / 未冻结**
-
-> QA4 必须重新覆盖 QA2 中因模型验证/缺模型而未实际执行的项目。任何 QA2 未测项均不得视为默认通过。
+状态：**QA5 候选 / 待真机验收 / 未冻结**
 
 ## 1. 候选基线
 
 - 分支：`stage13a-local-speech-engine-v2`
-- PR：#15（Draft / `[APK]`）
-- versionCode：44
-- versionName：`0.13.0-stage13a-qa4`
+- PR：#15（Draft / 未合并）
+- versionCode：45
+- versionName：`0.13.0-stage13a-qa5`
 - QA Application ID：`io.github.ioannes78.voica.qa`
-- Room schema：7（v6 → v7 additive migration）
+- Room schema：7
 - ABI：arm64-v8a
 - sherpa-onnx：1.13.8
-- Stage 13A 全量候选清单：`candidate-stage13a-all-r1`
-- production manifest 在本阶段真机验收前保持不变。
-- Stage 16 streaming contract V2 只冻结接口语义；Stage 13A 不实现完整实时 BLE 转写 UI。
+- production model manifest：**本阶段不修改**
+- 真机可继续使用 `candidate-stage13a-all-r1` 作为 Debug 候选来源；QA5 App 会在 catalog 边界仅保留最终产品模型矩阵。
 
-## QA4 本轮修复专项
+本轮允许卸载旧 QA App 后全新安装，因此不做覆盖安装、旧 SharedPreferences 或旧 QA 数据库迁移验收。
 
-本轮必须优先验证 QA3 真机发现的三个问题：
+## 2. QA5 最终模型矩阵
 
-- [ ] 已下载的 Chinese Large Transducer / Chinese Large CTC / FireRedASR2 / Qwen3-ASR **无需重新下载**，直接“验证并启用”可读取 Snapshot V2 的 `runtimeModelType`
-- [ ] 若验证失败，错误直接显示在对应模型区域，并保留 INIT / INFERENCE / OOM / validator crash / timeout 分类
-- [ ] SenseVoice ITN=关闭：使用 CT-Transformer，标点与正文保持同一说话人段
-- [ ] SenseVoice ITN=开启：使用原生 ITN/标点，不运行 CT，不出现独立“。/，/？”说话人段
-- [ ] SenseVoice ITN=开启时不再显示“正在处理标点”
-- [ ] FAST 进度显示“正在快速识别”，不再显示“第一遍识别”
-- [ ] High Quality 进度显示“正在高质量识别”，不再显示“第二遍识别”
-- [ ] 同一录音已有 completed diarization 时，新转写版本复用原 Speaker Turns，只重新做 Speaker Alignment，不重复跑 embedding/clustering
+### 离线转写
 
-## 2. 覆盖安装与历史数据
+- [ ] 快速 · SenseVoice（默认）
+- [ ] 高质量 · Qwen3-ASR 0.6B INT8
+- [ ] FireRedASR2 不再出现在产品模型清单/设置/转写入口
 
-- [ ] 从上一版 QA2 覆盖安装 QA4，App 正常启动
-- [ ] 无 destructive migration
-- [ ] 既有录音、文件夹、标签、收藏保留
-- [ ] 既有转写版本 / Segment / Token / speaker / alignment 保留
-- [ ] 既有 AI Summary / Revision / 搜索索引可正常使用
-- [ ] 新 FAST / High Quality 转写可保存 model version/revision 与 Snapshot V2
-- [ ] Room schema 1..7 CI gate 通过
+### 实时转写（为后续 Stage 15/16 准备）
 
-## 3. Stage 13A 候选模型清单
+- [ ] 轻量 · Small Bilingual（默认）
+- [ ] 高质量 · Chinese Large CTC INT8
+- [ ] 不显示 AUTO
+- [ ] 不显示 Large Transducer
+- [ ] 不显示 Modified Beam Search
+- [ ] 不显示 Max Active Paths
 
-1. 设置 → 模型 → 开发选项。
-2. 选择“使用 Stage 13A 全量候选”。
-3. 完全退出 App 后重新打开。
-4. 刷新模型清单。
+### 说话人分离
 
-确认：
+- [ ] Pyannote Segmentation 3.0 INT8
+- [ ] CAM++
+- [ ] 不显示 ERes2Net 选择
+- [ ] 普通用户不需要选择 Speaker Embedding 模型
 
-- [ ] Chinese Large Transducer INT8 可见
-- [ ] Chinese Large CTC INT8 可见
-- [ ] FireRedASR2 CTC INT8 可见
-- [ ] Qwen3-ASR 0.6B INT8 可见
-- [ ] CAM++ zh-cn 可见
-- [ ] 原有 Small Bilingual / SenseVoice / VAD / CT punctuation / ERes2Net 保留
+### 其他
+
+- [ ] Silero VAD
+- [ ] CT-Transformer punctuation
+
+## 3. 全新安装准备
+
+1. 卸载旧 QA App。
+2. 安装 QA5 APK。
+3. 打开“设置 → 本地模型 → 开发选项”。
+4. 使用 Stage 13A 全量候选清单。
+5. 完全退出并重新打开 App。
+6. 检查模型列表。
+
+验收：
+
+- [ ] 本地模型页最终只显示 QA5 产品矩阵中的模型
+- [ ] FireRedASR2 / Large Transducer / ERes2Net 不显示
 - [ ] production channel 未被改写
 
-## 4. QA4 模型下载、验证与启用（QA2 未完成项必须重测）
+## 4. “本地语音识别”页面
 
-建议逐个模型测试，不要求所有大模型同时保留。
+页面应为四个一级折叠区：
 
-### 4.1 Chinese Large Transducer
+### 4.1 离线转写
 
-- [ ] 下载可续传并完成
-- [ ] 静态 SHA / 文件完整性通过
-- [ ] 点击“验证并启用”时 Voica 主 App **不能退出或重启**
-- [ ] native runtime 验证通过并成功启用
-- [ ] 若验证失败，显示明确的 INIT / INFERENCE / OOM / validator crash / timeout 信息
-- [ ] 验证失败后主 App 仍可继续操作其它模型
+默认展开。
 
-### 4.2 Chinese Large CTC
+- [ ] 只显示“快速 · SenseVoice”与“高质量 · Qwen3-ASR”
+- [ ] 当前选择清晰显示在折叠标题摘要中
+- [ ] 默认 SenseVoice
+- [ ] 选择 SenseVoice 时显示语言与 ITN
+- [ ] 选择 Qwen 时显示 maxTotalLen / maxNewTokens / temperature / topP / seed / hotwords
 
-- [ ] 下载、静态校验通过
-- [ ] native runtime 验证通过
-- [ ] 可成功启用
-- [ ] 不显示 Modified Beam / Max Active Paths 等 Transducer 专用参数
+### 4.2 实时转写
 
-### 4.3 FireRedASR2 CTC
+默认折叠。
 
-- [ ] 下载、静态校验通过
-- [ ] native runtime 验证通过
-- [ ] 可成功启用
-- [ ] capability 显示/运行时可获得 token timing
-- [ ] 标点使用 CT-Transformer，不出现重复标点
+- [ ] 只显示 Small Bilingual / Large CTC
+- [ ] 明确提示“用于后续边录边转写，不影响当前录音文件的离线转写”
 
-### 4.4 Qwen3-ASR 0.6B
+### 4.3 说话人分离
 
-- [ ] 下载、静态校验通过
-- [ ] native runtime 验证通过，或明确提示设备 RAM 不满足
-- [ ] 验证/OOM 失败时 Voica 主 App 不退出
-- [ ] 可成功启用时，模型参数页可正常保存 maxTotalLen / maxNewTokens / temperature / topP / seed / hotwords
+默认折叠。
 
-### 4.5 CAM++
+- [ ] 转写后自动说话人分离开关
+- [ ] 说话人数：自动 / 1 / 2 / 3 / 4 / 5+
+- [ ] 高级设置包含自动聚类阈值、跨分块相似度阈值
+- [ ] 不显示 CAM++ / ERes2Net 模型选择器
 
-- [ ] 下载、静态校验通过
-- [ ] embedding native smoke 通过
-- [ ] 可启用并参加后续 Diarization 对比
+### 4.4 性能与语音检测
 
-### 4.6 通用下载回归
+默认折叠。
 
-- [ ] 下载取消/失败不会留下伪“已安装”
-- [ ] App 重启后下载状态正确
-- [ ] 已启用模型使用中不能被原位删除/覆盖
-- [ ] 删除旧候选 / rollback 行为正常
+- [ ] 性能模式
+- [ ] CPU 线程数
+- [ ] VAD threshold
+- [ ] min silence
+- [ ] min speech
+- [ ] max speech
 
-## 5. FAST 实时模型（QA2 Large 模型未测项补测）
+## 5. 录音文件离线转写统一入口
 
-同一条 1–3 分钟普通话录音分别运行 FAST：
+录音详情 → 转写：
 
-- [ ] Small Bilingual 正常
-- [ ] Chinese Large Transducer 正常
-- [ ] Chinese Large CTC 正常
-- [ ] 明确选择模型时不静默切换到其它模型
-- [ ] Auto：Transducer → CTC → Small 回退符合设计
-- [ ] 三模型 token timeline 单调、seek/高亮同步正常
-- [ ] model/version/revision 与 Snapshot V2 正确
+- [ ] 只有一个主要动作“开始离线转写”
+- [ ] 不再同时提供“快速转写 / 高质量转写”两个入口
+- [ ] 模型由“设置 → 本地语音识别 → 离线转写”决定
+- [ ] 未生成标准音频时先显示生成/取消标准音频动作
 
-### Transducer Decoder
+## 6. SenseVoice 离线转写
 
-- [ ] Greedy Search 正常
-- [ ] Modified Beam Search 正常
-- [ ] Max Active Paths 只在 Modified Beam 下生效
-- [ ] 恢复推荐值回到 greedy_search / 4
+准备一条 1–3 分钟普通话录音，最好包含数字、日期、英文词和多个停顿。
 
-### CTC
+### ITN 关闭
 
-- [ ] 只使用 greedy_search
-- [ ] 不出现伪 beam 参数
-- [ ] 长句 partial/final 不明显回退
+- [ ] VAD → SenseVoice → CT-Transformer → 保存
+- [ ] 转写完成
+- [ ] 标点自然
+- [ ] punctuation-only token 不形成独立 speaker/timeline cue
+- [ ] 运行时只有实际执行 CT 时显示“正在处理标点…”
+- [ ] 结果顶部显示“SenseVoice · 快速”
 
-## 6. High Quality 离线三模型 — QA4 核心
+### ITN 开启
 
-测试前至少准备一条 1–3 分钟中文录音，最好含数字、日期、英文词与多个停顿。
+- [ ] SenseVoice 原生 ITN/文本处理生效
+- [ ] 不运行 CT-Transformer
+- [ ] 不显示“正在处理标点…”
+- [ ] 不出现独立“。/，/？”说话人段
+- [ ] 结果顶部仍显示“SenseVoice · 快速”
 
-### 6.1 SenseVoice Balanced
+## 7. Qwen3-ASR 离线转写
 
-先确保 **Small/Large Zipformer 均未启用或临时删除**，只保留 VAD、SenseVoice 与需要的 CT punctuation。
+- [ ] Qwen3-ASR 可独立完成最终文本
+- [ ] 结果顶部显示“Qwen3-ASR · 高质量”
+- [ ] 不显示“第一遍 / 第二遍 / 二次 ASR”等工程文案
+- [ ] 若 Small Bilingual 已启用，可作为内部后置时间轴 alignment 使用
+- [ ] 后置 alignment 时用户只看到“正在生成时间轴…”
+- [ ] alignment 不得覆盖 Qwen 最终文本
+- [ ] alignment 失败只降级时间轴，不把 Qwen 最终文本标记失败
+- [ ] 未启用 Small Bilingual 时仍可完成 Qwen 转写并退化为 segment timeline
 
-- [ ] High Quality 可直接启动，不再提示“缺少 Zipformer”
-- [ ] 完成路径为 VAD → SenseVoice，而不是 Zipformer first-pass → SenseVoice
-- [ ] 有原生 token timestamp，时间轴 / seek / 当前词高亮正常
-- [ ] 默认 ITN=关闭：SenseVoice → CT punctuation，断句正常
-- [ ] ITN=开启：使用 SenseVoice 原生 ITN/标点，不再二次运行 CT
-- [ ] ITN 开/关均无“每几个字被异常切成一段”的现象
-- [ ] Snapshot 正确记录语言与 ITN
+## 8. 自动说话人分离
 
-### 6.2 FireRedASR2 High Quality
+设置“转写后自动说话人分离”= 开。
 
-确保所有 realtime Zipformer 均未启用，保留 VAD + FireRed + CT。
+- [ ] SenseVoice 转写后自动运行
+- [ ] Qwen 转写后自动运行
+- [ ] 离开录音详情页后任务仍能完成
+- [ ] 同一录音已有 compatible completed diarization 时，新转写版本复用 Speaker Turns，只重新做 Speaker Alignment
+- [ ] 不重复跑重型 embedding/clustering
+- [ ] 失败可手动重试，不形成无限自动重试
 
-- [ ] FireRed 可独立完成 High Quality，不提示缺少 Zipformer
-- [ ] FireRed token timestamps 被保存
-- [ ] CT-Transformer 只运行一次
-- [ ] 标点自然，无 `，，` / `。。` 等重复
-- [ ] Stage 10 精确时间轴/播放同步正常
-- [ ] second-pass model/version/revision 正确
+## 9. CAM++ / Speaker Auto 专项
 
-### 6.3 Qwen3-ASR Ultra
+至少准备：
 
-#### A. 不启用 Small Bilingual Transducer
+1. 单人录音
+2. 双人录音
+3. 3～4 人录音
 
-- [ ] 仅 VAD + Qwen 即可完成转写
-- [ ] Qwen 原生标点保留
-- [ ] 不要求 CT punctuation
-- [ ] 不提示缺少 Zipformer/Transducer
-- [ ] 无 timing model 时正常退化为 VAD segment timeline
-- [ ] 转写、编辑、搜索、AI 总结均可用
+记录每条录音真实人数与识别人数。
 
-#### B. 启用现有 Small Bilingual Transducer
+### 单人
 
-- [ ] Qwen 先完成最终文本
-- [ ] Small Bilingual 作为**后置 timing alignment**，不决定 Qwen 最终文字
-- [ ] Qwen/Transducer 文本高匹配时生成精确 token timeline
-- [ ] Qwen 比 Transducer 多/少少数字时能通过锚点插值
-- [ ] 中英混说仍能建立合理时间锚点
-- [ ] 匹配率低于安全阈值时放弃伪精确 timeline，退回 VAD segment timeline
-- [ ] alignment 失败只给 warning，不把 Qwen transcription 标记失败
-- [ ] Qwen 原文和标点不会被 Transducer 文本覆盖
+- [ ] Auto 不再明显碎成大量 speaker
+- [ ] 固定 1 人严格得到 1 个 speaker
 
-## 7. 自动说话人分离持久化回归（QA2 间歇问题）
+### 双人
 
-设置 → 本地语音 → 自动说话人分离 = 开。
+- [ ] Auto 不错误合并成 1 人
+- [ ] 不明显碎裂成大量 speaker
+- [ ] 固定 2 人结果稳定
 
-至少对同一条录音重复 3 次，并覆盖以下场景：
+### 3～4 人
 
-- [ ] 在转写页面等待完成：自动运行
-- [ ] 点击开始转写后立刻返回录音库：完成后仍自动运行
-- [ ] 转写过程中切换到首页/设置页：仍自动运行
-- [ ] 转写完成前让 Activity/ViewModel 重建：仍自动运行
-- [ ] 自动 Diarization 只创建一次，不重复
-- [ ] 已有兼容 completed Diarization 时复用结果，不重跑 embedding
-- [ ] 已有 Diarization 但缺 alignment 时自动补 alignment
-- [ ] Diarization 失败时显示失败，可手动重试，不形成无限自动重试
-- [ ] 转写取消/失败后不会错误触发说话人分离
+- [ ] speaker 数基本稳定
+- [ ] 跨 chunk 身份连续性可接受
+- [ ] 固定人数约束正常
 
-可选强回归：
+高级参数回归：
 
-- [ ] 转写完成后、说话人分离尚未开始时杀掉 App，再打开后 pending post-processing 能恢复
-
-## 8. Diarization 模型 / 人数约束（包含 QA2 未测 CAM++）
-
-同一条多人录音分别使用 ERes2Net 与 CAM++：
-
-- [ ] ERes2Net baseline 正常
-- [ ] CAM++ challenger 正常
-- [ ] Auto speaker count 正常
-- [ ] 单人录音不被明显碎成大量 speaker
-- [ ] 固定 1 / 2 / 3 / 4 人严格遵守
-- [ ] 5+ 使用受控上限
-- [ ] clustering threshold 只在 Auto 模式生效
+- [ ] clustering threshold 只影响 Auto
 - [ ] stitching cosine threshold 生效
-- [ ] clean-anchor aggregation 不破坏跨 chunk speaker continuity
-- [ ] Snapshot V2 保存模型、阈值、人数与 effective config
+- [ ] stitching threshold 调高不会被误解为“更容易合并”；越高应越严格
 
-## 9. VAD / 性能参数
+若单人仍出现类似 1 → 6 的严重碎片化，QA5 不直接判定通过，应继续调整 clustering / stitching / anchor aggregation / speaker merge。
 
-- [ ] 自动 / 省电 / 均衡 / 性能档位正常
-- [ ] 手动 threads 受 CPU 与安全上限约束
+## 10. 性能与 VAD
+
+- [ ] 自动 / 省电 / 均衡 / 性能模式正常
+- [ ] 手动 CPU threads 受设备核心数与 8 线程安全上限约束
 - [ ] VAD threshold / min silence / min speech / max speech 可调
-- [ ] 恢复 VAD 推荐值正常
-- [ ] requested/effective threads 与 VAD 参数进入 Snapshot V2
+- [ ] 恢复推荐值正常
 
-## 10. Speech Benchmark（QA2 未执行项补测）
+## 11. Benchmark 已退出产品
 
-至少选择一条标准 PCM 录音：
+QA5 不再使用 Benchmark 做模型选型。
 
-- [ ] Small / Large Transducer / Large CTC 三模型顺序完成
-- [ ] 记录 model/revision/runtime/quantization
-- [ ] 记录 decoder effective config
-- [ ] 记录 wall time / CPU time / RTF
-- [ ] 记录 Peak PSS / thermal
-- [ ] 记录 first partial / final latency
-- [ ] 有参考文本时计算 CER/WER
-- [ ] Benchmark 不创建正式 Transcription version
+- [ ] 录音详情无 Speech Benchmark
+- [ ] 录音详情无 Diarization Benchmark
+- [ ] 无 Benchmark 产品入口
+- [ ] Benchmark 自动退出问题不再作为 QA5 阻塞项
 
-## 11. Diarization Benchmark（QA2 未执行项补测）
+必须继续保留并回归：
 
-- [ ] ERes2Net / CAM++ 顺序完成
-- [ ] 可填写真实 speaker count
-- [ ] 记录 RTF / CPU / Peak PSS / thermal
-- [ ] 记录 speaker count / turn / window
-- [ ] 计算 speaker count error / fragmentation / merge missing
-- [ ] Benchmark 不写入正式 Diarization history
+- [ ] isolated model validator
+- [ ] 模型 SHA / 文件完整性校验
+- [ ] native runtime smoke/验证
+- [ ] sherpa runtime probe
 
-## 12. Stage 16 Streaming Contract V2 回归
+## 12. 用户文案
 
-- [ ] PARTIAL → `isFinal=false`
-- [ ] STABLE → `isFinal=false`
-- [ ] FINAL → `isFinal=true`
-- [ ] `finishInput()` 后不可继续 accept/decode，除非 reset
-- [ ] reset 后 session timeline 从 0 重新开始
-- [ ] 不为原生无 timestamp 的 Qwen 直接伪造 timestamp
-- [ ] Stage 13A 未提前加入完整 BLE realtime UI/state machine
+整个普通用户 UI 检查：
+
+- [ ] 不出现“第一遍识别”
+- [ ] 不出现“第二遍识别”
+- [ ] 不出现“二遍 ASR”
+- [ ] 不出现 `first-pass` / `second-pass`
+- [ ] 使用“离线转写 / 实时转写 / 正在识别 / 正在生成时间轴 / 标点处理 / 说话人分离”等产品语言
+
+内部 Kotlin enum、Room state、数据库字段可以继续保留 `FIRST_PASS / SECOND_PASS`。
 
 ## 13. 核心功能回归
 
@@ -262,40 +231,36 @@
 - [ ] 设备文件刷新 / OPUS / WAV 下载 / 删除
 - [ ] 本地录音库 / 导入 / canonical WAV
 - [ ] 播放 / seek / Audio Focus / Mini Player
-- [ ] FAST / High Quality 转写
-- [ ] Stage 10 时间轴 / 播放同步
+- [ ] 离线转写
+- [ ] 时间轴 / 播放同步
 - [ ] 自动说话人分离 / speaker alignment
 - [ ] 转写阅读稿 / 编辑 / 版本 / 搜索
 - [ ] AI 总结 / Provider / Model 选择
 - [ ] 全局任务状态
 - [ ] BLE Diagnostics
 
-## 14. QA4 必须重点截图/记录的失败信息
+## 14. CI Gate
 
-若任一候选模型仍不能启用，请截图完整错误文字。QA4 应能区分：
+- [ ] Unit tests 通过
+- [ ] Debug/QA build 通过
+- [ ] Room schema 校验通过，仍为 v7
+- [ ] QA signing identity 校验通过
+- [ ] APK artifact 成功上传
 
-- `NATIVE_INIT_FAILED`
-- `NATIVE_INFERENCE_FAILED`
-- `OUT_OF_MEMORY`
-- `VALIDATOR_PROCESS_CRASHED`
-- `TIMEOUT`
-- 静态包/文件完整性错误
+## 15. QA5 完成条件
 
-无论上述哪一种错误，**Voica 主 App 都不应直接退出**。
+只有用户明确回复：
 
-## 15. Stage 13A 本轮不宣称完成
+**“测试通过”**
 
-- 30 分钟 / 1 小时 / 2 小时完整 soak：Stage 13B
-- Foreground Service / 锁屏后台 BLE 下载可靠性：Stage 13B
-- 完整 BLE Audio → Opus → PCM：Stage 15
-- 完整实时 PCM → VAD → streaming ASR → UI：Stage 16
-- Speaker voiceprint / 跨录音身份：Stage 20
+之后才可以进入 QA6：
 
-## 16. 验收门禁
+- Recording Detail V2
+- 转写 / AI 总结最终内容生命周期收口
 
-在用户明确回复 **“测试通过”** 前：
+在此之前：
 
-- 不创建 Freeze/Handoff；
-- 不把 Stage 13A candidate 推入 production；
-- 不合并 PR #15；
-- 不进入 Stage 13B。
+- 不 Freeze
+- 不 merge PR #15
+- 不修改 production model channel
+- 不进入 Stage 13B
