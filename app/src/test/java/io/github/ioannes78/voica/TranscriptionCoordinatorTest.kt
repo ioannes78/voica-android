@@ -300,6 +300,7 @@ class TranscriptionCoordinatorTest {
         override fun secondPassFactory(
             model: ActiveModel,
             numThreads: Int,
+            qwenSettings: LocalQwenAsrSettings,
         ): SecondPassAsrEngineFactory =
             error("second pass is not used in FAST test")
     }

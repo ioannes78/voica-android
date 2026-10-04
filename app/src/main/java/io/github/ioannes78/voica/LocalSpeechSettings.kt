@@ -118,6 +118,24 @@ fun SpeakerCountChoice.toDiarizationConfig(): DiarizationConfig =
             )
     }
 
+data class LocalQwenAsrSettings(
+    val maxTotalLen: Int = 512,
+    val maxNewTokens: Int = 128,
+    val temperature: Float = 1.0e-6F,
+    val topP: Float = 0.8F,
+    val seed: Int = 42,
+    val hotwords: String = "",
+) {
+    init {
+        require(maxTotalLen in 128..2048)
+        require(maxNewTokens in 16..512)
+        require(maxNewTokens <= maxTotalLen)
+        require(temperature.isFinite() && temperature in 0F..2F)
+        require(topP.isFinite() && topP in 0.05F..1F)
+        require(hotwords.length <= 512)
+    }
+}
+
 data class LocalVadSettings(
     val threshold: Float = 0.5F,
     val minSilenceDurationSeconds: Float = 0.25F,
@@ -137,6 +155,7 @@ data class LocalSpeechSettings(
     val offlineAsrQuality: OfflineAsrQualityChoice = OfflineAsrQualityChoice.AUTO,
     val performanceProfile: SpeechPerformanceProfile = SpeechPerformanceProfile.AUTO,
     val requestedThreads: Int? = null,
+    val qwen: LocalQwenAsrSettings = LocalQwenAsrSettings(),
     val vad: LocalVadSettings = LocalVadSettings(),
     val speakerCount: SpeakerCountChoice = SpeakerCountChoice.AUTO,
     val speakerEmbeddingModel: SpeakerEmbeddingModelChoice =
@@ -217,6 +236,10 @@ interface LocalSpeechSettingsStore {
 
     fun setRequestedThreads(threads: Int?)
 
+    fun setQwenSettings(settings: LocalQwenAsrSettings)
+
+    fun resetQwenSettings()
+
     fun setVadSettings(settings: LocalVadSettings)
 
     fun resetVadSettings()
@@ -253,6 +276,7 @@ class SharedPreferencesLocalSpeechSettingsStore(
                 requestedThreads =
                     preferences.getInt(KEY_REQUESTED_THREADS, 0)
                         .takeIf { it > 0 },
+                qwen = readQwenSettings(preferences),
                 vad = readVadSettings(preferences),
                 speakerCount =
                     preferences.getString(KEY_SPEAKER_COUNT, null)
@@ -309,6 +333,31 @@ class SharedPreferencesLocalSpeechSettingsStore(
             mutableSettings.value.copy(requestedThreads = threads)
     }
 
+    override fun setQwenSettings(settings: LocalQwenAsrSettings) {
+        preferences.edit()
+            .putInt(KEY_QWEN_MAX_TOTAL_LEN, settings.maxTotalLen)
+            .putInt(KEY_QWEN_MAX_NEW_TOKENS, settings.maxNewTokens)
+            .putFloat(KEY_QWEN_TEMPERATURE, settings.temperature)
+            .putFloat(KEY_QWEN_TOP_P, settings.topP)
+            .putInt(KEY_QWEN_SEED, settings.seed)
+            .putString(KEY_QWEN_HOTWORDS, settings.hotwords)
+            .apply()
+        mutableSettings.value = mutableSettings.value.copy(qwen = settings)
+    }
+
+    override fun resetQwenSettings() {
+        val defaults = LocalQwenAsrSettings()
+        preferences.edit()
+            .remove(KEY_QWEN_MAX_TOTAL_LEN)
+            .remove(KEY_QWEN_MAX_NEW_TOKENS)
+            .remove(KEY_QWEN_TEMPERATURE)
+            .remove(KEY_QWEN_TOP_P)
+            .remove(KEY_QWEN_SEED)
+            .remove(KEY_QWEN_HOTWORDS)
+            .apply()
+        mutableSettings.value = mutableSettings.value.copy(qwen = defaults)
+    }
+
     override fun setVadSettings(settings: LocalVadSettings) {
         preferences.edit()
             .putFloat(KEY_VAD_THRESHOLD, settings.threshold)
@@ -351,12 +400,32 @@ class SharedPreferencesLocalSpeechSettingsStore(
         const val KEY_OFFLINE_ASR_QUALITY = "offline-asr-quality"
         const val KEY_PERFORMANCE_PROFILE = "performance-profile"
         const val KEY_REQUESTED_THREADS = "requested-threads"
+        const val KEY_QWEN_MAX_TOTAL_LEN = "qwen-max-total-len"
+        const val KEY_QWEN_MAX_NEW_TOKENS = "qwen-max-new-tokens"
+        const val KEY_QWEN_TEMPERATURE = "qwen-temperature"
+        const val KEY_QWEN_TOP_P = "qwen-top-p"
+        const val KEY_QWEN_SEED = "qwen-seed"
+        const val KEY_QWEN_HOTWORDS = "qwen-hotwords"
         const val KEY_VAD_THRESHOLD = "vad-threshold"
         const val KEY_VAD_MIN_SILENCE = "vad-min-silence"
         const val KEY_VAD_MIN_SPEECH = "vad-min-speech"
         const val KEY_VAD_MAX_SPEECH = "vad-max-speech"
         const val KEY_SPEAKER_COUNT = "speaker-count"
         const val KEY_SPEAKER_EMBEDDING_MODEL = "speaker-embedding-model"
+
+        fun readQwenSettings(
+            preferences: android.content.SharedPreferences,
+        ): LocalQwenAsrSettings =
+            runCatching {
+                LocalQwenAsrSettings(
+                    maxTotalLen = preferences.getInt(KEY_QWEN_MAX_TOTAL_LEN, 512),
+                    maxNewTokens = preferences.getInt(KEY_QWEN_MAX_NEW_TOKENS, 128),
+                    temperature = preferences.getFloat(KEY_QWEN_TEMPERATURE, 1.0e-6F),
+                    topP = preferences.getFloat(KEY_QWEN_TOP_P, 0.8F),
+                    seed = preferences.getInt(KEY_QWEN_SEED, 42),
+                    hotwords = preferences.getString(KEY_QWEN_HOTWORDS, "").orEmpty(),
+                )
+            }.getOrDefault(LocalQwenAsrSettings())
 
         fun readVadSettings(
             preferences: android.content.SharedPreferences,

@@ -116,6 +116,7 @@ interface Stage8TranscriptionEngineProvider {
     fun secondPassFactory(
         model: ActiveModel,
         numThreads: Int,
+        qwenSettings: LocalQwenAsrSettings = LocalQwenAsrSettings(),
     ): SecondPassAsrEngineFactory
 }
 
@@ -195,6 +196,7 @@ class SherpaStage8TranscriptionEngineProvider(
     override fun secondPassFactory(
         model: ActiveModel,
         numThreads: Int,
+        qwenSettings: LocalQwenAsrSettings,
     ): SecondPassAsrEngineFactory {
         require(
             model.descriptor.kind == ModelKind.ASR_SECOND_PASS ||
@@ -215,7 +217,16 @@ class SherpaStage8TranscriptionEngineProvider(
                     createSherpaLargeOfflineAsrEngine(
                         model = model.descriptor,
                         modelDirectory = directory,
-                        settings = LargeOfflineAsrSettings(numThreads = numThreads),
+                        settings =
+                            LargeOfflineAsrSettings(
+                                numThreads = numThreads,
+                                qwenMaxTotalLen = qwenSettings.maxTotalLen,
+                                qwenMaxNewTokens = qwenSettings.maxNewTokens,
+                                qwenTemperature = qwenSettings.temperature,
+                                qwenTopP = qwenSettings.topP,
+                                qwenSeed = qwenSettings.seed,
+                                qwenHotwords = qwenSettings.hotwords,
+                            ),
                     )
                 else -> error("unsupported second-pass ASR kind")
             }
@@ -405,6 +416,7 @@ class TranscriptionCoordinator(
                                     engineProvider.secondPassFactory(
                                         secondPass,
                                         models.performance.effectiveThreads,
+                                        models.qwenSettings,
                                     ),
                                 punctuationEngineFactory =
                                     engineProvider.punctuationFactory(
@@ -575,6 +587,7 @@ class TranscriptionCoordinator(
             realtimeAsrFallbackUsed = resolvedFirstPass.fallbackUsed,
             offlineAsrQualityChoice = settings.offlineAsrQuality,
             performance = performance,
+            qwenSettings = settings.qwen,
             vadSettings = settings.vad,
         )
     }
@@ -680,6 +693,7 @@ class TranscriptionCoordinator(
         val realtimeAsrFallbackUsed: Boolean,
         val offlineAsrQualityChoice: OfflineAsrQualityChoice,
         val performance: ResolvedSpeechPerformance,
+        val qwenSettings: LocalQwenAsrSettings,
         val vadSettings: LocalVadSettings,
     ) {
         val all: List<ActiveModel>
@@ -722,6 +736,13 @@ class TranscriptionCoordinator(
             append(",\"requestedThreads\":")
             val requestedThreads = models.performance.requestedThreads
             if (requestedThreads == null) append("null") else append(requestedThreads)
+            if (
+                mode == TranscriptionMode.HIGH_QUALITY &&
+                models.offlineAsrQualityChoice == OfflineAsrQualityChoice.ULTRA
+            ) {
+                append(",\"qwen\":")
+                appendQwenSnapshot(models.qwenSettings)
+            }
             append(",\"vad\":")
             appendVadSnapshot(models.vadSettings)
             append('}')
@@ -750,6 +771,10 @@ class TranscriptionCoordinator(
             append(models.performance.effectiveThreads)
             append(",\"logicalProcessors\":")
             append(models.performance.logicalProcessors)
+            if (offlineAsrModelId == Stage13AOfflineModelIds.QWEN3_ASR) {
+                append(",\"qwen\":")
+                appendQwenSnapshot(models.qwenSettings)
+            }
             append(",\"vad\":")
             appendVadSnapshot(models.vadSettings)
             append(",\"vadWindowSizeSamples\":512")
@@ -783,6 +808,17 @@ class TranscriptionCoordinator(
             }
             append("]}")
         }
+
+    private fun StringBuilder.appendQwenSnapshot(settings: LocalQwenAsrSettings) {
+        append("{\"maxTotalLen\":").append(settings.maxTotalLen)
+        append(",\"maxNewTokens\":").append(settings.maxNewTokens)
+        append(",\"temperature\":").append(settings.temperature)
+        append(",\"topP\":").append(settings.topP)
+        append(",\"seed\":").append(settings.seed)
+        append(",\"hotwords\":")
+        appendJsonString(settings.hotwords)
+        append('}')
+    }
 
     private fun StringBuilder.appendVadSnapshot(settings: LocalVadSettings) {
         append("{\"threshold\":").append(settings.threshold)

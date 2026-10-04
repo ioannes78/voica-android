@@ -92,6 +92,18 @@ class LocalSpeechSettingsTest {
     }
 
     @Test
+    fun qwenDefaultsMatchSherpaRuntimeDefaults() {
+        val qwen = LocalQwenAsrSettings()
+
+        assertEquals(512, qwen.maxTotalLen)
+        assertEquals(128, qwen.maxNewTokens)
+        assertEquals(1.0e-6F, qwen.temperature)
+        assertEquals(0.8F, qwen.topP)
+        assertEquals(42, qwen.seed)
+        assertEquals("", qwen.hotwords)
+    }
+
+    @Test
     fun vadDefaultsMatchExistingSherpaBaseline() {
         val vad = LocalVadSettings()
 
