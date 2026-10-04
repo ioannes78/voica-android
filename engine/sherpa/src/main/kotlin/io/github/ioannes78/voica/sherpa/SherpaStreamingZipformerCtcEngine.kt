@@ -162,7 +162,9 @@ fun createSherpaStreamingAsrEngine(
             SherpaStreamingZipformerCtcEngine(
                 model = model,
                 modelDirectory = modelDirectory,
-                settings = settings.copy(nativeModelType = "zipformer2"),
+                // sherpa-onnx selects Zipformer2 CTC from the dedicated
+                // zipformer2Ctc config; unlike Transducer, modelType is left blank.
+                settings = settings.copy(nativeModelType = ""),
             )
 
         SherpaStreamingAsrModelType.ZIPFORMER2_TRANSDUCER ->
