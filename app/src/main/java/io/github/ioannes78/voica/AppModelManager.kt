@@ -23,6 +23,8 @@ object VoicaModelChannel {
         "https://raw.githubusercontent.com/ioannes78/voica-model-channel/main/manifests/production.json"
     const val STAGE13A_STREAMING_CANDIDATE_MANIFEST_URL =
         "https://github.com/ioannes78/voica-model-channel/releases/download/candidate-stage13a-streaming-asr-r1/production.json"
+    const val STAGE13A_ALL_CANDIDATE_MANIFEST_URL =
+        "https://github.com/ioannes78/voica-model-channel/releases/download/candidate-stage13a-all-r1/production.json"
 
     private const val PREFERENCES_NAME = "voica-model-channel"
     private const val KEY_DEBUG_MANIFEST_URL = "debug-manifest-url"

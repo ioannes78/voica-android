@@ -27,6 +27,26 @@ enum class RealtimeAsrModelChoice {
     CHINESE_LARGE_CTC,
 }
 
+object Stage13AOfflineModelIds {
+    const val SENSEVOICE = Stage8ModelIds.SECOND_PASS_ASR
+    const val FIRERED_ASR2 = "fireredasr2-ctc-zh-en-int8"
+    const val QWEN3_ASR = "qwen3-asr-0.6b-int8"
+
+    val ALL =
+        listOf(
+            SENSEVOICE,
+            FIRERED_ASR2,
+            QWEN3_ASR,
+        )
+}
+
+enum class OfflineAsrQualityChoice {
+    AUTO,
+    BALANCED,
+    HIGH_QUALITY,
+    ULTRA,
+}
+
 enum class SpeechPerformanceProfile {
     AUTO,
     POWER_SAVER,
@@ -96,6 +116,7 @@ data class LocalVadSettings(
 
 data class LocalSpeechSettings(
     val realtimeAsrModel: RealtimeAsrModelChoice = RealtimeAsrModelChoice.AUTO,
+    val offlineAsrQuality: OfflineAsrQualityChoice = OfflineAsrQualityChoice.AUTO,
     val performanceProfile: SpeechPerformanceProfile = SpeechPerformanceProfile.AUTO,
     val requestedThreads: Int? = null,
     val vad: LocalVadSettings = LocalVadSettings(),
@@ -130,6 +151,17 @@ fun RealtimeAsrModelChoice.preferredModelIds(): List<String> =
             listOf(Stage13ARealtimeModelIds.CHINESE_LARGE_CTC)
     }
 
+fun OfflineAsrQualityChoice.preferredModelIds(): List<String> =
+    when (this) {
+        OfflineAsrQualityChoice.AUTO,
+        OfflineAsrQualityChoice.BALANCED,
+        -> listOf(Stage13AOfflineModelIds.SENSEVOICE)
+        OfflineAsrQualityChoice.HIGH_QUALITY ->
+            listOf(Stage13AOfflineModelIds.FIRERED_ASR2)
+        OfflineAsrQualityChoice.ULTRA ->
+            listOf(Stage13AOfflineModelIds.QWEN3_ASR)
+    }
+
 fun LocalSpeechSettings.resolvePerformance(
     logicalProcessors: Int = Runtime.getRuntime().availableProcessors(),
 ): ResolvedSpeechPerformance {
@@ -159,6 +191,8 @@ interface LocalSpeechSettingsStore {
 
     fun setRealtimeAsrModel(choice: RealtimeAsrModelChoice)
 
+    fun setOfflineAsrQuality(choice: OfflineAsrQualityChoice)
+
     fun setPerformanceProfile(profile: SpeechPerformanceProfile)
 
     fun setRequestedThreads(threads: Int?)
@@ -186,6 +220,10 @@ class SharedPreferencesLocalSpeechSettingsStore(
                     preferences.getString(KEY_REALTIME_ASR_MODEL, null)
                         ?.let { runCatching { RealtimeAsrModelChoice.valueOf(it) }.getOrNull() }
                         ?: RealtimeAsrModelChoice.AUTO,
+                offlineAsrQuality =
+                    preferences.getString(KEY_OFFLINE_ASR_QUALITY, null)
+                        ?.let { runCatching { OfflineAsrQualityChoice.valueOf(it) }.getOrNull() }
+                        ?: OfflineAsrQualityChoice.AUTO,
                 performanceProfile =
                     preferences.getString(KEY_PERFORMANCE_PROFILE, null)
                         ?.let { runCatching { SpeechPerformanceProfile.valueOf(it) }.getOrNull() }
@@ -210,6 +248,14 @@ class SharedPreferencesLocalSpeechSettingsStore(
             .apply()
         mutableSettings.value =
             mutableSettings.value.copy(realtimeAsrModel = choice)
+    }
+
+    override fun setOfflineAsrQuality(choice: OfflineAsrQualityChoice) {
+        preferences.edit()
+            .putString(KEY_OFFLINE_ASR_QUALITY, choice.name)
+            .apply()
+        mutableSettings.value =
+            mutableSettings.value.copy(offlineAsrQuality = choice)
     }
 
     override fun setPerformanceProfile(profile: SpeechPerformanceProfile) {
@@ -264,6 +310,7 @@ class SharedPreferencesLocalSpeechSettingsStore(
     private companion object {
         const val PREFERENCES_NAME = "voica-local-speech"
         const val KEY_REALTIME_ASR_MODEL = "realtime-asr-model"
+        const val KEY_OFFLINE_ASR_QUALITY = "offline-asr-quality"
         const val KEY_PERFORMANCE_PROFILE = "performance-profile"
         const val KEY_REQUESTED_THREADS = "requested-threads"
         const val KEY_VAD_THRESHOLD = "vad-threshold"

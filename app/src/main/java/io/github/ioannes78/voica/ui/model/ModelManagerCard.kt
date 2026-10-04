@@ -121,15 +121,15 @@ fun ModelManagerCard(
                             VoicaModelChannel.setDebugManifestUrl(
                                 application = application,
                                 manifestUrl =
-                                    VoicaModelChannel.STAGE13A_STREAMING_CANDIDATE_MANIFEST_URL,
+                                    VoicaModelChannel.STAGE13A_ALL_CANDIDATE_MANIFEST_URL,
                             )
                             debugManifestUrl =
-                                VoicaModelChannel.STAGE13A_STREAMING_CANDIDATE_MANIFEST_URL
+                                VoicaModelChannel.STAGE13A_ALL_CANDIDATE_MANIFEST_URL
                             message =
                                 "Stage 13A 候选模型清单已保存；完全退出并重新打开 App 后生效"
                         },
                     ) {
-                        Text("使用 Stage 13A 候选")
+                        Text("使用 Stage 13A 全量候选")
                     }
                     OutlinedTextField(
                         value = debugManifestUrl,

@@ -491,6 +491,7 @@ class TranscriptionCoordinator(
     private suspend fun resolveActiveModels(mode: TranscriptionMode): ActiveModels {
         val settings = localSpeechSettings()
         val performance = settings.resolvePerformance()
+
         val realtimeCandidates = settings.realtimeAsrModel.preferredModelIds()
         val realtimeMatches =
             realtimeCandidates.mapIndexedNotNull { index, modelId ->
@@ -511,14 +512,29 @@ class TranscriptionCoordinator(
                 )
             }
 
-        val requiredIds =
-            buildList {
-                add(Stage8ModelIds.VAD)
-                add(Stage8ModelIds.PUNCTUATION)
-                if (mode == TranscriptionMode.HIGH_QUALITY) {
-                    add(Stage8ModelIds.SECOND_PASS_ASR)
+        val offlineCandidates =
+            if (mode == TranscriptionMode.HIGH_QUALITY) {
+                settings.offlineAsrQuality.preferredModelIds()
+            } else {
+                emptyList()
+            }
+        val secondPassSelection =
+            offlineCandidates.firstNotNullOfOrNull { modelId ->
+                modelManager.activeModel(modelId)
+            }?.also { model ->
+                require(
+                    model.descriptor.kind == ModelKind.ASR_SECOND_PASS ||
+                        model.descriptor.kind == ModelKind.ASR_LARGE,
+                ) {
+                    "selected offline ASR is not a second-pass model: ${model.descriptor.modelId}"
                 }
             }
+
+        val requiredIds =
+            listOf(
+                Stage8ModelIds.VAD,
+                Stage8ModelIds.PUNCTUATION,
+            )
         val active =
             requiredIds.associateWith { id ->
                 modelManager.activeModel(id)
@@ -538,6 +554,12 @@ class TranscriptionCoordinator(
                         },
                     )
                 }
+                if (
+                    mode == TranscriptionMode.HIGH_QUALITY &&
+                    secondPassSelection == null
+                ) {
+                    addAll(offlineCandidates)
+                }
             }.distinct().sorted()
         if (missing.isNotEmpty()) {
             throw MissingTranscriptionModelsException(missing)
@@ -548,14 +570,10 @@ class TranscriptionCoordinator(
             vad = checkNotNull(active[Stage8ModelIds.VAD]),
             firstPass = resolvedFirstPass.model,
             punctuation = checkNotNull(active[Stage8ModelIds.PUNCTUATION]),
-            secondPass =
-                if (mode == TranscriptionMode.HIGH_QUALITY) {
-                    checkNotNull(active[Stage8ModelIds.SECOND_PASS_ASR])
-                } else {
-                    null
-                },
+            secondPass = secondPassSelection,
             realtimeAsrChoice = settings.realtimeAsrModel,
             realtimeAsrFallbackUsed = resolvedFirstPass.fallbackUsed,
+            offlineAsrQualityChoice = settings.offlineAsrQuality,
             performance = performance,
             vadSettings = settings.vad,
         )
@@ -660,6 +678,7 @@ class TranscriptionCoordinator(
         val secondPass: ActiveModel?,
         val realtimeAsrChoice: RealtimeAsrModelChoice,
         val realtimeAsrFallbackUsed: Boolean,
+        val offlineAsrQualityChoice: OfflineAsrQualityChoice,
         val performance: ResolvedSpeechPerformance,
         val vadSettings: LocalVadSettings,
     ) {
@@ -696,6 +715,8 @@ class TranscriptionCoordinator(
             append(",\"language\":\"auto\"")
             append(",\"realtimeAsrModel\":")
             appendJsonString(models.realtimeAsrChoice.name)
+            append(",\"offlineAsrQuality\":")
+            appendJsonString(models.offlineAsrQualityChoice.name)
             append(",\"performanceProfile\":")
             appendJsonString(models.performance.profile.name)
             append(",\"requestedThreads\":")
@@ -718,6 +739,11 @@ class TranscriptionCoordinator(
             appendJsonString(models.firstPass.descriptor.modelId)
             append(",\"realtimeAsrFallbackUsed\":")
             append(models.realtimeAsrFallbackUsed)
+            append(",\"offlineAsrModelId\":")
+            val offlineAsrModelId = models.secondPass?.descriptor?.modelId
+            if (offlineAsrModelId == null) append("null") else appendJsonString(offlineAsrModelId)
+            append(",\"offlineAsrQuality\":")
+            appendJsonString(models.offlineAsrQualityChoice.name)
             append(",\"performanceProfile\":")
             appendJsonString(models.performance.profile.name)
             append(",\"effectiveThreads\":")

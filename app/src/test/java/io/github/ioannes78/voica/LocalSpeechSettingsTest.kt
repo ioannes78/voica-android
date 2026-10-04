@@ -33,6 +33,26 @@ class LocalSpeechSettingsTest {
     }
 
     @Test
+    fun explicitOfflineQualityChoicesNeverFallbackAcrossTiers() {
+        assertEquals(
+            listOf(Stage13AOfflineModelIds.SENSEVOICE),
+            OfflineAsrQualityChoice.AUTO.preferredModelIds(),
+        )
+        assertEquals(
+            listOf(Stage13AOfflineModelIds.SENSEVOICE),
+            OfflineAsrQualityChoice.BALANCED.preferredModelIds(),
+        )
+        assertEquals(
+            listOf(Stage13AOfflineModelIds.FIRERED_ASR2),
+            OfflineAsrQualityChoice.HIGH_QUALITY.preferredModelIds(),
+        )
+        assertEquals(
+            listOf(Stage13AOfflineModelIds.QWEN3_ASR),
+            OfflineAsrQualityChoice.ULTRA.preferredModelIds(),
+        )
+    }
+
+    @Test
     fun performanceResolverKeepsAutoBackwardCompatibleAtTwoThreads() {
         val resolved =
             LocalSpeechSettings(

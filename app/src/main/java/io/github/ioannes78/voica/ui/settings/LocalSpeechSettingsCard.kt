@@ -25,9 +25,11 @@ import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.LocalSpeechSettingsStore
 import io.github.ioannes78.voica.LocalVadSettings
 import io.github.ioannes78.voica.MAX_CONFIGURABLE_THREADS
+import io.github.ioannes78.voica.OfflineAsrQualityChoice
 import io.github.ioannes78.voica.RealtimeAsrModelChoice
 import io.github.ioannes78.voica.SpeakerCountChoice
 import io.github.ioannes78.voica.SpeechPerformanceProfile
+import io.github.ioannes78.voica.Stage13AOfflineModelIds
 import io.github.ioannes78.voica.Stage13ARealtimeModelIds
 import io.github.ioannes78.voica.resolvePerformance
 import io.github.ioannes78.voica.model.ModelAvailability
@@ -38,6 +40,13 @@ private data class RealtimeModelOption(
     val title: String,
     val subtitle: String,
     val modelId: String?,
+)
+
+private data class OfflineModelOption(
+    val choice: OfflineAsrQualityChoice,
+    val title: String,
+    val subtitle: String,
+    val modelId: String,
 )
 
 @Composable
@@ -54,9 +63,11 @@ internal fun LocalSpeechSettingsCard(
 
     LaunchedEffect(operations) {
         availability =
-            Stage13ARealtimeModelIds.ALL.associateWith { modelId ->
-                modelManager.availability(modelId)
-            }
+            (Stage13ARealtimeModelIds.ALL + Stage13AOfflineModelIds.ALL)
+                .distinct()
+                .associateWith { modelId ->
+                    modelManager.availability(modelId)
+                }
     }
 
     val options =
@@ -137,6 +148,52 @@ internal fun LocalSpeechSettingsCard(
                                 store.setRealtimeAsrModel(option.choice)
                             },
                 )
+            }
+        }
+
+        Card(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
+        ) {
+            Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Text("离线高质量转写", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "仅影响“高质量转写”的第二遍识别；快速转写不受影响。明确选择 FireRed/Qwen 后不会静默回退。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                offlineModelOptions().forEachIndexed { index, option ->
+                    if (index > 0) HorizontalDivider()
+                    ListItem(
+                        headlineContent = { Text(option.title) },
+                        supportingContent = {
+                            Column {
+                                Text(option.subtitle)
+                                Text(
+                                    availabilityStatus(availability[option.modelId]),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        },
+                        leadingContent = {
+                            RadioButton(
+                                selected = settings.offlineAsrQuality == option.choice,
+                                onClick = null,
+                            )
+                        },
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    store.setOfflineAsrQuality(option.choice)
+                                },
+                    )
+                }
             }
         }
 
@@ -373,6 +430,34 @@ private fun formatVad(value: Float): String {
     val rounded = kotlin.math.round(value * 100F) / 100F
     return rounded.toString()
 }
+
+private fun offlineModelOptions() =
+    listOf(
+        OfflineModelOption(
+            OfflineAsrQualityChoice.AUTO,
+            "自动（推荐）",
+            "当前保持 SenseVoice 兼容默认；后续由 Benchmark 决定是否调整默认",
+            Stage13AOfflineModelIds.SENSEVOICE,
+        ),
+        OfflineModelOption(
+            OfflineAsrQualityChoice.BALANCED,
+            "均衡 · SenseVoice",
+            "约 240 MB 安装体积 · 当前稳定基线",
+            Stage13AOfflineModelIds.SENSEVOICE,
+        ),
+        OfflineModelOption(
+            OfflineAsrQualityChoice.HIGH_QUALITY,
+            "高质量 · FireRedASR2 CTC",
+            "中文 / 英文 / 口音与中英混合候选 · 约 740 MB 安装体积",
+            Stage13AOfflineModelIds.FIRERED_ASR2,
+        ),
+        OfflineModelOption(
+            OfflineAsrQualityChoice.ULTRA,
+            "最高质量 · Qwen3-ASR 0.6B",
+            "条件型 Ultra 候选 · 约 941 MB 安装体积 · 仅建议高内存设备测试",
+            Stage13AOfflineModelIds.QWEN3_ASR,
+        ),
+    )
 
 private fun speakerCountOptions() =
     listOf(
