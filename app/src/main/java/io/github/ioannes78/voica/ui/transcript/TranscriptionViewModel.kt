@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import io.github.ioannes78.voica.DiarizationCoordinator
 import io.github.ioannes78.voica.DiarizationRunState
-import io.github.ioannes78.voica.LocalSpeechSettings
 import io.github.ioannes78.voica.SpeakerAlignmentRunState
 import io.github.ioannes78.voica.TranscriptionCoordinator
 import io.github.ioannes78.voica.TranscriptionRunState
@@ -72,26 +71,6 @@ data class TranscriptVersionSummary(
     val latest: Boolean,
 )
 
-internal class AutoDiarizationRequestTracker {
-    private var requestedRecordingId: String? = null
-
-    fun markStarted(recordingId: String) {
-        requestedRecordingId = recordingId
-    }
-
-    fun consumeCompleted(recordingId: String): Boolean {
-        if (requestedRecordingId != recordingId) return false
-        requestedRecordingId = null
-        return true
-    }
-
-    fun clearTerminal(recordingId: String) {
-        if (requestedRecordingId == recordingId) {
-            requestedRecordingId = null
-        }
-    }
-}
-
 class TranscriptionViewModel(
     private val coordinator: TranscriptionCoordinator,
     private val repository: TranscriptionRepository,
@@ -99,7 +78,6 @@ class TranscriptionViewModel(
     private val diarizationRepository: DiarizationRepository,
     private val recordingLibraryRepository: RecordingLibraryRepository,
     private val contentRepository: Stage12CContentRepository,
-    private val localSpeechSettings: () -> LocalSpeechSettings = { LocalSpeechSettings() },
 ) : ViewModel() {
     val runState: StateFlow<TranscriptionRunState> = coordinator.state
 
@@ -115,7 +93,6 @@ class TranscriptionViewModel(
     private val mutableNotice = MutableStateFlow<String?>(null)
     val notice: StateFlow<String?> = mutableNotice.asStateFlow()
 
-    private val autoDiarizationRequests = AutoDiarizationRequestTracker()
     private var documentLoadJob: Job? = null
     private var documentLoadGeneration = 0L
 
@@ -128,11 +105,8 @@ class TranscriptionViewModel(
                             state.recordingId,
                             state.transcriptionId,
                         )
-                        val autoStartDiarization =
-                            autoDiarizationRequests.consumeCompleted(state.recordingId)
                         requestDocumentLoad(
                             transcriptionId = state.transcriptionId,
-                            autoStartDiarization = autoStartDiarization,
                             clearCurrent = true,
                         )
                         if (mutableVersionsRecordingId.value == state.recordingId) {
@@ -140,14 +114,8 @@ class TranscriptionViewModel(
                         }
                     }
 
-                    is TranscriptionRunState.Failed -> {
-                        autoDiarizationRequests.clearTerminal(state.recordingId)
-                    }
-
-                    is TranscriptionRunState.Cancelled -> {
-                        autoDiarizationRequests.clearTerminal(state.recordingId)
-                    }
-
+                    is TranscriptionRunState.Failed,
+                    is TranscriptionRunState.Cancelled,
                     TranscriptionRunState.Idle,
                     is TranscriptionRunState.Running,
                     -> Unit
@@ -279,7 +247,6 @@ class TranscriptionViewModel(
 
     private fun requestDocumentLoad(
         transcriptionId: String,
-        autoStartDiarization: Boolean = false,
         clearCurrent: Boolean = false,
     ) {
         documentLoadGeneration += 1L
@@ -292,7 +259,6 @@ class TranscriptionViewModel(
             viewModelScope.launch {
                 loadDocument(
                     transcriptionId = transcriptionId,
-                    autoStartDiarization = autoStartDiarization,
                     generation = generation,
                 )
             }
@@ -312,7 +278,6 @@ class TranscriptionViewModel(
 
     private suspend fun loadDocument(
         transcriptionId: String,
-        autoStartDiarization: Boolean,
         generation: Long,
     ) {
         val transcription = repository.find(transcriptionId)
@@ -375,18 +340,7 @@ class TranscriptionViewModel(
 
         if (compatibleRun == null) {
             mutableDocument.value = baseDocument
-            if (autoStartDiarization && isCurrentDocumentLoad(generation)) {
-                val started =
-                    diarizationCoordinator.start(transcription.recordingId)
-                mutableNotice.value =
-                    if (started) {
-                        "转写已完成，正在自动进行说话人分离…"
-                    } else {
-                        "转写已完成；当前已有说话人分离或对齐任务，请稍后单独重试"
-                    }
-            } else {
-                mutableNotice.value = null
-            }
+            mutableNotice.value = null
             return
         }
 
@@ -505,11 +459,7 @@ class TranscriptionViewModel(
     ) {
         mutableNotice.value = null
         cancelDocumentLoad(clearCurrent = true)
-        if (coordinator.start(recordingId, mode)) {
-            if (localSpeechSettings().diarization.autoAfterTranscription) {
-                autoDiarizationRequests.markStarted(recordingId)
-            }
-        } else {
+        if (!coordinator.start(recordingId, mode)) {
             mutableNotice.value = "已有转写任务正在运行，请先完成或取消当前任务"
         }
     }
@@ -521,7 +471,6 @@ class TranscriptionViewModel(
         private val diarizationRepository: DiarizationRepository,
         private val recordingLibraryRepository: RecordingLibraryRepository,
         private val contentRepository: Stage12CContentRepository,
-        private val localSpeechSettings: () -> LocalSpeechSettings = { LocalSpeechSettings() },
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
@@ -532,7 +481,6 @@ class TranscriptionViewModel(
                 diarizationRepository = diarizationRepository,
                 recordingLibraryRepository = recordingLibraryRepository,
                 contentRepository = contentRepository,
-                localSpeechSettings = localSpeechSettings,
             ) as T
     }
 }
