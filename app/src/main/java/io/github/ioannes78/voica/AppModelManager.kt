@@ -8,6 +8,7 @@ import io.github.ioannes78.voica.model.DecodingModelCatalogProvider
 import io.github.ioannes78.voica.model.DefaultModelManager
 import io.github.ioannes78.voica.model.HttpsModelCatalogTextSource
 import io.github.ioannes78.voica.model.ModelCatalogCodec
+import io.github.ioannes78.voica.model.ModelCatalogProvider
 import io.github.ioannes78.voica.model.ModelEnvironment
 import io.github.ioannes78.voica.model.ModelManager
 import io.github.ioannes78.voica.model.ModelStorage
@@ -81,6 +82,18 @@ object VoicaModelChannel {
         }.getOrDefault(false)
 }
 
+private val STAGE13A_QA5_PRODUCT_MODEL_IDS =
+    setOf(
+        Stage8ModelIds.VAD,
+        Stage8ModelIds.PUNCTUATION,
+        Stage13AOfflineModelIds.SENSEVOICE,
+        Stage13AOfflineModelIds.QWEN3_ASR,
+        Stage13ARealtimeModelIds.SMALL_BILINGUAL,
+        Stage13ARealtimeModelIds.CHINESE_LARGE_CTC,
+        Stage9ModelIds.SEGMENTATION,
+        Stage13ASpeakerEmbeddingModelIds.CAMP_PLUS,
+    )
+
 fun createVoicaModelManager(
     application: Application,
     useRegistry: ModelUseRegistry,
@@ -99,14 +112,26 @@ fun createVoicaModelManager(
     val appVersionCode =
         PackageInfoCompat.getLongVersionCode(packageInfo).toInt()
 
+    val decodedRemoteCatalogProvider =
+        DecodingModelCatalogProvider(
+            HttpsModelCatalogTextSource(
+                VoicaModelChannel.resolveManifestUrl(application),
+            ),
+        )
+    val productCatalogProvider =
+        ModelCatalogProvider { force ->
+            val catalog = decodedRemoteCatalogProvider.load(force)
+            catalog.copy(
+                models =
+                    catalog.models.filter { descriptor ->
+                        descriptor.modelId in STAGE13A_QA5_PRODUCT_MODEL_IDS
+                    },
+            )
+        }
+
     return DefaultModelManager(
         bundledCatalog = bundledCatalog,
-        remoteCatalogProvider =
-            DecodingModelCatalogProvider(
-                HttpsModelCatalogTextSource(
-                    VoicaModelChannel.resolveManifestUrl(application),
-                ),
-            ),
+        remoteCatalogProvider = productCatalogProvider,
         environment =
             ModelEnvironment(
                 runtimeId = SherpaRuntime.RUNTIME_ID,
