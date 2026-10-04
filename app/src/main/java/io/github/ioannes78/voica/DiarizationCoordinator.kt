@@ -277,7 +277,9 @@ class DiarizationCoordinator(
             val requestedSpeakerCount =
                 if (config == null) speechSettings.speakerCount else null
             val effectiveConfig =
-                config ?: speechSettings.speakerCount.toDiarizationConfig()
+                config ?: speechSettings.speakerCount.toDiarizationConfig(
+                    speechSettings.diarization,
+                )
             val job =
                 scope.launch {
                     runDiarization(

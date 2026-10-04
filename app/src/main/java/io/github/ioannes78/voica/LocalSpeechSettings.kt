@@ -81,33 +81,42 @@ enum class SpeakerCountChoice {
     FIVE_PLUS,
 }
 
-fun SpeakerCountChoice.toDiarizationConfig(): DiarizationConfig =
+fun SpeakerCountChoice.toDiarizationConfig(
+    tuning: LocalDiarizationSettings = LocalDiarizationSettings(),
+): DiarizationConfig =
     when (this) {
         SpeakerCountChoice.AUTO ->
-            DiarizationConfig()
+            DiarizationConfig(
+                clusteringThreshold = tuning.clusteringThreshold,
+                stitchingCosineThreshold = tuning.stitchingCosineThreshold,
+            )
         SpeakerCountChoice.ONE ->
             DiarizationConfig(
                 expectedSpeakerCount = 1,
                 minimumGlobalSpeakerCount = 1,
                 maximumGlobalSpeakerCount = 1,
+                stitchingCosineThreshold = tuning.stitchingCosineThreshold,
             )
         SpeakerCountChoice.TWO ->
             DiarizationConfig(
                 expectedSpeakerCount = 2,
                 minimumGlobalSpeakerCount = 2,
                 maximumGlobalSpeakerCount = 2,
+                stitchingCosineThreshold = tuning.stitchingCosineThreshold,
             )
         SpeakerCountChoice.THREE ->
             DiarizationConfig(
                 expectedSpeakerCount = 3,
                 minimumGlobalSpeakerCount = 3,
                 maximumGlobalSpeakerCount = 3,
+                stitchingCosineThreshold = tuning.stitchingCosineThreshold,
             )
         SpeakerCountChoice.FOUR ->
             DiarizationConfig(
                 expectedSpeakerCount = 4,
                 minimumGlobalSpeakerCount = 4,
                 maximumGlobalSpeakerCount = 4,
+                stitchingCosineThreshold = tuning.stitchingCosineThreshold,
             )
         SpeakerCountChoice.FIVE_PLUS ->
             DiarizationConfig(
@@ -115,6 +124,7 @@ fun SpeakerCountChoice.toDiarizationConfig(): DiarizationConfig =
                 minimumGlobalSpeakerCount = FIVE_PLUS_MINIMUM_SPEAKERS,
                 maximumGlobalSpeakerCount = FIVE_PLUS_MAXIMUM_SPEAKERS,
                 clusteringThreshold = FIVE_PLUS_INITIAL_CLUSTERING_THRESHOLD,
+                stitchingCosineThreshold = tuning.stitchingCosineThreshold,
             )
     }
 
@@ -133,6 +143,20 @@ data class LocalQwenAsrSettings(
         require(temperature.isFinite() && temperature in 0F..2F)
         require(topP.isFinite() && topP in 0.05F..1F)
         require(hotwords.length <= 512)
+    }
+}
+
+data class LocalDiarizationSettings(
+    val autoAfterTranscription: Boolean = true,
+    val clusteringThreshold: Float = 0.5F,
+    val stitchingCosineThreshold: Float = 0.75F,
+) {
+    init {
+        require(clusteringThreshold.isFinite() && clusteringThreshold in 0F..1F)
+        require(
+            stitchingCosineThreshold.isFinite() &&
+                stitchingCosineThreshold in 0F..1F
+        )
     }
 }
 
@@ -157,6 +181,7 @@ data class LocalSpeechSettings(
     val requestedThreads: Int? = null,
     val qwen: LocalQwenAsrSettings = LocalQwenAsrSettings(),
     val vad: LocalVadSettings = LocalVadSettings(),
+    val diarization: LocalDiarizationSettings = LocalDiarizationSettings(),
     val speakerCount: SpeakerCountChoice = SpeakerCountChoice.AUTO,
     val speakerEmbeddingModel: SpeakerEmbeddingModelChoice =
         SpeakerEmbeddingModelChoice.ERES2NET,
@@ -244,6 +269,10 @@ interface LocalSpeechSettingsStore {
 
     fun resetVadSettings()
 
+    fun setDiarizationSettings(settings: LocalDiarizationSettings)
+
+    fun resetDiarizationSettings()
+
     fun setSpeakerCount(choice: SpeakerCountChoice)
 
     fun setSpeakerEmbeddingModel(choice: SpeakerEmbeddingModelChoice)
@@ -278,6 +307,7 @@ class SharedPreferencesLocalSpeechSettingsStore(
                         .takeIf { it > 0 },
                 qwen = readQwenSettings(preferences),
                 vad = readVadSettings(preferences),
+                diarization = readDiarizationSettings(preferences),
                 speakerCount =
                     preferences.getString(KEY_SPEAKER_COUNT, null)
                         ?.let { runCatching { SpeakerCountChoice.valueOf(it) }.getOrNull() }
@@ -379,6 +409,36 @@ class SharedPreferencesLocalSpeechSettingsStore(
         mutableSettings.value = mutableSettings.value.copy(vad = defaults)
     }
 
+    override fun setDiarizationSettings(settings: LocalDiarizationSettings) {
+        preferences.edit()
+            .putBoolean(
+                KEY_DIARIZATION_AUTO_AFTER_TRANSCRIPTION,
+                settings.autoAfterTranscription,
+            )
+            .putFloat(
+                KEY_DIARIZATION_CLUSTERING_THRESHOLD,
+                settings.clusteringThreshold,
+            )
+            .putFloat(
+                KEY_DIARIZATION_STITCHING_COSINE_THRESHOLD,
+                settings.stitchingCosineThreshold,
+            )
+            .apply()
+        mutableSettings.value =
+            mutableSettings.value.copy(diarization = settings)
+    }
+
+    override fun resetDiarizationSettings() {
+        val defaults = LocalDiarizationSettings()
+        preferences.edit()
+            .remove(KEY_DIARIZATION_AUTO_AFTER_TRANSCRIPTION)
+            .remove(KEY_DIARIZATION_CLUSTERING_THRESHOLD)
+            .remove(KEY_DIARIZATION_STITCHING_COSINE_THRESHOLD)
+            .apply()
+        mutableSettings.value =
+            mutableSettings.value.copy(diarization = defaults)
+    }
+
     override fun setSpeakerCount(choice: SpeakerCountChoice) {
         preferences.edit()
             .putString(KEY_SPEAKER_COUNT, choice.name)
@@ -410,6 +470,12 @@ class SharedPreferencesLocalSpeechSettingsStore(
         const val KEY_VAD_MIN_SILENCE = "vad-min-silence"
         const val KEY_VAD_MIN_SPEECH = "vad-min-speech"
         const val KEY_VAD_MAX_SPEECH = "vad-max-speech"
+        const val KEY_DIARIZATION_AUTO_AFTER_TRANSCRIPTION =
+            "diarization-auto-after-transcription"
+        const val KEY_DIARIZATION_CLUSTERING_THRESHOLD =
+            "diarization-clustering-threshold"
+        const val KEY_DIARIZATION_STITCHING_COSINE_THRESHOLD =
+            "diarization-stitching-cosine-threshold"
         const val KEY_SPEAKER_COUNT = "speaker-count"
         const val KEY_SPEAKER_EMBEDDING_MODEL = "speaker-embedding-model"
 
@@ -426,6 +492,29 @@ class SharedPreferencesLocalSpeechSettingsStore(
                     hotwords = preferences.getString(KEY_QWEN_HOTWORDS, "").orEmpty(),
                 )
             }.getOrDefault(LocalQwenAsrSettings())
+
+        fun readDiarizationSettings(
+            preferences: android.content.SharedPreferences,
+        ): LocalDiarizationSettings =
+            runCatching {
+                LocalDiarizationSettings(
+                    autoAfterTranscription =
+                        preferences.getBoolean(
+                            KEY_DIARIZATION_AUTO_AFTER_TRANSCRIPTION,
+                            true,
+                        ),
+                    clusteringThreshold =
+                        preferences.getFloat(
+                            KEY_DIARIZATION_CLUSTERING_THRESHOLD,
+                            0.5F,
+                        ),
+                    stitchingCosineThreshold =
+                        preferences.getFloat(
+                            KEY_DIARIZATION_STITCHING_COSINE_THRESHOLD,
+                            0.75F,
+                        ),
+                )
+            }.getOrDefault(LocalDiarizationSettings())
 
         fun readVadSettings(
             preferences: android.content.SharedPreferences,

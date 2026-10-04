@@ -213,7 +213,10 @@ class DiarizationBenchmarkRunner(
                 SpeakerModelRole.DIARIZATION_SEGMENTATION,
         )
 
-        val config = DiarizationConfig()
+        val config =
+            SpeakerCountChoice.AUTO.toDiarizationConfig(
+                settings.diarization,
+            )
         val cases =
             embeddingModelIds.map { modelId ->
                 val embedding = modelManager.activeModel(modelId)

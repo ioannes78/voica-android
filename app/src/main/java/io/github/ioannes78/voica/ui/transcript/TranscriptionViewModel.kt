@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import io.github.ioannes78.voica.DiarizationCoordinator
 import io.github.ioannes78.voica.DiarizationRunState
+import io.github.ioannes78.voica.LocalSpeechSettings
 import io.github.ioannes78.voica.SpeakerAlignmentRunState
 import io.github.ioannes78.voica.TranscriptionCoordinator
 import io.github.ioannes78.voica.TranscriptionRunState
@@ -98,6 +99,7 @@ class TranscriptionViewModel(
     private val diarizationRepository: DiarizationRepository,
     private val recordingLibraryRepository: RecordingLibraryRepository,
     private val contentRepository: Stage12CContentRepository,
+    private val localSpeechSettings: () -> LocalSpeechSettings = { LocalSpeechSettings() },
 ) : ViewModel() {
     val runState: StateFlow<TranscriptionRunState> = coordinator.state
 
@@ -504,7 +506,9 @@ class TranscriptionViewModel(
         mutableNotice.value = null
         cancelDocumentLoad(clearCurrent = true)
         if (coordinator.start(recordingId, mode)) {
-            autoDiarizationRequests.markStarted(recordingId)
+            if (localSpeechSettings().diarization.autoAfterTranscription) {
+                autoDiarizationRequests.markStarted(recordingId)
+            }
         } else {
             mutableNotice.value = "已有转写任务正在运行，请先完成或取消当前任务"
         }
@@ -517,6 +521,7 @@ class TranscriptionViewModel(
         private val diarizationRepository: DiarizationRepository,
         private val recordingLibraryRepository: RecordingLibraryRepository,
         private val contentRepository: Stage12CContentRepository,
+        private val localSpeechSettings: () -> LocalSpeechSettings = { LocalSpeechSettings() },
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
@@ -527,6 +532,7 @@ class TranscriptionViewModel(
                 diarizationRepository = diarizationRepository,
                 recordingLibraryRepository = recordingLibraryRepository,
                 contentRepository = contentRepository,
+                localSpeechSettings = localSpeechSettings,
             ) as T
     }
 }

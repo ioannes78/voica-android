@@ -202,7 +202,7 @@
 
     <string name="transcription_start_fast">快速转写</string>
     <string name="transcription_start_high_quality">高质量转写</string>
-    <string name="transcription_auto_diarization_hint">直接转写会在完成后自动继续说话人分离；下方按钮仅用于单独补做或重跑。</string>
+    <string name="transcription_auto_diarization_hint">转写完成后是否自动继续说话人分离，可在“设置 → 本地语音识别”中调整；下方按钮用于单独补做或重跑。</string>
     <string name="transcription_view_latest">转写版本</string>
     <string name="transcription_status_title">本地转写</string>
     <string name="transcription_mode_fast">快速模式</string>

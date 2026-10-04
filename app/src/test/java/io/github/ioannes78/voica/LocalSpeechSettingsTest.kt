@@ -139,6 +139,30 @@ class LocalSpeechSettingsTest {
     }
 
     @Test
+    fun diarizationDefaultsPreserveExistingAutomaticBehavior() {
+        val tuning = LocalDiarizationSettings()
+        val config = SpeakerCountChoice.AUTO.toDiarizationConfig(tuning)
+
+        assertEquals(true, tuning.autoAfterTranscription)
+        assertEquals(0.5F, config.clusteringThreshold)
+        assertEquals(0.75F, config.stitchingCosineThreshold)
+    }
+
+    @Test
+    fun fixedSpeakerCountsIgnoreAutomaticClusteringThresholdButKeepStitchingTuning() {
+        val tuning =
+            LocalDiarizationSettings(
+                clusteringThreshold = 0.35F,
+                stitchingCosineThreshold = 0.82F,
+            )
+        val config = SpeakerCountChoice.THREE.toDiarizationConfig(tuning)
+
+        assertEquals(3, config.expectedSpeakerCount)
+        assertEquals(null, config.clusteringThreshold)
+        assertEquals(0.82F, config.stitchingCosineThreshold)
+    }
+
+    @Test
     fun performanceProfilesResolveToRealThreadCounts() {
         assertEquals(
             1,
