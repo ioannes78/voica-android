@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   actions: write
 
 concurrency:
@@ -80,44 +80,6 @@ jobs:
           :app:assembleQa
           --stacktrace
 
-      - name: Dump generated Room v7 schema on test failure
-        if: ${{ failure() }}
-        shell: bash
-        run: |
-          schema="core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/7.json"
-          if test -f "$schema"; then
-            echo "ROOM_SCHEMA_V7_BEGIN"
-            cat "$schema"
-            echo "ROOM_SCHEMA_V7_END"
-          else
-            echo "ROOM_SCHEMA_V7_MISSING"
-          fi
-
-      - name: Bootstrap generated Room v7 schema
-        if: ${{ failure() && github.event_name == 'pull_request' && github.head_ref == 'stage13a-local-speech-engine-v2' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          schema="core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/7.json"
-          if ! test -f "$schema"; then
-            echo "Room v7 schema was not generated."
-            exit 1
-          fi
-          if git ls-files --error-unmatch "$schema" >/dev/null 2>&1; then
-            echo "Room v7 schema is already committed."
-            exit 0
-          fi
-          cp "$schema" /tmp/voica-room-v7.json
-          git fetch origin "${GITHUB_HEAD_REF}"
-          git checkout -B "${GITHUB_HEAD_REF}" FETCH_HEAD
-          mkdir -p "$(dirname "$schema")"
-          cp /tmp/voica-room-v7.json "$schema"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "$schema"
-          git commit -m "Add Room v7 exported schema"
-          git push origin "HEAD:${GITHUB_HEAD_REF}"
-
       - name: Verify stable QA signing identity
         shell: bash
         run: |
@@ -131,7 +93,7 @@ jobs:
             tr '[:upper:]' '[:lower:]')"
           test "$actual_cert_sha256" = "$expected_cert_sha256"
 
-      # Stage 13A migration gate: committed Room v1-v7 schemas must stay in sync.
+      # Stage 12C migration gate: committed Room v1-v6 schemas must stay in sync.
       - name: Verify committed Room schemas
         shell: bash
         run: |
@@ -142,7 +104,6 @@ jobs:
           test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/4.json"
           test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/5.json"
           test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/6.json"
-          test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/7.json"
           git diff --exit-code -- "$schema_dir"
           test -z "$(git status --porcelain --untracked-files=all -- "$schema_dir")"
 
