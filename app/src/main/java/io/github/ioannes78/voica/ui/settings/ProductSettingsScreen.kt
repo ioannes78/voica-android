@@ -233,7 +233,7 @@ private fun SettingsHome(
                     HorizontalDivider()
                     SettingsRow(
                         title = "本地语音识别",
-                        subtitle = "实时 ASR 模型与运行策略",
+                        subtitle = "离线转写、实时转写与说话人分离",
                         icon = { Icon(Icons.Outlined.Tune, contentDescription = null) },
                         onClick = { onOpen(SettingsPage.SPEECH) },
                     )
