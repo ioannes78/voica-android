@@ -1,6 +1,9 @@
 package io.github.ioannes78.voica
 
+import android.app.ActivityManager
 import android.app.Application
+import android.os.Build
+import android.os.Process
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -40,7 +43,22 @@ class VoicaApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        if (isModelValidatorProcess()) return
         container = AppContainer(this)
+    }
+
+    private fun isModelValidatorProcess(): Boolean {
+        val processName =
+            if (Build.VERSION.SDK_INT >= 28) {
+                Application.getProcessName()
+            } else {
+                val manager = getSystemService(ACTIVITY_SERVICE) as ActivityManager
+                val pid = Process.myPid()
+                manager.runningAppProcesses
+                    ?.firstOrNull { it.pid == pid }
+                    ?.processName
+            }
+        return processName == packageName + MODEL_VALIDATOR_PROCESS_SUFFIX
     }
 }
 
