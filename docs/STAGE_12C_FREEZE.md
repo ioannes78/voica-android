@@ -20,6 +20,10 @@ QA / 文档候选 HEAD：
 
 `d1244f1b00747d6b03d1099d41666e7f6adf0f42`
 
+Freeze 内容提交：
+
+`0c052ead13bf83826707c1e390ca4d3b0345b280`
+
 最终 QA：
 
 - versionCode：40
