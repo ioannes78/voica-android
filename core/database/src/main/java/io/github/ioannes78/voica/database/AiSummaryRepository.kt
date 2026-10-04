@@ -226,6 +226,7 @@ class AiSummaryRepository(
                 ) == 1,
             )
         }
+        SearchIndexRebuilder(database).reindexAiSummary(summaryId)
     }
 
     suspend fun loadEvidence(summaryId: String): List<AiSummaryEvidenceEntity> =

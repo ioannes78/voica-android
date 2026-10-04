@@ -90,6 +90,7 @@ class RecordingLibraryRepository(
     private val nowMs: () -> Long = System::currentTimeMillis,
 ) {
     private val dao = database.recordingDao()
+    private val searchIndexRebuilder = SearchIndexRebuilder(database)
 
     val recordings: Flow<List<RecordingLibraryItem>> =
         dao.observeAll().map { rows -> rows.map(RecordingWithAssets::toLibraryItem) }
@@ -195,6 +196,7 @@ class RecordingLibraryRepository(
                 ) != -1L,
             ) { "failed to register imported asset" }
         }
+        searchIndexRebuilder.reindexRecording(recordingId)
         return recordingId
     }
 
@@ -230,59 +232,81 @@ class RecordingLibraryRepository(
         return dao.removeTagFromRecordings(ids, tagId)
     }
 
-    suspend fun createFolder(name: String): FolderEntity =
-        database.withTransaction {
-            val normalized = normalizeLibraryName(name, maxLength = 60)
-            dao.findFolderByName(normalized)?.let { return@withTransaction it }
-            val now = nowMs()
-            val folder =
-                FolderEntity(
-                    folderId = UUID.randomUUID().toString(),
-                    name = normalized,
-                    createdAtMs = now,
-                    updatedAtMs = now,
-                )
-            dao.insertFolder(folder)
-            folder
-        }
+    suspend fun createFolder(name: String): FolderEntity {
+        val folder =
+            database.withTransaction {
+                val normalized = normalizeLibraryName(name, maxLength = 60)
+                dao.findFolderByName(normalized)?.let { return@withTransaction it }
+                val now = nowMs()
+                val created =
+                    FolderEntity(
+                        folderId = UUID.randomUUID().toString(),
+                        name = normalized,
+                        createdAtMs = now,
+                        updatedAtMs = now,
+                    )
+                dao.insertFolder(created)
+                created
+            }
+        searchIndexRebuilder.reindexFolder(folder.folderId)
+        return folder
+    }
 
-    suspend fun renameFolder(folderId: String, name: String): Boolean =
-        database.withTransaction {
-            val normalized = normalizeLibraryName(name, maxLength = 60)
-            val conflict = dao.findFolderByName(normalized)
-            if (conflict != null && conflict.folderId != folderId) return@withTransaction false
-            dao.renameFolder(folderId, normalized, nowMs()) == 1
-        }
+    suspend fun renameFolder(folderId: String, name: String): Boolean {
+        val renamed =
+            database.withTransaction {
+                val normalized = normalizeLibraryName(name, maxLength = 60)
+                val conflict = dao.findFolderByName(normalized)
+                if (conflict != null && conflict.folderId != folderId) return@withTransaction false
+                dao.renameFolder(folderId, normalized, nowMs()) == 1
+            }
+        if (renamed) searchIndexRebuilder.reindexFolder(folderId)
+        return renamed
+    }
 
-    suspend fun deleteFolder(folderId: String): Boolean =
-        dao.deleteFolder(folderId) == 1
+    suspend fun deleteFolder(folderId: String): Boolean {
+        val deleted = dao.deleteFolder(folderId) == 1
+        if (deleted) searchIndexRebuilder.reindexFolder(folderId)
+        return deleted
+    }
 
-    suspend fun createTag(name: String): TagEntity =
-        database.withTransaction {
-            val normalized = normalizeLibraryName(name, maxLength = 40)
-            dao.findTagByName(normalized)?.let { return@withTransaction it }
-            val now = nowMs()
-            val tag =
-                TagEntity(
-                    tagId = UUID.randomUUID().toString(),
-                    name = normalized,
-                    createdAtMs = now,
-                    updatedAtMs = now,
-                )
-            dao.insertTag(tag)
-            tag
-        }
+    suspend fun createTag(name: String): TagEntity {
+        val tag =
+            database.withTransaction {
+                val normalized = normalizeLibraryName(name, maxLength = 40)
+                dao.findTagByName(normalized)?.let { return@withTransaction it }
+                val now = nowMs()
+                val created =
+                    TagEntity(
+                        tagId = UUID.randomUUID().toString(),
+                        name = normalized,
+                        createdAtMs = now,
+                        updatedAtMs = now,
+                    )
+                dao.insertTag(created)
+                created
+            }
+        searchIndexRebuilder.reindexTag(tag.tagId)
+        return tag
+    }
 
-    suspend fun renameTag(tagId: String, name: String): Boolean =
-        database.withTransaction {
-            val normalized = normalizeLibraryName(name, maxLength = 40)
-            val conflict = dao.findTagByName(normalized)
-            if (conflict != null && conflict.tagId != tagId) return@withTransaction false
-            dao.renameTag(tagId, normalized, nowMs()) == 1
-        }
+    suspend fun renameTag(tagId: String, name: String): Boolean {
+        val renamed =
+            database.withTransaction {
+                val normalized = normalizeLibraryName(name, maxLength = 40)
+                val conflict = dao.findTagByName(normalized)
+                if (conflict != null && conflict.tagId != tagId) return@withTransaction false
+                dao.renameTag(tagId, normalized, nowMs()) == 1
+            }
+        if (renamed) searchIndexRebuilder.reindexTag(tagId)
+        return renamed
+    }
 
-    suspend fun deleteTag(tagId: String): Boolean =
-        dao.deleteTag(tagId) == 1
+    suspend fun deleteTag(tagId: String): Boolean {
+        val deleted = dao.deleteTag(tagId) == 1
+        if (deleted) searchIndexRebuilder.reindexTag(tagId)
+        return deleted
+    }
 
     suspend fun importLegacyStage5IfNeeded(): LegacyImportReport {
         if (dao.readMeta(LEGACY_IMPORT_META_KEY) == LEGACY_IMPORT_VERSION) {
@@ -414,6 +438,7 @@ class RecordingLibraryRepository(
                 ),
             )
         }
+        searchIndexRebuilder.reindexRecording(recordingId)
         return recordingId
     }
 
@@ -674,7 +699,9 @@ class RecordingLibraryRepository(
 
     suspend fun rename(recordingId: String, requestedName: String): Boolean {
         val displayName = sanitizeDisplayName(requestedName) ?: return false
-        return dao.rename(recordingId, displayName, nowMs()) == 1
+        val renamed = dao.rename(recordingId, displayName, nowMs()) == 1
+        if (renamed) searchIndexRebuilder.reindexRecording(recordingId)
+        return renamed
     }
 
     suspend fun isRecordingActive(recordingId: String): Boolean =
@@ -832,6 +859,7 @@ class RecordingLibraryRepository(
 
         val failed = deleteManagedFiles(recording)
         return if (failed.isEmpty()) {
+            searchIndexRebuilder.removeRecording(recordingId)
             dao.deleteRecording(recordingId)
             LibraryDeleteResult(deleted = true)
         } else {
@@ -854,6 +882,7 @@ class RecordingLibraryRepository(
         dao.findByState(RecordingState.DELETING).forEach { recording ->
             val failed = deleteManagedFiles(recording)
             if (failed.isEmpty()) {
+                searchIndexRebuilder.removeRecording(recording.recording.id)
                 dao.deleteRecording(recording.recording.id)
             }
         }
@@ -899,6 +928,7 @@ class RecordingLibraryRepository(
                     normalized != recording.displayName &&
                     dao.rename(recording.id, normalized, now) == 1
                 ) {
+                    searchIndexRebuilder.reindexRecording(recording.id)
                     updated += 1
                 }
             }

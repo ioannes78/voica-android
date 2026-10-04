@@ -21,6 +21,7 @@ fun RecordingLibraryRoute(
     padding: PaddingValues,
     viewModel: RecordingLibraryViewModel,
     onOpenRecording: (String) -> Unit,
+    onOpenUnifiedSearch: () -> Unit,
 ) {
     val state by viewModel.uiState.collectAsState()
     val exportInProgress by viewModel.exportInProgress.collectAsState()
@@ -57,6 +58,7 @@ fun RecordingLibraryRoute(
             onConfirmDuplicateImport = viewModel::confirmDuplicateImport,
             onDismissDuplicateImport = viewModel::dismissDuplicateImport,
             onQueryChange = viewModel::setQuery,
+            onOpenUnifiedSearch = onOpenUnifiedSearch,
             onSortChange = viewModel::setSort,
             onFavoriteFilterChange = viewModel::setFavoriteOnly,
             onCompletedTranscriptionFilterChange =

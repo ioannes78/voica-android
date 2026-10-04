@@ -47,6 +47,16 @@ interface TranscriptionDao {
 
     @Query(
         """
+        SELECT * FROM transcriptions
+        WHERE recordingId = :recordingId AND state = 'COMPLETED'
+        ORDER BY completedAtMs DESC, createdAtMs DESC
+        LIMIT 1
+        """,
+    )
+    suspend fun findLatestCompleted(recordingId: String): TranscriptionEntity?
+
+    @Query(
+        """
         SELECT * FROM transcript_segments
         WHERE transcriptionId = :transcriptionId
         ORDER BY segmentIndex ASC
@@ -166,4 +176,14 @@ interface TranscriptionDao {
         activeStates: List<String>,
         nowMs: Long,
     ): Int
+
+    @Query("""
+        SELECT * FROM transcriptions
+        WHERE state = 'COMPLETED'
+        ORDER BY completedAtMs DESC, createdAtMs DESC
+    """)
+    suspend fun loadAllCompleted(): List<TranscriptionEntity>
+
+    @Query("DELETE FROM transcriptions WHERE id = :transcriptionId")
+    suspend fun deleteVersion(transcriptionId: String): Int
 }

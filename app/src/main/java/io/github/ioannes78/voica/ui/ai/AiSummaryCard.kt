@@ -1,5 +1,9 @@
 package io.github.ioannes78.voica.ui.ai
 
+import android.os.Build
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
@@ -30,11 +35,17 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.AiSummaryRunState
+import io.github.ioannes78.voica.ContentTextExportCoordinator
+import io.github.ioannes78.voica.TextContentDocument
+import io.github.ioannes78.voica.TextExportFormat
+import io.github.ioannes78.voica.TextShareOutcome
 import io.github.ioannes78.voica.ai.AiSummaryEnginePhase
 import io.github.ioannes78.voica.ai.AiSummarySectionType
 import io.github.ioannes78.voica.ai.SummaryTemplateCatalog
@@ -43,6 +54,7 @@ import io.github.ioannes78.voica.database.AiSummaryStateValue
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,6 +62,8 @@ fun AiSummaryCard(
     transcriptionId: String,
     recordingName: String?,
     viewModel: AiSummaryViewModel,
+    contentViewModel: AiSummaryContentViewModel,
+    initialSummaryId: String? = null,
     onOpenSettings: () -> Unit,
     onSeekEvidence: (Long) -> Unit,
 ) {
@@ -61,11 +75,65 @@ fun AiSummaryCard(
     val generationModels by viewModel.generationModels.collectAsState()
     val customTemplates by viewModel.customTemplates.collectAsState()
     val notice by viewModel.notice.collectAsState()
+    val contentState by contentViewModel.state.collectAsState()
+
+    val context = LocalContext.current
+    val actionScope = rememberCoroutineScope()
+    val textExport = remember(context) { ContentTextExportCoordinator(context) }
+    var pendingTxtDocument by remember { mutableStateOf<TextContentDocument?>(null) }
+    var pendingMarkdownDocument by remember { mutableStateOf<TextContentDocument?>(null) }
+    val txtLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument(TextExportFormat.TXT.mimeType),
+        ) { uri ->
+            val document = pendingTxtDocument
+            pendingTxtDocument = null
+            if (uri != null && document != null) {
+                actionScope.launch {
+                    val result =
+                        textExport.exportToUri(
+                            document = document,
+                            format = TextExportFormat.TXT,
+                            destinationUri = uri,
+                        )
+                    Toast.makeText(
+                        context,
+                        if (result.exported) "TXT 已导出" else result.error ?: "导出失败",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }
+        }
+    val markdownLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument(TextExportFormat.MARKDOWN.mimeType),
+        ) { uri ->
+            val document = pendingMarkdownDocument
+            pendingMarkdownDocument = null
+            if (uri != null && document != null) {
+                actionScope.launch {
+                    val result =
+                        textExport.exportToUri(
+                            document = document,
+                            format = TextExportFormat.MARKDOWN,
+                            destinationUri = uri,
+                        )
+                    Toast.makeText(
+                        context,
+                        if (result.exported) "Markdown 已导出" else result.error ?: "导出失败",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }
+        }
 
     var moreExpanded by remember { mutableStateOf(false) }
     var historyExpanded by remember { mutableStateOf(false) }
     var generationSheetOpen by remember { mutableStateOf(false) }
     var templateEditorOpen by remember { mutableStateOf(false) }
+    var summaryEditorOpen by remember { mutableStateOf(false) }
+    var revisionHistoryOpen by remember { mutableStateOf(false) }
+    var deleteVersionOpen by remember { mutableStateOf(false) }
     var presetExpanded by remember { mutableStateOf(false) }
     var generationProviderExpanded by remember { mutableStateOf(false) }
     var generationModelExpanded by remember { mutableStateOf(false) }
@@ -90,6 +158,21 @@ fun AiSummaryCard(
     }
     LaunchedEffect(Unit) {
         viewModel.refreshProvider()
+    }
+    LaunchedEffect(initialSummaryId, history) {
+        val summaryId = initialSummaryId ?: return@LaunchedEffect
+        if (
+            history.any { it.id == summaryId } &&
+            selected?.entity?.id != summaryId
+        ) {
+            viewModel.selectSummary(summaryId)
+        }
+    }
+    LaunchedEffect(selected?.entity?.id, selected?.result) {
+        contentViewModel.bind(
+            summary = selected?.entity,
+            original = selected?.result,
+        )
     }
     LaunchedEffect(generationSheetOpen, providers, provider?.providerProfileId) {
         if (!generationSheetOpen) return@LaunchedEffect
@@ -126,6 +209,18 @@ fun AiSummaryCard(
         (runState as? AiSummaryRunState.Running)
             ?.takeIf { it.transcriptionId == transcriptionId }
 
+    val exportDocument =
+        contentState.document
+            ?.takeIf { contentState.summaryId == selected?.entity?.id }
+            ?.let { effective ->
+                AiSummaryContentExportFormatter.build(
+                    recordingName = recordingName.orEmpty(),
+                    document = effective,
+                    providerName = selected?.entity?.providerNameSnapshot,
+                    modelName = selected?.entity?.model,
+                )
+            }
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -136,7 +231,10 @@ fun AiSummaryCard(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    selected?.result?.title
+                    contentState.document
+                        ?.takeIf { contentState.summaryId == selected?.entity?.id }
+                        ?.title
+                        ?: selected?.result?.title
                         ?: selected?.entity?.displayText?.lineSequence()?.firstOrNull()
                         ?: "AI 总结",
                     style = MaterialTheme.typography.titleLarge,
@@ -159,6 +257,16 @@ fun AiSummaryCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
+                    )
+                }
+                if (
+                    contentState.summaryId == selected?.entity?.id &&
+                    contentState.currentRevisionId != null
+                ) {
+                    Text(
+                        "已人工修改",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -203,6 +311,157 @@ fun AiSummaryCard(
                     expanded = moreExpanded,
                     onDismissRequest = { moreExpanded = false },
                 ) {
+                    DropdownMenuItem(
+                        text = { Text("编辑总结") },
+                        enabled =
+                            contentState.summaryId == selected?.entity?.id &&
+                                contentState.document != null &&
+                                selected?.entity?.status == AiSummaryStateValue.COMPLETED,
+                        onClick = {
+                            moreExpanded = false
+                            summaryEditorOpen = true
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("修订历史") },
+                        enabled = selected != null,
+                        onClick = {
+                            moreExpanded = false
+                            revisionHistoryOpen = true
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("复制总结") },
+                        enabled = exportDocument?.plainText?.isNotBlank() == true,
+                        onClick = {
+                            moreExpanded = false
+                            val document = exportDocument
+                            val copied =
+                                document != null &&
+                                    textExport.copyToClipboard(
+                                        label = document.baseName,
+                                        text = document.plainText,
+                                    )
+                            Toast.makeText(
+                                context,
+                                if (copied) "已复制总结" else "没有可复制的文本",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("分享总结") },
+                        enabled = exportDocument?.plainText?.isNotBlank() == true,
+                        onClick = {
+                            moreExpanded = false
+                            val document = exportDocument
+                            if (document != null) {
+                                actionScope.launch {
+                                    when (
+                                        val outcome =
+                                            textExport.prepareShare(
+                                                document = document,
+                                                format = TextExportFormat.TXT,
+                                            )
+                                    ) {
+                                        is TextShareOutcome.Ready ->
+                                            context.startActivity(outcome.intent)
+                                        is TextShareOutcome.Failed ->
+                                            Toast.makeText(
+                                                context,
+                                                outcome.reason,
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
+                                    }
+                                }
+                            }
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("导出 TXT") },
+                        enabled = exportDocument?.plainText?.isNotBlank() == true,
+                        onClick = {
+                            moreExpanded = false
+                            val document = exportDocument
+                            if (document != null) {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                    actionScope.launch {
+                                        val result =
+                                            textExport.exportToDownloads(
+                                                document,
+                                                TextExportFormat.TXT,
+                                            )
+                                        Toast.makeText(
+                                            context,
+                                            if (result.exported) {
+                                                "已导出到 Downloads/Voica"
+                                            } else {
+                                                result.error ?: "导出失败"
+                                            },
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
+                                } else {
+                                    pendingTxtDocument = document
+                                    txtLauncher.launch(
+                                        document.baseName + TextExportFormat.TXT.extension,
+                                    )
+                                }
+                            }
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("导出 Markdown") },
+                        enabled = exportDocument?.markdownText?.isNotBlank() == true,
+                        onClick = {
+                            moreExpanded = false
+                            val document = exportDocument
+                            if (document != null) {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                    actionScope.launch {
+                                        val result =
+                                            textExport.exportToDownloads(
+                                                document,
+                                                TextExportFormat.MARKDOWN,
+                                            )
+                                        Toast.makeText(
+                                            context,
+                                            if (result.exported) {
+                                                "已导出到 Downloads/Voica"
+                                            } else {
+                                                result.error ?: "导出失败"
+                                            },
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
+                                } else {
+                                    pendingMarkdownDocument = document
+                                    markdownLauncher.launch(
+                                        document.baseName +
+                                            TextExportFormat.MARKDOWN.extension,
+                                    )
+                                }
+                            }
+                        },
+                    )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("恢复 AI 原始结果") },
+                        enabled = contentState.currentRevisionId != null,
+                        onClick = {
+                            moreExpanded = false
+                            contentViewModel.restoreOriginal()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("删除当前版本") },
+                        enabled = selected != null && running == null,
+                        onClick = {
+                            moreExpanded = false
+                            deleteVersionOpen = true
+                        },
+                    )
+                    HorizontalDivider()
                     DropdownMenuItem(
                         text = { Text("生成新总结") },
                         onClick = {
@@ -285,6 +544,15 @@ fun AiSummaryCard(
             )
 
             when {
+                contentState.summaryId == document.entity.id &&
+                    contentState.document != null -> {
+                    AiSummaryRevisionBody(
+                        document = checkNotNull(contentState.document),
+                        evidenceByRef = document.evidenceByRef,
+                        onSeekEvidence = onSeekEvidence,
+                    )
+                }
+
                 document.result != null -> {
                     val result = checkNotNull(document.result)
                     if (result.overview.isNotBlank()) {
@@ -384,6 +652,64 @@ fun AiSummaryCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+
+    if (summaryEditorOpen) {
+        contentState.document?.let { editable ->
+            AiSummaryEditorDialog(
+                initial = editable,
+                onDismiss = { summaryEditorOpen = false },
+                onSave = { revised ->
+                    summaryEditorOpen = false
+                    contentViewModel.saveRevision(revised)
+                },
+            )
+        }
+    }
+
+    if (revisionHistoryOpen) {
+        AiSummaryRevisionHistoryDialog(
+            state = contentState,
+            onDismiss = { revisionHistoryOpen = false },
+            onSelect = { revisionId ->
+                contentViewModel.selectRevision(revisionId)
+                revisionHistoryOpen = false
+            },
+            onDelete = contentViewModel::deleteRevision,
+        )
+    }
+
+    if (deleteVersionOpen) {
+        AlertDialog(
+            onDismissRequest = { deleteVersionOpen = false },
+            title = { Text("删除 AI 总结版本") },
+            text = {
+                Text("仅删除当前 AI 总结版本、Evidence、检查点和人工修订，不会删除录音或转写。")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        deleteVersionOpen = false
+                        contentViewModel.deleteVersion(onDeleted = {})
+                    },
+                ) {
+                    Text("删除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteVersionOpen = false }) {
+                    Text("取消")
+                }
+            },
+        )
+    }
+
+    contentState.notice?.let { contentNotice ->
+        Text(
+            contentNotice,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 
     if (generationSheetOpen) {

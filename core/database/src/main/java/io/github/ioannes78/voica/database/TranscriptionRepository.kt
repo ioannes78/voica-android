@@ -251,6 +251,7 @@ class TranscriptionRepository(
                 ) == 1,
             )
         }
+        SearchIndexRebuilder(database).reindexTranscription(transcriptionId)
     }
 
     suspend fun reconcileInterruptedOnStartup(): Int =

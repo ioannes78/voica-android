@@ -90,6 +90,11 @@ import io.github.ioannes78.voica.database.AiSummaryRepository
 import io.github.ioannes78.voica.database.DiarizationRepository
 import io.github.ioannes78.voica.database.RecordingLibraryItem
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
+import io.github.ioannes78.voica.database.Stage12CContentRepository
+import io.github.ioannes78.voica.database.SearchDocumentEntity
+import io.github.ioannes78.voica.database.SearchDocumentTypeValue
+import io.github.ioannes78.voica.database.SearchIndexRebuilder
+import io.github.ioannes78.voica.database.UnifiedSearchRepository
 import io.github.ioannes78.voica.database.TranscriptionRepository
 import io.github.ioannes78.voica.llm.ProviderAdapterRegistry
 import io.github.ioannes78.voica.llm.ProviderConfigurationRepository
@@ -99,6 +104,7 @@ import io.github.ioannes78.voica.protocol.RecordingStatus
 import io.github.ioannes78.voica.model.ModelManager
 import io.github.ioannes78.voica.sherpa.SherpaRuntime
 import io.github.ioannes78.voica.ui.ai.AiSummaryCard
+import io.github.ioannes78.voica.ui.ai.AiSummaryContentViewModel
 import io.github.ioannes78.voica.ui.ai.AiSummaryViewModel
 import io.github.ioannes78.voica.ui.ai.ProviderSettingsCard
 import io.github.ioannes78.voica.ui.ai.ProviderSettingsViewModel
@@ -117,6 +123,8 @@ import io.github.ioannes78.voica.ui.playback.PlaybackViewModel
 import io.github.ioannes78.voica.ui.playback.formatPlaybackTime
 import io.github.ioannes78.voica.ui.recording.GlobalRecordingStatusBar
 import io.github.ioannes78.voica.ui.recording.RecordingCard
+import io.github.ioannes78.voica.ui.search.UnifiedSearchScreen
+import io.github.ioannes78.voica.ui.search.UnifiedSearchViewModel
 import io.github.ioannes78.voica.ui.settings.ProductSettingsScreen
 import io.github.ioannes78.voica.ui.transcript.TranscriptDocumentHeader
 import io.github.ioannes78.voica.ui.transcript.TranscriptFollowMode
@@ -124,6 +132,7 @@ import io.github.ioannes78.voica.ui.transcript.TranscriptPlaybackSyncViewModel
 import io.github.ioannes78.voica.ui.transcript.TranscriptSegmentCard
 import io.github.ioannes78.voica.ui.transcript.TranscriptVersionListCard
 import io.github.ioannes78.voica.ui.transcript.TranscriptionStatusCard
+import io.github.ioannes78.voica.ui.transcript.TranscriptContentViewModel
 import io.github.ioannes78.voica.ui.transcript.TranscriptionViewModel
 import io.github.ioannes78.voica.ui.theme.ThemeSettingsCard
 import io.github.ioannes78.voica.ui.theme.ThemeSettingsStore
@@ -172,6 +181,9 @@ fun VoicaApp(
     modelUpdateController: ModelUpdateController,
     transcriptionCoordinator: TranscriptionCoordinator,
     transcriptionRepository: TranscriptionRepository,
+    stage12CContentRepository: Stage12CContentRepository,
+    unifiedSearchRepository: UnifiedSearchRepository,
+    searchIndexRebuilder: SearchIndexRebuilder,
     diarizationCoordinator: DiarizationCoordinator,
     diarizationRepository: DiarizationRepository,
     aiSummaryCoordinator: AiSummaryCoordinator,
@@ -238,6 +250,7 @@ fun VoicaApp(
             diarizationCoordinator,
             diarizationRepository,
             recordingLibraryRepository,
+            stage12CContentRepository,
         ) {
             TranscriptionViewModel.Factory(
                 transcriptionCoordinator,
@@ -245,6 +258,20 @@ fun VoicaApp(
                 diarizationCoordinator,
                 diarizationRepository,
                 recordingLibraryRepository,
+                stage12CContentRepository,
+            )
+        },
+    )
+    val transcriptContentViewModel: TranscriptContentViewModel = viewModel(
+        factory = remember(stage12CContentRepository) {
+            TranscriptContentViewModel.Factory(stage12CContentRepository)
+        },
+    )
+    val unifiedSearchViewModel: UnifiedSearchViewModel = viewModel(
+        factory = remember(unifiedSearchRepository, searchIndexRebuilder) {
+            UnifiedSearchViewModel.Factory(
+                repository = unifiedSearchRepository,
+                rebuilder = searchIndexRebuilder,
             )
         },
     )
@@ -254,18 +281,26 @@ fun VoicaApp(
         },
     )
 
+    val aiSummaryContentViewModel: AiSummaryContentViewModel = viewModel(
+        factory = remember(stage12CContentRepository) {
+            AiSummaryContentViewModel.Factory(stage12CContentRepository)
+        },
+    )
+
     val aiSummaryViewModel: AiSummaryViewModel = viewModel(
         factory = remember(
             aiSummaryCoordinator,
             aiSummaryRepository,
             providerProfileStore,
             providerAdapterRegistry,
+            stage12CContentRepository,
         ) {
             AiSummaryViewModel.Factory(
                 coordinator = aiSummaryCoordinator,
                 repository = aiSummaryRepository,
                 profileStore = providerProfileStore,
                 providerRegistry = providerAdapterRegistry,
+                contentRepository = stage12CContentRepository,
             )
         },
     )
@@ -483,9 +518,12 @@ fun VoicaApp(
                 playbackViewModel,
                 localAudioExportCoordinator,
                 transcriptionViewModel,
+                transcriptContentViewModel,
                 diarizationViewModel,
                 transcriptPlaybackSyncViewModel,
                 aiSummaryViewModel,
+                aiSummaryContentViewModel,
+                unifiedSearchViewModel,
                 openRequest = libraryOpenRequest,
                 onOpenRequestConsumed = { request ->
                     if (libraryOpenRequest?.token == request.token) {
@@ -700,9 +738,12 @@ private fun LocalFilesScreen(
     playbackViewModel: PlaybackViewModel,
     localAudioExportCoordinator: LocalAudioExportCoordinator,
     transcriptionViewModel: TranscriptionViewModel,
+    transcriptContentViewModel: TranscriptContentViewModel,
     diarizationViewModel: DiarizationViewModel,
     transcriptPlaybackSyncViewModel: TranscriptPlaybackSyncViewModel,
     aiSummaryViewModel: AiSummaryViewModel,
+    aiSummaryContentViewModel: AiSummaryContentViewModel,
+    unifiedSearchViewModel: UnifiedSearchViewModel,
     openRequest: GlobalRecordingOpenRequest?,
     onOpenRequestConsumed: (GlobalRecordingOpenRequest) -> Unit,
     onOpenSettings: () -> Unit,
@@ -723,6 +764,10 @@ private fun LocalFilesScreen(
     val actionScope = rememberCoroutineScope()
     var pendingSafExport by remember {
         mutableStateOf<PendingDetailAudioExport?>(null)
+    }
+    var unifiedSearchOpen by rememberSaveable { mutableStateOf(false) }
+    var pendingSearchTarget by remember {
+        mutableStateOf<SearchDocumentEntity?>(null)
     }
 
     val createDocumentLauncher =
@@ -832,24 +877,70 @@ private fun LocalFilesScreen(
     LaunchedEffect(openRequest?.token) {
         val request = openRequest ?: return@LaunchedEffect
         requestedDestination = request.destination
+        pendingSearchTarget = null
+        unifiedSearchOpen = false
         selectedRecordingId = request.recordingId
         onOpenRequestConsumed(request)
     }
 
-    LaunchedEffect(selectedRecording != null) {
-        onSecondaryPageChanged(selectedRecording != null)
+    LaunchedEffect(selectedRecording != null, unifiedSearchOpen) {
+        onSecondaryPageChanged(selectedRecording != null || unifiedSearchOpen)
         if (selectedRecording == null) {
             onDetailContextChanged(null, null)
         }
     }
 
-    if (selectedRecording == null) {
+    if (selectedRecording == null && !unifiedSearchOpen) {
         RecordingLibraryRoute(
             padding = padding,
             viewModel = recordingLibraryViewModel,
             onOpenRecording = {
+                pendingSearchTarget = null
                 requestedDestination = RecordingDetailDestination.PLAYBACK
                 selectedRecordingId = it
+            },
+            onOpenUnifiedSearch = {
+                unifiedSearchOpen = true
+            },
+        )
+    } else if (selectedRecording == null) {
+        UnifiedSearchScreen(
+            padding = padding,
+            viewModel = unifiedSearchViewModel,
+            onBack = {
+                unifiedSearchOpen = false
+            },
+            onOpen = { result ->
+                when (result.documentType) {
+                    SearchDocumentTypeValue.FOLDER -> {
+                        unifiedSearchOpen = false
+                        result.folderId?.let(recordingLibraryViewModel::setFolderFilter)
+                    }
+
+                    SearchDocumentTypeValue.TAG -> {
+                        unifiedSearchOpen = false
+                        recordingLibraryViewModel.clearFilters()
+                        result.tagId?.let(recordingLibraryViewModel::toggleTagFilter)
+                    }
+
+                    else -> {
+                        val recordingId = result.recordingId
+                        if (recordingId != null) {
+                            pendingSearchTarget = result
+                            requestedDestination =
+                                when (result.documentType) {
+                                    SearchDocumentTypeValue.TRANSCRIPT_UNIT ->
+                                        RecordingDetailDestination.TRANSCRIPT
+                                    SearchDocumentTypeValue.SUMMARY_TITLE_OVERVIEW,
+                                    SearchDocumentTypeValue.SUMMARY_ITEM,
+                                    -> RecordingDetailDestination.SUMMARY
+                                    else -> RecordingDetailDestination.PLAYBACK
+                                }
+                            unifiedSearchOpen = false
+                            selectedRecordingId = recordingId
+                        }
+                    }
+                }
             },
         )
     } else {
@@ -858,11 +949,15 @@ private fun LocalFilesScreen(
             recording = selectedRecording,
             playbackViewModel = playbackViewModel,
             transcriptionViewModel = transcriptionViewModel,
+            transcriptContentViewModel = transcriptContentViewModel,
             diarizationViewModel = diarizationViewModel,
             transcriptPlaybackSyncViewModel = transcriptPlaybackSyncViewModel,
             aiSummaryViewModel = aiSummaryViewModel,
+            aiSummaryContentViewModel = aiSummaryContentViewModel,
+            initialSearchTarget = pendingSearchTarget,
             onBack = {
                 selectedRecordingId = null
+                pendingSearchTarget = null
                 requestedDestination = RecordingDetailDestination.PLAYBACK
             },
             onOpenSettings = onOpenSettings,

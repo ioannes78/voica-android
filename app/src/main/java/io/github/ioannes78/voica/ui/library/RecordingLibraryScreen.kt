@@ -67,6 +67,7 @@ fun RecordingLibraryScreen(
     onConfirmDuplicateImport: () -> Unit,
     onDismissDuplicateImport: () -> Unit,
     onQueryChange: (String) -> Unit,
+    onOpenUnifiedSearch: () -> Unit,
     onSortChange: (LibrarySort) -> Unit,
     onFavoriteFilterChange: (Boolean) -> Unit,
     onCompletedTranscriptionFilterChange: (Boolean) -> Unit,
@@ -227,6 +228,9 @@ fun RecordingLibraryScreen(
                         style = MaterialTheme.typography.headlineMedium,
                         modifier = Modifier.weight(1f),
                     )
+                    IconButton(onClick = onOpenUnifiedSearch) {
+                        Icon(Icons.Outlined.Search, contentDescription = "搜索全部内容")
+                    }
                     if (state.importState is LibraryImportState.Importing) {
                         TextButton(onClick = onCancelImport) {
                             Text("取消导入")
@@ -289,7 +293,7 @@ fun RecordingLibraryScreen(
                             }
                         }
                     },
-                    placeholder = { Text("搜索录音、文件夹、标签") },
+                    placeholder = { Text("筛选录音、文件夹、标签") },
                 )
             }
 

@@ -4,15 +4,15 @@
 
 当前 `ioannes78/voica-android` 仓库是 Voica 项目实现状态的唯一事实来源。
 
-当前已冻结基线：**Stage 12B**
+当前已冻结基线：**Stage 12C**
 
-Stage 12B Freeze/Handoff：
+Stage 12C Freeze/Handoff：
 
-- `docs/STAGE_12B_FREEZE.md`
-- `docs/STAGE_12B_HANDOFF.md`
-- `docs/STAGE_12B_TEST.md`
+- `docs/STAGE_12C_FREEZE.md`
+- `docs/STAGE_12C_HANDOFF.md`
+- `docs/STAGE_12C_TEST.md`
 
-下一子阶段：**Stage 12C — 转写 / AI 总结内容管理 + 统一全文搜索**
+下一阶段：**Stage 13 — 稳定性与长录音专项**
 
 协议与行为参考：
 
@@ -83,10 +83,10 @@ Stage 12B Freeze/Handoff：
 - Compose BOM：2026.09.00
 - Application ID：`io.github.ioannes78.voica`
 - QA Application ID：`io.github.ioannes78.voica.qa`
-- versionCode：39
-- versionName：`0.12.3-stage12b-qa3`
+- versionCode：40
+- versionName：`0.12.4-stage12c-qa1`
 - sherpa-onnx：1.13.8
-- Room schema：5
+- Room schema：6
 - ABI：arm64-v8a
 - 默认产品语言：简体中文
 
@@ -124,7 +124,7 @@ app
 
 后续 Stage 不得无明确需求和迁移设计改变：
 
-- Room schema = 5；Stage 12C 必须从 v5 additive migration
+- Room schema 已由 Stage 12C 从 v5 additive migration 到 v6；后续必须保持 1..6 migration lineage
 - Recording metadata 搜索/排序/筛选、收藏、逻辑文件夹、标签均复用现有 Recording Library，不建立第二套录音库
 - LOCAL_IMPORT + IMPORTED_ORIGINAL 保存导入 provenance；外部 content URI 不作为长期唯一音频事实
 - 手机导入支持 WAV / MP3 / M4A-AAC / ADTS AAC / FLAC / Ogg Opus；QS668 raw framed Opus 继续走专用链
@@ -136,7 +136,29 @@ app
 - AI Summary 历史版本显示实际 Provider/Model lineage
 - 每次 AI Summary 可临时选择 Provider/Model，不能修改全局默认
 - Structured Output Reliability 使用 strict schema 优先 + 有界 fallback/repair；不得降低 evidence validation
-- Stage 12C 人工编辑不得直接覆盖原始 ASR / AI Summary 模型结果
+- Stage 12C 已冻结：人工编辑不得直接覆盖原始 ASR / AI Summary 模型结果
+
+## 六-A、Stage 12C 已冻结内容管理与搜索事实
+
+后续 Stage 不得无明确需求和 migration 设计改变：
+
+- Room schema = 6，v5→v6 为 additive migration；CI 固定校验 schema 1..6。
+- 原始 ASR Transcription / Segment / Token / speaker/alignment / absolute canonical sample timeline 保持不可变。
+- 人工转写编辑保存为独立 TranscriptionRevision 全量快照；支持段落合并/拆分/整理、历史切换、删除与恢复模型原文。
+- 人工修改文本不得伪造 token timestamp；没有可靠 token 边界时只保留来源 sample range。
+- 阅读模式与 Stage 10 时间轴模式分离；阅读模式不显示时间戳/逐词高亮，时间轴继续复用原始 sample truth。
+- 单个 Transcription version 可删除；若仍被 AI Summary 引用必须阻止删除，不得利用 Room cascade 静默删除 Summary。
+- AI Summary 人工编辑保存为独立 AiSummaryRevision；原 structured payload / Provider / Model / Template / input lineage / Evidence 保持不可变。
+- USER_EDITED / USER_ADDED 必须与 AI 原始 Evidence 明确区分；人工新增内容不得伪造模型 Evidence。
+- RecordingContentSelection 持久化当前 Transcription / AiSummary 已完成版本；重启恢复，删除当前版本后安全回退。
+- 文本复制、Android Sharesheet、TXT / Markdown 导出使用当前有效内容；Android 10+ 写入 Downloads/Voica。
+- 统一搜索索引是可重建派生数据，不是内容事实来源。
+- 统一搜索覆盖 Recording / Folder / Tag / 当前有效 Transcription 文本 / 当前有效 AI Summary 内容。
+- 中文搜索使用应用侧 CJK normalization/tokenization + Room FTS4 unicode61；用户输入不得直接作为原始 MATCH 语法。
+- 搜索索引在 v6 migration 后标记 REBUILD_REQUIRED，由 SearchIndexRebuilder 启动重建，并在内容生命周期变化时增量刷新。
+- 搜索命中可定向打开 Recording / Transcription version / Summary version；Folder / Tag 命中回到录音库筛选。
+- Stage 12C 不包含 PDF/DOCX 验收、semantic/vector search、Audio LLM、云同步、后台 BLE/FGS 或 speaker voiceprint。
+- QA versionCode 40 / versionName `0.12.4-stage12c-qa1` 已真机验收通过。
 
 ## 六、Stage 2 已冻结 BLE 事实
 

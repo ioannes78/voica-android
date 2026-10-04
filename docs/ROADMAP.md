@@ -586,89 +586,115 @@ Stage 12B QA 收口同时处理跨页面任务可见性与既有 Stage 11 回归
 
 ### Stage 12C — 转写 / AI 总结内容管理 + 统一全文搜索
 
-#### 转写文本管理
+状态：**已完成 / 已真机验收 / FROZEN**
 
-基于 Stage 8 的多版本 Transcription 和 Stage 10 的时间轴/播放同步继续增强：
+### 转写内容管理
 
-- 复制全文
-- 复制选中文本
-- 复制单个语音段
-- 分享全文
-- 分享选中片段
-- Android Sharesheet 转发到微信、邮件、笔记等已安装 App
-- 导出 TXT
-- 导出 Markdown
-- 正式文档导出可加入 PDF / DOCX
-- 转写版本命名、查看与管理
-- 删除指定转写版本，保留其他版本及原始录音
-- Fast / High Quality / 后续云端版本切换
-- 文本内搜索
-- 关键词高亮
-- 长按文本操作菜单
-- 人工修订转写正文：支持按全文/段落修改识别文字，但不得直接覆盖模型原始 ASR 结果
-- 人工修订结果必须作为独立可追溯修订层/版本保存，并明确标记“已人工修改”
-- 保留原始 ASR 文本、model lineage、speaker/alignment 与 absolute canonical sample timeline；人工修改不得重写原始时间事实
-- 支持查看/恢复模型原始文本；后续全文搜索与导出默认使用当前有效文本，同时保留原始版本可追溯
-- 复制/导出时可选择是否包含时间戳、说话人标签
-- 文本操作不得破坏 Stage 8 保存的原始转写版本及 model lineage
+Stage 12C 在 Stage 8 多版本 Transcription 与 Stage 10 时间轴之上增加独立内容管理层：
 
-#### AI 总结 / 纪要管理
+- 原始 ASR Transcription / Segment / Token、model lineage、speaker/alignment 与 absolute canonical sample timeline 保持不可变。
+- 人工编辑保存为独立 TranscriptionRevision 全量快照，不覆盖模型原文。
+- 支持正文修改、段落合并、段落拆分以及按句末标点整理错误 ASR 分段。
+- 自动整理不得跨明确不同说话人合并。
+- 人工修改文本只继承来源段的 sample 范围；若没有可验证的 token 边界，不伪造逐词时间。
+- 修改后的阅读稿支持无时间轴排版查看；Stage 10 原时间轴模式继续保留。
+- 支持查看修订历史、切换修订、删除修订、恢复模型原文。
+- 支持转写版本命名、切换与删除；若 AI 总结仍引用某转写版本，删除必须被阻止，不得静默级联删除总结。
+- 当前转写版本选择持久化；删除当前版本后回退到仍存在的已完成版本。
+- 阅读稿支持系统文本选择/复制、全文复制与分享。
+- 支持 TXT / Markdown 导出；可扩展正式文档 renderer，但 PDF / DOCX 不作为 Stage 12C 验收门槛。
+- 导出时间显示只可由 canonical 16 kHz sample index 派生，不建立第二套时间事实。
 
-基于 Stage 11 的智能总结、预设模板结果和自定义模板结果：
+### AI 总结内容管理
 
-- 修改 AI 总结标题
-- 人工编辑 AI 总结正文：支持 overview、章节正文、待办/决策等结构化 item 的修改、增删与整理
-- 人工编辑不得覆盖模型原始 Summary；必须保留原始 Provider / Model / Template / Input lineage、structured payload 与 evidence 关系
-- 人工编辑结果保存为独立修订层/版本，并明确标记“已人工编辑”；支持查看/恢复 AI 原始结果
-- 用户新增的人工内容不得伪装成模型原始 evidence；需要与原始 AI evidence/事实来源明确区分
-- 复制整份 AI 总结
-- 复制单个章节
-- 复制待办 / 决策等结构化内容
-- 分享 / 转发整份 AI 总结或选定章节
-- TXT / Markdown 导出
-- 正式文档导出可加入 PDF / DOCX
-- 收藏
-- 标签
-- 删除
-- 历史版本查看
-- AI 总结与对应录音、转写版本、使用的总结模式/模板以及输入模式（TRANSCRIPT_TEXT / DIRECT_AUDIO）保持明确关联
-- 从 AI 总结跳转到对应转写内容；Stage 10 已有时间轴映射时可继续跳转到相关音频位置
-- 分享时支持按实际总结结构选择章节，例如：仅摘要 / 摘要+决策 / 摘要+待办 / 完整内容
+- 原始 AiSummaryEntity.structuredPayloadJson、Provider / Model / Template / Input lineage、Evidence 与 chunk/checkpoint 保持不可变。
+- 人工编辑保存为独立 AiSummaryRevision，支持标题、overview、章节、结构化 item 的修改、增删和排序。
+- 人工修改项明确标记 USER_EDITED；人工新增项标记 USER_ADDED。
+- 原 AI item 可保留原 evidence 引用作为来源快照，但不得把原 evidence 展示成“人工改写后的内容已被模型证实”。
+- 人工新增内容不得写入模型原始 ai_summary_evidence。
+- 支持修订历史、切换修订、删除修订、恢复 AI 原始结果。
+- 支持删除单个 AI 总结版本；只删除该 Summary、Evidence、chunk、人工修订和搜索派生数据，不删除录音或转写。
+- 当前 AI 总结版本选择持久化；删除当前版本后回退到仍存在的已完成版本。
+- 支持系统文本选择/复制、整份复制、分享、TXT / Markdown 导出。
+- 总结标题继续显示该版本真实 providerNameSnapshot + model。
+- Stage 12C 不把“人工修订后的转写”静默作为新 AI 总结输入；若后续支持，必须显式保存 inputTranscriptionRevisionId 并重新定义 Evidence 映射。
+- AI 总结专属收藏/标签暂不在 Stage 12C 引入第二套组织体系；Recording 级标签继续参与搜索。
 
-#### 统一本地全文搜索
+### 统一本地全文搜索
 
-Stage 12 建立统一的本地关键词/全文搜索入口，至少覆盖：
+独立“搜索全部内容”入口，与 Stage 12B 录音库元数据筛选并存。
 
-- 录音名称
-- 转写正文
-- AI 总结正文
-- 标签
-- 可索引的待办 / 决策 / 关键词等结构化文本
+索引范围：
 
-搜索结果按内容类型区分，并可进入对应对象：
+- Recording 名称
+- Folder
+- Tag
+- 每个 Transcription 版本的当前有效文本（模型原文或当前人工修订）
+- 每个 AI Summary 版本的当前有效内容（标题 / overview / section item）
 
-- 录音命中 → 打开录音详情
-- 转写命中 → 打开具体 transcription version；Stage 10 时间信息存在时定位对应文本/音频位置
-- AI 总结命中 → 打开对应总结/章节
-- 标签命中 → 打开相应筛选结果
+规则：
 
-技术方向优先采用 Room FTS 或等效本地全文索引，避免对大量长文本长期依赖 `LIKE '%keyword%'` 全表扫描。
+- 搜索索引是可重建派生数据，不是内容事实来源。
+- 旧 Revision 保留在历史中，但不重复进入“当前内容”全文索引。
+- Room v6 首次迁移只标记 REBUILD_REQUIRED；App 启动后按当前内容重建索引。
+- 修订保存、修订切换、恢复原文、版本删除、录音改名、Folder/Tag 变更、转写/总结完成后做增量更新。
+- Recording 删除必须清理其转写/总结派生索引；不得留下孤立结果。
+- 中文检索由应用侧 CJK tokenization 构造安全 FTS 查询；英文/数字保持词级匹配。
+- 用户输入不得作为原始 FTS MATCH 语法直接拼接；引号、星号、AND/OR、括号等必须安全处理。
+- 搜索结果按录音 / 转写 / AI 总结 / 文件夹 / 标签区分。
+- 转写命中打开对应 Recording + Transcription version，并定位对应阅读段或时间轴段。
+- AI 总结命中打开对应 Summary version。
+- Folder / Tag 命中返回录音库对应筛选。
+- 搜索完全离线，不依赖云 API。
 
-Stage 12 搜索必须：
+### Stage 12C 数据库
 
-- 可离线使用
-- 不依赖云端 API
-- 索引与 Recording / Transcription / AI 总结生命周期保持一致
-- 删除/重建内容后不会留下孤立搜索结果
-- 对中文与英文关键词均有明确、可测试的匹配行为
+Room：**v5 → v6 additive migration**
 
-### Stage 12 边界
+新增核心数据：
 
-- Stage 12 负责本地录音、转写和 AI 总结的产品化管理、复制、分享、导入导出与关键词全文搜索。
-- 不在 Stage 12 实现 BLE 后台/锁屏持续下载、长文件断连恢复或 Foreground Service；这些仍属于 Stage 13。
-- 不在 Stage 12 改写 Stage 8 的转写历史版本语义，也不破坏 absolute canonical PCM sample index 时间轴。
-- 不在 Stage 12 实现“找一下上个月讨论供应链风险的录音”这类语义理解搜索；此类跨录音语义检索属于 Stage 19。
-- 不把 Stage 20 的账号、云同步、跨设备录音库与团队协作提前到 Stage 12。
+- transcription_user_metadata
+- transcription_revisions
+- transcription_revision_paragraphs
+- ai_summary_user_metadata
+- ai_summary_revisions
+- recording_content_selection
+- search_documents
+- search_documents_fts
+- search_index_state
+
+迁移要求：
+
+- 不允许 destructive migration。
+- v5 既有 Recording / Audio / Transcription / Segment / Token / Diarization / Alignment / AI Summary / Evidence / chunk / Folder / Tag 全部保留。
+- 迁移 SQL 不执行应用级中文分词；索引由迁移后 SearchIndexRebuilder 建立。
+- CI 固定校验 Room schema 1..6。
+
+### Stage 12C 边界
+
+Stage 12C 不包含：
+
+- PDF / DOCX 正式文档导出作为验收要求
+- AI Summary 专属收藏/标签体系
+- 云端 ASR
+- 实时 ASR
+- Audio LLM
+- RAG / embedding / vector / semantic search
+- 云同步 / 账号 / 团队 / 跨设备
+- MediaSession / Foreground Service / BLE 后台可靠下载
+- speaker voiceprint
+- 对 Stage 8/10 原始 token、speaker 或 sample timeline 的人工改写
+
+Stage 13、Stage 19、Stage 20 的边界保持不变。
+
+冻结证据：
+
+- `docs/STAGE_12C_TEST.md`
+- `docs/STAGE_12C_FREEZE.md`
+- `docs/STAGE_12C_HANDOFF.md`
+- QA：`0.12.4-stage12c-qa1` / Room v6
+- 用户明确确认：**“测试通过”**
+
 
 ## Stage 13 — 稳定性与长录音专项
 
