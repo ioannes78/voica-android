@@ -223,16 +223,17 @@ Android 10+ 写入 `Downloads/Voica`；API 26–28 使用系统 SAF 另存为。
 
 ## 12. 下一阶段
 
-**Stage 13 — 稳定性与长录音专项**
+**Stage 13A — 本地 ASR / Diarization 引擎增强与参数调优**
 
-重点包括：
+Stage 13A 重点包括：
 
-- BLE soak
-- 多文件 / 大文件 / 断连下载
-- 30min / 1h / 2h 真实录音
-- 长转写 / diarization / AI Summary 资源压力
-- RAM / CPU / thermal
-- 低存储
-- Foreground Service
-- 后台 / 熄屏 / 锁屏可靠下载
-- 进程回收与任务状态恢复
+- 本地 ASR 模型矩阵重新评估与新增模型
+- FireRedASR2 CTC INT8、Qwen3-ASR 0.6B INT8 等候选的 Android 技术验证
+- FAST / HQ / Ultra 档位设计
+- 自动 / 省电 / 均衡 / 性能 profile
+- CPU threads、VAD、decoder、segment 等高级参数
+- Diarization 预计说话人数与 clustering/segmentation 参数调优
+- 每次运行 model/config snapshot
+- Speech Benchmark
+
+Stage 13A 冻结后进入 Stage 13B，再执行 BLE soak、Foreground Service、后台/锁屏下载和真实 30min/1h/2h 稳定性压力。

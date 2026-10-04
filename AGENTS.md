@@ -12,7 +12,7 @@ Stage 12C Freeze/Handoff：
 - `docs/STAGE_12C_HANDOFF.md`
 - `docs/STAGE_12C_TEST.md`
 
-下一阶段：**Stage 13 — 稳定性与长录音专项**
+下一阶段：**Stage 13A — 本地 ASR / Diarization 引擎增强与参数调优**
 
 协议与行为参考：
 
@@ -160,6 +160,18 @@ app
 - Stage 12C 不包含 PDF/DOCX 验收、semantic/vector search、Audio LLM、云同步、后台 BLE/FGS 或 speaker voiceprint。
 - QA versionCode 40 / versionName `0.12.4-stage12c-qa1` 已真机验收通过。
 
+## 六-B、Stage 13A/13B 路线门禁
+
+Stage 13 已正式拆为 Stage 13A → Stage 13B：
+
+- Stage 13A：本地 ASR / Diarization 模型增强、统一 capability、性能档位、高级参数、每次运行 config snapshot、Speech Benchmark。
+- Stage 13B：以前述冻结模型/默认参数为基线，执行真实 30min/1h/2h、RAM/CPU/thermal、BLE soak、Foreground Service、后台/锁屏可靠下载与进程恢复。
+- Stage 13A 必须先 Freeze/Handoff，才允许进入 Stage 13B。
+- Stage 13B 完成后才允许进入 Stage 14 V1.0 Release Freeze。
+- Stage 14 不再进行大规模 ASR / diarization 模型选型；如核心模型/runtime发生重大变化，应退回 13A/13B 重新验证。
+- Stage 15 仍只负责实时 BLE Audio → Opus → PCM。
+- Stage 16 本地实时转写必须复用 Stage 13A 已冻结的 streaming-capable engine/capability；不支持真正 streaming 的 HQ 模型只能用于录音结束后的 second-pass/re-transcription。
+
 ## 六、Stage 2 已冻结 BLE 事实
 
 后续 Stage 不得无证据改变：
@@ -300,7 +312,7 @@ app
 - Room schema 已从 version 1 显式迁移到 version 2；转写、segment、token 使用独立表并保留历史版本。
 - 本地转写统一使用 Stage 7 canonical PCM：16 kHz / mono / PCM16_LE / absolute canonical sample index。
 - Silero VAD int8 为 APK 内置基线，sourceType 为 BUILTIN_WITH_OVERRIDE；远程 override 失败时仍可回退到内置基线。
-- first-pass / future Stage 16 streaming ASR 使用 Small Bilingual Zipformer zh-en 2023-02-16。
+- Stage 8 first-pass 基线使用 Small Bilingual Zipformer zh-en 2023-02-16；Stage 13A 将重新评估正式 FAST/Streaming 模型矩阵，Stage 16 必须复用 Stage 13A 冻结的 streaming-capable engine，不得继续把该模型写死为未来唯一选择。
 - punctuation 使用 CT-Transformer zh-en int8 2024-04-12。
 - High Quality second-pass 使用 SenseVoice zh-en-ja-ko-yue int8 2024-07-17。
 - Fast pipeline：VAD → Small Bilingual → CT-Transformer → atomic persistence。

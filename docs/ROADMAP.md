@@ -696,36 +696,309 @@ Stage 13、Stage 19、Stage 20 的边界保持不变。
 - 用户明确确认：**“测试通过”**
 
 
-## Stage 13 — 稳定性与长录音专项
+## Stage 13 — 本地语音引擎增强 + 稳定性与长录音专项
 
-BLE soak、多文件/大文件/断连下载、1h/2h 音频、长转写、RAM/CPU/温度、锁屏/后台/低存储等。
+Stage 13 正式拆分为 **Stage 13A → Stage 13B**。
 
-后台下载在 Stage 13 正式实现，范围固定为：
+顺序固定：
+
+`Stage 13A 本地语音引擎增强与参数调优 → Stage 13B 稳定性/后台/真实长录音专项 → Stage 14 V1.0 Release Freeze`
+
+不得先完成 13B 长录音性能基线，再在 Stage 14 前大规模更换 ASR / diarization 模型或默认参数，否则性能与资源测试结论失效。
+
+### Stage 13A — 本地 ASR / Diarization 引擎增强与参数调优
+
+目标：在 V1.0 Freeze 前确定 Voica 的本地语音模型矩阵、默认参数、可调参数契约和性能/精度基线。
+
+#### 13A.1 本地 ASR 模型矩阵
+
+保留 Stage 8 已冻结模型作为兼容基线，同时重新评估并增加更高精度/更适合 Android 的本地 ASR。
+
+当前候选方向：
+
+- Streaming / FAST：现有 Small Bilingual Zipformer 作为兼容基线，并重新评估更优流式模型。
+- Lightweight HQ：SenseVoice INT8。
+- High Quality 候选：FireRedASR2 CTC INT8。
+- Ultra / Highest Quality 候选：Qwen3-ASR 0.6B INT8。
+
+以上新增模型是 **Stage 13A 技术候选，不等于已冻结正式模型**。开始开发前必须重新核验：
+
+- Android 可用推理 runtime
+- ONNX / sherpa-onnx / MNN / NCNN 等实际可落地格式
+- INT8/量化质量
+- 模型体积
+- 峰值 RAM
+- RTF
+- 线程扩展效率
+- 中文/中英混合精度
+- 时间戳能力
+- streaming 能力
+- license / redistribution 条件
+
+最终可以保留 2–4 个本地 ASR 档位，但不得为了“模型数量”牺牲包体、RAM、维护成本和用户理解成本。
+
+#### 13A.2 统一 ASR Engine / Capability
+
+不同模型必须进入统一本地 ASR 能力层，不允许 UI 对具体 runtime 写死大量分支。
+
+每个模型至少声明：
+
+- modelId / revision
+- displayName
+- languages
+- offline / streaming capability
+- timestamp capability
+- punctuation capability
+- recommended RAM / device tier
+- supported configurable parameters
+- runtime / quantization
+- model package size
+
+每次 Transcription 必须继续保存真实：
+
+- modelId / revision
+- mode
+- runtime/config snapshot
+- source canonical lineage
+
+同一录音使用不同模型转写仍产生独立 Transcription version，不覆盖历史版本。
+
+#### 13A.3 性能档位与高级参数
+
+设置层采用两级设计。
+
+普通用户提供：
+
+- 自动
+- 省电
+- 均衡
+- 性能
+
+高级设置允许按模型 capability 暴露可调参数；不支持的参数不得显示或伪生效。
+
+候选参数包括：
+
+- CPU threads
+- intra-op / inter-op threads（runtime 支持时）
+- VAD threshold
+- min speech duration
+- min silence duration
+- max segment duration
+- ASR chunk/window size
+- decoding beam / beam size
+- max active paths / search limits
+- language：Auto / 中文 / English / 模型实际支持语言
+- hotwords / contextual bias（模型支持时）
+- punctuation on/off
+- second-pass on/off
+- text normalization / ITN（模型支持时）
+- 自动 diarization on/off
+
+原则：
+
+- 默认使用经过 benchmark 的安全推荐值。
+- 参数必须有合法范围和 reset-to-default。
+- “自动”可依据 CPU/RAM/device tier 选择线程和模型，但选择结果必须可追溯。
+- 不允许用户设置导致 OOM/ANR 的无上限线程数或 chunk。
+- 每次转写保存完整 config snapshot，历史版本不读取当前设置冒充原运行参数。
+
+#### 13A.4 Diarization 模型与参数调优
+
+Stage 9 冻结链继续作为 baseline：
+
+`Silero VAD → Pyannote Segmentation 3.0 INT8 → ERes2Net → FastClustering → cross-chunk stitching`
+
+Stage 13A 允许在保持 Room / speaker timeline contract 不变的前提下：
+
+- 重新评估 segmentation / embedding 模型
+- 调整或替换 clustering 策略
+- 优化单人被拆成多个 Speaker 的 fragmentation
+- 优化多人场景 speaker confusion
+- 优化 diarization RTF / RAM
+
+用户侧首先提供高价值、低风险控制：
+
+- 预计说话人数：自动 / 1 / 2 / 3 / 4 / 5+
+- 最少说话人数
+- 最多说话人数
+
+高级设置可按实现能力开放：
+
+- segmentation threshold
+- clustering threshold
+- speaker similarity threshold
+- min speaker duration
+- min turn duration
+- overlap threshold
+- embedding window
+- embedding shift
+- chunk duration
+- chunk overlap
+- cross-chunk stitching threshold
+
+不得把 Stage 20 的跨录音 Speaker Voiceprint / 人物身份识别提前混入 Stage 13A。
+
+#### 13A.5 Speech Benchmark
+
+Stage 13A 建立本地语音 benchmark 能力，用同一批代表性录音比较不同模型/参数。
+
+至少记录：
+
+- ASR model / revision
+- config profile / threads
+- 总耗时
+- RTF
+- 峰值 RAM/PSS
+- CPU
+- thermal（真机可取得时）
+- 输出字数
+- CER/WER（有 reference text 时）
+- diarization 总耗时 / RTF
+- 识别 Speaker 数
+- speaker fragmentation / merge error 的人工或半自动指标
+
+测试集至少覆盖：
+
+- 单人普通话
+- 双人会议
+- 3–5 人会议
+- 中文夹英文
+- 快语速
+- 远场/噪声
+- 长静音
+- 30min 以上长音频样本
+
+模型和参数默认值必须依据 benchmark + 真机体验决定，不能只凭单条录音主观判断。
+
+#### 13A.6 与 Stage 16 的关系
+
+Stage 13A 只完成：
+
+- streaming-capable model 的 runtime/capability 验证
+- 统一 engine contract
+- 参数契约
+- 离线/文件转写下可复用的基础实现
+
+**不在 Stage 13A 提前实现完整 BLE 实时转写 UI/状态机。**
+
+完整实时链仍属于 Stage 15/16。
+
+### Stage 13B — 稳定性、后台与真实长录音专项
+
+Stage 13B 必须以 **Stage 13A 已确定的正式候选模型矩阵和默认参数** 为基线进行。
+
+若 13B 期间再次大幅更换模型/runtime/默认线程策略，应重新执行受影响的长时性能测试。
+
+#### 13B.1 真实长录音
+
+必须真机覆盖：
+
+- 30 分钟
+- 1 小时
+- 2 小时
+
+重点验证：
+
+- playback / seek
+- FAST / HQ / Ultra（最终保留档位）
+- diarization
+- timeline
+- revision/search
+- AI Summary 长文本输入
+- cancellation / interrupted recovery
+
+记录：
+
+- RTF
+- RAM/PSS
+- CPU
+- thermal
+- storage growth
+- battery impact（可测时）
+- ANR / crash / OOM
+
+过去 virtual 30/60/120min 自动化不能替代真实真机证据。
+
+#### 13B.2 BLE / 下载 / Foreground Service
+
+后台下载在 Stage 13B 正式实现：
 
 - Android Foreground Service 承载设备文件传输
-- App 切到后台后继续下载
-- 熄屏/锁屏后继续下载
-- 常驻系统通知显示文件名、OPUS/WAV 格式和真实下载百分比
-- 通知中支持取消下载
-- BLE 后台连接保持与系统限制适配
+- App 切后台继续下载
+- 熄屏/锁屏继续下载
+- 常驻系统通知显示文件名、OPUS/WAV 和真实百分比
+- 通知中取消下载
+- BLE 后台连接与系统限制适配
 - 断连后的明确失败/恢复策略
-- App 进程被系统回收后的下载状态恢复策略
-- 多文件、大文件及 1h/2h 录音下载压力测试
-- 录音控制继续高于文件下载优先级
+- App 进程被系统回收后的任务状态恢复
+- 多文件 / 大文件 / 1h / 2h 录音下载压力
+- 低存储处理
+- 录音控制优先级继续高于文件下载
 
-Stage 7 仍不实现 Foreground Service；BLE 后台可靠下载与真实 1h/2h 长时资源压力继续由 Stage 13 负责。
+#### 13B.3 Soak / 生命周期
+
+覆盖：
+
+- BLE 长时连接
+- 多轮连接/断连
+- 前台↔后台
+- 锁屏/解锁
+- 音频播放 + 设备开始录音
+- 下载 + 录音控制抢占
+- 转写 / diarization / AI Summary 取消与重启
+- 进程回收后的可恢复状态
+- Search index rebuild 中断恢复
+- 临时文件 / .part / cache 清理
+
+### Stage 13 完成门禁
+
+Stage 13A 必须先 Freeze/Handoff，才允许进入 Stage 13B。
+
+Stage 13B 真机通过后，才允许进入 Stage 14。
 
 ## Stage 14 — Voica V1.0 Release Freeze
 
-Release APK/AAB、R8、权限隐私、Schema/Model Manifest Freeze、完整 Test/Architecture/Handoff。
+V1.0 Freeze 必须冻结：
+
+- Release APK/AAB
+- R8 / Proguard
+- 权限 / 隐私
+- Room schema / migrations
+- production Model Manifest
+- Stage 13A 最终 ASR / diarization 模型矩阵
+- 默认性能档位与高级参数 schema
+- 默认线程/VAD/decoder/diarization 参数
+- Benchmark 基线
+- 30min / 1h / 2h 稳定性证据
+- 完整 Test / Architecture / Handoff
+
+Stage 14 不再进行大规模模型选型；若必须更换核心本地语音模型，应退回 Stage 13A/13B 重新验证。
 
 ## Stage 15 — 实时音频链路
 
-TYPE=1 Realtime：BLE Audio → Opus → PCM，先保证音频稳定。
+TYPE=1 Realtime：
+
+`BLE Audio → Opus → PCM`
+
+Stage 15 先保证实时音频稳定、时间线一致、丢包/断连可诊断，不提前混入完整 ASR UI。
 
 ## Stage 16 — 本地实时转写
 
-Streaming VAD / ASR、Interim/Stable/Final、两层标点。
+基于 Stage 13A 已冻结的 streaming-capable ASR engine/capability：
+
+`BLE PCM → Streaming VAD → Streaming ASR → Interim → Stable → Final → 两层标点`
+
+Stage 16 负责：
+
+- 实时 streaming session 生命周期
+- Interim / Stable / Final
+- 实时短句标点 + FINAL 正式标点
+- 实时转写与录音文件最终 Transcription lineage
+- streaming 参数的安全默认值与高级设置
+- 断连/恢复/结束时的 finalization
+- 支持时的实时 speaker pipeline 或与后处理 diarization 的明确衔接
+
+不支持真正 streaming 的高精度模型，不得伪装成实时模型；可以在录音结束后作为可选高质量 second-pass / re-transcription。
 
 ## Stage 17 — 云端文件转写
 

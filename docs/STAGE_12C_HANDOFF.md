@@ -2,13 +2,13 @@
 
 状态：**Stage 12C 已完成 / 已真机验收 / 已冻结**
 
-下一阶段：**Stage 13 — 稳定性与长录音专项**
+下一阶段：**Stage 13A — 本地 ASR / Diarization 引擎增强与参数调优**
 
 ## 1. 接管原则
 
 GitHub 当前仓库是唯一事实来源。
 
-开始 Stage 13 前必须重新核对：
+开始 Stage 13A 前必须重新核对：
 
 - main HEAD
 - open / merged PR
@@ -59,7 +59,7 @@ Freeze 内容提交：
 
 ## 3. 三层数据边界
 
-Stage 13 必须保持：
+Stage 13A/13B 必须保持：
 
 1. 模型原始事实：ASR / token / speaker alignment / AI Summary / Evidence。
 2. 用户修订事实：TranscriptionRevision / AiSummaryRevision / 当前版本选择。
@@ -73,7 +73,7 @@ Stage 13 必须保持：
 
 **absolute canonical 16 kHz PCM sample index**
 
-Stage 13 的长录音/压力测试必须围绕该 sample truth 验证：
+Stage 13B 的长录音/压力测试必须围绕该 sample truth 验证：
 
 - playback
 - seek
@@ -90,7 +90,7 @@ Transcription version = 模型运行。
 
 Revision = 用户人工整理历史。
 
-Stage 13 稳定性测试不得：
+Stage 13A/13B 不得：
 
 - 覆盖原始 Segment/Token
 - 为人工文本伪造 token timestamp
@@ -105,7 +105,7 @@ AI Summary version = 一次实际 LLM run。
 
 User Revision = 对该版本的人工修改。
 
-Stage 13 不得降低 Stage 11/12 的：
+Stage 13A/13B 不得降低 Stage 11/12 的：
 
 - structured-output validation
 - Evidence validation
@@ -117,7 +117,7 @@ Stage 13 不得降低 Stage 11/12 的：
 
 SearchDocument / FTS 是可删可重建派生数据。
 
-Stage 13 应重点压力测试：
+Stage 13B 应重点压力测试：
 
 - 500 / 1000 Recording
 - 30min / 60min / 120min 转写
@@ -129,9 +129,9 @@ Stage 13 应重点压力测试：
 
 中文继续使用现有安全 tokenization + FTS4，不在 Stage 13 切换 SQLite runtime，除非真机证据证明必须。
 
-## 8. Stage 13 后台下载目标
+## 8. Stage 13B 后台下载目标
 
-Stage 13 正式负责：
+Stage 13B 正式负责：
 
 - Android Foreground Service 承载设备文件传输
 - App 后台继续下载
@@ -144,40 +144,45 @@ Stage 13 正式负责：
 
 录音控制优先级仍必须高于文件下载。
 
-## 9. Stage 13 长时专项
+## 9. Stage 13A / 13B 新路线
 
-必须真实覆盖：
+Stage 13A 先完成本地语音引擎增强与参数调优：
+
+- 新增/评估本地 ASR：现有 Zipformer/SenseVoice 作为 baseline，FireRedASR2 CTC INT8、Qwen3-ASR 0.6B INT8 等作为技术候选。
+- 建立统一 Local ASR capability，避免 UI 写死具体 runtime。
+- 提供 自动 / 省电 / 均衡 / 性能 四档，并按模型 capability 开放高级参数。
+- 每次转写保存 model revision + config snapshot。
+- Diarization 增加预计说话人数及 clustering/segmentation 等高级调优能力。
+- 建立 Speech Benchmark，比较精度、RTF、RAM/PSS、CPU、thermal、speaker fragmentation。
+- 仅验证 streaming-capable engine contract，不提前实现完整实时转写。
+
+Stage 13A Freeze 后再进入 Stage 13B。
+
+Stage 13B 以 13A 最终模型/默认参数为基线，真实覆盖：
 
 - 30 分钟
 - 1 小时
 - 2 小时
-
-至少记录：
-
-- BLE 稳定性
-- download throughput / retry
-- playback seek
-- transcription RTF
-- diarization RTF
-- RAM/PSS
-- CPU
-- thermal
-- storage growth
-- cancellation
-- task interruption/recovery
+- BLE/下载/Foreground Service
+- RAM/PSS / CPU / thermal
+- 低存储
+- cancellation / interruption / process recovery
 
 过去 virtual 30/60/120min 测试不能替代真实长时真机证据。
 
 ## 10. 开发门禁
 
-开始 Stage 13 时：
+开始 Stage 13A 时：
 
 1. 重新读取 GitHub main。
 2. 确认 Stage 12C 已合并。
-3. 重新核对 Room v6 和 migration lineage。
-4. 输出 Stage 13 修订需求。
-5. 等用户确认。
-6. 输出 Stage 13 修订开发规划。
-7. 再次确认后才创建开发分支和编码。
+3. 重新核对 Room v6、Stage 8/9 模型/runtime、production model manifest 和 migration lineage。
+4. 重新技术核验新增 ASR / diarization 候选的 Android 可落地性、license、模型体积、RAM/RTF、时间戳与 streaming capability。
+5. 输出 Stage 13A 修订需求。
+6. 等用户确认。
+7. 输出 Stage 13A 修订开发规划。
+8. 再次确认后才创建开发分支和编码。
 
-不得因为稳定性专项顺便重写 Stage 12C 已冻结内容管理或搜索架构。
+Stage 13A 用户真机验收并 Freeze/Handoff 后，才能开始 Stage 13B。
+
+不得因为本地语音引擎升级破坏 Stage 8/9/10/12C 已冻结的 Transcription version、speaker alignment、canonical sample timeline 与 Revision 数据契约。

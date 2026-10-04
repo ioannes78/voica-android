@@ -69,7 +69,8 @@ Voica 是面向 QS668 / CB08 AI 录音卡的 Android 原生客户端。
 - Stage 9：已完成 / 已真机验收 / 已冻结
 - Stage 10：已完成 / 已真机验收 / 已冻结
 - Stage 11：已完成 / 已真机验收 / 已冻结
-- 下一阶段：**Stage 12 — 产品 UI / UX 完整化 + 本地内容管理**
+- Stage 12：已完成 / 已真机验收 / 已冻结
+- 下一阶段：**Stage 13A — 本地 ASR / Diarization 引擎增强与参数调优**
 
 Stage 2 已建立：
 
@@ -142,7 +143,7 @@ Stage 6 已建立：
 - PCM WAV → canonical WAV 流式归一化
 - 逻辑 Recording 重命名、删除、崩溃恢复
 - `AudioSourceResolver` / `PcmSourceResolver` 稳定接口
-- 后台可靠下载明确规划到 Stage 13
+- 后台可靠下载明确规划到 Stage 13B
 
 项目文档：
 
@@ -209,4 +210,4 @@ Voica 项目许可证尚未确定。
 - 单一 PlayerCard
 - device recording → local playback 自动暂停
 - Stage 8 / Stage 10 稳定 sample timeline contract
-- 真实长录音 30min/1h/2h 压力测试债务转入 Stage 13
+- 真实长录音 30min/1h/2h 压力测试债务转入 Stage 13B；Stage 13A 先冻结最终本地语音模型与参数基线
