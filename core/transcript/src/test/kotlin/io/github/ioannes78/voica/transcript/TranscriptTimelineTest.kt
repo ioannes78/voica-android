@@ -106,6 +106,40 @@ class TranscriptTimelineTest {
     }
 
     @Test
+    fun punctuationOnlyTimedTokenDoesNotCreateIndependentCue() {
+        val timeline =
+            buildTranscriptTimeline(
+                recordingId = "r1",
+                transcriptionId = "t1",
+                alignmentId = null,
+                sourceCanonicalAssetId = "a1",
+                sourceCanonicalSha256 = "sha",
+                canonicalProfileId = "canonical",
+                totalSampleCount = 16_000L,
+                segments =
+                    listOf(
+                        input(
+                            id = "s1",
+                            index = 0,
+                            start = 0L,
+                            end = 16_000L,
+                            text = "活动。",
+                            tokens =
+                                listOf(
+                                    token("活动", 0L, 15_000L),
+                                    token("。", 15_000L, 16_000L),
+                                ),
+                        ),
+                    ),
+            )
+
+        val cue = timeline.rows.single().cues.single()
+        assertEquals(0, cue.textStartOffset)
+        assertEquals("活动。".length, cue.textEndOffsetExclusive)
+        assertEquals(TextProjectionQuality.EXACT, cue.projectionQuality)
+    }
+
+    @Test
     fun heuristicProjectionNeverClaimsCurrentToken() {
         val timeline =
             buildTranscriptTimeline(
