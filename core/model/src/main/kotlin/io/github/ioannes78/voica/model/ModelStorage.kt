@@ -59,6 +59,8 @@ class ModelStorage(
         require(stateRoot.mkdirs() || stateRoot.isDirectory)
     }
 
+    internal fun storageRootDirectory(): File = root
+
     fun createStagingDirectory(descriptor: ModelDescriptor): File {
         val directory =
             File(

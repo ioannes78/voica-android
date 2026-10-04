@@ -53,6 +53,18 @@ class LocalSpeechSettingsTest {
     }
 
     @Test
+    fun speakerEmbeddingChoiceMapsToExplicitModelIds() {
+        assertEquals(
+            Stage13ASpeakerEmbeddingModelIds.ERES2NET,
+            SpeakerEmbeddingModelChoice.ERES2NET.modelId(),
+        )
+        assertEquals(
+            Stage13ASpeakerEmbeddingModelIds.CAMP_PLUS,
+            SpeakerEmbeddingModelChoice.CAMP_PLUS.modelId(),
+        )
+    }
+
+    @Test
     fun performanceResolverKeepsAutoBackwardCompatibleAtTwoThreads() {
         val resolved =
             LocalSpeechSettings(

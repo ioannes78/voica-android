@@ -412,7 +412,10 @@ class DiarizationCoordinator(
                     source.totalSampleCount
                 } ?: error("canonical PCM source is unavailable")
 
-            val models = resolveActiveModels()
+            val models =
+                resolveActiveModels(
+                    speakerEmbeddingModel = speechSettings.speakerEmbeddingModel,
+                )
             val performance = speechSettings.resolvePerformance()
             leases =
                 models.all.map { active ->
@@ -460,6 +463,8 @@ class DiarizationCoordinator(
                                 vadSettings = speechSettings.vad,
                                 performance = performance,
                                 requestedSpeakerCount = requestedSpeakerCount,
+                                requestedEmbeddingModel =
+                                    speechSettings.speakerEmbeddingModel,
                             ),
                     ),
                 )
@@ -975,12 +980,15 @@ class DiarizationCoordinator(
             }
     }
 
-    private suspend fun resolveActiveModels(): ActiveDiarizationModels {
+    private suspend fun resolveActiveModels(
+        speakerEmbeddingModel: SpeakerEmbeddingModelChoice,
+    ): ActiveDiarizationModels {
+        val embeddingModelId = speakerEmbeddingModel.modelId()
         val requiredIds =
             listOf(
                 Stage8ModelIds.VAD,
                 Stage9ModelIds.SEGMENTATION,
-                Stage9ModelIds.EMBEDDING,
+                embeddingModelId,
             )
         val active =
             requiredIds.associateWith { modelId ->
@@ -997,7 +1005,7 @@ class DiarizationCoordinator(
 
         val vad = checkNotNull(active[Stage8ModelIds.VAD])
         val segmentation = checkNotNull(active[Stage9ModelIds.SEGMENTATION])
-        val embedding = checkNotNull(active[Stage9ModelIds.EMBEDDING])
+        val embedding = checkNotNull(active[embeddingModelId])
 
         require(vad.descriptor.kind == ModelKind.VAD)
         require(segmentation.descriptor.kind == ModelKind.SPEAKER)
@@ -1066,6 +1074,7 @@ class DiarizationCoordinator(
         vadSettings: LocalVadSettings,
         performance: ResolvedSpeechPerformance,
         requestedSpeakerCount: SpeakerCountChoice?,
+        requestedEmbeddingModel: SpeakerEmbeddingModelChoice,
     ): String =
         buildString {
             append("{\"schemaVersion\":2")
@@ -1078,6 +1087,9 @@ class DiarizationCoordinator(
             append(",\"vadContextPaddingSamples\":").append(config.vadContextPaddingSamples)
             append(",\"speakerCountPreset\":\"")
                 .append(requestedSpeakerCount?.name ?: "CUSTOM")
+                .append("\"")
+            append(",\"speakerEmbeddingModelPreset\":\"")
+                .append(requestedEmbeddingModel.name)
                 .append("\"")
             append(",\"expectedSpeakerCount\":")
                 .append(config.expectedSpeakerCount?.toString() ?: "null")

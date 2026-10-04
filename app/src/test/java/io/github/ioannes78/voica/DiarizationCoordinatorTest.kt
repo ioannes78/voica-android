@@ -207,6 +207,34 @@ class DiarizationCoordinatorTest {
     }
 
     @Test
+    fun campPlusSelectionRequiresCampPlusInsteadOfBaselineEmbedding() = runBlocking {
+        val descriptors = requiredDescriptors()
+        val active = descriptors.associate { it.modelId to active(it) }
+        val coordinator =
+            coordinator(
+                modelManager = FakeModelManager(active),
+                registry = ModelUseRegistry(),
+                provider = FakeEngineProvider(),
+                speechSettings =
+                    LocalSpeechSettings(
+                        speakerEmbeddingModel = SpeakerEmbeddingModelChoice.CAMP_PLUS,
+                    ),
+            )
+
+        assertTrue(coordinator.start(RECORDING_ID))
+        val failed =
+            coordinator.state
+                .filterIsInstance<DiarizationRunState.Failed>()
+                .first()
+
+        assertEquals(
+            listOf(Stage13ASpeakerEmbeddingModelIds.CAMP_PLUS),
+            failed.missingModelIds,
+        )
+        assertTrue(diarizationRepository.observeRuns(RECORDING_ID).first().isEmpty())
+    }
+
+    @Test
     fun noSpeechCompletesWithZeroSpeakers() = runBlocking {
         val descriptors = requiredDescriptors()
         val active = descriptors.associate { it.modelId to active(it) }
@@ -273,6 +301,7 @@ class DiarizationCoordinatorTest {
         modelManager: ModelManager,
         registry: ModelUseRegistry,
         provider: Stage9DiarizationEngineProvider,
+        speechSettings: LocalSpeechSettings = LocalSpeechSettings(),
     ) =
         DiarizationCoordinator(
             scope = scope,
@@ -291,6 +320,7 @@ class DiarizationCoordinatorTest {
             modelManager = modelManager,
             modelUseRegistry = registry,
             engineProvider = provider,
+            localSpeechSettings = { speechSettings },
         )
 
     private suspend fun seedCompletedTranscription() {

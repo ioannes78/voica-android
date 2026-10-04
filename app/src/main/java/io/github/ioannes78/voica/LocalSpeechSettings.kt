@@ -47,6 +47,24 @@ enum class OfflineAsrQualityChoice {
     ULTRA,
 }
 
+object Stage13ASpeakerEmbeddingModelIds {
+    const val ERES2NET = "3dspeaker-eres2net-base-zh-cn-16k"
+    const val CAMP_PLUS = "3dspeaker-campplus-zh-cn-16k"
+
+    val ALL = listOf(ERES2NET, CAMP_PLUS)
+}
+
+enum class SpeakerEmbeddingModelChoice {
+    ERES2NET,
+    CAMP_PLUS,
+}
+
+fun SpeakerEmbeddingModelChoice.modelId(): String =
+    when (this) {
+        SpeakerEmbeddingModelChoice.ERES2NET -> Stage13ASpeakerEmbeddingModelIds.ERES2NET
+        SpeakerEmbeddingModelChoice.CAMP_PLUS -> Stage13ASpeakerEmbeddingModelIds.CAMP_PLUS
+    }
+
 enum class SpeechPerformanceProfile {
     AUTO,
     POWER_SAVER,
@@ -121,6 +139,8 @@ data class LocalSpeechSettings(
     val requestedThreads: Int? = null,
     val vad: LocalVadSettings = LocalVadSettings(),
     val speakerCount: SpeakerCountChoice = SpeakerCountChoice.AUTO,
+    val speakerEmbeddingModel: SpeakerEmbeddingModelChoice =
+        SpeakerEmbeddingModelChoice.ERES2NET,
 )
 
 data class ResolvedSpeechPerformance(
@@ -202,6 +222,8 @@ interface LocalSpeechSettingsStore {
     fun resetVadSettings()
 
     fun setSpeakerCount(choice: SpeakerCountChoice)
+
+    fun setSpeakerEmbeddingModel(choice: SpeakerEmbeddingModelChoice)
 }
 
 class SharedPreferencesLocalSpeechSettingsStore(
@@ -236,6 +258,14 @@ class SharedPreferencesLocalSpeechSettingsStore(
                     preferences.getString(KEY_SPEAKER_COUNT, null)
                         ?.let { runCatching { SpeakerCountChoice.valueOf(it) }.getOrNull() }
                         ?: SpeakerCountChoice.AUTO,
+                speakerEmbeddingModel =
+                    preferences.getString(KEY_SPEAKER_EMBEDDING_MODEL, null)
+                        ?.let {
+                            runCatching {
+                                SpeakerEmbeddingModelChoice.valueOf(it)
+                            }.getOrNull()
+                        }
+                        ?: SpeakerEmbeddingModelChoice.ERES2NET,
             ),
         )
 
@@ -307,6 +337,14 @@ class SharedPreferencesLocalSpeechSettingsStore(
         mutableSettings.value = mutableSettings.value.copy(speakerCount = choice)
     }
 
+    override fun setSpeakerEmbeddingModel(choice: SpeakerEmbeddingModelChoice) {
+        preferences.edit()
+            .putString(KEY_SPEAKER_EMBEDDING_MODEL, choice.name)
+            .apply()
+        mutableSettings.value =
+            mutableSettings.value.copy(speakerEmbeddingModel = choice)
+    }
+
     private companion object {
         const val PREFERENCES_NAME = "voica-local-speech"
         const val KEY_REALTIME_ASR_MODEL = "realtime-asr-model"
@@ -318,6 +356,7 @@ class SharedPreferencesLocalSpeechSettingsStore(
         const val KEY_VAD_MIN_SPEECH = "vad-min-speech"
         const val KEY_VAD_MAX_SPEECH = "vad-max-speech"
         const val KEY_SPEAKER_COUNT = "speaker-count"
+        const val KEY_SPEAKER_EMBEDDING_MODEL = "speaker-embedding-model"
 
         fun readVadSettings(
             preferences: android.content.SharedPreferences,

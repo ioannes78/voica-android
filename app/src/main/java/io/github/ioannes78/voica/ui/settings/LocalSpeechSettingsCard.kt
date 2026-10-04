@@ -28,9 +28,11 @@ import io.github.ioannes78.voica.MAX_CONFIGURABLE_THREADS
 import io.github.ioannes78.voica.OfflineAsrQualityChoice
 import io.github.ioannes78.voica.RealtimeAsrModelChoice
 import io.github.ioannes78.voica.SpeakerCountChoice
+import io.github.ioannes78.voica.SpeakerEmbeddingModelChoice
 import io.github.ioannes78.voica.SpeechPerformanceProfile
 import io.github.ioannes78.voica.Stage13AOfflineModelIds
 import io.github.ioannes78.voica.Stage13ARealtimeModelIds
+import io.github.ioannes78.voica.Stage13ASpeakerEmbeddingModelIds
 import io.github.ioannes78.voica.resolvePerformance
 import io.github.ioannes78.voica.model.ModelAvailability
 import io.github.ioannes78.voica.model.ModelManager
@@ -63,8 +65,11 @@ internal fun LocalSpeechSettingsCard(
 
     LaunchedEffect(operations) {
         availability =
-            (Stage13ARealtimeModelIds.ALL + Stage13AOfflineModelIds.ALL)
-                .distinct()
+            (
+                Stage13ARealtimeModelIds.ALL +
+                    Stage13AOfflineModelIds.ALL +
+                    Stage13ASpeakerEmbeddingModelIds.ALL
+            ).distinct()
                 .associateWith { modelId ->
                     modelManager.availability(modelId)
                 }
@@ -228,6 +233,61 @@ internal fun LocalSpeechSettingsCard(
                                 .fillMaxWidth()
                                 .clickable {
                                     store.setSpeakerCount(option.first)
+                                },
+                    )
+                }
+            }
+        }
+
+        Card(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
+        ) {
+            Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Text("Speaker Embedding 模型", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "ERes2Net 为当前生产基线；CAM++ 为 Stage 13A challenger。切换只影响新的说话人分离任务。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                speakerEmbeddingOptions().forEachIndexed { index, option ->
+                    if (index > 0) HorizontalDivider()
+                    ListItem(
+                        headlineContent = { Text(option.second) },
+                        supportingContent = {
+                            Column {
+                                Text(option.third)
+                                Text(
+                                    availabilityStatus(
+                                        availability[
+                                            when (option.first) {
+                                                SpeakerEmbeddingModelChoice.ERES2NET ->
+                                                    Stage13ASpeakerEmbeddingModelIds.ERES2NET
+                                                SpeakerEmbeddingModelChoice.CAMP_PLUS ->
+                                                    Stage13ASpeakerEmbeddingModelIds.CAMP_PLUS
+                                            }
+                                        ],
+                                    ),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        },
+                        leadingContent = {
+                            RadioButton(
+                                selected = settings.speakerEmbeddingModel == option.first,
+                                onClick = null,
+                            )
+                        },
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    store.setSpeakerEmbeddingModel(option.first)
                                 },
                     )
                 }
@@ -470,6 +530,20 @@ private fun speakerCountOptions() =
             SpeakerCountChoice.FIVE_PLUS,
             "5+ 人",
             "至少 5 人，允许自动增长到 8 人；不足 5 个有效 speaker 时不伪造结果",
+        ),
+    )
+
+private fun speakerEmbeddingOptions() =
+    listOf(
+        Triple(
+            SpeakerEmbeddingModelChoice.ERES2NET,
+            "ERes2Net Base（基线）",
+            "当前生产基线 · 39.6 MB 模型文件",
+        ),
+        Triple(
+            SpeakerEmbeddingModelChoice.CAMP_PLUS,
+            "CAM++（候选）",
+            "Stage 13A challenger · 约 27 MB · 用于与 ERes2Net A/B Benchmark",
         ),
     )
 
