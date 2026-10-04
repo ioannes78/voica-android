@@ -30,7 +30,7 @@ class SherpaModelCandidateValidator : ModelCandidateValidator {
             ModelKind.SPEAKER ->
                 validateSpeaker(descriptor, installedDirectory)
             ModelKind.ASR_LARGE ->
-                error("no smoke validator for model kind " + descriptor.kind)
+                validateLargeOfflineAsr(descriptor, installedDirectory)
         }
     }
 
@@ -180,6 +180,29 @@ class SherpaModelCandidateValidator : ModelCandidateValidator {
                 }
             } finally {
                 session.close()
+            }
+        } finally {
+            engine.close()
+        }
+    }
+
+    private suspend fun validateLargeOfflineAsr(
+        descriptor: ModelDescriptor,
+        directory: File,
+    ) {
+        val engine =
+            createSherpaLargeOfflineAsrEngine(
+                model = descriptor,
+                modelDirectory = directory,
+            )
+        try {
+            val result =
+                engine.transcribe(
+                    samples = SMOKE_PCM_SAMPLES,
+                    sampleRateHz = 16_000,
+                )
+            check(result.isFinal) {
+                "large offline ASR smoke test did not produce a final result"
             }
         } finally {
             engine.close()

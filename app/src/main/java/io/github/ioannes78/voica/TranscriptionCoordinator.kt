@@ -16,6 +16,7 @@ import io.github.ioannes78.voica.model.ModelKind
 import io.github.ioannes78.voica.model.ModelLease
 import io.github.ioannes78.voica.model.ModelManager
 import io.github.ioannes78.voica.model.ModelUseRegistry
+import io.github.ioannes78.voica.sherpa.LargeOfflineAsrSettings
 import io.github.ioannes78.voica.sherpa.PunctuationSettings
 import io.github.ioannes78.voica.sherpa.SenseVoiceSettings
 import io.github.ioannes78.voica.sherpa.SherpaCtTransformerPunctuationEngine
@@ -25,6 +26,7 @@ import io.github.ioannes78.voica.sherpa.SherpaRuntime
 import io.github.ioannes78.voica.sherpa.SherpaVadModelLocation
 import io.github.ioannes78.voica.sherpa.SileroVadSettings
 import io.github.ioannes78.voica.sherpa.StreamingZipformerSettings
+import io.github.ioannes78.voica.sherpa.createSherpaLargeOfflineAsrEngine
 import io.github.ioannes78.voica.sherpa.createSherpaStreamingAsrEngine
 import io.github.ioannes78.voica.transcript.FastTranscriptionPipeline
 import io.github.ioannes78.voica.transcript.HighQualityTranscriptionPipeline
@@ -194,16 +196,29 @@ class SherpaStage8TranscriptionEngineProvider(
         model: ActiveModel,
         numThreads: Int,
     ): SecondPassAsrEngineFactory {
-        require(model.descriptor.kind == ModelKind.ASR_SECOND_PASS)
+        require(
+            model.descriptor.kind == ModelKind.ASR_SECOND_PASS ||
+                model.descriptor.kind == ModelKind.ASR_LARGE,
+        )
         val directory =
             model.installedDirectory
                 ?: error("second-pass ASR must be a managed installed model")
         return SecondPassAsrEngineFactory {
-            SherpaSenseVoiceEngine(
-                model = model.descriptor,
-                modelDirectory = directory,
-                settings = SenseVoiceSettings(numThreads = numThreads),
-            )
+            when (model.descriptor.kind) {
+                ModelKind.ASR_SECOND_PASS ->
+                    SherpaSenseVoiceEngine(
+                        model = model.descriptor,
+                        modelDirectory = directory,
+                        settings = SenseVoiceSettings(numThreads = numThreads),
+                    )
+                ModelKind.ASR_LARGE ->
+                    createSherpaLargeOfflineAsrEngine(
+                        model = model.descriptor,
+                        modelDirectory = directory,
+                        settings = LargeOfflineAsrSettings(numThreads = numThreads),
+                    )
+                else -> error("unsupported second-pass ASR kind")
+            }
         }
     }
 }
