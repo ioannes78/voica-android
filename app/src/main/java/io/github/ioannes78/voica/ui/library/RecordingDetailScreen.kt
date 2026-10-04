@@ -106,6 +106,7 @@ fun RecordingDetailScreen(
     aiSummaryViewModel: AiSummaryViewModel,
     aiSummaryContentViewModel: AiSummaryContentViewModel,
     speechBenchmarkRunner: SpeechBenchmarkRunner? = null,
+    diarizationBenchmarkRunner: DiarizationBenchmarkRunner? = null,
     initialSearchTarget: SearchDocumentEntity? = null,
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -824,6 +825,20 @@ fun RecordingDetailScreen(
                                             diarizationBusy ||
                                             deviceRecordingActive,
                                     runner = speechBenchmarkRunner,
+                                )
+                            }
+                        }
+                        if (diarizationBenchmarkRunner != null) {
+                            item(key = "diarization-benchmark") {
+                                DiarizationBenchmarkCard(
+                                    recordingId = recording.id,
+                                    recordingName = recording.displayName,
+                                    canonicalReady = canonicalReady,
+                                    blocked =
+                                        transcriptionBusy ||
+                                            diarizationBusy ||
+                                            deviceRecordingActive,
+                                    runner = diarizationBenchmarkRunner,
                                 )
                             }
                         }

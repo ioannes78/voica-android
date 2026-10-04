@@ -108,6 +108,10 @@ class AppContainer(
         SherpaStage8TranscriptionEngineProvider(
             assetManager = application.assets,
         )
+    private val stage9DiarizationEngineProvider =
+        SherpaStage9DiarizationEngineProvider(
+            assetManager = application.assets,
+        )
     val modelUpdateController =
         ModelUpdateController(
             modelManager = modelManager,
@@ -181,6 +185,16 @@ class AppContainer(
             localSpeechSettings = { localSpeechSettingsStore.settings.value },
         )
 
+    val diarizationBenchmarkRunner =
+        DiarizationBenchmarkRunner(
+            application = application,
+            pcmSourceResolver = pcmSourceResolver,
+            modelManager = modelManager,
+            modelUseRegistry = modelUseRegistry,
+            engineProvider = stage9DiarizationEngineProvider,
+            localSpeechSettings = { localSpeechSettingsStore.settings.value },
+        )
+
     val diarizationCoordinator =
         DiarizationCoordinator(
             scope = applicationScope,
@@ -190,10 +204,7 @@ class AppContainer(
             loadCanonicalLineage = recordingLibraryRepository::loadCanonicalTranscriptionLineage,
             modelManager = modelManager,
             modelUseRegistry = modelUseRegistry,
-            engineProvider =
-                SherpaStage9DiarizationEngineProvider(
-                    assetManager = application.assets,
-                ),
+            engineProvider = stage9DiarizationEngineProvider,
             localSpeechSettings = { localSpeechSettingsStore.settings.value },
             isRecordingActive = recordingLibraryRepository::isRecordingActive,
         )

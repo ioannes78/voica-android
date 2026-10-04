@@ -57,6 +57,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.ioannes78.voica.AiSummaryCoordinator
 import io.github.ioannes78.voica.AiSummaryRunState
 import io.github.ioannes78.voica.CanonicalAudioCoordinator
+import io.github.ioannes78.voica.DiarizationBenchmarkRunner
 import io.github.ioannes78.voica.DiarizationCoordinator
 import io.github.ioannes78.voica.DiarizationRunState
 import io.github.ioannes78.voica.ModelUpdateController
@@ -196,6 +197,7 @@ fun VoicaApp(
     themeSettingsStore: ThemeSettingsStore,
     localSpeechSettingsStore: LocalSpeechSettingsStore,
     speechBenchmarkRunner: SpeechBenchmarkRunner?,
+    diarizationBenchmarkRunner: DiarizationBenchmarkRunner?,
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var secondaryPageActive by rememberSaveable { mutableStateOf(false) }
@@ -962,6 +964,7 @@ private fun LocalFilesScreen(
             aiSummaryViewModel = aiSummaryViewModel,
             aiSummaryContentViewModel = aiSummaryContentViewModel,
             speechBenchmarkRunner = speechBenchmarkRunner,
+            diarizationBenchmarkRunner = diarizationBenchmarkRunner,
             initialSearchTarget = pendingSearchTarget,
             onBack = {
                 selectedRecordingId = null
