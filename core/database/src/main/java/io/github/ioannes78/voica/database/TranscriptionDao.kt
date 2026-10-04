@@ -177,6 +177,13 @@ interface TranscriptionDao {
         nowMs: Long,
     ): Int
 
+    @Query("""
+        SELECT * FROM transcriptions
+        WHERE state = 'COMPLETED'
+        ORDER BY completedAtMs DESC, createdAtMs DESC
+    """)
+    suspend fun loadAllCompleted(): List<TranscriptionEntity>
+
     @Query("DELETE FROM transcriptions WHERE id = :transcriptionId")
     suspend fun deleteVersion(transcriptionId: String): Int
 }

@@ -43,6 +43,7 @@ class Stage12CContentRepository(
     private val dao = database.stage12cContentDao()
     private val transcriptionDao = database.transcriptionDao()
     private val aiSummaryDao = database.aiSummaryDao()
+    private val searchIndexRebuilder = SearchIndexRebuilder(database)
 
     fun observeTranscriptionMetadata(transcriptionId: String): Flow<TranscriptionUserMetadataEntity?> =
         dao.observeTranscriptionMetadata(transcriptionId)
@@ -88,6 +89,7 @@ class Stage12CContentRepository(
                 updatedAtMs = nowMs(),
             ),
         )
+        searchIndexRebuilder.reindexTranscription(transcriptionId)
     }
 
     suspend fun createTranscriptionRevision(
@@ -141,6 +143,7 @@ class Stage12CContentRepository(
                 ),
             )
         }
+        searchIndexRebuilder.reindexTranscription(transcriptionId)
         return revisionId
     }
 
@@ -195,11 +198,12 @@ class Stage12CContentRepository(
                 updatedAtMs = nowMs(),
             ),
         )
+        searchIndexRebuilder.reindexTranscription(transcriptionId)
     }
 
     suspend fun deleteTranscriptionRevision(revisionId: String): Boolean {
         val revision = dao.findTranscriptionRevision(revisionId) ?: return false
-        return database.withTransaction {
+        val deleted = database.withTransaction {
             val metadata = dao.findTranscriptionMetadata(revision.transcriptionId)
             val wasCurrent = metadata?.currentRevisionId == revisionId
             val deleted = dao.deleteTranscriptionRevision(revisionId) == 1
@@ -216,6 +220,10 @@ class Stage12CContentRepository(
             }
             deleted
         }
+        if (deleted) {
+            searchIndexRebuilder.reindexTranscription(revision.transcriptionId)
+        }
+        return deleted
     }
 
     suspend fun createAiSummaryRevision(
@@ -255,6 +263,7 @@ class Stage12CContentRepository(
                 ),
             )
         }
+        searchIndexRebuilder.reindexAiSummary(summaryId)
         return revisionId
     }
 
@@ -271,11 +280,12 @@ class Stage12CContentRepository(
                 updatedAtMs = nowMs(),
             ),
         )
+        searchIndexRebuilder.reindexAiSummary(summaryId)
     }
 
     suspend fun deleteAiSummaryRevision(revisionId: String): Boolean {
         val revision = dao.findAiSummaryRevision(revisionId) ?: return false
-        return database.withTransaction {
+        val deleted = database.withTransaction {
             val metadata = dao.findAiSummaryMetadata(revision.aiSummaryId)
             val wasCurrent = metadata?.currentRevisionId == revisionId
             val deleted = dao.deleteAiSummaryRevision(revisionId) == 1
@@ -291,6 +301,10 @@ class Stage12CContentRepository(
             }
             deleted
         }
+        if (deleted) {
+            searchIndexRebuilder.reindexAiSummary(revision.aiSummaryId)
+        }
+        return deleted
     }
 
     suspend fun resolveCurrentTranscriptionId(recordingId: String): String? {
@@ -351,7 +365,7 @@ class Stage12CContentRepository(
         if (transcription.state in TranscriptionStateValue.ACTIVE) {
             return ContentVersionDeleteResult.ActiveTask
         }
-        return database.withTransaction {
+        val outcome = database.withTransaction {
             val dependentSummaries = aiSummaryDao.countForTranscription(transcriptionId)
             if (dependentSummaries > 0) {
                 return@withTransaction ContentVersionDeleteResult.ReferencedByAiSummaries(
@@ -371,6 +385,10 @@ class Stage12CContentRepository(
             }
             ContentVersionDeleteResult.Deleted(fallback)
         }
+        if (outcome is ContentVersionDeleteResult.Deleted) {
+            searchIndexRebuilder.removeTranscription(transcriptionId)
+        }
+        return outcome
     }
 
     suspend fun deleteAiSummaryVersion(summaryId: String): ContentVersionDeleteResult {
@@ -379,7 +397,7 @@ class Stage12CContentRepository(
         if (summary.status in AiSummaryStateValue.ACTIVE) {
             return ContentVersionDeleteResult.ActiveTask
         }
-        return database.withTransaction {
+        val outcome = database.withTransaction {
             check(aiSummaryDao.deleteVersion(summaryId) == 1)
             val fallback = aiSummaryDao.findLatestCompleted(summary.recordingId)?.id
             val selection = dao.findContentSelection(summary.recordingId)
@@ -393,6 +411,10 @@ class Stage12CContentRepository(
             }
             ContentVersionDeleteResult.Deleted(fallback)
         }
+        if (outcome is ContentVersionDeleteResult.Deleted) {
+            searchIndexRebuilder.removeAiSummary(summaryId)
+        }
+        return outcome
     }
 
     private fun validateParagraphs(

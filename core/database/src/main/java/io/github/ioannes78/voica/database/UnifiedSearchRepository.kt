@@ -1,6 +1,7 @@
 package io.github.ioannes78.voica.database
 
 import androidx.room.withTransaction
+import kotlinx.coroutines.flow.Flow
 
 data class SearchDocumentDraft(
     val documentId: String,
@@ -26,6 +27,8 @@ class UnifiedSearchRepository(
     private val dao = database.searchDao()
 
     suspend fun state(): SearchIndexStateEntity? = dao.findState()
+
+    fun observeState(): Flow<SearchIndexStateEntity?> = dao.observeState()
 
     suspend fun upsert(draft: SearchDocumentDraft) {
         require(draft.documentId.isNotBlank())
@@ -70,6 +73,36 @@ class UnifiedSearchRepository(
     suspend fun delete(documentId: String) {
         database.withTransaction {
             deleteInternal(documentId)
+        }
+    }
+
+    suspend fun deleteForTranscription(transcriptionId: String) {
+        database.withTransaction {
+            deleteRows(dao.findRowIdsForTranscription(transcriptionId))
+        }
+    }
+
+    suspend fun deleteForAiSummary(summaryId: String) {
+        database.withTransaction {
+            deleteRows(dao.findRowIdsForSummary(summaryId))
+        }
+    }
+
+    suspend fun deleteForRecording(recordingId: String) {
+        database.withTransaction {
+            deleteRows(dao.findRowIdsForRecording(recordingId))
+        }
+    }
+
+    suspend fun deleteForFolder(folderId: String) {
+        database.withTransaction {
+            deleteRows(dao.findRowIdsForFolder(folderId))
+        }
+    }
+
+    suspend fun deleteForTag(tagId: String) {
+        database.withTransaction {
+            deleteRows(dao.findRowIdsForTag(tagId))
         }
     }
 
@@ -121,6 +154,7 @@ class UnifiedSearchRepository(
 
     suspend fun search(
         query: String,
+        documentTypes: Set<String>? = null,
         limit: Int = 50,
         offset: Int = 0,
     ): List<SearchDocumentEntity> {
@@ -128,12 +162,26 @@ class UnifiedSearchRepository(
         require(offset >= 0)
         val match = CjkSearchTokenizer.toMatchQuery(query)
         if (match.isBlank()) return emptyList()
-        return dao.search(match, limit, offset)
+        val types = documentTypes?.toList().orEmpty()
+        return dao.search(
+            matchQuery = match,
+            filterByType = if (documentTypes == null) 0 else 1,
+            documentTypes = if (types.isEmpty()) listOf("__NONE__") else types,
+            limit = limit,
+            offset = offset,
+        )
     }
 
     private suspend fun deleteInternal(documentId: String) {
         val rowId = dao.findRowId(documentId) ?: return
         dao.deleteFts(rowId)
         dao.deleteDocument(rowId)
+    }
+
+    private suspend fun deleteRows(rowIds: List<Long>) {
+        rowIds.forEach { rowId ->
+            dao.deleteFts(rowId)
+            dao.deleteDocument(rowId)
+        }
     }
 }

@@ -182,6 +182,13 @@ interface AiSummaryDao {
     @Query("DELETE FROM ai_custom_templates WHERE id = :templateId")
     suspend fun deleteCustomTemplate(templateId: String): Int
 
+    @Query("""
+        SELECT * FROM ai_summaries
+        WHERE status = 'COMPLETED'
+        ORDER BY completedAtMs DESC, createdAtMs DESC
+    """)
+    suspend fun loadAllCompleted(): List<AiSummaryEntity>
+
     @Query("DELETE FROM ai_summaries WHERE id = :summaryId")
     suspend fun deleteVersion(summaryId: String): Int
 }

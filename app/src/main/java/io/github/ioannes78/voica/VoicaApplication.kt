@@ -15,6 +15,8 @@ import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.database.Stage12CContentRepository
 import io.github.ioannes78.voica.database.StructuredTranscriptInputBuilder
 import io.github.ioannes78.voica.database.TranscriptionRepository
+import io.github.ioannes78.voica.database.SearchIndexRebuilder
+import io.github.ioannes78.voica.database.UnifiedSearchRepository
 import io.github.ioannes78.voica.database.VoicaDatabase
 import io.github.ioannes78.voica.llm.AndroidKeystoreCredentialStore
 import io.github.ioannes78.voica.llm.AppPrivateProviderProfileStore
@@ -110,6 +112,13 @@ class AppContainer(
         TranscriptionRepository(recordingDatabase)
     val stage12CContentRepository =
         Stage12CContentRepository(recordingDatabase)
+    val unifiedSearchRepository =
+        UnifiedSearchRepository(recordingDatabase)
+    val searchIndexRebuilder =
+        SearchIndexRebuilder(
+            database = recordingDatabase,
+            searchRepository = unifiedSearchRepository,
+        )
 
     val diarizationRepository =
         DiarizationRepository(recordingDatabase)
@@ -280,6 +289,7 @@ class AppContainer(
             transcriptionCoordinator.reconcileOnStartup()
             diarizationCoordinator.reconcileOnStartup()
             aiSummaryRepository.reconcileInterruptedOnStartup()
+            searchIndexRebuilder.rebuildIfRequired()
         }
     }
 }
