@@ -23,29 +23,26 @@ interface SearchDao {
     @Query("SELECT * FROM search_index_state WHERE id = 1 LIMIT 1")
     fun observeState(): Flow<SearchIndexStateEntity?>
 
-    @Query("SELECT rowId FROM search_documents WHERE documentId = :documentId LIMIT 1")
-    suspend fun findRowId(documentId: String): Long?
+    @Query("DELETE FROM search_documents_fts WHERE documentId = :documentId")
+    suspend fun deleteFts(documentId: String): Int
 
-    @Query("DELETE FROM search_documents_fts WHERE rowid = :rowId")
-    suspend fun deleteFts(rowId: Long): Int
+    @Query("DELETE FROM search_documents WHERE documentId = :documentId")
+    suspend fun deleteDocument(documentId: String): Int
 
-    @Query("DELETE FROM search_documents WHERE rowId = :rowId")
-    suspend fun deleteDocument(rowId: Long): Int
+    @Query("SELECT documentId FROM search_documents WHERE transcriptionId = :transcriptionId AND documentType = 'TRANSCRIPT_UNIT'")
+    suspend fun findDocumentIdsForTranscription(transcriptionId: String): List<String>
 
-    @Query("SELECT rowId FROM search_documents WHERE transcriptionId = :transcriptionId AND documentType = 'TRANSCRIPT_UNIT'")
-    suspend fun findRowIdsForTranscription(transcriptionId: String): List<Long>
+    @Query("SELECT documentId FROM search_documents WHERE aiSummaryId = :summaryId")
+    suspend fun findDocumentIdsForSummary(summaryId: String): List<String>
 
-    @Query("SELECT rowId FROM search_documents WHERE aiSummaryId = :summaryId")
-    suspend fun findRowIdsForSummary(summaryId: String): List<Long>
+    @Query("SELECT documentId FROM search_documents WHERE recordingId = :recordingId")
+    suspend fun findDocumentIdsForRecording(recordingId: String): List<String>
 
-    @Query("SELECT rowId FROM search_documents WHERE recordingId = :recordingId")
-    suspend fun findRowIdsForRecording(recordingId: String): List<Long>
+    @Query("SELECT documentId FROM search_documents WHERE folderId = :folderId")
+    suspend fun findDocumentIdsForFolder(folderId: String): List<String>
 
-    @Query("SELECT rowId FROM search_documents WHERE folderId = :folderId")
-    suspend fun findRowIdsForFolder(folderId: String): List<Long>
-
-    @Query("SELECT rowId FROM search_documents WHERE tagId = :tagId")
-    suspend fun findRowIdsForTag(tagId: String): List<Long>
+    @Query("SELECT documentId FROM search_documents WHERE tagId = :tagId")
+    suspend fun findDocumentIdsForTag(tagId: String): List<String>
 
     @Query("DELETE FROM search_documents_fts")
     suspend fun clearFts(): Int
@@ -56,7 +53,7 @@ interface SearchDao {
     @Query(
         """
         SELECT d.* FROM search_documents AS d
-        INNER JOIN search_documents_fts AS f ON d.rowId = f.rowid
+        INNER JOIN search_documents_fts AS f ON d.documentId = f.documentId
         WHERE search_documents_fts MATCH :matchQuery
           AND (:filterByType = 0 OR d.documentType IN (:documentTypes))
         ORDER BY d.updatedAtMs DESC, d.rowId DESC

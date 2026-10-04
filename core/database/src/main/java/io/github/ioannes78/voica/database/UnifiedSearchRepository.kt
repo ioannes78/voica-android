@@ -78,31 +78,31 @@ class UnifiedSearchRepository(
 
     suspend fun deleteForTranscription(transcriptionId: String) {
         database.withTransaction {
-            deleteRows(dao.findRowIdsForTranscription(transcriptionId))
+            deleteDocuments(dao.findDocumentIdsForTranscription(transcriptionId))
         }
     }
 
     suspend fun deleteForAiSummary(summaryId: String) {
         database.withTransaction {
-            deleteRows(dao.findRowIdsForSummary(summaryId))
+            deleteDocuments(dao.findDocumentIdsForSummary(summaryId))
         }
     }
 
     suspend fun deleteForRecording(recordingId: String) {
         database.withTransaction {
-            deleteRows(dao.findRowIdsForRecording(recordingId))
+            deleteDocuments(dao.findDocumentIdsForRecording(recordingId))
         }
     }
 
     suspend fun deleteForFolder(folderId: String) {
         database.withTransaction {
-            deleteRows(dao.findRowIdsForFolder(folderId))
+            deleteDocuments(dao.findDocumentIdsForFolder(folderId))
         }
     }
 
     suspend fun deleteForTag(tagId: String) {
         database.withTransaction {
-            deleteRows(dao.findRowIdsForTag(tagId))
+            deleteDocuments(dao.findDocumentIdsForTag(tagId))
         }
     }
 
@@ -173,15 +173,14 @@ class UnifiedSearchRepository(
     }
 
     private suspend fun deleteInternal(documentId: String) {
-        val rowId = dao.findRowId(documentId) ?: return
-        dao.deleteFts(rowId)
-        dao.deleteDocument(rowId)
+        dao.deleteFts(documentId)
+        dao.deleteDocument(documentId)
     }
 
-    private suspend fun deleteRows(rowIds: List<Long>) {
-        rowIds.forEach { rowId ->
-            dao.deleteFts(rowId)
-            dao.deleteDocument(rowId)
+    private suspend fun deleteDocuments(documentIds: List<String>) {
+        documentIds.forEach { documentId ->
+            dao.deleteFts(documentId)
+            dao.deleteDocument(documentId)
         }
     }
 }
