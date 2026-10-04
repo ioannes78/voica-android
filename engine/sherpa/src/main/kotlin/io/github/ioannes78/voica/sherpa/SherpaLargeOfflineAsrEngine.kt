@@ -152,7 +152,7 @@ private class SherpaNativeLargeOfflineRecognizer(
     }
 }
 
-class SherpaLargeOfflineAsrEngine internal constructor(
+class SherpaLargeOfflineAsrEngine private constructor(
     override val model: ModelDescriptor,
     private val native: NativeLargeOfflineRecognizer,
 ) : SecondPassAsrEngine {
