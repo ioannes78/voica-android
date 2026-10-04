@@ -13,7 +13,6 @@ import io.github.ioannes78.voica.model.ModelManager
 import io.github.ioannes78.voica.model.ModelStorage
 import io.github.ioannes78.voica.model.ModelUseRegistry
 import io.github.ioannes78.voica.sherpa.SherpaRuntime
-import io.github.ioannes78.voica.sherpa.SherpaModelCandidateValidator
 import java.io.File
 import java.net.URL
 
@@ -119,6 +118,6 @@ fun createVoicaModelManager(
         storage = ModelStorage(File(application.noBackupFilesDir, "models")),
         packageDirectory = File(application.cacheDir, "model-packages"),
         useRegistry = useRegistry,
-        candidateValidator = SherpaModelCandidateValidator(),
+        candidateValidator = AndroidIsolatedModelCandidateValidator(application),
     )
 }
