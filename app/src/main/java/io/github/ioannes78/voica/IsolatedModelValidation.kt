@@ -143,7 +143,10 @@ internal class AndroidIsolatedModelCandidateValidator(
     }
 
     private fun memoryPreflight(descriptor: ModelDescriptor) {
-        val estimated = descriptor.estimatedPeakRamBytes ?: return
+        val estimated =
+            descriptor.estimatedPeakRamBytes
+                ?: descriptor.installedSizeBytes.takeIf { it > 0L }
+                ?: return
         if (estimated <= 0L) return
 
         val manager =
