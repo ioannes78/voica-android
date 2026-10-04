@@ -346,13 +346,15 @@ class HighQualityTranscriptionPipeline(
         try {
             val total = bases.size.toLong()
             val output = ArrayList<TranscriptSegment>(bases.size)
-            progressListener?.onProgress(
-                TranscriptionProgress(
-                    phase = TranscriptionPhase.PUNCTUATION,
-                    processedUnits = 0L,
-                    totalUnits = total,
-                ),
-            )
+            if (requiresPunctuation) {
+                progressListener?.onProgress(
+                    TranscriptionProgress(
+                        phase = TranscriptionPhase.PUNCTUATION,
+                        processedUnits = 0L,
+                        totalUnits = total,
+                    ),
+                )
+            }
 
             bases.forEachIndexed { index, base ->
                 currentCoroutineContext().ensureActive()
@@ -392,13 +394,15 @@ class HighQualityTranscriptionPipeline(
                         tokens = base.tokens,
                     )
 
-                progressListener?.onProgress(
-                    TranscriptionProgress(
-                        phase = TranscriptionPhase.PUNCTUATION,
-                        processedUnits = (index + 1).toLong(),
-                        totalUnits = total,
-                    ),
-                )
+                if (requiresPunctuation) {
+                    progressListener?.onProgress(
+                        TranscriptionProgress(
+                            phase = TranscriptionPhase.PUNCTUATION,
+                            processedUnits = (index + 1).toLong(),
+                            totalUnits = total,
+                        ),
+                    )
+                }
             }
             return FinalizationResult(output, fallbackError)
         } finally {
