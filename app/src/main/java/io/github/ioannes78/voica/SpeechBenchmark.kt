@@ -1,0 +1,550 @@
+package io.github.ioannes78.voica
+
+import android.app.ActivityManager
+import android.app.Application
+import android.os.Build
+import android.os.Debug
+import android.os.PowerManager
+import android.os.SystemClock
+import androidx.core.content.pm.PackageInfoCompat
+import io.github.ioannes78.voica.audio.CanonicalPcmProfile
+import io.github.ioannes78.voica.audio.PcmSourceResolver
+import io.github.ioannes78.voica.model.ActiveModel
+import io.github.ioannes78.voica.model.ModelKind
+import io.github.ioannes78.voica.model.ModelManager
+import io.github.ioannes78.voica.model.ModelUseRegistry
+import io.github.ioannes78.voica.transcript.FastTranscriptionPipeline
+import java.time.Instant
+import java.util.Locale
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
+
+data class SpeechBenchmarkEnvironment(
+    val manufacturer: String,
+    val model: String,
+    val hardware: String,
+    val socManufacturer: String?,
+    val socModel: String?,
+    val sdkInt: Int,
+    val supportedAbis: List<String>,
+    val totalRamBytes: Long,
+    val logicalProcessors: Int,
+    val appVersionCode: Long,
+    val appVersionName: String?,
+)
+
+data class SpeechBenchmarkCaseResult(
+    val modelId: String,
+    val displayName: String,
+    val version: String,
+    val revision: Long,
+    val manifestDigest: String,
+    val runtimeModelType: String?,
+    val quantization: String?,
+    val performanceProfile: String,
+    val requestedThreads: Int?,
+    val effectiveThreads: Int,
+    val vadThreshold: Float,
+    val vadMinSilenceSeconds: Float,
+    val vadMinSpeechSeconds: Float,
+    val vadMaxSpeechSeconds: Float,
+    val audioDurationMs: Long,
+    val wallTimeMs: Long,
+    val cpuTimeMs: Long,
+    val rtf: Double,
+    val peakPssKb: Long,
+    val thermalStatusStart: Int?,
+    val thermalStatusMax: Int?,
+    val outputCharacterCount: Int,
+    val outputText: String,
+    val cer: Double?,
+    val wer: Double?,
+    val error: String? = null,
+)
+
+data class SpeechBenchmarkReport(
+    val schemaVersion: Int = 1,
+    val createdAt: String,
+    val recordingId: String,
+    val environment: SpeechBenchmarkEnvironment,
+    val referenceText: String?,
+    val cases: List<SpeechBenchmarkCaseResult>,
+) {
+    fun toJson(): String =
+        JSONObject()
+            .put("schemaVersion", schemaVersion)
+            .put("createdAt", createdAt)
+            .put("recordingId", recordingId)
+            .put(
+                "environment",
+                JSONObject()
+                    .put("manufacturer", environment.manufacturer)
+                    .put("model", environment.model)
+                    .put("hardware", environment.hardware)
+                    .put("socManufacturer", environment.socManufacturer)
+                    .put("socModel", environment.socModel)
+                    .put("sdkInt", environment.sdkInt)
+                    .put("supportedAbis", JSONArray(environment.supportedAbis))
+                    .put("totalRamBytes", environment.totalRamBytes)
+                    .put("logicalProcessors", environment.logicalProcessors)
+                    .put("appVersionCode", environment.appVersionCode)
+                    .put("appVersionName", environment.appVersionName),
+            )
+            .put("referenceText", referenceText)
+            .put(
+                "cases",
+                JSONArray().also { array ->
+                    cases.forEach { result ->
+                        array.put(
+                            JSONObject()
+                                .put("modelId", result.modelId)
+                                .put("displayName", result.displayName)
+                                .put("version", result.version)
+                                .put("revision", result.revision)
+                                .put("manifestDigest", result.manifestDigest)
+                                .put("runtimeModelType", result.runtimeModelType)
+                                .put("quantization", result.quantization)
+                                .put("performanceProfile", result.performanceProfile)
+                                .put("requestedThreads", result.requestedThreads)
+                                .put("effectiveThreads", result.effectiveThreads)
+                                .put("vadThreshold", result.vadThreshold)
+                                .put("vadMinSilenceSeconds", result.vadMinSilenceSeconds)
+                                .put("vadMinSpeechSeconds", result.vadMinSpeechSeconds)
+                                .put("vadMaxSpeechSeconds", result.vadMaxSpeechSeconds)
+                                .put("audioDurationMs", result.audioDurationMs)
+                                .put("wallTimeMs", result.wallTimeMs)
+                                .put("cpuTimeMs", result.cpuTimeMs)
+                                .put("rtf", result.rtf)
+                                .put("peakPssKb", result.peakPssKb)
+                                .put("thermalStatusStart", result.thermalStatusStart)
+                                .put("thermalStatusMax", result.thermalStatusMax)
+                                .put("outputCharacterCount", result.outputCharacterCount)
+                                .put("outputText", result.outputText)
+                                .put("cer", result.cer)
+                                .put("wer", result.wer)
+                                .put("error", result.error),
+                        )
+                    }
+                },
+            )
+            .toString(2)
+}
+
+class SpeechBenchmarkRunner(
+    private val application: Application,
+    private val pcmSourceResolver: PcmSourceResolver,
+    private val modelManager: ModelManager,
+    private val modelUseRegistry: ModelUseRegistry,
+    private val engineProvider: Stage8TranscriptionEngineProvider,
+    private val localSpeechSettings: () -> LocalSpeechSettings,
+) {
+    suspend fun runRealtimeComparison(
+        recordingId: String,
+        referenceText: String? = null,
+        modelIds: List<String> = Stage13ARealtimeModelIds.ALL,
+    ): SpeechBenchmarkReport {
+        require(recordingId.isNotBlank())
+        require(modelIds.isNotEmpty())
+        require(modelIds.distinct().size == modelIds.size)
+
+        val totalSampleCount =
+            pcmSourceResolver.resolvePcmSource(recordingId)?.use { source ->
+                require(source.sampleRateHz == CanonicalPcmProfile.SAMPLE_RATE_HZ)
+                require(source.channelCount == CanonicalPcmProfile.CHANNEL_COUNT)
+                source.totalSampleCount
+            } ?: error("canonical PCM source is unavailable")
+
+        val settings = localSpeechSettings()
+        val performance = settings.resolvePerformance()
+        val vad =
+            modelManager.activeModel(Stage8ModelIds.VAD)
+                ?: error("benchmark requires active VAD model")
+        val punctuation =
+            modelManager.activeModel(Stage8ModelIds.PUNCTUATION)
+                ?: error("benchmark requires active punctuation model")
+
+        require(vad.descriptor.kind == ModelKind.VAD)
+        require(punctuation.descriptor.kind == ModelKind.PUNCTUATION)
+
+        val results =
+            modelIds.map { modelId ->
+                val model = modelManager.activeModel(modelId)
+                if (model == null) {
+                    missingModelResult(
+                        modelId = modelId,
+                        totalSampleCount = totalSampleCount,
+                        settings = settings,
+                        effectiveThreads = performance.effectiveThreads,
+                    )
+                } else {
+                    runModelCase(
+                        recordingId = recordingId,
+                        totalSampleCount = totalSampleCount,
+                        referenceText = referenceText,
+                        vad = vad,
+                        asr = model,
+                        punctuation = punctuation,
+                        settings = settings,
+                        effectiveThreads = performance.effectiveThreads,
+                    )
+                }
+            }
+
+        return SpeechBenchmarkReport(
+            createdAt = Instant.now().toString(),
+            recordingId = recordingId,
+            environment = environment(),
+            referenceText = referenceText?.takeIf { it.isNotBlank() },
+            cases = results,
+        )
+    }
+
+    private suspend fun runModelCase(
+        recordingId: String,
+        totalSampleCount: Long,
+        referenceText: String?,
+        vad: ActiveModel,
+        asr: ActiveModel,
+        punctuation: ActiveModel,
+        settings: LocalSpeechSettings,
+        effectiveThreads: Int,
+    ): SpeechBenchmarkCaseResult {
+        require(asr.descriptor.kind == ModelKind.ASR_STREAMING)
+        val leases =
+            listOf(vad, asr, punctuation).map { model ->
+                modelUseRegistry.acquire(
+                    modelId = model.descriptor.modelId,
+                    version = model.descriptor.version,
+                    revision = model.descriptor.revision,
+                )
+            }
+
+        val audioDurationMs =
+            totalSampleCount * 1_000L / CanonicalPcmProfile.SAMPLE_RATE_HZ
+
+        try {
+            val measured =
+                measureResources {
+                    FastTranscriptionPipeline(
+                        pcmSourceResolver = pcmSourceResolver,
+                        vadEngineFactory =
+                            engineProvider.vadFactory(
+                                model = vad,
+                                numThreads = effectiveThreads,
+                                vadSettings = settings.vad,
+                            ),
+                        asrEngineFactory =
+                            engineProvider.firstPassFactory(
+                                model = asr,
+                                numThreads = effectiveThreads,
+                            ),
+                        punctuationEngineFactory =
+                            engineProvider.punctuationFactory(
+                                model = punctuation,
+                                numThreads = effectiveThreads,
+                            ),
+                    ).transcribe(recordingId)
+                }
+            val text =
+                measured.value.transcriptSegments.joinToString(separator = "") {
+                    it.finalText
+                }
+            val normalizedReference = referenceText?.takeIf { it.isNotBlank() }
+            return SpeechBenchmarkCaseResult(
+                modelId = asr.descriptor.modelId,
+                displayName = asr.descriptor.displayName,
+                version = asr.descriptor.version,
+                revision = asr.descriptor.revision,
+                manifestDigest = asr.manifestDigest,
+                runtimeModelType = asr.descriptor.runtimeModelType,
+                quantization = asr.descriptor.quantization,
+                performanceProfile = settings.performanceProfile.name,
+                requestedThreads = settings.requestedThreads,
+                effectiveThreads = effectiveThreads,
+                vadThreshold = settings.vad.threshold,
+                vadMinSilenceSeconds = settings.vad.minSilenceDurationSeconds,
+                vadMinSpeechSeconds = settings.vad.minSpeechDurationSeconds,
+                vadMaxSpeechSeconds = settings.vad.maxSpeechDurationSeconds,
+                audioDurationMs = audioDurationMs,
+                wallTimeMs = measured.wallTimeMs,
+                cpuTimeMs = measured.cpuTimeMs,
+                rtf =
+                    if (audioDurationMs > 0L) {
+                        measured.wallTimeMs.toDouble() / audioDurationMs.toDouble()
+                    } else {
+                        0.0
+                    },
+                peakPssKb = measured.peakPssKb,
+                thermalStatusStart = measured.thermalStatusStart,
+                thermalStatusMax = measured.thermalStatusMax,
+                outputCharacterCount = text.codePointCount(0, text.length),
+                outputText = text,
+                cer =
+                    normalizedReference?.let {
+                        speechBenchmarkCer(it, text)
+                    },
+                wer =
+                    normalizedReference?.let {
+                        speechBenchmarkWer(it, text)
+                    },
+            )
+        } catch (error: Throwable) {
+            return SpeechBenchmarkCaseResult(
+                modelId = asr.descriptor.modelId,
+                displayName = asr.descriptor.displayName,
+                version = asr.descriptor.version,
+                revision = asr.descriptor.revision,
+                manifestDigest = asr.manifestDigest,
+                runtimeModelType = asr.descriptor.runtimeModelType,
+                quantization = asr.descriptor.quantization,
+                performanceProfile = settings.performanceProfile.name,
+                requestedThreads = settings.requestedThreads,
+                effectiveThreads = effectiveThreads,
+                vadThreshold = settings.vad.threshold,
+                vadMinSilenceSeconds = settings.vad.minSilenceDurationSeconds,
+                vadMinSpeechSeconds = settings.vad.minSpeechDurationSeconds,
+                vadMaxSpeechSeconds = settings.vad.maxSpeechDurationSeconds,
+                audioDurationMs = audioDurationMs,
+                wallTimeMs = 0L,
+                cpuTimeMs = 0L,
+                rtf = 0.0,
+                peakPssKb = 0L,
+                thermalStatusStart = currentThermalStatus(),
+                thermalStatusMax = currentThermalStatus(),
+                outputCharacterCount = 0,
+                outputText = "",
+                cer = null,
+                wer = null,
+                error = error.message ?: error::class.java.simpleName,
+            )
+        } finally {
+            leases.asReversed().forEach { lease ->
+                runCatching { lease.close() }
+            }
+        }
+    }
+
+    private fun missingModelResult(
+        modelId: String,
+        totalSampleCount: Long,
+        settings: LocalSpeechSettings,
+        effectiveThreads: Int,
+    ): SpeechBenchmarkCaseResult =
+        SpeechBenchmarkCaseResult(
+            modelId = modelId,
+            displayName = modelId,
+            version = "",
+            revision = 0L,
+            manifestDigest = "",
+            runtimeModelType = null,
+            quantization = null,
+            performanceProfile = settings.performanceProfile.name,
+            requestedThreads = settings.requestedThreads,
+            effectiveThreads = effectiveThreads,
+            vadThreshold = settings.vad.threshold,
+            vadMinSilenceSeconds = settings.vad.minSilenceDurationSeconds,
+            vadMinSpeechSeconds = settings.vad.minSpeechDurationSeconds,
+            vadMaxSpeechSeconds = settings.vad.maxSpeechDurationSeconds,
+            audioDurationMs =
+                totalSampleCount * 1_000L / CanonicalPcmProfile.SAMPLE_RATE_HZ,
+            wallTimeMs = 0L,
+            cpuTimeMs = 0L,
+            rtf = 0.0,
+            peakPssKb = 0L,
+            thermalStatusStart = currentThermalStatus(),
+            thermalStatusMax = currentThermalStatus(),
+            outputCharacterCount = 0,
+            outputText = "",
+            cer = null,
+            wer = null,
+            error = "model is not active",
+        )
+
+    private suspend fun <T> measureResources(
+        block: suspend () -> T,
+    ): MeasuredValue<T> =
+        coroutineScope {
+            val peakPssKb = AtomicLong(Debug.getPss())
+            val startThermal = currentThermalStatus()
+            val maxThermal = AtomicInteger(startThermal ?: -1)
+            val sampler =
+                launch(Dispatchers.Default) {
+                    while (isActive) {
+                        peakPssKb.accumulateAndGet(Debug.getPss(), ::maxOf)
+                        currentThermalStatus()?.let { thermal ->
+                            maxThermal.accumulateAndGet(thermal, ::maxOf)
+                        }
+                        delay(RESOURCE_SAMPLE_INTERVAL_MS)
+                    }
+                }
+
+            val wallStart = SystemClock.elapsedRealtimeNanos()
+            val cpuStart = android.os.Process.getElapsedCpuTime()
+            try {
+                val value = block()
+                val wallTimeMs =
+                    (SystemClock.elapsedRealtimeNanos() - wallStart) / 1_000_000L
+                val cpuTimeMs =
+                    android.os.Process.getElapsedCpuTime() - cpuStart
+                peakPssKb.accumulateAndGet(Debug.getPss(), ::maxOf)
+                currentThermalStatus()?.let { thermal ->
+                    maxThermal.accumulateAndGet(thermal, ::maxOf)
+                }
+                MeasuredValue(
+                    value = value,
+                    wallTimeMs = wallTimeMs,
+                    cpuTimeMs = cpuTimeMs,
+                    peakPssKb = peakPssKb.get(),
+                    thermalStatusStart = startThermal,
+                    thermalStatusMax =
+                        maxThermal.get().takeIf { it >= 0 },
+                )
+            } finally {
+                sampler.cancelAndJoin()
+            }
+        }
+
+    private fun environment(): SpeechBenchmarkEnvironment {
+        val activityManager =
+            application.getSystemService(ActivityManager::class.java)
+        val memoryInfo = ActivityManager.MemoryInfo()
+        activityManager?.getMemoryInfo(memoryInfo)
+
+        val packageInfo =
+            application.packageManager.getPackageInfo(
+                application.packageName,
+                0,
+            )
+
+        return SpeechBenchmarkEnvironment(
+            manufacturer = Build.MANUFACTURER,
+            model = Build.MODEL,
+            hardware = Build.HARDWARE,
+            socManufacturer =
+                if (Build.VERSION.SDK_INT >= 31) Build.SOC_MANUFACTURER else null,
+            socModel =
+                if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL else null,
+            sdkInt = Build.VERSION.SDK_INT,
+            supportedAbis = Build.SUPPORTED_ABIS.toList(),
+            totalRamBytes = memoryInfo.totalMem,
+            logicalProcessors = Runtime.getRuntime().availableProcessors().coerceAtLeast(1),
+            appVersionCode = PackageInfoCompat.getLongVersionCode(packageInfo),
+            appVersionName = packageInfo.versionName,
+        )
+    }
+
+    private fun currentThermalStatus(): Int? =
+        if (Build.VERSION.SDK_INT >= 29) {
+            application.getSystemService(PowerManager::class.java)?.currentThermalStatus
+        } else {
+            null
+        }
+
+    private data class MeasuredValue<T>(
+        val value: T,
+        val wallTimeMs: Long,
+        val cpuTimeMs: Long,
+        val peakPssKb: Long,
+        val thermalStatusStart: Int?,
+        val thermalStatusMax: Int?,
+    )
+
+    private companion object {
+        const val RESOURCE_SAMPLE_INTERVAL_MS = 250L
+    }
+}
+
+internal fun speechBenchmarkCer(
+    reference: String,
+    hypothesis: String,
+): Double? {
+    val referenceUnits = normalizeCerUnits(reference)
+    if (referenceUnits.isEmpty()) return null
+    val hypothesisUnits = normalizeCerUnits(hypothesis)
+    return editDistance(referenceUnits, hypothesisUnits).toDouble() /
+        referenceUnits.size.toDouble()
+}
+
+internal fun speechBenchmarkWer(
+    reference: String,
+    hypothesis: String,
+): Double? {
+    val referenceWords = normalizeWerWords(reference)
+    if (referenceWords.isEmpty()) return null
+    val hypothesisWords = normalizeWerWords(hypothesis)
+    return editDistance(referenceWords, hypothesisWords).toDouble() /
+        referenceWords.size.toDouble()
+}
+
+private fun normalizeCerUnits(value: String): List<Int> =
+    value.lowercase(Locale.ROOT)
+        .codePoints()
+        .filter { codePoint ->
+            !Character.isWhitespace(codePoint) &&
+                !isPunctuation(codePoint)
+        }
+        .toArray()
+        .toList()
+
+private fun normalizeWerWords(value: String): List<String> =
+    buildString {
+        value.lowercase(Locale.ROOT).codePoints().forEach { codePoint ->
+            if (Character.isWhitespace(codePoint) || isPunctuation(codePoint)) {
+                append(' ')
+            } else {
+                appendCodePoint(codePoint)
+            }
+        }
+    }
+        .trim()
+        .split(Regex("\\s+"))
+        .filter { it.isNotBlank() }
+
+private fun isPunctuation(codePoint: Int): Boolean =
+    when (Character.getType(codePoint)) {
+        Character.CONNECTOR_PUNCTUATION.toInt(),
+        Character.DASH_PUNCTUATION.toInt(),
+        Character.START_PUNCTUATION.toInt(),
+        Character.END_PUNCTUATION.toInt(),
+        Character.INITIAL_QUOTE_PUNCTUATION.toInt(),
+        Character.FINAL_QUOTE_PUNCTUATION.toInt(),
+        Character.OTHER_PUNCTUATION.toInt(),
+        -> true
+        else -> false
+    }
+
+private fun <T> editDistance(
+    reference: List<T>,
+    hypothesis: List<T>,
+): Int {
+    if (reference.isEmpty()) return hypothesis.size
+    if (hypothesis.isEmpty()) return reference.size
+
+    var previous = IntArray(hypothesis.size + 1) { it }
+    var current = IntArray(hypothesis.size + 1)
+    reference.forEachIndexed { referenceIndex, referenceValue ->
+        current[0] = referenceIndex + 1
+        hypothesis.forEachIndexed { hypothesisIndex, hypothesisValue ->
+            val substitutionCost =
+                if (referenceValue == hypothesisValue) 0 else 1
+            current[hypothesisIndex + 1] =
+                minOf(
+                    previous[hypothesisIndex + 1] + 1,
+                    current[hypothesisIndex] + 1,
+                    previous[hypothesisIndex] + substitutionCost,
+                )
+        }
+        val swap = previous
+        previous = current
+        current = swap
+    }
+    return previous[hypothesis.size]
+}
