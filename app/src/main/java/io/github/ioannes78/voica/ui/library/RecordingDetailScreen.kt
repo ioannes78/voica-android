@@ -47,8 +47,8 @@ import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.DiarizationBenchmarkRunner
 import io.github.ioannes78.voica.DiarizationRunState
 import io.github.ioannes78.voica.R
-import io.github.ioannes78.voica.TranscriptionRunState
 import io.github.ioannes78.voica.SpeechBenchmarkRunner
+import io.github.ioannes78.voica.TranscriptionRunState
 import io.github.ioannes78.voica.database.AudioAssetRole
 import io.github.ioannes78.voica.database.AudioIntegrityState
 import io.github.ioannes78.voica.database.AudioValidationState
@@ -123,6 +123,10 @@ fun RecordingDetailScreen(
     initialDestination: RecordingDetailDestination = RecordingDetailDestination.PLAYBACK,
     onDestinationChanged: (RecordingDetailDestination?) -> Unit = {},
 ) {
+    // Benchmark runners remain source-compatible during QA5 but are intentionally not rendered.
+    @Suppress("UNUSED_VARIABLE") val ignoredSpeechBenchmarkRunner = speechBenchmarkRunner
+    @Suppress("UNUSED_VARIABLE") val ignoredDiarizationBenchmarkRunner = diarizationBenchmarkRunner
+
     var selectedTab by rememberSaveable(recording.id, initialDestination) {
         mutableStateOf(initialDestination.toDetailTab())
     }
@@ -378,8 +382,8 @@ fun RecordingDetailScreen(
                 )
                 Text(
                     (recording.mediaDurationMs ?: recording.deviceReportedDurationMs)
-                    ?.let(::formatDurationMs)
-                    ?: "--",
+                        ?.let(::formatDurationMs)
+                        ?: "--",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -395,60 +399,16 @@ fun RecordingDetailScreen(
                     expanded = moreMenuExpanded,
                     onDismissRequest = { moreMenuExpanded = false },
                 ) {
-                    if (selectedTab == DetailTab.TRANSCRIPT) {
-                        if (!canonicalReady) {
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        if (activeCanonicalJob == null) {
-                                            stringResource(R.string.local_standard_audio_generate)
-                                        } else {
-                                            stringResource(R.string.local_standard_audio_cancel)
-                                        },
-                                    )
-                                },
-                                onClick = {
-                                    moreMenuExpanded = false
-                                    if (activeCanonicalJob == null) {
-                                        onGenerateCanonical(recording.id)
-                                    } else {
-                                        onCancelCanonical(recording.id)
-                                    }
-                                },
-                            )
-                        } else {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.transcription_start_fast)) },
-                                enabled = !transcriptionBusy && !diarizationBusy,
-                                onClick = {
-                                    moreMenuExpanded = false
-                                    transcriptionViewModel.startFast(recording.id)
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        stringResource(
-                                            R.string.transcription_start_high_quality,
-                                        ),
-                                    )
-                                },
-                                enabled = !transcriptionBusy && !diarizationBusy,
-                                onClick = {
-                                    moreMenuExpanded = false
-                                    transcriptionViewModel.startHighQuality(recording.id)
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.diarization_start)) },
-                                enabled = !transcriptionBusy && !diarizationBusy,
-                                onClick = {
-                                    moreMenuExpanded = false
-                                    diarizationViewModel.start(recording.id)
-                                },
-                            )
-                            HorizontalDivider()
-                        }
+                    if (selectedTab == DetailTab.TRANSCRIPT && canonicalReady) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.diarization_start)) },
+                            enabled = !transcriptionBusy && !diarizationBusy,
+                            onClick = {
+                                moreMenuExpanded = false
+                                diarizationViewModel.start(recording.id)
+                            },
+                        )
+                        HorizontalDivider()
                     }
                     DropdownMenuItem(
                         text = { Text("录音信息") },
@@ -604,6 +564,42 @@ fun RecordingDetailScreen(
                                 )
                             }
                         }
+                        item(key = "offline-transcription-action") {
+                            Card(modifier = Modifier.fillMaxWidth()) {
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    Text(
+                                        "离线转写",
+                                        style = MaterialTheme.typography.titleMedium,
+                                    )
+                                    Text(
+                                        "使用“设置 → 本地语音识别 → 离线转写”中选择的 SenseVoice 或 Qwen3-ASR。",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    if (!canonicalReady) {
+                                        if (activeCanonicalJob == null) {
+                                            Button(onClick = { onGenerateCanonical(recording.id) }) {
+                                                Text(stringResource(R.string.local_standard_audio_generate))
+                                            }
+                                        } else {
+                                            OutlinedButton(onClick = { onCancelCanonical(recording.id) }) {
+                                                Text(stringResource(R.string.local_standard_audio_cancel))
+                                            }
+                                        }
+                                    } else {
+                                        Button(
+                                            enabled = !transcriptionBusy && !diarizationBusy,
+                                            onClick = { transcriptionViewModel.startOffline(recording.id) },
+                                        ) {
+                                            Text("开始离线转写")
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         item(key = "transcript-versions") {
                             if (versions.isNotEmpty()) {
                                 TranscriptVersionListCard(
@@ -617,7 +613,7 @@ fun RecordingDetailScreen(
                                 )
                             } else {
                                 Text(
-                                    "尚无转写，使用右上角菜单开始转写。",
+                                    "尚无转写，点击上方“开始离线转写”。",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -649,7 +645,8 @@ fun RecordingDetailScreen(
                                 }
                             }
                             item(key = "transcript-follow") {
-                                if (document?.timeline != null &&
+                                if (
+                                    document?.timeline != null &&
                                     document.compatiblePlaybackAssetId == null
                                 ) {
                                     Text(
@@ -815,34 +812,6 @@ fun RecordingDetailScreen(
                                 onDelete = { deleteOpen = true },
                             )
                         }
-                        if (speechBenchmarkRunner != null) {
-                            item(key = "speech-benchmark") {
-                                SpeechBenchmarkCard(
-                                    recordingId = recording.id,
-                                    recordingName = recording.displayName,
-                                    canonicalReady = canonicalReady,
-                                    blocked =
-                                        transcriptionBusy ||
-                                            diarizationBusy ||
-                                            deviceRecordingActive,
-                                    runner = speechBenchmarkRunner,
-                                )
-                            }
-                        }
-                        if (diarizationBenchmarkRunner != null) {
-                            item(key = "diarization-benchmark") {
-                                DiarizationBenchmarkCard(
-                                    recordingId = recording.id,
-                                    recordingName = recording.displayName,
-                                    canonicalReady = canonicalReady,
-                                    blocked =
-                                        transcriptionBusy ||
-                                            diarizationBusy ||
-                                            deviceRecordingActive,
-                                    runner = diarizationBenchmarkRunner,
-                                )
-                            }
-                        }
                     }
                 }
             }
@@ -916,69 +885,6 @@ fun RecordingDetailScreen(
                 }
             },
         )
-    }
-}
-
-@Composable
-private fun TranscriptionActionsCard(
-    canonicalReady: Boolean,
-    canonicalBusy: Boolean,
-    transcriptionBusy: Boolean,
-    diarizationBusy: Boolean,
-    onGenerateCanonical: () -> Unit,
-    onCancelCanonical: () -> Unit,
-    onFast: () -> Unit,
-    onHighQuality: () -> Unit,
-    onDiarize: () -> Unit,
-) {
-    var expanded by rememberSaveable { mutableStateOf(false) }
-
-    if (!canonicalReady) {
-        if (canonicalBusy) {
-            OutlinedButton(onClick = onCancelCanonical) {
-                Text(stringResource(R.string.local_standard_audio_cancel))
-            }
-        } else {
-            Button(onClick = onGenerateCanonical) {
-                Text(stringResource(R.string.local_standard_audio_generate))
-            }
-        }
-        return
-    }
-
-    Column {
-        OutlinedButton(
-            enabled = !transcriptionBusy && !diarizationBusy,
-            onClick = { expanded = true },
-        ) {
-            Text("转写操作")
-        }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-        ) {
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.transcription_start_fast)) },
-                onClick = {
-                    expanded = false
-                    onFast()
-                },
-            )
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.transcription_start_high_quality)) },
-                onClick = {
-                    expanded = false
-                    onHighQuality()
-                },
-            )
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.diarization_start)) },
-                onClick = {
-                    expanded = false
-                    onDiarize()
-                },
-            )
-        }
     }
 }
 
@@ -1136,8 +1042,8 @@ internal fun shouldShowDiarizationStatus(
         -> false
     }
 
-private const val TRANSCRIPT_ROW_START_INDEX = 6
-private const val TRANSCRIPT_READING_ROW_START_INDEX = 4
+private const val TRANSCRIPT_ROW_START_INDEX = 7
+private const val TRANSCRIPT_READING_ROW_START_INDEX = 5
 
 private val ACTIVE_DERIVATION_STATES = setOf(
     "PREPARING",
