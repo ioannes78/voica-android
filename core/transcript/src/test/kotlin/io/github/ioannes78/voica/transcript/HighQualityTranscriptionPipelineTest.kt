@@ -104,6 +104,7 @@ class HighQualityTranscriptionPipelineTest {
     fun externalPunctuationIsAppliedWhenOfflineModelDeclaresNone() = runBlocking {
         val resolver = FakeResolver(ShortArray(8) { (it + 1).toShort() })
         val punctuation = FakePunctuationEngine()
+        val phases = mutableListOf<TranscriptionPhase>()
 
         val pipeline =
             HighQualityTranscriptionPipeline(
@@ -123,16 +124,22 @@ class HighQualityTranscriptionPipelineTest {
                 readChunkSamples = 4,
             )
 
-        val result = pipeline.transcribe("recording-1")
+        val result =
+            pipeline.transcribe(
+                "recording-1",
+                ProgressListener { progress -> phases += progress.phase },
+            )
 
         assertEquals("offline-1。", result.transcriptSegments.single().finalText)
         assertTrue(punctuation.closed)
+        assertTrue(TranscriptionPhase.PUNCTUATION in phases)
     }
 
     @Test
     fun nativePunctuationNeverRunsExternalPunctuationAgain() = runBlocking {
         val resolver = FakeResolver(ShortArray(8) { (it + 1).toShort() })
         val punctuationOpened = booleanArrayOf(false)
+        val phases = mutableListOf<TranscriptionPhase>()
 
         val pipeline =
             HighQualityTranscriptionPipeline(
@@ -156,10 +163,15 @@ class HighQualityTranscriptionPipelineTest {
                 readChunkSamples = 4,
             )
 
-        val result = pipeline.transcribe("recording-1")
+        val result =
+            pipeline.transcribe(
+                "recording-1",
+                ProgressListener { progress -> phases += progress.phase },
+            )
 
         assertEquals("offline-1。", result.transcriptSegments.single().finalText)
         assertFalse(punctuationOpened[0])
+        assertFalse(TranscriptionPhase.PUNCTUATION in phases)
     }
 
     @Test
