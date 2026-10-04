@@ -53,8 +53,11 @@ interface SearchDao {
     @Query(
         """
         SELECT d.* FROM search_documents AS d
-        INNER JOIN search_documents_fts AS f ON d.documentId = f.documentId
-        WHERE search_documents_fts MATCH :matchQuery
+        WHERE d.documentId IN (
+            SELECT documentId
+            FROM search_documents_fts
+            WHERE search_documents_fts MATCH :matchQuery
+        )
           AND (:filterByType = 0 OR d.documentType IN (:documentTypes))
         ORDER BY d.updatedAtMs DESC, d.rowId DESC
         LIMIT :limit OFFSET :offset

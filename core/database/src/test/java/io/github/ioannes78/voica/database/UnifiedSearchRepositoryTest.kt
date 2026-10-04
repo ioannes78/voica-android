@@ -28,6 +28,26 @@ class UnifiedSearchRepositoryTest {
                 VoicaDatabase::class.java,
             ).allowMainThreadQueries().build()
         repository = UnifiedSearchRepository(database, nowMs = { 1000L })
+        runBlocking {
+            repository.upsert(
+                SearchDocumentDraft(
+                    documentId = "tx:1",
+                    documentType = SearchDocumentTypeValue.TRANSCRIPT_UNIT,
+                    displayTitle = "客户访谈",
+                    displayText = "今天讨论供应链风险和 OpenAI API 接入计划。",
+                    updatedAtMs = 1L,
+                ),
+            )
+            repository.upsert(
+                SearchDocumentDraft(
+                    documentId = "summary:1",
+                    documentType = SearchDocumentTypeValue.SUMMARY_ITEM,
+                    displayTitle = "行动项",
+                    displayText = "项目进度下周复盘。",
+                    updatedAtMs = 2L,
+                ),
+            )
+        }
     }
 
     @After
@@ -36,42 +56,39 @@ class UnifiedSearchRepositoryTest {
     }
 
     @Test
-    fun chineseAndMixedQueriesHitRealFts4Rows() = runBlocking {
-        repository.upsert(
-            SearchDocumentDraft(
-                documentId = "tx:1",
-                documentType = SearchDocumentTypeValue.TRANSCRIPT_UNIT,
-                displayTitle = "客户访谈",
-                displayText = "今天讨论供应链风险和 OpenAI API 接入计划。",
-                updatedAtMs = 1L,
-            ),
-        )
-        repository.upsert(
-            SearchDocumentDraft(
-                documentId = "summary:1",
-                documentType = SearchDocumentTypeValue.SUMMARY_ITEM,
-                displayTitle = "行动项",
-                displayText = "项目进度下周复盘。",
-                updatedAtMs = 2L,
-            ),
-        )
-
+    fun chineseContinuousPhraseMatchesTranscript() = runBlocking {
         assertEquals(
             listOf("tx:1"),
             repository.search("供应链").map { it.documentId },
         )
+    }
+
+    @Test
+    fun chineseMultipleTermsMatchTranscript() = runBlocking {
         assertEquals(
             listOf("tx:1"),
             repository.search("供应链 风险").map { it.documentId },
         )
+    }
+
+    @Test
+    fun chineseEnglishMixedQueryMatchesTranscript() = runBlocking {
         assertEquals(
             listOf("tx:1"),
             repository.search("供应链 OpenAI").map { it.documentId },
         )
+    }
+
+    @Test
+    fun chineseSummaryBodyMatchesSummaryItem() = runBlocking {
         assertEquals(
             listOf("summary:1"),
             repository.search("项目进度").map { it.documentId },
         )
+    }
+
+    @Test
+    fun documentTypeFilterRestrictsEnglishHit() = runBlocking {
         assertEquals(
             listOf("tx:1"),
             repository.search(
@@ -95,7 +112,7 @@ class UnifiedSearchRepositoryTest {
                 documentType = SearchDocumentTypeValue.TRANSCRIPT_UNIT,
                 displayTitle = "安全测试",
                 displayText = "风险 AND OR 测试",
-                updatedAtMs = 1L,
+                updatedAtMs = 3L,
             ),
         )
 
