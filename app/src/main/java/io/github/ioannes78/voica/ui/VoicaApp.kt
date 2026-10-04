@@ -250,6 +250,7 @@ fun VoicaApp(
             diarizationCoordinator,
             diarizationRepository,
             recordingLibraryRepository,
+            stage12CContentRepository,
         ) {
             TranscriptionViewModel.Factory(
                 transcriptionCoordinator,
@@ -257,6 +258,7 @@ fun VoicaApp(
                 diarizationCoordinator,
                 diarizationRepository,
                 recordingLibraryRepository,
+                stage12CContentRepository,
             )
         },
     )
@@ -291,12 +293,14 @@ fun VoicaApp(
             aiSummaryRepository,
             providerProfileStore,
             providerAdapterRegistry,
+            stage12CContentRepository,
         ) {
             AiSummaryViewModel.Factory(
                 coordinator = aiSummaryCoordinator,
                 repository = aiSummaryRepository,
                 profileStore = providerProfileStore,
                 providerRegistry = providerAdapterRegistry,
+                contentRepository = stage12CContentRepository,
             )
         },
     )

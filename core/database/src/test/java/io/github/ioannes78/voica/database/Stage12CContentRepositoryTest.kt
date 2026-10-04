@@ -92,6 +92,61 @@ class Stage12CContentRepositoryTest {
         )
     }
 
+    @Test
+    fun currentVersionSelectionPersistsAndFallsBackAfterDelete() = runBlocking {
+        insertRecording()
+        insertCompletedTranscription()
+        insertCompletedTranscription(
+            id = SECOND_TRANSCRIPTION_ID,
+            createdAtMs = 6L,
+            completedAtMs = 7L,
+        )
+
+        repository.setCurrentTranscriptionVersion(
+            recordingId = RECORDING_ID,
+            transcriptionId = TRANSCRIPTION_ID,
+        )
+        assertEquals(
+            TRANSCRIPTION_ID,
+            repository.resolveCurrentTranscriptionId(RECORDING_ID),
+        )
+
+        val deleted = repository.deleteTranscriptionVersion(TRANSCRIPTION_ID)
+        assertTrue(deleted is ContentVersionDeleteResult.Deleted)
+        assertEquals(
+            SECOND_TRANSCRIPTION_ID,
+            repository.resolveCurrentTranscriptionId(RECORDING_ID),
+        )
+    }
+
+    @Test
+    fun currentSummarySelectionPersistsAndFallsBackAfterDelete() = runBlocking {
+        insertRecording()
+        insertCompletedTranscription()
+        insertCompletedSummary()
+        insertCompletedSummary(
+            id = SECOND_SUMMARY_ID,
+            createdAtMs = 8L,
+            completedAtMs = 9L,
+        )
+
+        repository.setCurrentAiSummaryVersion(
+            recordingId = RECORDING_ID,
+            summaryId = SUMMARY_ID,
+        )
+        assertEquals(
+            SUMMARY_ID,
+            repository.resolveCurrentAiSummaryId(RECORDING_ID),
+        )
+
+        val deleted = repository.deleteAiSummaryVersion(SUMMARY_ID)
+        assertTrue(deleted is ContentVersionDeleteResult.Deleted)
+        assertEquals(
+            SECOND_SUMMARY_ID,
+            repository.resolveCurrentAiSummaryId(RECORDING_ID),
+        )
+    }
+
     private suspend fun insertRecording() {
         database.recordingDao().insertRecordingIgnore(
             RecordingEntity(
@@ -112,10 +167,14 @@ class Stage12CContentRepositoryTest {
         )
     }
 
-    private suspend fun insertCompletedTranscription() {
+    private suspend fun insertCompletedTranscription(
+        id: String = TRANSCRIPTION_ID,
+        createdAtMs: Long = 2L,
+        completedAtMs: Long = 3L,
+    ) {
         database.transcriptionDao().insertTranscription(
             TranscriptionEntity(
-                id = TRANSCRIPTION_ID,
+                id = id,
                 recordingId = RECORDING_ID,
                 mode = TranscriptionModeValue.FAST,
                 state = TranscriptionStateValue.COMPLETED,
@@ -139,20 +198,24 @@ class Stage12CContentRepositoryTest {
                 configSnapshot = "{}",
                 modelManifestDigest =
                     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                createdAtMs = 2L,
-                startedAtMs = 2L,
-                updatedAtMs = 3L,
-                completedAtMs = 3L,
+                createdAtMs = createdAtMs,
+                startedAtMs = createdAtMs,
+                updatedAtMs = completedAtMs,
+                completedAtMs = completedAtMs,
                 errorCode = null,
                 errorMessage = null,
             ),
         )
     }
 
-    private suspend fun insertCompletedSummary() {
+    private suspend fun insertCompletedSummary(
+        id: String = SUMMARY_ID,
+        createdAtMs: Long = 4L,
+        completedAtMs: Long = 5L,
+    ) {
         database.aiSummaryDao().insertSummary(
             AiSummaryEntity(
-                id = SUMMARY_ID,
+                id = id,
                 recordingId = RECORDING_ID,
                 transcriptionId = TRANSCRIPTION_ID,
                 inputMode = AiSummaryInputModeValue.TRANSCRIPT_TEXT,
@@ -170,10 +233,10 @@ class Stage12CContentRepositoryTest {
                 structuredPayloadJson = """{"schemaVersion":1}""",
                 displayText = "summary",
                 status = AiSummaryStateValue.COMPLETED,
-                createdAtMs = 4L,
-                startedAtMs = 4L,
-                updatedAtMs = 5L,
-                completedAtMs = 5L,
+                createdAtMs = createdAtMs,
+                startedAtMs = createdAtMs,
+                updatedAtMs = completedAtMs,
+                completedAtMs = completedAtMs,
                 errorCode = null,
                 sanitizedErrorMessage = null,
                 requestConfigSnapshot = "{}",
@@ -188,6 +251,8 @@ class Stage12CContentRepositoryTest {
     private companion object {
         const val RECORDING_ID = "recording-stage12c"
         const val TRANSCRIPTION_ID = "transcription-stage12c"
+        const val SECOND_TRANSCRIPTION_ID = "transcription-stage12c-2"
         const val SUMMARY_ID = "summary-stage12c"
+        const val SECOND_SUMMARY_ID = "summary-stage12c-2"
     }
 }

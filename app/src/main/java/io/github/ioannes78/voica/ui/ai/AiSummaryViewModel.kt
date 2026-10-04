@@ -21,6 +21,7 @@ import io.github.ioannes78.voica.database.AiSummaryModeValue
 import io.github.ioannes78.voica.database.AiSummaryRepository
 import io.github.ioannes78.voica.database.AiSummaryStateValue
 import io.github.ioannes78.voica.database.SaveAiCustomTemplateRequest
+import io.github.ioannes78.voica.database.Stage12CContentRepository
 import io.github.ioannes78.voica.llm.ProviderAdapterRegistry
 import io.github.ioannes78.voica.llm.ProviderProfileStore
 import java.net.URI
@@ -54,6 +55,7 @@ class AiSummaryViewModel(
     private val repository: AiSummaryRepository,
     private val profileStore: ProviderProfileStore,
     private val providerRegistry: ProviderAdapterRegistry,
+    private val contentRepository: Stage12CContentRepository,
 ) : ViewModel() {
     val runState: StateFlow<AiSummaryRunState> = coordinator.state
 
@@ -135,8 +137,14 @@ class AiSummaryViewModel(
                     .collectLatest { summaries ->
                         mutableHistory.value = summaries
                         val currentId = mutableSelected.value?.entity?.id
+                        val recordingId = summaries.firstOrNull()?.recordingId
+                        val persistedId =
+                            recordingId?.let {
+                                contentRepository.resolveCurrentAiSummaryId(it)
+                            }
                         val target =
                             summaries.firstOrNull { it.id == currentId }
+                                ?: summaries.firstOrNull { it.id == persistedId }
                                 ?: summaries.firstOrNull()
                         if (target == null) {
                             mutableSelected.value = null
@@ -333,6 +341,12 @@ class AiSummaryViewModel(
                 mutableHistory.value.firstOrNull { it.id == summaryId }
                     ?: repository.find(summaryId)
                     ?: return@launch
+            if (entity.status == AiSummaryStateValue.COMPLETED) {
+                contentRepository.setCurrentAiSummaryVersion(
+                    recordingId = entity.recordingId,
+                    summaryId = entity.id,
+                )
+            }
             loadDocument(entity)
         }
     }
@@ -424,6 +438,7 @@ class AiSummaryViewModel(
         private val repository: AiSummaryRepository,
         private val profileStore: ProviderProfileStore,
         private val providerRegistry: ProviderAdapterRegistry,
+        private val contentRepository: Stage12CContentRepository,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
@@ -432,6 +447,7 @@ class AiSummaryViewModel(
                 repository = repository,
                 profileStore = profileStore,
                 providerRegistry = providerRegistry,
+                contentRepository = contentRepository,
             ) as T
     }
 }

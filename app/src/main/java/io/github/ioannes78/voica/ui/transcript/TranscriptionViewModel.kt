@@ -11,6 +11,7 @@ import io.github.ioannes78.voica.TranscriptionRunState
 import io.github.ioannes78.voica.database.DiarizationRepository
 import io.github.ioannes78.voica.database.DiarizationStateValue
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
+import io.github.ioannes78.voica.database.Stage12CContentRepository
 import io.github.ioannes78.voica.database.TranscriptSpeakerAlignmentStateValue
 import io.github.ioannes78.voica.database.TranscriptionRepository
 import io.github.ioannes78.voica.database.TranscriptionStateValue
@@ -96,6 +97,7 @@ class TranscriptionViewModel(
     private val diarizationCoordinator: DiarizationCoordinator,
     private val diarizationRepository: DiarizationRepository,
     private val recordingLibraryRepository: RecordingLibraryRepository,
+    private val contentRepository: Stage12CContentRepository,
 ) : ViewModel() {
     val runState: StateFlow<TranscriptionRunState> = coordinator.state
 
@@ -120,6 +122,10 @@ class TranscriptionViewModel(
             coordinator.state.collectLatest { state ->
                 when (state) {
                     is TranscriptionRunState.Completed -> {
+                        contentRepository.setCurrentTranscriptionVersion(
+                            state.recordingId,
+                            state.transcriptionId,
+                        )
                         val autoStartDiarization =
                             autoDiarizationRequests.consumeCompleted(state.recordingId)
                         requestDocumentLoad(
@@ -227,10 +233,22 @@ class TranscriptionViewModel(
     }
 
     fun selectVersion(transcriptionId: String) {
-        requestDocumentLoad(
-            transcriptionId = transcriptionId,
-            clearCurrent = true,
-        )
+        viewModelScope.launch {
+            val recordingId =
+                mutableVersions.value
+                    .firstOrNull { it.transcriptionId == transcriptionId }
+                    ?.recordingId
+                    ?: repository.find(transcriptionId)?.recordingId
+                    ?: return@launch
+            contentRepository.setCurrentTranscriptionVersion(
+                recordingId = recordingId,
+                transcriptionId = transcriptionId,
+            )
+            requestDocumentLoad(
+                transcriptionId = transcriptionId,
+                clearCurrent = true,
+            )
+        }
     }
 
     fun renameSpeaker(
@@ -462,13 +480,17 @@ class TranscriptionViewModel(
                     latest = index == 0,
                 )
             }
+        val preferredId =
+            contentRepository.resolveCurrentTranscriptionId(recordingId)
+                ?.takeIf { id -> completed.any { it.id == id } }
+                ?: completed.first().id
         val currentDocument = mutableDocument.value
-        val currentStillValid =
+        val currentStillPreferred =
             currentDocument?.recordingId == recordingId &&
-                completed.any { it.id == currentDocument.transcriptionId }
-        if (!currentStillValid) {
+                currentDocument.transcriptionId == preferredId
+        if (!currentStillPreferred) {
             requestDocumentLoad(
-                transcriptionId = completed.first().id,
+                transcriptionId = preferredId,
                 clearCurrent = true,
             )
         }
@@ -494,6 +516,7 @@ class TranscriptionViewModel(
         private val diarizationCoordinator: DiarizationCoordinator,
         private val diarizationRepository: DiarizationRepository,
         private val recordingLibraryRepository: RecordingLibraryRepository,
+        private val contentRepository: Stage12CContentRepository,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
@@ -503,6 +526,7 @@ class TranscriptionViewModel(
                 diarizationCoordinator = diarizationCoordinator,
                 diarizationRepository = diarizationRepository,
                 recordingLibraryRepository = recordingLibraryRepository,
+                contentRepository = contentRepository,
             ) as T
     }
 }

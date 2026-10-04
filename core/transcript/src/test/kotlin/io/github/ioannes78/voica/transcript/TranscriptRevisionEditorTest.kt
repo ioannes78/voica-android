@@ -105,6 +105,51 @@ class TranscriptRevisionEditorTest {
         assertTrue(result.single().isUserModified)
     }
 
+    @Test
+    fun arrangeForReadingMergesBrokenSentenceButNeverCrossesSpeakerBoundary() {
+        val source =
+            listOf(
+                paragraph(
+                    "今天先讨论这个",
+                    listOf("SEGMENT:1"),
+                    0,
+                    10_000,
+                    "speaker-1",
+                ),
+                paragraph(
+                    "项目的技术方案。",
+                    listOf("SEGMENT:2"),
+                    10_000,
+                    20_000,
+                    "speaker-1",
+                ),
+                paragraph(
+                    "下一项由我来说明",
+                    listOf("SEGMENT:3"),
+                    20_000,
+                    30_000,
+                    "speaker-2",
+                ),
+                paragraph(
+                    "补充内容。",
+                    listOf("SEGMENT:4"),
+                    30_000,
+                    40_000,
+                    null,
+                ),
+            )
+
+        val result = TranscriptRevisionEditor.arrangeForReading(source)
+
+        assertEquals(3, result.size)
+        assertEquals("今天先讨论这个项目的技术方案。", result[0].text)
+        assertEquals("speaker-1", result[0].speakerId)
+        assertEquals("下一项由我来说明", result[1].text)
+        assertEquals("speaker-2", result[1].speakerId)
+        assertEquals("补充内容。", result[2].text)
+        assertNull(result[2].speakerId)
+    }
+
     private fun paragraph(
         text: String,
         refs: List<String>,

@@ -29,7 +29,7 @@ object CjkSearchTokenizer {
                     quote(group.text) + "*"
                 }
             }
-        return expressions.joinToString(" AND ")
+        return expressions.joinToString(" ")
     }
 
     private fun lexicalGroups(input: String): List<LexicalGroup> {

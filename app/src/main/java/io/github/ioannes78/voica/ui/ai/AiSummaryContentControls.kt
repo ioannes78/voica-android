@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
@@ -47,10 +48,12 @@ fun AiSummaryRevisionBody(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (document.overview.isNotBlank()) {
-            Text(
-                document.overview,
-                style = MaterialTheme.typography.bodyMedium,
-            )
+            SelectionContainer {
+                Text(
+                    document.overview,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
         }
         document.sections.forEach { section ->
             if (section.items.isNotEmpty()) {
@@ -61,7 +64,9 @@ fun AiSummaryRevisionBody(
                 )
                 section.items.forEach { item ->
                     Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                        Text("• " + item.text)
+                        SelectionContainer {
+                            Text("• " + item.text)
+                        }
                         when (item.provenance) {
                             AiSummaryRevisionProvenance.AI_ORIGINAL -> {
                                 if (item.sourceEvidenceRefs.isNotEmpty()) {

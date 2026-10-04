@@ -121,10 +121,7 @@ object TranscriptRevisionEditor {
         while (index < result.lastIndex) {
             val current = result[index]
             val next = result[index + 1]
-            val sameSpeaker =
-                current.speakerId == null ||
-                    next.speakerId == null ||
-                    current.speakerId == next.speakerId
+            val sameSpeaker = current.speakerId == next.speakerId
             val combinedLength =
                 current.text.trim().length + next.text.trim().length
             val sentenceContinues =

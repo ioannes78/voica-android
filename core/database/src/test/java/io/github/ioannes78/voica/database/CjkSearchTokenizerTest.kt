@@ -25,7 +25,7 @@ class CjkSearchTokenizerTest {
     @Test
     fun mixedQueryUsesChinesePhraseAndSafeEnglishPrefix() {
         assertEquals(
-            "\"供 应 链\" AND \"openai\"*",
+            "\"供 应 链\" \"openai\"*",
             CjkSearchTokenizer.toMatchQuery("供应链 OpenAI"),
         )
     }
