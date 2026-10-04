@@ -138,6 +138,7 @@ data class ModelDescriptor(
     val recommendedDeviceTier: String? = null,
     val estimatedPeakRamBytes: Long? = null,
     val recommendedProfile: String? = null,
+    val runtimeModelType: String? = null,
 ) {
     init {
         require(SAFE_PATH_SEGMENT_REGEX.matches(modelId))
@@ -151,6 +152,7 @@ data class ModelDescriptor(
         require(licenseId.isNotBlank())
         require(sourceUrl.isNotBlank())
         require(releaseChannel.isNotBlank())
+        require(runtimeModelType == null || runtimeModelType.isNotBlank())
         require(files.isNotEmpty())
         require(estimatedPeakRamBytes == null || estimatedPeakRamBytes >= 0L)
         require(speakerRole == null || kind == ModelKind.SPEAKER) {

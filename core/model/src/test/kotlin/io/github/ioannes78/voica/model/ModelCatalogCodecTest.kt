@@ -172,7 +172,8 @@ class ModelCatalogCodecTest {
                 "quantization": "INT8",
                 "recommendedDeviceTier": "MID",
                 "estimatedPeakRamBytes": 536870912,
-                "recommendedProfile": "BALANCED"
+                "recommendedProfile": "BALANCED",
+                "runtimeModelType": "zipformer2-transducer"
               }
             ]
             """.trimIndent()
@@ -206,6 +207,7 @@ class ModelCatalogCodecTest {
         assertEquals("MID", model.recommendedDeviceTier)
         assertEquals(536870912L, model.estimatedPeakRamBytes)
         assertEquals("BALANCED", model.recommendedProfile)
+        assertEquals("zipformer2-transducer", model.runtimeModelType)
     }
 
     @Test(expected = IllegalArgumentException::class)

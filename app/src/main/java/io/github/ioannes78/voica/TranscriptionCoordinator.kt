@@ -19,7 +19,7 @@ import io.github.ioannes78.voica.model.ModelUseRegistry
 import io.github.ioannes78.voica.sherpa.SherpaCtTransformerPunctuationEngine
 import io.github.ioannes78.voica.sherpa.SherpaSenseVoiceEngine
 import io.github.ioannes78.voica.sherpa.SherpaSileroVadEngine
-import io.github.ioannes78.voica.sherpa.SherpaStreamingZipformerEngine
+import io.github.ioannes78.voica.sherpa.createSherpaStreamingAsrEngine
 import io.github.ioannes78.voica.sherpa.SherpaVadModelLocation
 import io.github.ioannes78.voica.sherpa.SherpaRuntime
 import io.github.ioannes78.voica.transcript.FastTranscriptionPipeline
@@ -133,7 +133,7 @@ class SherpaStage8TranscriptionEngineProvider(
             model.installedDirectory
                 ?: error("first-pass ASR must be a managed installed model")
         return StreamingAsrEngineFactory {
-            SherpaStreamingZipformerEngine(
+            createSherpaStreamingAsrEngine(
                 model = model.descriptor,
                 modelDirectory = directory,
             )
@@ -589,6 +589,9 @@ class TranscriptionCoordinator(
                 append(",\"revision\":").append(model.descriptor.revision)
                 append(",\"runtimeId\":")
                 appendJsonString(model.descriptor.runtimeId)
+                append(",\"runtimeModelType\":")
+                val runtimeModelType = model.descriptor.runtimeModelType
+                if (runtimeModelType == null) append("null") else appendJsonString(runtimeModelType)
                 append(",\"quantization\":")
                 val quantization = model.descriptor.quantization
                 if (quantization == null) append("null") else appendJsonString(quantization)

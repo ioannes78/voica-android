@@ -162,6 +162,7 @@ object ModelCatalogCodec {
             recommendedDeviceTier = obj.optionalString("recommendedDeviceTier"),
             estimatedPeakRamBytes = obj.optionalLong("estimatedPeakRamBytes"),
             recommendedProfile = obj.optionalString("recommendedProfile"),
+            runtimeModelType = obj.optionalString("runtimeModelType"),
         )
     }
 

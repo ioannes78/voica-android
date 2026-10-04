@@ -161,7 +161,7 @@ class SherpaModelCandidateValidator : ModelCandidateValidator {
         directory: File,
     ) {
         val engine =
-            SherpaStreamingZipformerEngine(
+            createSherpaStreamingAsrEngine(
                 model = descriptor,
                 modelDirectory = directory,
             )
