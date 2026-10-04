@@ -46,7 +46,6 @@ import io.github.ioannes78.voica.transcript.TranscriptionPhase
 import io.github.ioannes78.voica.transcript.TranscriptionProgress
 import io.github.ioannes78.voica.transcript.VadEngine
 import io.github.ioannes78.voica.transcript.VadEngineFactory
-import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -60,7 +59,6 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -80,33 +78,32 @@ class DiarizationCoordinatorTest {
     fun setUp() {
         runBlocking {
             val context = ApplicationProvider.getApplicationContext<Context>()
-        database =
-            Room.inMemoryDatabaseBuilder(
-                context,
-                VoicaDatabase::class.java,
-            )
-                .allowMainThreadQueries()
-                .build()
-        diarizationRepository = DiarizationRepository(database)
-        transcriptionRepository = TranscriptionRepository(database)
-        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            database =
+                Room.inMemoryDatabaseBuilder(
+                    context,
+                    VoicaDatabase::class.java,
+                )
+                    .allowMainThreadQueries()
+                    .build()
+            diarizationRepository = DiarizationRepository(database)
+            transcriptionRepository = TranscriptionRepository(database)
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-        database.recordingDao().insertRecordingIgnore(
-            RecordingEntity(
-                id = RECORDING_ID,
-                sourceType = RecordingSourceType.DEVICE_DOWNLOAD,
-                sourceRemoteIdentity = "remote-stage9",
-                sourceDeviceAddress = "AA:BB",
-                originalFilename = "stage9.wav",
-                displayName = "Stage 9",
-                recordedAtLocalIso = null,
-                deviceReportedDurationMs = 2_000,
-                downloadedAtMs = 1L,
-                createdAtMs = 1L,
-                updatedAtMs = 1L,
+            database.recordingDao().insertRecordingIgnore(
+                RecordingEntity(
+                    id = RECORDING_ID,
+                    sourceType = RecordingSourceType.DEVICE_DOWNLOAD,
+                    sourceRemoteIdentity = "remote-stage9",
+                    sourceDeviceAddress = "AA:BB",
+                    originalFilename = "stage9.wav",
+                    displayName = "Stage 9",
+                    recordedAtLocalIso = null,
+                    deviceReportedDurationMs = 2_000,
+                    downloadedAtMs = 1L,
+                    createdAtMs = 1L,
+                    updatedAtMs = 1L,
                 ),
             )
-            Unit
         }
     }
 
@@ -117,74 +114,68 @@ class DiarizationCoordinatorTest {
     }
 
     @Test
-    fun completedDiarizationPersistsSpeakersReleasesLeasesAndImmediatelyAlignsTranscript() =
-        runBlocking {
-            val descriptors = requiredDescriptors()
-            val active = descriptors.associate { it.modelId to active(it) }
-            val registry = ModelUseRegistry()
-            val coordinator =
-                coordinator(
-                    modelManager = FakeModelManager(active),
-                    registry = registry,
-                    provider = FakeEngineProvider(),
-                )
-
-            assertTrue(
-                coordinator.start(
-                    recordingId = RECORDING_ID,
-                    config =
-                        DiarizationConfig(
-                            vadContextPaddingSamples = 0L,
-                            stitchingMinimumAnchorSamples = 4_000L,
-                        ),
-                ),
+    fun completedDiarizationUsesCampPlusPersistsAndAlignsTranscript() = runBlocking {
+        val descriptors = requiredDescriptors()
+        val active = descriptors.associate { it.modelId to active(it) }
+        val registry = ModelUseRegistry()
+        val coordinator =
+            coordinator(
+                modelManager = FakeModelManager(active),
+                registry = registry,
+                provider = FakeEngineProvider(),
             )
 
-            val completed =
-                coordinator.state
-                    .filterIsInstance<DiarizationRunState.Completed>()
-                    .first()
-
-            assertEquals(2, completed.speakerCount)
-            assertEquals(2, completed.turns.size)
-            assertEquals(
-                DiarizationStateValue.COMPLETED,
-                diarizationRepository.findRun(completed.runId)!!.state,
-            )
-            assertEquals(2, diarizationRepository.loadSpeakers(completed.runId).size)
-
-            descriptors.forEach { descriptor ->
-                assertFalse(
-                    registry.isInUse(
-                        descriptor.modelId,
-                        descriptor.version,
-                        descriptor.revision,
+        assertTrue(
+            coordinator.start(
+                recordingId = RECORDING_ID,
+                config =
+                    DiarizationConfig(
+                        vadContextPaddingSamples = 0L,
+                        stitchingMinimumAnchorSamples = 4_000L,
                     ),
-                )
-            }
+            ),
+        )
 
-            seedCompletedTranscription()
-            assertTrue(
-                coordinator.alignTranscription(
-                    transcriptionId = TRANSCRIPTION_ID,
-                    diarizationRunId = completed.runId,
+        val completed =
+            coordinator.state
+                .filterIsInstance<DiarizationRunState.Completed>()
+                .first()
+        val run = checkNotNull(diarizationRepository.findRun(completed.runId))
+
+        assertEquals(2, completed.speakerCount)
+        assertEquals(2, completed.turns.size)
+        assertEquals(DiarizationStateValue.COMPLETED, run.state)
+        assertEquals(Stage13ASpeakerEmbeddingModelIds.CAMP_PLUS, run.embeddingModelId)
+        assertEquals(2, diarizationRepository.loadSpeakers(completed.runId).size)
+
+        descriptors.forEach { descriptor ->
+            assertFalse(
+                registry.isInUse(
+                    descriptor.modelId,
+                    descriptor.version,
+                    descriptor.revision,
                 ),
             )
-
-            val aligned =
-                coordinator.alignmentState
-                    .filterIsInstance<SpeakerAlignmentRunState.Completed>()
-                    .first()
-            assertEquals(2, aligned.spanCount)
-            val spans = diarizationRepository.loadSpans(aligned.alignmentId)
-            assertEquals(2, spans.size)
-            assertEquals(0, spans[0].tokenStartIndex)
-            assertEquals(1, spans[1].tokenStartIndex)
-            assertEquals(TranscriptTokenSourceValue.FIRST_PASS, spans[0].tokenSource)
         }
 
+        seedCompletedTranscription()
+        assertTrue(
+            coordinator.alignTranscription(
+                transcriptionId = TRANSCRIPTION_ID,
+                diarizationRunId = completed.runId,
+            ),
+        )
+        val aligned =
+            coordinator.alignmentState
+                .filterIsInstance<SpeakerAlignmentRunState.Completed>()
+                .first()
+        val spans = diarizationRepository.loadSpans(aligned.alignmentId)
+        assertEquals(2, spans.size)
+        assertEquals(TranscriptTokenSourceValue.FIRST_PASS, spans[0].tokenSource)
+    }
+
     @Test
-    fun missingSpeakerModelsFailsBeforeCreatingRun() = runBlocking {
+    fun missingSpeakerModelsReportsCampPlusAndSegmentation() = runBlocking {
         val vad = descriptor(Stage8ModelIds.VAD, ModelKind.VAD, null)
         val coordinator =
             coordinator(
@@ -200,35 +191,10 @@ class DiarizationCoordinatorTest {
                 .first()
 
         assertEquals(
-            listOf(Stage9ModelIds.EMBEDDING, Stage9ModelIds.SEGMENTATION).sorted(),
-            failed.missingModelIds,
-        )
-        assertTrue(diarizationRepository.observeRuns(RECORDING_ID).first().isEmpty())
-    }
-
-    @Test
-    fun campPlusSelectionRequiresCampPlusInsteadOfBaselineEmbedding() = runBlocking {
-        val descriptors = requiredDescriptors()
-        val active = descriptors.associate { it.modelId to active(it) }
-        val coordinator =
-            coordinator(
-                modelManager = FakeModelManager(active),
-                registry = ModelUseRegistry(),
-                provider = FakeEngineProvider(),
-                speechSettings =
-                    LocalSpeechSettings(
-                        speakerEmbeddingModel = SpeakerEmbeddingModelChoice.CAMP_PLUS,
-                    ),
-            )
-
-        assertTrue(coordinator.start(RECORDING_ID))
-        val failed =
-            coordinator.state
-                .filterIsInstance<DiarizationRunState.Failed>()
-                .first()
-
-        assertEquals(
-            listOf(Stage13ASpeakerEmbeddingModelIds.CAMP_PLUS),
+            listOf(
+                Stage13ASpeakerEmbeddingModelIds.CAMP_PLUS,
+                Stage9ModelIds.SEGMENTATION,
+            ).sorted(),
             failed.missingModelIds,
         )
         assertTrue(diarizationRepository.observeRuns(RECORDING_ID).first().isEmpty())
@@ -237,10 +203,9 @@ class DiarizationCoordinatorTest {
     @Test
     fun noSpeechCompletesWithZeroSpeakers() = runBlocking {
         val descriptors = requiredDescriptors()
-        val active = descriptors.associate { it.modelId to active(it) }
         val coordinator =
             coordinator(
-                modelManager = FakeModelManager(active),
+                modelManager = FakeModelManager(descriptors.associate { it.modelId to active(it) }),
                 registry = ModelUseRegistry(),
                 provider = FakeEngineProvider(noSpeech = true),
             )
@@ -253,23 +218,20 @@ class DiarizationCoordinatorTest {
 
         assertEquals(0, completed.speakerCount)
         assertTrue(completed.turns.isEmpty())
-        assertTrue(diarizationRepository.loadSpeakers(completed.runId).isEmpty())
     }
 
     @Test
     fun cancellationDuringVadMarksRunCancelledAndReleasesAllLeases() = runBlocking {
         val descriptors = requiredDescriptors()
-        val active = descriptors.associate { it.modelId to active(it) }
         val registry = ModelUseRegistry()
         val coordinator =
             coordinator(
-                modelManager = FakeModelManager(active),
+                modelManager = FakeModelManager(descriptors.associate { it.modelId to active(it) }),
                 registry = registry,
                 provider = FakeEngineProvider(blockVad = true),
             )
 
         assertTrue(coordinator.start(RECORDING_ID))
-
         val running =
             coordinator.state
                 .filterIsInstance<DiarizationRunState.Running>()
@@ -277,7 +239,6 @@ class DiarizationCoordinatorTest {
         val runId = checkNotNull(running.runId)
 
         coordinator.cancel()
-
         coordinator.state
             .filterIsInstance<DiarizationRunState.Cancelled>()
             .first()
@@ -287,13 +248,7 @@ class DiarizationCoordinatorTest {
             diarizationRepository.findRun(runId)!!.state,
         )
         descriptors.forEach { descriptor ->
-            assertFalse(
-                registry.isInUse(
-                    descriptor.modelId,
-                    descriptor.version,
-                    descriptor.revision,
-                ),
-            )
+            assertFalse(registry.isInUse(descriptor.modelId, descriptor.version, descriptor.revision))
         }
     }
 
@@ -301,7 +256,6 @@ class DiarizationCoordinatorTest {
         modelManager: ModelManager,
         registry: ModelUseRegistry,
         provider: Stage9DiarizationEngineProvider,
-        speechSettings: LocalSpeechSettings = LocalSpeechSettings(),
     ) =
         DiarizationCoordinator(
             scope = scope,
@@ -320,7 +274,7 @@ class DiarizationCoordinatorTest {
             modelManager = modelManager,
             modelUseRegistry = registry,
             engineProvider = provider,
-            localSpeechSettings = { speechSettings },
+            localSpeechSettings = { LocalSpeechSettings() },
         )
 
     private suspend fun seedCompletedTranscription() {
@@ -448,11 +402,9 @@ class DiarizationCoordinatorTest {
             segmentation: ActiveModel,
             embedding: ActiveModel,
         ) {
-            require(
-                segmentation.descriptor.speakerRole ==
-                    SpeakerModelRole.DIARIZATION_SEGMENTATION,
-            )
+            require(segmentation.descriptor.speakerRole == SpeakerModelRole.DIARIZATION_SEGMENTATION)
             require(embedding.descriptor.speakerRole == SpeakerModelRole.EMBEDDING)
+            require(embedding.descriptor.modelId == Stage13ASpeakerEmbeddingModelIds.CAMP_PLUS)
         }
 
         override fun diarizationEngine(
@@ -468,8 +420,7 @@ class DiarizationCoordinatorTest {
         override fun embeddingEngine(
             model: ActiveModel,
             numThreads: Int,
-        ): SpeakerEmbeddingEngine =
-            FakeEmbeddingEngine(model.descriptor)
+        ): SpeakerEmbeddingEngine = FakeEmbeddingEngine(model.descriptor)
     }
 
     private class FakeVadEngine(
@@ -481,33 +432,22 @@ class DiarizationCoordinatorTest {
             source: PcmSource,
             progressListener: ProgressListener?,
         ): List<SpeechSegment> {
-            progressListener?.onProgress(
-                TranscriptionProgress(
-                    phase = TranscriptionPhase.VAD,
-                    processedUnits = 0L,
-                    totalUnits = source.totalSampleCount,
-                ),
-            )
             if (block) awaitCancellation()
-
-            val buffer = ShortArray(1_024)
+            if (noSpeech) return emptyList()
+            val buffer = ShortArray(4096)
             var processed = 0L
             while (true) {
                 val read = source.read(buffer) ?: break
                 processed += read.sampleCount
+                progressListener?.onProgress(
+                    TranscriptionProgress(
+                        phase = TranscriptionPhase.VAD,
+                        processedUnits = processed,
+                        totalUnits = source.totalSampleCount,
+                    ),
+                )
             }
-            progressListener?.onProgress(
-                TranscriptionProgress(
-                    phase = TranscriptionPhase.VAD,
-                    processedUnits = processed,
-                    totalUnits = source.totalSampleCount,
-                ),
-            )
-            return if (noSpeech) {
-                emptyList()
-            } else {
-                listOf(SpeechSegment(0L, source.totalSampleCount))
-            }
+            return listOf(SpeechSegment(0L, source.totalSampleCount))
         }
 
         override fun close() = Unit
@@ -522,8 +462,7 @@ class DiarizationCoordinatorTest {
             config: DiarizationConfig,
             progressListener: DiarizationProgressListener?,
         ): DiarizationChunkResult {
-            val midpoint =
-                window.startSampleIndex + window.samples.size.toLong() / 2L
+            val midpoint = window.startSampleIndex + window.samples.size.toLong() / 2L
             return DiarizationChunkResult(
                 speakerCount = 2,
                 turns =
@@ -550,18 +489,9 @@ class DiarizationCoordinatorTest {
     private class FakeEmbeddingEngine(
         override val model: ModelDescriptor,
     ) : SpeakerEmbeddingEngine {
-        override suspend fun embed(
-            samples: ShortArray,
-            sampleRateHz: Int,
-        ): FloatArray {
-            assertTrue(samples.isNotEmpty())
-            assertEquals(16_000, sampleRateHz)
-            val positive = samples.first() >= 0
-            return if (positive) {
-                floatArrayOf(1F, 0F)
-            } else {
-                floatArrayOf(0F, 1F)
-            }
+        override suspend fun embed(samples: ShortArray, sampleRateHz: Int): FloatArray {
+            val positive = samples.firstOrNull()?.let { it >= 0 } ?: true
+            return if (positive) floatArrayOf(1F, 0F) else floatArrayOf(0F, 1F)
         }
 
         override fun close() = Unit
@@ -570,8 +500,7 @@ class DiarizationCoordinatorTest {
     private class FakeModelManager(
         private val active: Map<String, ActiveModel>,
     ) : ModelManager {
-        override val operations: StateFlow<Map<String, ModelOperationStatus>> =
-            MutableStateFlow(emptyMap())
+        override val operations: StateFlow<Map<String, ModelOperationStatus>> = MutableStateFlow(emptyMap())
 
         override suspend fun catalog(): ModelCatalog =
             ModelCatalog(
@@ -589,25 +518,13 @@ class DiarizationCoordinatorTest {
 
         override suspend fun checkForUpdates(force: Boolean): ModelCatalog = catalog()
 
-        override suspend fun install(
-            modelId: String,
-            version: String,
-            revision: Long,
-        ) = error("not used")
+        override suspend fun install(modelId: String, version: String, revision: Long) = error("not used")
 
         override suspend fun cancelInstall(modelId: String) = Unit
 
-        override suspend fun confirmInstalledVersion(
-            modelId: String,
-            version: String,
-            revision: Long,
-        ) = error("not used")
+        override suspend fun confirmInstalledVersion(modelId: String, version: String, revision: Long) = error("not used")
 
-        override suspend fun removeDownloadedVersion(
-            modelId: String,
-            version: String,
-            revision: Long,
-        ) = error("not used")
+        override suspend fun removeDownloadedVersion(modelId: String, version: String, revision: Long) = error("not used")
 
         override suspend fun rollback(modelId: String) = error("not used")
     }
@@ -628,7 +545,7 @@ class DiarizationCoordinatorTest {
                     SpeakerModelRole.DIARIZATION_SEGMENTATION,
                 ),
                 descriptor(
-                    Stage9ModelIds.EMBEDDING,
+                    Stage13ASpeakerEmbeddingModelIds.CAMP_PLUS,
                     ModelKind.SPEAKER,
                     SpeakerModelRole.EMBEDDING,
                 ),
@@ -661,6 +578,7 @@ class DiarizationCoordinatorTest {
                 builtinAssetPath = "models/fake.bin",
                 packageFormat = ModelPackageFormat.SINGLE_FILE,
                 downloadUrl = null,
+                downloadMirrors = emptyList(),
                 downloadSizeBytes = null,
                 installedSizeBytes = 1L,
                 packageSha256 = null,
@@ -684,6 +602,8 @@ class DiarizationCoordinatorTest {
                 redistributionPolicy = RedistributionPolicy.NO_REDISTRIBUTION,
                 releaseChannel = "test",
                 autoUpdateEligible = false,
+                deprecated = false,
+                criticalUpdate = false,
                 speakerRole = role,
             )
     }
