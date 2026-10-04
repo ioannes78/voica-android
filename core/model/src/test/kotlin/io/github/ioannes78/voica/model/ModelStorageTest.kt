@@ -82,6 +82,40 @@ class ModelStorageTest {
     }
 
     @Test
+    fun snapshotV2PreservesAllStage13ARuntimeModelTypes() {
+        val runtimeTypes =
+            listOf(
+                "zipformer2-ctc",
+                "zipformer2-transducer",
+                "fire-red-asr2-ctc",
+                "qwen3-asr",
+            )
+
+        runtimeTypes.forEachIndexed { index, runtimeModelType ->
+            val descriptor =
+                descriptor(version = "v1", revision = 1L)
+                    .copy(
+                        modelId = "model-$index",
+                        runtimeModelType = runtimeModelType,
+                    )
+            val snapshot =
+                ModelDescriptorSnapshot(
+                    descriptor = descriptor,
+                    manifestDigest = "d".repeat(64),
+                )
+
+            val decoded =
+                ModelDescriptorSnapshotCodec.decode(
+                    ModelDescriptorSnapshotCodec.encode(snapshot),
+                )
+
+            assertEquals(runtimeModelType, decoded.descriptor.runtimeModelType)
+            assertEquals(descriptor.capabilities, decoded.descriptor.capabilities)
+            assertEquals(descriptor.quantization, decoded.descriptor.quantization)
+        }
+    }
+
+    @Test
     fun refreshDescriptorSnapshotUpgradesMetadataWithoutRedownload() {
         val storage = ModelStorage(root)
         val current = descriptor(version = "v1", revision = 1)

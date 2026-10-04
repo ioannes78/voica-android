@@ -1,15 +1,15 @@
 # Voica Stage 13A — 本地语音引擎 V2 真机验收
 
-状态：**QA3 候选 / 待用户真机验收 / 未冻结**
+状态：**QA4 候选 / 待用户真机验收 / 未冻结**
 
-> QA3 必须重新覆盖 QA2 中因模型验证/缺模型而未实际执行的项目。任何 QA2 未测项均不得视为默认通过。
+> QA4 必须重新覆盖 QA2 中因模型验证/缺模型而未实际执行的项目。任何 QA2 未测项均不得视为默认通过。
 
 ## 1. 候选基线
 
 - 分支：`stage13a-local-speech-engine-v2`
 - PR：#15（Draft / `[APK]`）
-- versionCode：43
-- versionName：`0.13.0-stage13a-qa3`
+- versionCode：44
+- versionName：`0.13.0-stage13a-qa4`
 - QA Application ID：`io.github.ioannes78.voica.qa`
 - Room schema：7（v6 → v7 additive migration）
 - ABI：arm64-v8a
@@ -18,9 +18,22 @@
 - production manifest 在本阶段真机验收前保持不变。
 - Stage 16 streaming contract V2 只冻结接口语义；Stage 13A 不实现完整实时 BLE 转写 UI。
 
+## QA4 本轮修复专项
+
+本轮必须优先验证 QA3 真机发现的三个问题：
+
+- [ ] 已下载的 Chinese Large Transducer / Chinese Large CTC / FireRedASR2 / Qwen3-ASR **无需重新下载**，直接“验证并启用”可读取 Snapshot V2 的 `runtimeModelType`
+- [ ] 若验证失败，错误直接显示在对应模型区域，并保留 INIT / INFERENCE / OOM / validator crash / timeout 分类
+- [ ] SenseVoice ITN=关闭：使用 CT-Transformer，标点与正文保持同一说话人段
+- [ ] SenseVoice ITN=开启：使用原生 ITN/标点，不运行 CT，不出现独立“。/，/？”说话人段
+- [ ] SenseVoice ITN=开启时不再显示“正在处理标点”
+- [ ] FAST 进度显示“正在快速识别”，不再显示“第一遍识别”
+- [ ] High Quality 进度显示“正在高质量识别”，不再显示“第二遍识别”
+- [ ] 同一录音已有 completed diarization 时，新转写版本复用原 Speaker Turns，只重新做 Speaker Alignment，不重复跑 embedding/clustering
+
 ## 2. 覆盖安装与历史数据
 
-- [ ] 从上一版 QA2 覆盖安装 QA3，App 正常启动
+- [ ] 从上一版 QA2 覆盖安装 QA4，App 正常启动
 - [ ] 无 destructive migration
 - [ ] 既有录音、文件夹、标签、收藏保留
 - [ ] 既有转写版本 / Segment / Token / speaker / alignment 保留
@@ -45,7 +58,7 @@
 - [ ] 原有 Small Bilingual / SenseVoice / VAD / CT punctuation / ERes2Net 保留
 - [ ] production channel 未被改写
 
-## 4. QA3 模型下载、验证与启用（QA2 未完成项必须重测）
+## 4. QA4 模型下载、验证与启用（QA2 未完成项必须重测）
 
 建议逐个模型测试，不要求所有大模型同时保留。
 
@@ -118,7 +131,7 @@
 - [ ] 不出现伪 beam 参数
 - [ ] 长句 partial/final 不明显回退
 
-## 6. High Quality 离线三模型 — QA3 核心
+## 6. High Quality 离线三模型 — QA4 核心
 
 测试前至少准备一条 1–3 分钟中文录音，最好含数字、日期、英文词与多个停顿。
 
@@ -257,9 +270,9 @@
 - [ ] 全局任务状态
 - [ ] BLE Diagnostics
 
-## 14. QA3 必须重点截图/记录的失败信息
+## 14. QA4 必须重点截图/记录的失败信息
 
-若任一候选模型仍不能启用，请截图完整错误文字。QA3 应能区分：
+若任一候选模型仍不能启用，请截图完整错误文字。QA4 应能区分：
 
 - `NATIVE_INIT_FAILED`
 - `NATIVE_INFERENCE_FAILED`
