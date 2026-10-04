@@ -5,27 +5,32 @@ import org.junit.Test
 
 class LocalSpeechSettingsTest {
     @Test
-    fun autoPrefersNewChineseTransducerThenCtcThenLegacySmall() {
+    fun productRealtimeMatrixContainsOnlySmallBilingualAndLargeCtc() {
         assertEquals(
             listOf(
-                Stage13ARealtimeModelIds.CHINESE_LARGE_TRANSDUCER,
-                Stage13ARealtimeModelIds.CHINESE_LARGE_CTC,
                 Stage13ARealtimeModelIds.SMALL_BILINGUAL,
+                Stage13ARealtimeModelIds.CHINESE_LARGE_CTC,
             ),
-            RealtimeAsrModelChoice.AUTO.preferredModelIds(),
+            Stage13ARealtimeModelIds.ALL,
         )
     }
 
     @Test
-    fun explicitRealtimeChoicesNeverContainFallbackModels() {
+    fun realtimeDefaultsToSmallBilingualAndLegacyChoicesNormalizeToIt() {
         assertEquals(
-            listOf(Stage13ARealtimeModelIds.SMALL_BILINGUAL),
-            RealtimeAsrModelChoice.SMALL_BILINGUAL.preferredModelIds(),
+            RealtimeAsrModelChoice.SMALL_BILINGUAL,
+            LocalSpeechSettings().realtimeAsrModel,
         )
-        assertEquals(
-            listOf(Stage13ARealtimeModelIds.CHINESE_LARGE_TRANSDUCER),
-            RealtimeAsrModelChoice.CHINESE_LARGE_TRANSDUCER.preferredModelIds(),
-        )
+        listOf(
+            RealtimeAsrModelChoice.AUTO,
+            RealtimeAsrModelChoice.SMALL_BILINGUAL,
+            RealtimeAsrModelChoice.CHINESE_LARGE_TRANSDUCER,
+        ).forEach { choice ->
+            assertEquals(
+                listOf(Stage13ARealtimeModelIds.SMALL_BILINGUAL),
+                choice.preferredModelIds(),
+            )
+        }
         assertEquals(
             listOf(Stage13ARealtimeModelIds.CHINESE_LARGE_CTC),
             RealtimeAsrModelChoice.CHINESE_LARGE_CTC.preferredModelIds(),
@@ -33,7 +38,22 @@ class LocalSpeechSettingsTest {
     }
 
     @Test
-    fun explicitOfflineQualityChoicesNeverFallbackAcrossTiers() {
+    fun productOfflineMatrixContainsOnlySenseVoiceAndQwen() {
+        assertEquals(
+            listOf(
+                Stage13AOfflineModelIds.SENSEVOICE,
+                Stage13AOfflineModelIds.QWEN3_ASR,
+            ),
+            Stage13AOfflineModelIds.ALL,
+        )
+    }
+
+    @Test
+    fun offlineDefaultsToSenseVoiceAndHighQualityUsesQwen() {
+        assertEquals(
+            OfflineAsrQualityChoice.BALANCED,
+            LocalSpeechSettings().offlineAsrQuality,
+        )
         assertEquals(
             listOf(Stage13AOfflineModelIds.SENSEVOICE),
             OfflineAsrQualityChoice.AUTO.preferredModelIds(),
@@ -43,7 +63,7 @@ class LocalSpeechSettingsTest {
             OfflineAsrQualityChoice.BALANCED.preferredModelIds(),
         )
         assertEquals(
-            listOf(Stage13AOfflineModelIds.FIRERED_ASR2),
+            listOf(Stage13AOfflineModelIds.QWEN3_ASR),
             OfflineAsrQualityChoice.HIGH_QUALITY.preferredModelIds(),
         )
         assertEquals(
@@ -53,10 +73,14 @@ class LocalSpeechSettingsTest {
     }
 
     @Test
-    fun speakerEmbeddingChoiceMapsToExplicitModelIds() {
+    fun campPlusIsTheOnlyProductSpeakerEmbeddingAndDefault() {
         assertEquals(
-            Stage13ASpeakerEmbeddingModelIds.ERES2NET,
-            SpeakerEmbeddingModelChoice.ERES2NET.modelId(),
+            listOf(Stage13ASpeakerEmbeddingModelIds.CAMP_PLUS),
+            Stage13ASpeakerEmbeddingModelIds.ALL,
+        )
+        assertEquals(
+            SpeakerEmbeddingModelChoice.CAMP_PLUS,
+            LocalSpeechSettings().speakerEmbeddingModel,
         )
         assertEquals(
             Stage13ASpeakerEmbeddingModelIds.CAMP_PLUS,
@@ -94,36 +118,16 @@ class LocalSpeechSettingsTest {
     @Test
     fun realtimeDecoderDefaultsMatchSherpaAndUnsupportedModelsForceGreedy() {
         val defaults = LocalRealtimeAsrSettings()
-        val unsupported = defaults.copy(
-            decodingMethod = RealtimeDecodingMethod.MODIFIED_BEAM_SEARCH,
-            maxActivePaths = 8,
-        ).resolveFor(setOf("numThreads"))
+        val unsupported =
+            defaults.copy(
+                decodingMethod = RealtimeDecodingMethod.MODIFIED_BEAM_SEARCH,
+                maxActivePaths = 8,
+            ).resolveFor(setOf("numThreads"))
 
         assertEquals(RealtimeDecodingMethod.GREEDY_SEARCH, defaults.decodingMethod)
         assertEquals(4, defaults.maxActivePaths)
         assertEquals(RealtimeDecodingMethod.GREEDY_SEARCH, unsupported.decodingMethod)
         assertEquals(4, unsupported.maxActivePaths)
-    }
-
-    @Test
-    fun transducerCapabilityEnablesModifiedBeamAndActivePaths() {
-        val resolved =
-            LocalRealtimeAsrSettings(
-                decodingMethod = RealtimeDecodingMethod.MODIFIED_BEAM_SEARCH,
-                maxActivePaths = 8,
-            ).resolveFor(
-                setOf(
-                    "numThreads",
-                    "decodingMethod",
-                    "maxActivePaths",
-                ),
-            )
-
-        assertEquals(
-            RealtimeDecodingMethod.MODIFIED_BEAM_SEARCH,
-            resolved.decodingMethod,
-        )
-        assertEquals(8, resolved.maxActivePaths)
     }
 
     @Test
@@ -181,7 +185,6 @@ class LocalSpeechSettingsTest {
         assertEquals(FIVE_PLUS_MINIMUM_SPEAKERS, config.expectedSpeakerCount)
         assertEquals(FIVE_PLUS_MINIMUM_SPEAKERS, config.minimumGlobalSpeakerCount)
         assertEquals(FIVE_PLUS_MAXIMUM_SPEAKERS, config.maximumGlobalSpeakerCount)
-        assertEquals(FIVE_PLUS_INITIAL_CLUSTERING_THRESHOLD, config.clusteringThreshold)
     }
 
     @Test
