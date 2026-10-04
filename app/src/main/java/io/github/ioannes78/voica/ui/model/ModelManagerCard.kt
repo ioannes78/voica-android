@@ -471,6 +471,19 @@ private fun ModelAvailabilityRow(
             )
         }
 
+        if (
+            operation?.state == ModelState.LOAD_FAILED ||
+            operation?.state == ModelState.CORRUPTED
+        ) {
+            operation.errorMessage?.takeIf { it.isNotBlank() }?.let { error ->
+                Text(
+                    "验证错误：" + error,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+
         if (downloadedCandidateReady) {
             Text(
                 "已下载并校验 · 尚未启用",
