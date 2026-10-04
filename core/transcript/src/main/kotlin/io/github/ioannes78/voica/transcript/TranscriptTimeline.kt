@@ -467,7 +467,7 @@ private fun selectTimelineTokens(
 ): List<IndexedTimelineToken> {
     fun source(source: TokenSource): List<IndexedTimelineToken> =
         tokens
-            .filter { it.source == source }
+            .filter { it.source == source && !isPunctuationOnlyToken(it.text) }
             .mapIndexed { index, token ->
                 IndexedTimelineToken(
                     tokenIndex = index,
