@@ -105,7 +105,13 @@ data class AsrHypothesis(
     val isFinal: Boolean,
     val stability: AsrHypothesisStability =
         if (isFinal) AsrHypothesisStability.FINAL else AsrHypothesisStability.PARTIAL,
-)
+) {
+    init {
+        require((stability == AsrHypothesisStability.FINAL) == isFinal) {
+            "FINAL stability must match isFinal=true; PARTIAL/STABLE require isFinal=false"
+        }
+    }
+}
 
 data class TranscriptToken(
     val text: String,

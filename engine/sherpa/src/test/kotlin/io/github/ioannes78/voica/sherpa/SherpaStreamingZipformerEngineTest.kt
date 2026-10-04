@@ -108,6 +108,51 @@ class SherpaStreamingZipformerEngineTest {
     }
 
     @Test
+    fun finishedSessionRejectsFurtherPartialDecodeUntilReset() {
+        runBlocking {
+            val nativeSession =
+                FakeNativeSession(
+                    partial =
+                        NativeStreamingAsrResult(
+                            text = "partial",
+                            tokens = listOf("p"),
+                            timestampsSeconds = listOf(0.01F),
+                        ),
+                    final =
+                        NativeStreamingAsrResult(
+                            text = "final",
+                            tokens = listOf("f"),
+                            timestampsSeconds = listOf(0.01F),
+                        ),
+                )
+            val engine =
+                SherpaStreamingZipformerEngine(
+                    model = modelDescriptor(),
+                    modelFiles = fakeFiles(),
+                    settings = StreamingZipformerSettings(),
+                    recognizerFactory =
+                        NativeStreamingRecognizerFactory { _, _ ->
+                            FakeNativeRecognizer(nativeSession)
+                        },
+                )
+            val session = engine.openSession()
+            session.acceptSamples(ShortArray(1_600))
+            val final = session.finishInput()
+            assertTrue(final.isFinal)
+
+            val failure = runCatching { session.decode() }.exceptionOrNull()
+            assertTrue(failure is IllegalStateException)
+
+            session.reset()
+            session.acceptSamples(ShortArray(1_600))
+            val partial = session.decode()
+            assertFalse(partial.isFinal)
+
+            session.close()
+            engine.close()
+        }
+    }
+    @Test
     fun resetStartsANewRelativeSampleTimeline() {
         runBlocking {
             val nativeSession =

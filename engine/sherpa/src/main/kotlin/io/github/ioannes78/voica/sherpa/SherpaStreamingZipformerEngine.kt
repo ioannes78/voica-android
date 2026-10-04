@@ -173,6 +173,7 @@ internal class SherpaStreamingZipformerSession(
 
     override suspend fun decode(): AsrHypothesis {
         check(!closed) { "ASR session is closed" }
+        check(!inputFinished) { "ASR input is already finished; reset before decoding again" }
         return native.decodeReady().toHypothesis(
             acceptedSampleCount = acceptedSampleCount,
             isFinal = false,
