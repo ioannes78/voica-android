@@ -18,6 +18,7 @@ import java.time.Instant
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
@@ -89,16 +90,16 @@ data class SpeechBenchmarkReport(
                     .put("manufacturer", environment.manufacturer)
                     .put("model", environment.model)
                     .put("hardware", environment.hardware)
-                    .put("socManufacturer", environment.socManufacturer)
-                    .put("socModel", environment.socModel)
+                    .put("socManufacturer", jsonNullable(environment.socManufacturer))
+                    .put("socModel", jsonNullable(environment.socModel))
                     .put("sdkInt", environment.sdkInt)
                     .put("supportedAbis", JSONArray(environment.supportedAbis))
                     .put("totalRamBytes", environment.totalRamBytes)
                     .put("logicalProcessors", environment.logicalProcessors)
                     .put("appVersionCode", environment.appVersionCode)
-                    .put("appVersionName", environment.appVersionName),
+                    .put("appVersionName", jsonNullable(environment.appVersionName)),
             )
-            .put("referenceText", referenceText)
+            .put("referenceText", jsonNullable(referenceText))
             .put(
                 "cases",
                 JSONArray().also { array ->
@@ -110,10 +111,10 @@ data class SpeechBenchmarkReport(
                                 .put("version", result.version)
                                 .put("revision", result.revision)
                                 .put("manifestDigest", result.manifestDigest)
-                                .put("runtimeModelType", result.runtimeModelType)
-                                .put("quantization", result.quantization)
+                                .put("runtimeModelType", jsonNullable(result.runtimeModelType))
+                                .put("quantization", jsonNullable(result.quantization))
                                 .put("performanceProfile", result.performanceProfile)
-                                .put("requestedThreads", result.requestedThreads)
+                                .put("requestedThreads", jsonNullable(result.requestedThreads))
                                 .put("effectiveThreads", result.effectiveThreads)
                                 .put("vadThreshold", result.vadThreshold)
                                 .put("vadMinSilenceSeconds", result.vadMinSilenceSeconds)
@@ -124,19 +125,21 @@ data class SpeechBenchmarkReport(
                                 .put("cpuTimeMs", result.cpuTimeMs)
                                 .put("rtf", result.rtf)
                                 .put("peakPssKb", result.peakPssKb)
-                                .put("thermalStatusStart", result.thermalStatusStart)
-                                .put("thermalStatusMax", result.thermalStatusMax)
+                                .put("thermalStatusStart", jsonNullable(result.thermalStatusStart))
+                                .put("thermalStatusMax", jsonNullable(result.thermalStatusMax))
                                 .put("outputCharacterCount", result.outputCharacterCount)
                                 .put("outputText", result.outputText)
-                                .put("cer", result.cer)
-                                .put("wer", result.wer)
-                                .put("error", result.error),
+                                .put("cer", jsonNullable(result.cer))
+                                .put("wer", jsonNullable(result.wer))
+                                .put("error", jsonNullable(result.error)),
                         )
                     }
                 },
             )
             .toString(2)
 }
+
+private fun jsonNullable(value: Any?): Any = value ?: JSONObject.NULL
 
 class SpeechBenchmarkRunner(
     private val application: Application,
@@ -296,6 +299,8 @@ class SpeechBenchmarkRunner(
                         speechBenchmarkWer(it, text)
                     },
             )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (error: Throwable) {
             return SpeechBenchmarkCaseResult(
                 modelId = asr.descriptor.modelId,

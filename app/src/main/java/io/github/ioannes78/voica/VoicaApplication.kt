@@ -104,6 +104,10 @@ class AppContainer(
         SharedPreferencesThemeSettingsStore(application)
     val localSpeechSettingsStore =
         SharedPreferencesLocalSpeechSettingsStore(application)
+    private val stage8TranscriptionEngineProvider =
+        SherpaStage8TranscriptionEngineProvider(
+            assetManager = application.assets,
+        )
     val modelUpdateController =
         ModelUpdateController(
             modelManager = modelManager,
@@ -162,12 +166,19 @@ class AppContainer(
             loadCanonicalLineage = recordingLibraryRepository::loadCanonicalTranscriptionLineage,
             modelManager = modelManager,
             modelUseRegistry = modelUseRegistry,
-            engineProvider =
-                SherpaStage8TranscriptionEngineProvider(
-                    assetManager = application.assets,
-                ),
+            engineProvider = stage8TranscriptionEngineProvider,
             localSpeechSettings = { localSpeechSettingsStore.settings.value },
             isRecordingActive = recordingLibraryRepository::isRecordingActive,
+        )
+
+    val speechBenchmarkRunner =
+        SpeechBenchmarkRunner(
+            application = application,
+            pcmSourceResolver = pcmSourceResolver,
+            modelManager = modelManager,
+            modelUseRegistry = modelUseRegistry,
+            engineProvider = stage8TranscriptionEngineProvider,
+            localSpeechSettings = { localSpeechSettingsStore.settings.value },
         )
 
     val diarizationCoordinator =

@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.DiarizationRunState
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.TranscriptionRunState
+import io.github.ioannes78.voica.SpeechBenchmarkRunner
 import io.github.ioannes78.voica.database.AudioAssetRole
 import io.github.ioannes78.voica.database.AudioIntegrityState
 import io.github.ioannes78.voica.database.AudioValidationState
@@ -104,6 +105,7 @@ fun RecordingDetailScreen(
     transcriptPlaybackSyncViewModel: TranscriptPlaybackSyncViewModel,
     aiSummaryViewModel: AiSummaryViewModel,
     aiSummaryContentViewModel: AiSummaryContentViewModel,
+    speechBenchmarkRunner: SpeechBenchmarkRunner? = null,
     initialSearchTarget: SearchDocumentEntity? = null,
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -810,6 +812,20 @@ fun RecordingDetailScreen(
                                 },
                                 onDelete = { deleteOpen = true },
                             )
+                        }
+                        if (speechBenchmarkRunner != null) {
+                            item(key = "speech-benchmark") {
+                                SpeechBenchmarkCard(
+                                    recordingId = recording.id,
+                                    recordingName = recording.displayName,
+                                    canonicalReady = canonicalReady,
+                                    blocked =
+                                        transcriptionBusy ||
+                                            diarizationBusy ||
+                                            deviceRecordingActive,
+                                    runner = speechBenchmarkRunner,
+                                )
+                            }
                         }
                     }
                 }

@@ -68,6 +68,7 @@ import io.github.ioannes78.voica.AudioExportVariant
 import io.github.ioannes78.voica.LocalRecordingDeleteCoordinator
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.StorageManagementCoordinator
+import io.github.ioannes78.voica.SpeechBenchmarkRunner
 import io.github.ioannes78.voica.TranscriptionCoordinator
 import io.github.ioannes78.voica.TranscriptionRunState
 import io.github.ioannes78.voica.audio.PlaybackController
@@ -194,6 +195,7 @@ fun VoicaApp(
     providerAdapterRegistry: ProviderAdapterRegistry,
     themeSettingsStore: ThemeSettingsStore,
     localSpeechSettingsStore: LocalSpeechSettingsStore,
+    speechBenchmarkRunner: SpeechBenchmarkRunner?,
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var secondaryPageActive by rememberSaveable { mutableStateOf(false) }
@@ -526,6 +528,7 @@ fun VoicaApp(
                 aiSummaryViewModel,
                 aiSummaryContentViewModel,
                 unifiedSearchViewModel,
+                speechBenchmarkRunner = speechBenchmarkRunner,
                 openRequest = libraryOpenRequest,
                 onOpenRequestConsumed = { request ->
                     if (libraryOpenRequest?.token == request.token) {
@@ -747,6 +750,7 @@ private fun LocalFilesScreen(
     aiSummaryViewModel: AiSummaryViewModel,
     aiSummaryContentViewModel: AiSummaryContentViewModel,
     unifiedSearchViewModel: UnifiedSearchViewModel,
+    speechBenchmarkRunner: SpeechBenchmarkRunner?,
     openRequest: GlobalRecordingOpenRequest?,
     onOpenRequestConsumed: (GlobalRecordingOpenRequest) -> Unit,
     onOpenSettings: () -> Unit,
@@ -957,6 +961,7 @@ private fun LocalFilesScreen(
             transcriptPlaybackSyncViewModel = transcriptPlaybackSyncViewModel,
             aiSummaryViewModel = aiSummaryViewModel,
             aiSummaryContentViewModel = aiSummaryContentViewModel,
+            speechBenchmarkRunner = speechBenchmarkRunner,
             initialSearchTarget = pendingSearchTarget,
             onBack = {
                 selectedRecordingId = null
