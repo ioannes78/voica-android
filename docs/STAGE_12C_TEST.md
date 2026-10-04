@@ -1,6 +1,6 @@
 # Voica Stage 12C — 转写 / AI 总结内容管理 + 统一全文搜索真机验收
 
-状态：**待 QA 候选 CI 通过后真机验收**
+状态：**自动化 QA 已通过，待 Stage 12C QA APK 真机验收**
 
 ## 1. 候选基线
 
@@ -12,7 +12,9 @@
 - Room schema：6
 - ABI：arm64-v8a
 - sherpa-onnx：1.13.8
-- 实现 HEAD / CI / APK：候选通过后填写
+- 功能实现基线：`3f7a6a372e561c14090e5c51868a4c11600a01e6`
+- 自动化验证：GitHub Actions #592 / run `37167326317` — success
+- QA APK：由下一次 `[APK]` PR CI 生成
 
 ## 2. 覆盖安装与 Room v5 → v6
 

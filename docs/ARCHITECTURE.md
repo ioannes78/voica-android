@@ -218,6 +218,56 @@ AI Summary QA 收口增加 model-level structured-output compatibility、strict 
 Stage 12B Room schema = 5。
 
 
+## Stage 12C — 内容修订与统一搜索架构
+
+Stage 12C 将 Room 从 v5 additive migration 到 v6。核心原则是把三类数据严格分层：
+
+1. **模型原始事实**：Transcription / Segment / Token / Speaker Alignment / AiSummary / Evidence。
+2. **用户修订事实**：TranscriptionRevision / AiSummaryRevision 与当前修订选择。
+3. **可重建派生数据**：SearchDocument / FTS / SearchIndexState。
+
+任何用户编辑都不得覆盖第 1 层；任何搜索索引都不得成为第 1、2 层的反向事实来源。
+
+### 转写修订
+
+TranscriptionEntity 保留模型原文与 canonical sample 事实；TranscriptionUserMetadata 保存 displayName/currentRevisionId；TranscriptionRevision 使用完整快照保存人工整理段落、sourceAnchorRefs、可选 speakerId、来源 sample range 与 timingQuality。
+
+Revision 使用完整快照而不是 diff chain。删除任意旧 Revision 不会使后续 Revision 无法还原。
+
+人工修改后的文本如果无法从既有 token 边界证明新文字的精确时刻，只保留来源段 sample 范围并降低 timingQuality；不得新造 token timestamp。
+
+Stage 10 Timeline 继续完全基于原始 Segment / Token / SpeakerSpan 派生。阅读模式只消费 Revision；时间轴模式不消费人工修改来重写播放同步。
+
+### AI Summary 修订
+
+AiSummaryEntity 的 structuredPayloadJson、displayText、Evidence、Chunk、Provider / Model / Template / Input lineage 保持不可变；AiSummaryUserMetadata.currentRevisionId 指向当前人工修订。
+
+- AI_ORIGINAL：可展示原 Evidence。
+- USER_EDITED：可保留原 item/evidence 作为来源快照，但 UI 不把它声明为修改后文字的模型证据。
+- USER_ADDED：不写入 ai_summary_evidence。
+
+### 当前版本选择
+
+RecordingContentSelection 持久化 currentTranscriptionId / currentAiSummaryId。用户切换已完成版本后保存选择；重新进入详情/重启后优先恢复。若目标被删除或不再有效，则回退到仍存在的最新 completed 版本。
+
+### 统一搜索
+
+authoritative content → effective projection → SearchIndexRebuilder → SearchDocument → Room FTS4 → UnifiedSearchRepository → UnifiedSearchScreen。
+
+SearchDocument 只保存当前有效投影：Recording、Folder、Tag、TRANSCRIPT_UNIT、SUMMARY_TITLE_OVERVIEW、SUMMARY_ITEM。旧人工 Revision 只存在于历史，不重复进入当前全文索引。
+
+索引生命周期：
+
+- v5 → v6 migration：只创建 schema，并写 REBUILD_REQUIRED。
+- App 启动：SearchIndexRebuilder 负责重建。
+- 转写/总结完成、修订保存、当前 Revision 切换、恢复原文、版本删除、录音/Folder/Tag 改名：增量刷新。
+- Recording 删除：先清搜索派生数据，再走既有 Recording cascade。
+- 索引失败或进程中断：不影响原始内容；下次可完整重建。
+
+中文搜索不把用户输入直接拼接为原始 MATCH 语法。连续 CJK 文本由应用侧拆为稳定 token；多条件使用 FTS4 基础隐式 AND 语义，以兼容 Android 系统 SQLite。
+
+Room schema = **6**。
+
 ## 3. Stage 2 BLE 数据流
 
 发送：
