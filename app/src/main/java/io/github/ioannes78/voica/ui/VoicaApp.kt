@@ -531,6 +531,7 @@ fun VoicaApp(
                 aiSummaryContentViewModel,
                 unifiedSearchViewModel,
                 speechBenchmarkRunner = speechBenchmarkRunner,
+                diarizationBenchmarkRunner = diarizationBenchmarkRunner,
                 openRequest = libraryOpenRequest,
                 onOpenRequestConsumed = { request ->
                     if (libraryOpenRequest?.token == request.token) {
@@ -753,6 +754,7 @@ private fun LocalFilesScreen(
     aiSummaryContentViewModel: AiSummaryContentViewModel,
     unifiedSearchViewModel: UnifiedSearchViewModel,
     speechBenchmarkRunner: SpeechBenchmarkRunner?,
+    diarizationBenchmarkRunner: DiarizationBenchmarkRunner?,
     openRequest: GlobalRecordingOpenRequest?,
     onOpenRequestConsumed: (GlobalRecordingOpenRequest) -> Unit,
     onOpenSettings: () -> Unit,

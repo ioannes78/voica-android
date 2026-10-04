@@ -34,6 +34,7 @@ import io.github.ioannes78.voica.transcript.GlobalSpeakerTurn
 import io.github.ioannes78.voica.transcript.ProgressListener
 import io.github.ioannes78.voica.transcript.SpeakerAlignedTextSpan
 import io.github.ioannes78.voica.transcript.SpeakerAssignmentQuality
+import io.github.ioannes78.voica.transcript.SpeakerEmbeddingEngine
 import io.github.ioannes78.voica.transcript.TokenSource
 import io.github.ioannes78.voica.transcript.TranscriptSegment
 import io.github.ioannes78.voica.transcript.TranscriptToken

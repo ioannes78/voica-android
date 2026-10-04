@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.github.ioannes78.voica.DiarizationBenchmarkRunner
 import io.github.ioannes78.voica.DiarizationRunState
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.TranscriptionRunState
