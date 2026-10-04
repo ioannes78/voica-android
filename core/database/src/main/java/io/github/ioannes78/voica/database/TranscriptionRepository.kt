@@ -25,6 +25,13 @@ data class NewTranscriptionRequest(
     val languageConfig: String,
     val configSnapshot: String,
     val modelManifestDigest: String,
+    val vadModelRevision: Long = 1L,
+    val firstPassAsrModelRevision: Long = 1L,
+    val secondPassAsrModelRevision: Long? = null,
+    val punctuationModelRevision: Long? = null,
+    val configSnapshotSchemaVersion: Int = 1,
+    val requestedConfigSnapshot: String = configSnapshot,
+    val effectiveConfigSnapshot: String = configSnapshot,
 )
 
 data class TranscriptTokenWrite(
@@ -112,6 +119,13 @@ class TranscriptionRepository(
                 completedAtMs = null,
                 errorCode = null,
                 errorMessage = null,
+                vadModelRevision = request.vadModelRevision,
+                firstPassAsrModelRevision = request.firstPassAsrModelRevision,
+                secondPassAsrModelRevision = request.secondPassAsrModelRevision,
+                punctuationModelRevision = request.punctuationModelRevision,
+                configSnapshotSchemaVersion = request.configSnapshotSchemaVersion,
+                requestedConfigSnapshot = request.requestedConfigSnapshot,
+                effectiveConfigSnapshot = request.effectiveConfigSnapshot,
             ),
         )
         return id
@@ -303,18 +317,33 @@ class TranscriptionRepository(
         require(request.runtimeVersion.isNotBlank())
         require(request.vadModelId.isNotBlank())
         require(request.vadModelVersion.isNotBlank())
+        require(request.vadModelRevision >= 1L)
         require(request.firstPassAsrModelId.isNotBlank())
         require(request.firstPassAsrModelVersion.isNotBlank())
+        require(request.firstPassAsrModelRevision >= 1L)
         require(
             (request.secondPassAsrModelId == null) ==
                 (request.secondPassAsrModelVersion == null),
         )
         require(
+            (request.secondPassAsrModelId == null) ==
+                (request.secondPassAsrModelRevision == null),
+        )
+        require(request.secondPassAsrModelRevision == null || request.secondPassAsrModelRevision >= 1L)
+        require(
             (request.punctuationModelId == null) ==
                 (request.punctuationModelVersion == null),
         )
+        require(
+            (request.punctuationModelId == null) ==
+                (request.punctuationModelRevision == null),
+        )
+        require(request.punctuationModelRevision == null || request.punctuationModelRevision >= 1L)
         require(request.languageConfig.isNotBlank())
         require(request.configSnapshot.isNotBlank())
+        require(request.configSnapshotSchemaVersion >= 1)
+        require(request.requestedConfigSnapshot.isNotBlank())
+        require(request.effectiveConfigSnapshot.isNotBlank())
         require(SHA256.matches(request.modelManifestDigest))
     }
 

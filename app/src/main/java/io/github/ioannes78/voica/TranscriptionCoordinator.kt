@@ -471,6 +471,13 @@ class TranscriptionCoordinator(
             languageConfig = "auto",
             configSnapshot = configSnapshot(mode, modelList),
             modelManifestDigest = lineageDigest(modelList),
+            vadModelRevision = models.vad.descriptor.revision,
+            firstPassAsrModelRevision = models.firstPass.descriptor.revision,
+            secondPassAsrModelRevision = models.secondPass?.descriptor?.revision,
+            punctuationModelRevision = models.punctuation.descriptor.revision,
+            configSnapshotSchemaVersion = 2,
+            requestedConfigSnapshot = requestedConfigSnapshot(mode),
+            effectiveConfigSnapshot = effectiveConfigSnapshot(mode, modelList),
         )
     }
 
@@ -541,23 +548,80 @@ class TranscriptionCoordinator(
     private fun configSnapshot(
         mode: TranscriptionMode,
         models: List<ActiveModel>,
+    ): String {
+        val requested = requestedConfigSnapshot(mode)
+        val effective = effectiveConfigSnapshot(mode, models)
+        return "{\"schemaVersion\":2,\"requested\":$requested,\"effective\":$effective}"
+    }
+
+    private fun requestedConfigSnapshot(mode: TranscriptionMode): String =
+        buildString {
+            append("{\"schemaVersion\":2,\"mode\":")
+            appendJsonString(mode.name)
+            append(",\"language\":\"auto\"")
+            append(",\"performanceProfile\":\"AUTO\"")
+            append(",\"modelSelection\":\"LEGACY_MODE_MAPPING\"}")
+        }
+
+    private fun effectiveConfigSnapshot(
+        mode: TranscriptionMode,
+        models: List<ActiveModel>,
     ): String =
         buildString {
-            append("{\"mode\":\"").append(mode.name).append("\",\"models\":[")
+            append("{\"schemaVersion\":2,\"mode\":")
+            appendJsonString(mode.name)
+            append(",\"language\":\"auto\"")
+            append(",\"runtime\":{\"id\":")
+            appendJsonString(SherpaRuntime.RUNTIME_ID)
+            append(",\"version\":")
+            appendJsonString(SherpaRuntime.RUNTIME_VERSION)
+            append(",\"provider\":")
+            appendJsonString(SherpaRuntime.PROVIDER_CPU)
+            append("},\"models\":[")
             models.forEachIndexed { index, model ->
                 if (index > 0) append(',')
-                append("{\"id\":\"")
-                    .append(model.descriptor.modelId)
-                    .append("\",\"version\":\"")
-                    .append(model.descriptor.version)
-                    .append("\",\"revision\":")
-                    .append(model.descriptor.revision)
-                    .append(",\"manifestDigest\":\"")
-                    .append(model.manifestDigest)
-                    .append("\"}")
+                append("{\"id\":")
+                appendJsonString(model.descriptor.modelId)
+                append(",\"kind\":")
+                appendJsonString(model.descriptor.kind.name)
+                append(",\"version\":")
+                appendJsonString(model.descriptor.version)
+                append(",\"revision\":").append(model.descriptor.revision)
+                append(",\"runtimeId\":")
+                appendJsonString(model.descriptor.runtimeId)
+                append(",\"quantization\":")
+                val quantization = model.descriptor.quantization
+                if (quantization == null) append("null") else appendJsonString(quantization)
+                append(",\"manifestDigest\":")
+                appendJsonString(model.manifestDigest)
+                append('}')
             }
             append("]}")
         }
+
+    private fun StringBuilder.appendJsonString(value: String) {
+        append('"')
+        value.forEach { char ->
+            when (char) {
+                '"' -> append("\\\"")
+                '\\' -> append("\\\\")
+                '\b' -> append("\\b")
+                '\u000C' -> append("\\f")
+                '\n' -> append("\\n")
+                '\r' -> append("\\r")
+                '\t' -> append("\\t")
+                else -> {
+                    if (char.code < 0x20) {
+                        append("\\u")
+                        append(char.code.toString(16).padStart(4, '0'))
+                    } else {
+                        append(char)
+                    }
+                }
+            }
+        }
+        append('"')
+    }
 
     private fun lineageDigest(models: List<ActiveModel>): String {
         val canonical =

@@ -83,6 +83,13 @@ data class TranscriptionEntity(
     val completedAtMs: Long?,
     val errorCode: String?,
     val errorMessage: String?,
+    val vadModelRevision: Long = 1L,
+    val firstPassAsrModelRevision: Long = 1L,
+    val secondPassAsrModelRevision: Long? = null,
+    val punctuationModelRevision: Long? = null,
+    val configSnapshotSchemaVersion: Int = 1,
+    val requestedConfigSnapshot: String = configSnapshot,
+    val effectiveConfigSnapshot: String = configSnapshot,
 )
 
 @Entity(
