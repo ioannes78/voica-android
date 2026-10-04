@@ -107,6 +107,11 @@ jobs:
             echo "Room v7 schema is already committed."
             exit 0
           fi
+          cp "$schema" /tmp/voica-room-v7.json
+          git fetch origin "${GITHUB_HEAD_REF}"
+          git checkout -B "${GITHUB_HEAD_REF}" FETCH_HEAD
+          mkdir -p "$(dirname "$schema")"
+          cp /tmp/voica-room-v7.json "$schema"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "$schema"
