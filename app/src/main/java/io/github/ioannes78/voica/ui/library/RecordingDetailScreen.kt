@@ -622,6 +622,7 @@ fun RecordingDetailScreen(
                         item(key = "transcript-content-actions") {
                             if (document != null) {
                                 TranscriptContentActionBar(
+                                    recordingName = recording.displayName,
                                     mode = transcriptViewMode,
                                     state = transcriptContentState,
                                     viewModel = transcriptContentViewModel,

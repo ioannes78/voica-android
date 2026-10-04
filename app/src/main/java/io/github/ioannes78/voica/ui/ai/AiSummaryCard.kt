@@ -1,5 +1,9 @@
 package io.github.ioannes78.voica.ui.ai
 
+import android.os.Build
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,11 +35,17 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.AiSummaryRunState
+import io.github.ioannes78.voica.ContentTextExportCoordinator
+import io.github.ioannes78.voica.TextContentDocument
+import io.github.ioannes78.voica.TextExportFormat
+import io.github.ioannes78.voica.TextShareOutcome
 import io.github.ioannes78.voica.ai.AiSummaryEnginePhase
 import io.github.ioannes78.voica.ai.AiSummarySectionType
 import io.github.ioannes78.voica.ai.SummaryTemplateCatalog
@@ -44,6 +54,7 @@ import io.github.ioannes78.voica.database.AiSummaryStateValue
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,6 +76,56 @@ fun AiSummaryCard(
     val customTemplates by viewModel.customTemplates.collectAsState()
     val notice by viewModel.notice.collectAsState()
     val contentState by contentViewModel.state.collectAsState()
+
+    val context = LocalContext.current
+    val actionScope = rememberCoroutineScope()
+    val textExport = remember(context) { ContentTextExportCoordinator(context) }
+    var pendingTxtDocument by remember { mutableStateOf<TextContentDocument?>(null) }
+    var pendingMarkdownDocument by remember { mutableStateOf<TextContentDocument?>(null) }
+    val txtLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument(TextExportFormat.TXT.mimeType),
+        ) { uri ->
+            val document = pendingTxtDocument
+            pendingTxtDocument = null
+            if (uri != null && document != null) {
+                actionScope.launch {
+                    val result =
+                        textExport.exportToUri(
+                            document = document,
+                            format = TextExportFormat.TXT,
+                            destinationUri = uri,
+                        )
+                    Toast.makeText(
+                        context,
+                        if (result.exported) "TXT 已导出" else result.error ?: "导出失败",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }
+        }
+    val markdownLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument(TextExportFormat.MARKDOWN.mimeType),
+        ) { uri ->
+            val document = pendingMarkdownDocument
+            pendingMarkdownDocument = null
+            if (uri != null && document != null) {
+                actionScope.launch {
+                    val result =
+                        textExport.exportToUri(
+                            document = document,
+                            format = TextExportFormat.MARKDOWN,
+                            destinationUri = uri,
+                        )
+                    Toast.makeText(
+                        context,
+                        if (result.exported) "Markdown 已导出" else result.error ?: "导出失败",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }
+        }
 
     var moreExpanded by remember { mutableStateOf(false) }
     var historyExpanded by remember { mutableStateOf(false) }
@@ -147,6 +208,18 @@ fun AiSummaryCard(
     val running =
         (runState as? AiSummaryRunState.Running)
             ?.takeIf { it.transcriptionId == transcriptionId }
+
+    val exportDocument =
+        contentState.document
+            ?.takeIf { contentState.summaryId == selected?.entity?.id }
+            ?.let { effective ->
+                AiSummaryContentExportFormatter.build(
+                    recordingName = recordingName.orEmpty(),
+                    document = effective,
+                    providerName = selected?.entity?.providerNameSnapshot,
+                    modelName = selected?.entity?.model,
+                )
+            }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -257,6 +330,121 @@ fun AiSummaryCard(
                             revisionHistoryOpen = true
                         },
                     )
+                    DropdownMenuItem(
+                        text = { Text("复制总结") },
+                        enabled = exportDocument?.plainText?.isNotBlank() == true,
+                        onClick = {
+                            moreExpanded = false
+                            val document = exportDocument
+                            val copied =
+                                document != null &&
+                                    textExport.copyToClipboard(
+                                        label = document.baseName,
+                                        text = document.plainText,
+                                    )
+                            Toast.makeText(
+                                context,
+                                if (copied) "已复制总结" else "没有可复制的文本",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("分享总结") },
+                        enabled = exportDocument?.plainText?.isNotBlank() == true,
+                        onClick = {
+                            moreExpanded = false
+                            val document = exportDocument
+                            if (document != null) {
+                                actionScope.launch {
+                                    when (
+                                        val outcome =
+                                            textExport.prepareShare(
+                                                document = document,
+                                                format = TextExportFormat.TXT,
+                                            )
+                                    ) {
+                                        is TextShareOutcome.Ready ->
+                                            context.startActivity(outcome.intent)
+                                        is TextShareOutcome.Failed ->
+                                            Toast.makeText(
+                                                context,
+                                                outcome.reason,
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
+                                    }
+                                }
+                            }
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("导出 TXT") },
+                        enabled = exportDocument?.plainText?.isNotBlank() == true,
+                        onClick = {
+                            moreExpanded = false
+                            val document = exportDocument
+                            if (document != null) {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                    actionScope.launch {
+                                        val result =
+                                            textExport.exportToDownloads(
+                                                document,
+                                                TextExportFormat.TXT,
+                                            )
+                                        Toast.makeText(
+                                            context,
+                                            if (result.exported) {
+                                                "已导出到 Downloads/Voica"
+                                            } else {
+                                                result.error ?: "导出失败"
+                                            },
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
+                                } else {
+                                    pendingTxtDocument = document
+                                    txtLauncher.launch(
+                                        document.baseName + TextExportFormat.TXT.extension,
+                                    )
+                                }
+                            }
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("导出 Markdown") },
+                        enabled = exportDocument?.markdownText?.isNotBlank() == true,
+                        onClick = {
+                            moreExpanded = false
+                            val document = exportDocument
+                            if (document != null) {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                    actionScope.launch {
+                                        val result =
+                                            textExport.exportToDownloads(
+                                                document,
+                                                TextExportFormat.MARKDOWN,
+                                            )
+                                        Toast.makeText(
+                                            context,
+                                            if (result.exported) {
+                                                "已导出到 Downloads/Voica"
+                                            } else {
+                                                result.error ?: "导出失败"
+                                            },
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
+                                } else {
+                                    pendingMarkdownDocument = document
+                                    markdownLauncher.launch(
+                                        document.baseName +
+                                            TextExportFormat.MARKDOWN.extension,
+                                    )
+                                }
+                            }
+                        },
+                    )
+                    HorizontalDivider()
                     DropdownMenuItem(
                         text = { Text("恢复 AI 原始结果") },
                         enabled = contentState.currentRevisionId != null,

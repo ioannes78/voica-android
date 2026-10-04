@@ -1,5 +1,9 @@
 package io.github.ioannes78.voica.ui.transcript
 
+import android.os.Build
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -28,19 +32,26 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import io.github.ioannes78.voica.ContentTextExportCoordinator
+import io.github.ioannes78.voica.TextContentDocument
+import io.github.ioannes78.voica.TextExportFormat
+import io.github.ioannes78.voica.TextShareOutcome
 import io.github.ioannes78.voica.transcript.RevisionParagraphDraft
 import io.github.ioannes78.voica.transcript.RevisionTimingQuality
 import io.github.ioannes78.voica.transcript.TranscriptRevisionEditor
 import java.text.DateFormat
 import java.util.Date
 import java.util.UUID
+import kotlinx.coroutines.launch
 
 enum class TranscriptViewMode {
     READING,
@@ -49,6 +60,7 @@ enum class TranscriptViewMode {
 
 @Composable
 fun TranscriptContentActionBar(
+    recordingName: String,
     mode: TranscriptViewMode,
     state: TranscriptContentState,
     viewModel: TranscriptContentViewModel,
@@ -63,6 +75,70 @@ fun TranscriptContentActionBar(
     var renameValue by remember(state.transcriptionId, state.displayName) {
         mutableStateOf(state.displayName.orEmpty())
     }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val textExport = remember(context) { ContentTextExportCoordinator(context) }
+    var pendingTxtDocument by remember { mutableStateOf<TextContentDocument?>(null) }
+    var pendingMarkdownDocument by remember { mutableStateOf<TextContentDocument?>(null) }
+    val txtLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument(TextExportFormat.TXT.mimeType),
+        ) { uri ->
+            val document = pendingTxtDocument
+            pendingTxtDocument = null
+            if (uri != null && document != null) {
+                scope.launch {
+                    val result =
+                        textExport.exportToUri(
+                            document = document,
+                            format = TextExportFormat.TXT,
+                            destinationUri = uri,
+                        )
+                    Toast.makeText(
+                        context,
+                        if (result.exported) "TXT 已导出" else result.error ?: "导出失败",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }
+        }
+    val markdownLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument(TextExportFormat.MARKDOWN.mimeType),
+        ) { uri ->
+            val document = pendingMarkdownDocument
+            pendingMarkdownDocument = null
+            if (uri != null && document != null) {
+                scope.launch {
+                    val result =
+                        textExport.exportToUri(
+                            document = document,
+                            format = TextExportFormat.MARKDOWN,
+                            destinationUri = uri,
+                        )
+                    Toast.makeText(
+                        context,
+                        if (result.exported) "Markdown 已导出" else result.error ?: "导出失败",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }
+        }
+    val exportDocument =
+        remember(
+            recordingName,
+            state.displayName,
+            state.currentRevisionId,
+            state.paragraphs,
+        ) {
+            TranscriptContentExportFormatter.build(
+                recordingName = recordingName,
+                versionName = state.displayName,
+                paragraphs = state.paragraphs,
+                includeSpeaker = true,
+                includeTime = false,
+            )
+        }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -124,6 +200,110 @@ fun TranscriptContentActionBar(
                             historyOpen = true
                         },
                     )
+                    DropdownMenuItem(
+                        text = { Text("复制阅读稿") },
+                        enabled = exportDocument.plainText.isNotBlank(),
+                        onClick = {
+                            menuExpanded = false
+                            val copied =
+                                textExport.copyToClipboard(
+                                    label = exportDocument.baseName,
+                                    text = exportDocument.plainText,
+                                )
+                            Toast.makeText(
+                                context,
+                                if (copied) "已复制阅读稿" else "没有可复制的文本",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("分享阅读稿") },
+                        enabled = exportDocument.plainText.isNotBlank(),
+                        onClick = {
+                            menuExpanded = false
+                            scope.launch {
+                                when (
+                                    val outcome =
+                                        textExport.prepareShare(
+                                            document = exportDocument,
+                                            format = TextExportFormat.TXT,
+                                        )
+                                ) {
+                                    is TextShareOutcome.Ready ->
+                                        context.startActivity(outcome.intent)
+                                    is TextShareOutcome.Failed ->
+                                        Toast.makeText(
+                                            context,
+                                            outcome.reason,
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                }
+                            }
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("导出 TXT") },
+                        enabled = exportDocument.plainText.isNotBlank(),
+                        onClick = {
+                            menuExpanded = false
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                scope.launch {
+                                    val result =
+                                        textExport.exportToDownloads(
+                                            exportDocument,
+                                            TextExportFormat.TXT,
+                                        )
+                                    Toast.makeText(
+                                        context,
+                                        if (result.exported) {
+                                            "已导出到 Downloads/Voica"
+                                        } else {
+                                            result.error ?: "导出失败"
+                                        },
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            } else {
+                                pendingTxtDocument = exportDocument
+                                txtLauncher.launch(
+                                    exportDocument.baseName + TextExportFormat.TXT.extension,
+                                )
+                            }
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("导出 Markdown") },
+                        enabled = exportDocument.markdownText.isNotBlank(),
+                        onClick = {
+                            menuExpanded = false
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                scope.launch {
+                                    val result =
+                                        textExport.exportToDownloads(
+                                            exportDocument,
+                                            TextExportFormat.MARKDOWN,
+                                        )
+                                    Toast.makeText(
+                                        context,
+                                        if (result.exported) {
+                                            "已导出到 Downloads/Voica"
+                                        } else {
+                                            result.error ?: "导出失败"
+                                        },
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            } else {
+                                pendingMarkdownDocument = exportDocument
+                                markdownLauncher.launch(
+                                    exportDocument.baseName +
+                                        TextExportFormat.MARKDOWN.extension,
+                                )
+                            }
+                        },
+                    )
+                    HorizontalDivider()
                     DropdownMenuItem(
                         text = { Text("恢复模型原文") },
                         enabled = state.currentRevisionId != null,
