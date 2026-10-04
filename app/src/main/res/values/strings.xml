@@ -209,9 +209,9 @@
     <string name="transcription_mode_high_quality">高质量模式</string>
     <string name="transcription_phase_preparing">正在准备标准音频与模型…</string>
     <string name="transcription_phase_vad">正在分析语音区间…</string>
-    <string name="transcription_phase_first_pass">正在进行第一遍识别…</string>
-    <string name="transcription_phase_second_pass">正在进行高质量第二遍识别…</string>
-    <string name="transcription_phase_punctuation">正在恢复标点…</string>
+    <string name="transcription_phase_first_pass">正在快速识别…</string>
+    <string name="transcription_phase_second_pass">正在高质量识别…</string>
+    <string name="transcription_phase_punctuation">正在处理标点…</string>
     <string name="transcription_phase_persisting">正在保存转写结果…</string>
     <string name="transcription_progress_percent">%1$d%%</string>
     <string name="transcription_cancel">取消转写</string>
