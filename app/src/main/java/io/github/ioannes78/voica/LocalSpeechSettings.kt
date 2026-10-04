@@ -626,7 +626,10 @@ class SharedPreferencesLocalSpeechSettingsStore(
                         }
                         ?: SenseVoiceLanguageChoice.AUTO,
                 useInverseTextNormalization =
-                    preferences.getBoolean(KEY_SENSEVOICE_USE_ITN, true),
+                    preferences.getBoolean(
+                        KEY_SENSEVOICE_USE_ITN,
+                        LocalSenseVoiceSettings().useInverseTextNormalization,
+                    ),
             )
 
         fun readQwenSettings(
