@@ -21,6 +21,8 @@ object VoicaModelChannel {
     const val BOOTSTRAP_CATALOG_ASSET = "model-catalog-v1.json"
     const val PRODUCTION_MANIFEST_URL =
         "https://raw.githubusercontent.com/ioannes78/voica-model-channel/main/manifests/production.json"
+    const val STAGE13A_STREAMING_CANDIDATE_MANIFEST_URL =
+        "https://github.com/ioannes78/voica-model-channel/releases/download/candidate-stage13a-streaming-asr-r1/production.json"
 
     private const val PREFERENCES_NAME = "voica-model-channel"
     private const val KEY_DEBUG_MANIFEST_URL = "debug-manifest-url"
