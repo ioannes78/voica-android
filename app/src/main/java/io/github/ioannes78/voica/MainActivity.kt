@@ -56,6 +56,7 @@ class MainActivity : ComponentActivity() {
                         appContainer.providerConfigurationRepository,
                     providerAdapterRegistry = appContainer.providerAdapterRegistry,
                     themeSettingsStore = appContainer.themeSettingsStore,
+                    localSpeechSettingsStore = appContainer.localSpeechSettingsStore,
                 )
             }
         }

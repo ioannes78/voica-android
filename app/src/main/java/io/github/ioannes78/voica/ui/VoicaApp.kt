@@ -63,6 +63,7 @@ import io.github.ioannes78.voica.ModelUpdateController
 import io.github.ioannes78.voica.LocalAudioImportCoordinator
 import io.github.ioannes78.voica.LocalAudioExportCoordinator
 import io.github.ioannes78.voica.LocalAudioShareOutcome
+import io.github.ioannes78.voica.LocalSpeechSettingsStore
 import io.github.ioannes78.voica.AudioExportVariant
 import io.github.ioannes78.voica.LocalRecordingDeleteCoordinator
 import io.github.ioannes78.voica.R
@@ -192,6 +193,7 @@ fun VoicaApp(
     providerConfigurationRepository: ProviderConfigurationRepository,
     providerAdapterRegistry: ProviderAdapterRegistry,
     themeSettingsStore: ThemeSettingsStore,
+    localSpeechSettingsStore: LocalSpeechSettingsStore,
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var secondaryPageActive by rememberSaveable { mutableStateOf(false) }
@@ -552,6 +554,7 @@ fun VoicaApp(
                 storageManagementCoordinator = storageManagementCoordinator,
                 providerSettingsViewModel = providerSettingsViewModel,
                 themeSettingsStore = themeSettingsStore,
+                localSpeechSettingsStore = localSpeechSettingsStore,
                 onSecondaryPageChanged = { secondaryPageActive = it },
             )
         }
