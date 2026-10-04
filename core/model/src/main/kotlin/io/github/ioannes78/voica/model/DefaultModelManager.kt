@@ -444,11 +444,11 @@ class DefaultModelManager(
     ) {
         val mutex = modelMutexes.computeIfAbsent(modelId) { Mutex() }
         mutex.withLock {
-            val snapshot =
-                withContext(blockingDispatcher) {
-                    storage.installedSnapshot(modelId, version, revision)
-                } ?: error("model candidate metadata is missing or failed integrity verification")
-            val descriptor = snapshot.descriptor
+            val sourceCatalog = catalog()
+            val descriptor =
+                sourceCatalog.model(modelId)
+                    ?.takeIf { it.version == version && it.revision == revision }
+                    ?: error("model version is not present in the active catalog")
             require(descriptor.compatibilityWith(environment).compatible) {
                 "model is incompatible with this device/app/runtime"
             }
@@ -462,6 +462,12 @@ class DefaultModelManager(
             )
             try {
                 withContext(blockingDispatcher) {
+                    // QA4: refresh legacy V1 metadata from the currently trusted manifest
+                    // before the isolated validator process reads the installed snapshot.
+                    storage.refreshDescriptorSnapshot(
+                        descriptor = descriptor,
+                        manifestDigest = sourceCatalog.manifestDigest,
+                    )
                     candidateValidator.validate(
                         descriptor = descriptor,
                         installedDirectory = installed.directory,
