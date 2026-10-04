@@ -8,7 +8,8 @@ data class ModelDescriptorSnapshot(
 )
 
 object ModelDescriptorSnapshotCodec {
-    private const val FORMAT_VERSION = 1
+    private const val FORMAT_VERSION = 2
+    private const val MIN_SUPPORTED_FORMAT_VERSION = 1
 
     fun encode(snapshot: ModelDescriptorSnapshot): Properties {
         require(SHA256_REGEX.matches(snapshot.manifestDigest))
@@ -33,6 +34,11 @@ object ModelDescriptorSnapshotCodec {
             setProperty("cap.itn", d.capabilities.supportsInverseTextNormalization.toString())
             setProperty("cap.secondPass", d.capabilities.supportsSecondPass.toString())
             setProperty("cap.hotwords", d.capabilities.supportsHotwords.toString())
+            setProperty("cap.executionMode", d.capabilities.executionMode.name)
+            setProperty("cap.timestampCapability", d.capabilities.timestampCapability.name)
+            setProperty("cap.languageForcing", d.capabilities.supportsLanguageForcing.toString())
+            setProperty("cap.punctuationMode", d.capabilities.punctuationMode.name)
+            writeList("cap.supportedParameters", d.capabilities.supportedParameters.sorted())
             setProperty("sourceType", d.sourceType.name)
             d.builtinAssetPath?.let { setProperty("builtinAssetPath", it) }
             d.packageFormat?.let { setProperty("packageFormat", it.name) }
@@ -63,15 +69,25 @@ object ModelDescriptorSnapshotCodec {
             setProperty("deprecated", d.deprecated.toString())
             setProperty("criticalUpdate", d.criticalUpdate.toString())
             d.speakerRole?.let { setProperty("speakerRole", it.name) }
+            d.quantization?.let { setProperty("quantization", it) }
+            d.recommendedDeviceTier?.let { setProperty("recommendedDeviceTier", it) }
+            d.estimatedPeakRamBytes?.let { setProperty("estimatedPeakRamBytes", it.toString()) }
+            d.recommendedProfile?.let { setProperty("recommendedProfile", it) }
+            d.runtimeModelType?.let { setProperty("runtimeModelType", it) }
         }
     }
 
     fun decode(properties: Properties): ModelDescriptorSnapshot {
-        require(properties.requiredInt("formatVersion") == FORMAT_VERSION) {
+        val formatVersion = properties.requiredInt("formatVersion")
+        require(formatVersion in MIN_SUPPORTED_FORMAT_VERSION..FORMAT_VERSION) {
             "unsupported model descriptor snapshot format"
         }
         val manifestDigest = properties.required("manifestDigest").lowercase()
         require(SHA256_REGEX.matches(manifestDigest))
+
+        val supportsStreaming = properties.requiredBoolean("cap.streaming")
+        val supportsSecondPass = properties.requiredBoolean("cap.secondPass")
+        val supportsTokenTiming = properties.requiredBoolean("cap.tokenTiming")
 
         val descriptor =
             ModelDescriptor(
@@ -86,16 +102,40 @@ object ModelDescriptorSnapshotCodec {
                 languages = properties.readList("languages").toSet(),
                 capabilities =
                     ModelCapabilities(
-                        supportsStreaming = properties.requiredBoolean("cap.streaming"),
+                        supportsStreaming = supportsStreaming,
                         supportsPartial = properties.requiredBoolean("cap.partial"),
-                        supportsTokenTiming = properties.requiredBoolean("cap.tokenTiming"),
+                        supportsTokenTiming = supportsTokenTiming,
                         supportsLanguageDetection =
                             properties.requiredBoolean("cap.languageDetection"),
                         supportsConfidence = properties.requiredBoolean("cap.confidence"),
                         supportsInverseTextNormalization =
                             properties.requiredBoolean("cap.itn"),
-                        supportsSecondPass = properties.requiredBoolean("cap.secondPass"),
+                        supportsSecondPass = supportsSecondPass,
                         supportsHotwords = properties.requiredBoolean("cap.hotwords"),
+                        executionMode =
+                            properties.optional("cap.executionMode")?.let {
+                                enumValueOf<AsrExecutionMode>(it)
+                            } ?: when {
+                                supportsStreaming -> AsrExecutionMode.TRUE_STREAMING
+                                supportsSecondPass -> AsrExecutionMode.SECOND_PASS
+                                else -> AsrExecutionMode.OFFLINE
+                            },
+                        timestampCapability =
+                            properties.optional("cap.timestampCapability")?.let {
+                                enumValueOf<TimestampCapability>(it)
+                            } ?: if (supportsTokenTiming) {
+                                TimestampCapability.TOKEN
+                            } else {
+                                TimestampCapability.NONE
+                            },
+                        supportsLanguageForcing =
+                            properties.optionalBoolean("cap.languageForcing") ?: false,
+                        punctuationMode =
+                            properties.optional("cap.punctuationMode")?.let {
+                                enumValueOf<ModelPunctuationMode>(it)
+                            } ?: ModelPunctuationMode.NONE,
+                        supportedParameters =
+                            properties.readOptionalList("cap.supportedParameters").toSet(),
                     ),
                 sourceType = enumValueOf(properties.required("sourceType")),
                 builtinAssetPath = properties.optional("builtinAssetPath"),
@@ -136,6 +176,11 @@ object ModelDescriptorSnapshotCodec {
                     properties.optional("speakerRole")?.let {
                         enumValueOf<SpeakerModelRole>(it)
                     },
+                quantization = properties.optional("quantization"),
+                recommendedDeviceTier = properties.optional("recommendedDeviceTier"),
+                estimatedPeakRamBytes = properties.optionalLong("estimatedPeakRamBytes"),
+                recommendedProfile = properties.optional("recommendedProfile"),
+                runtimeModelType = properties.optional("runtimeModelType"),
             )
 
         return ModelDescriptorSnapshot(
@@ -159,6 +204,13 @@ object ModelDescriptorSnapshotCodec {
             required("$prefix.$index")
         }
 
+    private fun Properties.readOptionalList(prefix: String): List<String> =
+        if (getProperty("$prefix.count") == null) {
+            emptyList()
+        } else {
+            readList(prefix)
+        }
+
     private fun Properties.required(key: String): String =
         getProperty(key)?.takeIf { it.isNotEmpty() }
             ?: throw IllegalArgumentException("missing model metadata field: $key")
@@ -180,4 +232,7 @@ object ModelDescriptorSnapshotCodec {
 
     private fun Properties.requiredBoolean(key: String): Boolean =
         required(key).toBooleanStrict()
+
+    private fun Properties.optionalBoolean(key: String): Boolean? =
+        optional(key)?.toBooleanStrictOrNull()
 }
