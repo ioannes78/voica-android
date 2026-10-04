@@ -29,6 +29,7 @@ import io.github.ioannes78.voica.LocalVadSettings
 import io.github.ioannes78.voica.MAX_CONFIGURABLE_THREADS
 import io.github.ioannes78.voica.OfflineAsrQualityChoice
 import io.github.ioannes78.voica.RealtimeAsrModelChoice
+import io.github.ioannes78.voica.SenseVoiceLanguageChoice
 import io.github.ioannes78.voica.SpeakerCountChoice
 import io.github.ioannes78.voica.SpeakerEmbeddingModelChoice
 import io.github.ioannes78.voica.SpeechPerformanceProfile
@@ -209,6 +210,98 @@ internal fun LocalSpeechSettingsCard(
                                     store.setOfflineAsrQuality(option.choice)
                                 },
                     )
+                }
+            }
+        }
+
+        if (
+            settings.offlineAsrQuality == OfflineAsrQualityChoice.AUTO ||
+            settings.offlineAsrQuality == OfflineAsrQualityChoice.BALANCED
+        ) {
+            val senseVoiceParameters =
+                supportedParameters[Stage13AOfflineModelIds.SENSEVOICE].orEmpty()
+            if (senseVoiceParameters.isNotEmpty()) {
+                Card(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp),
+                ) {
+                    Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Text("SenseVoice 高级参数", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "仅影响 SenseVoice 第二遍识别；Auto 保持原有自动语言检测。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if ("language" in senseVoiceParameters) {
+                            Text(
+                                "识别语言",
+                                style = MaterialTheme.typography.titleSmall,
+                                modifier =
+                                    Modifier.padding(
+                                        start = 16.dp,
+                                        end = 16.dp,
+                                        top = 6.dp,
+                                        bottom = 2.dp,
+                                    ),
+                            )
+                            senseVoiceLanguageOptions().forEachIndexed { index, option ->
+                                if (index > 0) HorizontalDivider()
+                                ListItem(
+                                    headlineContent = { Text(option.second) },
+                                    supportingContent = { Text(option.third) },
+                                    leadingContent = {
+                                        RadioButton(
+                                            selected =
+                                                settings.senseVoice.language == option.first,
+                                            onClick = null,
+                                        )
+                                    },
+                                    modifier =
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                store.setSenseVoiceSettings(
+                                                    settings.senseVoice.copy(
+                                                        language = option.first,
+                                                    ),
+                                                )
+                                            },
+                                )
+                            }
+                        }
+                        if ("useInverseTextNormalization" in senseVoiceParameters) {
+                            HorizontalDivider()
+                            ListItem(
+                                headlineContent = { Text("逆文本标准化（ITN）") },
+                                supportingContent = {
+                                    Text("把可识别的数字、日期等口语形式规范为更适合阅读的文本。")
+                                },
+                                trailingContent = {
+                                    Switch(
+                                        checked =
+                                            settings.senseVoice.useInverseTextNormalization,
+                                        onCheckedChange = { enabled ->
+                                            store.setSenseVoiceSettings(
+                                                settings.senseVoice.copy(
+                                                    useInverseTextNormalization = enabled,
+                                                ),
+                                            )
+                                        },
+                                    )
+                                },
+                            )
+                        }
+                        TextButton(
+                            onClick = store::resetSenseVoiceSettings,
+                            modifier = Modifier.padding(horizontal = 8.dp),
+                        ) {
+                            Text("恢复 SenseVoice 推荐值")
+                        }
+                    }
                 }
             }
         }
@@ -800,6 +893,16 @@ private fun offlineModelOptions() =
             "条件型 Ultra 候选 · 约 941 MB 安装体积 · 仅建议高内存设备测试",
             Stage13AOfflineModelIds.QWEN3_ASR,
         ),
+    )
+
+private fun senseVoiceLanguageOptions() =
+    listOf(
+        Triple(SenseVoiceLanguageChoice.AUTO, "自动（推荐）", "自动检测当前语音语言"),
+        Triple(SenseVoiceLanguageChoice.ZH, "中文", "强制按中文识别"),
+        Triple(SenseVoiceLanguageChoice.EN, "English", "强制按英文识别"),
+        Triple(SenseVoiceLanguageChoice.JA, "日本語", "强制按日语识别"),
+        Triple(SenseVoiceLanguageChoice.KO, "한국어", "强制按韩语识别"),
+        Triple(SenseVoiceLanguageChoice.YUE, "粤语", "强制按粤语识别"),
     )
 
 private fun speakerCountOptions() =
