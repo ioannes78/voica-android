@@ -15,6 +15,24 @@ data class FinalTextTokenProjection(
     }
 }
 
+
+internal fun isPunctuationOnlyToken(text: String): Boolean =
+    text.isNotEmpty() &&
+        text.all { ch ->
+            ch.isWhitespace() ||
+                when (Character.getType(ch)) {
+                    Character.CONNECTOR_PUNCTUATION.toInt(),
+                    Character.DASH_PUNCTUATION.toInt(),
+                    Character.START_PUNCTUATION.toInt(),
+                    Character.END_PUNCTUATION.toInt(),
+                    Character.INITIAL_QUOTE_PUNCTUATION.toInt(),
+                    Character.FINAL_QUOTE_PUNCTUATION.toInt(),
+                    Character.OTHER_PUNCTUATION.toInt(),
+                    -> true
+                    else -> false
+                }
+        }
+
 fun projectTokensToFinalText(
     finalText: String,
     tokens: List<String>,
