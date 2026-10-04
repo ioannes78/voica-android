@@ -18,6 +18,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 internal const val MIN_MODEL_INSTALL_SPACE_RESERVE_BYTES = 128L * 1024L * 1024L
+private const val MEBIBYTE_BYTES = 1024L * 1024L
 
 internal data class ModelInstallSpaceRequirements(
     val packageVolumeBytes: Long,
