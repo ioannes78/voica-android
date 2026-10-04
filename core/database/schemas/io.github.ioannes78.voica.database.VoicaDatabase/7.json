@@ -1,0 +1,3389 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 7,
+    "identityHash": "23ecdfafa66456904c8b2c214f10167f",
+    "entities": [
+      {
+        "tableName": "recordings",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `sourceType` TEXT NOT NULL, `sourceRemoteIdentity` TEXT, `sourceDeviceAddress` TEXT, `originalFilename` TEXT NOT NULL, `displayName` TEXT NOT NULL, `recordedAtLocalIso` TEXT, `deviceReportedDurationMs` INTEGER, `mediaDurationMs` INTEGER, `downloadedAtMs` INTEGER, `createdAtMs` INTEGER NOT NULL, `updatedAtMs` INTEGER NOT NULL, `state` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceType",
+            "columnName": "sourceType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceRemoteIdentity",
+            "columnName": "sourceRemoteIdentity",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceDeviceAddress",
+            "columnName": "sourceDeviceAddress",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "originalFilename",
+            "columnName": "originalFilename",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "displayName",
+            "columnName": "displayName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recordedAtLocalIso",
+            "columnName": "recordedAtLocalIso",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "deviceReportedDurationMs",
+            "columnName": "deviceReportedDurationMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "mediaDurationMs",
+            "columnName": "mediaDurationMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "downloadedAtMs",
+            "columnName": "downloadedAtMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "createdAtMs",
+            "columnName": "createdAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtMs",
+            "columnName": "updatedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_recordings_sourceRemoteIdentity",
+            "unique": true,
+            "columnNames": [
+              "sourceRemoteIdentity"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_recordings_sourceRemoteIdentity` ON `${TABLE_NAME}` (`sourceRemoteIdentity`)"
+          },
+          {
+            "name": "index_recordings_recordedAtLocalIso",
+            "unique": false,
+            "columnNames": [
+              "recordedAtLocalIso"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_recordings_recordedAtLocalIso` ON `${TABLE_NAME}` (`recordedAtLocalIso`)"
+          },
+          {
+            "name": "index_recordings_downloadedAtMs",
+            "unique": false,
+            "columnNames": [
+              "downloadedAtMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_recordings_downloadedAtMs` ON `${TABLE_NAME}` (`downloadedAtMs`)"
+          },
+          {
+            "name": "index_recordings_createdAtMs",
+            "unique": false,
+            "columnNames": [
+              "createdAtMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_recordings_createdAtMs` ON `${TABLE_NAME}` (`createdAtMs`)"
+          },
+          {
+            "name": "index_recordings_updatedAtMs",
+            "unique": false,
+            "columnNames": [
+              "updatedAtMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_recordings_updatedAtMs` ON `${TABLE_NAME}` (`updatedAtMs`)"
+          },
+          {
+            "name": "index_recordings_sourceType",
+            "unique": false,
+            "columnNames": [
+              "sourceType"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_recordings_sourceType` ON `${TABLE_NAME}` (`sourceType`)"
+          },
+          {
+            "name": "index_recordings_state",
+            "unique": false,
+            "columnNames": [
+              "state"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_recordings_state` ON `${TABLE_NAME}` (`state`)"
+          }
+        ]
+      },
+      {
+        "tableName": "audio_assets",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`assetId` TEXT NOT NULL, `recordingId` TEXT NOT NULL, `role` TEXT NOT NULL, `relativePath` TEXT NOT NULL, `container` TEXT NOT NULL, `codec` TEXT, `sampleFormat` TEXT, `sampleRateHz` INTEGER, `channelCount` INTEGER, `sizeBytes` INTEGER NOT NULL, `sha256` TEXT NOT NULL, `integrityState` TEXT NOT NULL, `formatValidationState` TEXT NOT NULL, `createdAtMs` INTEGER NOT NULL, `verifiedAtMs` INTEGER, PRIMARY KEY(`assetId`), FOREIGN KEY(`recordingId`) REFERENCES `recordings`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "assetId",
+            "columnName": "assetId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recordingId",
+            "columnName": "recordingId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "role",
+            "columnName": "role",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "relativePath",
+            "columnName": "relativePath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "container",
+            "columnName": "container",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "codec",
+            "columnName": "codec",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sampleFormat",
+            "columnName": "sampleFormat",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sampleRateHz",
+            "columnName": "sampleRateHz",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "channelCount",
+            "columnName": "channelCount",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "sizeBytes",
+            "columnName": "sizeBytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sha256",
+            "columnName": "sha256",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "integrityState",
+            "columnName": "integrityState",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "formatValidationState",
+            "columnName": "formatValidationState",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtMs",
+            "columnName": "createdAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "verifiedAtMs",
+            "columnName": "verifiedAtMs",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "assetId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_audio_assets_recordingId",
+            "unique": false,
+            "columnNames": [
+              "recordingId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_audio_assets_recordingId` ON `${TABLE_NAME}` (`recordingId`)"
+          },
+          {
+            "name": "index_audio_assets_recordingId_role",
+            "unique": true,
+            "columnNames": [
+              "recordingId",
+              "role"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_audio_assets_recordingId_role` ON `${TABLE_NAME}` (`recordingId`, `role`)"
+          },
+          {
+            "name": "index_audio_assets_sha256",
+            "unique": false,
+            "columnNames": [
+              "sha256"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_audio_assets_sha256` ON `${TABLE_NAME}` (`sha256`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "recordings",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "recordingId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "audio_derivations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`recordingId` TEXT NOT NULL, `profileId` TEXT NOT NULL, `sourceSha256` TEXT NOT NULL, `sourceAssetId` TEXT NOT NULL, `outputAssetId` TEXT, `pipelineVersion` INTEGER NOT NULL, `state` TEXT NOT NULL, `startedAtMs` INTEGER, `updatedAtMs` INTEGER NOT NULL, `completedAtMs` INTEGER, `errorCode` TEXT, `errorDetail` TEXT, PRIMARY KEY(`recordingId`, `profileId`, `sourceSha256`), FOREIGN KEY(`recordingId`) REFERENCES `recordings`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "recordingId",
+            "columnName": "recordingId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceSha256",
+            "columnName": "sourceSha256",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceAssetId",
+            "columnName": "sourceAssetId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "outputAssetId",
+            "columnName": "outputAssetId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "pipelineVersion",
+            "columnName": "pipelineVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startedAtMs",
+            "columnName": "startedAtMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "updatedAtMs",
+            "columnName": "updatedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "completedAtMs",
+            "columnName": "completedAtMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "errorCode",
+            "columnName": "errorCode",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "errorDetail",
+            "columnName": "errorDetail",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "recordingId",
+            "profileId",
+            "sourceSha256"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_audio_derivations_recordingId",
+            "unique": false,
+            "columnNames": [
+              "recordingId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_audio_derivations_recordingId` ON `${TABLE_NAME}` (`recordingId`)"
+          },
+          {
+            "name": "index_audio_derivations_sourceAssetId",
+            "unique": false,
+            "columnNames": [
+              "sourceAssetId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_audio_derivations_sourceAssetId` ON `${TABLE_NAME}` (`sourceAssetId`)"
+          },
+          {
+            "name": "index_audio_derivations_outputAssetId",
+            "unique": false,
+            "columnNames": [
+              "outputAssetId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_audio_derivations_outputAssetId` ON `${TABLE_NAME}` (`outputAssetId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "recordings",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "recordingId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "library_meta",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `value` TEXT NOT NULL, `updatedAtMs` INTEGER NOT NULL, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "value",
+            "columnName": "value",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtMs",
+            "columnName": "updatedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        }
+      },
+      {
+        "tableName": "migration_diagnostics",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `sourcePath` TEXT NOT NULL, `code` TEXT NOT NULL, `detail` TEXT, `observedAtMs` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourcePath",
+            "columnName": "sourcePath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "code",
+            "columnName": "code",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "detail",
+            "columnName": "detail",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "observedAtMs",
+            "columnName": "observedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_migration_diagnostics_sourcePath_code",
+            "unique": true,
+            "columnNames": [
+              "sourcePath",
+              "code"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_migration_diagnostics_sourcePath_code` ON `${TABLE_NAME}` (`sourcePath`, `code`)"
+          }
+        ]
+      },
+      {
+        "tableName": "recording_import_provenance",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`recordingId` TEXT NOT NULL, `importedAtMs` INTEGER NOT NULL, `originalDisplayName` TEXT NOT NULL, `sourceMimeType` TEXT, `sourceSizeBytes` INTEGER NOT NULL, `providerAuthority` TEXT, `sourceLastModifiedMs` INTEGER, PRIMARY KEY(`recordingId`), FOREIGN KEY(`recordingId`) REFERENCES `recordings`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "recordingId",
+            "columnName": "recordingId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "importedAtMs",
+            "columnName": "importedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "originalDisplayName",
+            "columnName": "originalDisplayName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceMimeType",
+            "columnName": "sourceMimeType",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceSizeBytes",
+            "columnName": "sourceSizeBytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "providerAuthority",
+            "columnName": "providerAuthority",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceLastModifiedMs",
+            "columnName": "sourceLastModifiedMs",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "recordingId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_recording_import_provenance_importedAtMs",
+            "unique": false,
+            "columnNames": [
+              "importedAtMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_recording_import_provenance_importedAtMs` ON `${TABLE_NAME}` (`importedAtMs`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "recordings",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "recordingId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "recording_folders",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`folderId` TEXT NOT NULL, `name` TEXT NOT NULL, `createdAtMs` INTEGER NOT NULL, `updatedAtMs` INTEGER NOT NULL, PRIMARY KEY(`folderId`))",
+        "fields": [
+          {
+            "fieldPath": "folderId",
+            "columnName": "folderId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtMs",
+            "columnName": "createdAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtMs",
+            "columnName": "updatedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "folderId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_recording_folders_name",
+            "unique": true,
+            "columnNames": [
+              "name"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_recording_folders_name` ON `${TABLE_NAME}` (`name`)"
+          },
+          {
+            "name": "index_recording_folders_updatedAtMs",
+            "unique": false,
+            "columnNames": [
+              "updatedAtMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_recording_folders_updatedAtMs` ON `${TABLE_NAME}` (`updatedAtMs`)"
+          }
+        ]
+      },
+      {
+        "tableName": "recording_user_metadata",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`recordingId` TEXT NOT NULL, `folderId` TEXT, `isFavorite` INTEGER NOT NULL, `updatedAtMs` INTEGER NOT NULL, PRIMARY KEY(`recordingId`), FOREIGN KEY(`recordingId`) REFERENCES `recordings`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`folderId`) REFERENCES `recording_folders`(`folderId`) ON UPDATE NO ACTION ON DELETE SET NULL )",
+        "fields": [
+          {
+            "fieldPath": "recordingId",
+            "columnName": "recordingId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "folderId",
+            "columnName": "folderId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "isFavorite",
+            "columnName": "isFavorite",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtMs",
+            "columnName": "updatedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "recordingId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_recording_user_metadata_folderId",
+            "unique": false,
+            "columnNames": [
+              "folderId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_recording_user_metadata_folderId` ON `${TABLE_NAME}` (`folderId`)"
+          },
+          {
+            "name": "index_recording_user_metadata_isFavorite",
+            "unique": false,
+            "columnNames": [
+              "isFavorite"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_recording_user_metadata_isFavorite` ON `${TABLE_NAME}` (`isFavorite`)"
+          },
+          {
+            "name": "index_recording_user_metadata_updatedAtMs",
+            "unique": false,
+            "columnNames": [
+              "updatedAtMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_recording_user_metadata_updatedAtMs` ON `${TABLE_NAME}` (`updatedAtMs`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "recordings",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "recordingId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          },
+          {
+            "table": "recording_folders",
+            "onDelete": "SET NULL",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "folderId"
+            ],
+            "referencedColumns": [
+              "folderId"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "recording_tags",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`tagId` TEXT NOT NULL, `name` TEXT NOT NULL, `createdAtMs` INTEGER NOT NULL, `updatedAtMs` INTEGER NOT NULL, PRIMARY KEY(`tagId`))",
+        "fields": [
+          {
+            "fieldPath": "tagId",
+            "columnName": "tagId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtMs",
+            "columnName": "createdAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtMs",
+            "columnName": "updatedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "tagId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_recording_tags_name",
+            "unique": true,
+            "columnNames": [
+              "name"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_recording_tags_name` ON `${TABLE_NAME}` (`name`)"
+          },
+          {
+            "name": "index_recording_tags_updatedAtMs",
+            "unique": false,
+            "columnNames": [
+              "updatedAtMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_recording_tags_updatedAtMs` ON `${TABLE_NAME}` (`updatedAtMs`)"
+          }
+        ]
+      },
+      {
+        "tableName": "recording_tag_cross_refs",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`recordingId` TEXT NOT NULL, `tagId` TEXT NOT NULL, PRIMARY KEY(`recordingId`, `tagId`), FOREIGN KEY(`recordingId`) REFERENCES `recordings`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`tagId`) REFERENCES `recording_tags`(`tagId`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "recordingId",
+            "columnName": "recordingId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tagId",
+            "columnName": "tagId",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "recordingId",
+            "tagId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_recording_tag_cross_refs_tagId",
+            "unique": false,
+            "columnNames": [
+              "tagId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_recording_tag_cross_refs_tagId` ON `${TABLE_NAME}` (`tagId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "recordings",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "recordingId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          },
+          {
+            "table": "recording_tags",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "tagId"
+            ],
+            "referencedColumns": [
+              "tagId"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "transcriptions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `recordingId` TEXT NOT NULL, `mode` TEXT NOT NULL, `state` TEXT NOT NULL, `sourceCanonicalAssetId` TEXT NOT NULL, `sourceCanonicalSha256` TEXT NOT NULL, `canonicalProfileId` TEXT NOT NULL, `totalSampleCount` INTEGER NOT NULL, `pipelineVersion` INTEGER NOT NULL, `runtimeId` TEXT NOT NULL, `runtimeVersion` TEXT NOT NULL, `vadModelId` TEXT NOT NULL, `vadModelVersion` TEXT NOT NULL, `firstPassAsrModelId` TEXT NOT NULL, `firstPassAsrModelVersion` TEXT NOT NULL, `secondPassAsrModelId` TEXT, `secondPassAsrModelVersion` TEXT, `punctuationModelId` TEXT, `punctuationModelVersion` TEXT, `languageConfig` TEXT NOT NULL, `configSnapshot` TEXT NOT NULL, `modelManifestDigest` TEXT NOT NULL, `createdAtMs` INTEGER NOT NULL, `startedAtMs` INTEGER, `updatedAtMs` INTEGER NOT NULL, `completedAtMs` INTEGER, `errorCode` TEXT, `errorMessage` TEXT, `vadModelRevision` INTEGER NOT NULL DEFAULT 1, `firstPassAsrModelRevision` INTEGER NOT NULL DEFAULT 1, `secondPassAsrModelRevision` INTEGER, `punctuationModelRevision` INTEGER, `configSnapshotSchemaVersion` INTEGER NOT NULL DEFAULT 1, `requestedConfigSnapshot` TEXT NOT NULL DEFAULT '{}', `effectiveConfigSnapshot` TEXT NOT NULL DEFAULT '{}', PRIMARY KEY(`id`), FOREIGN KEY(`recordingId`) REFERENCES `recordings`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recordingId",
+            "columnName": "recordingId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mode",
+            "columnName": "mode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceCanonicalAssetId",
+            "columnName": "sourceCanonicalAssetId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceCanonicalSha256",
+            "columnName": "sourceCanonicalSha256",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "canonicalProfileId",
+            "columnName": "canonicalProfileId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalSampleCount",
+            "columnName": "totalSampleCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pipelineVersion",
+            "columnName": "pipelineVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "runtimeId",
+            "columnName": "runtimeId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "runtimeVersion",
+            "columnName": "runtimeVersion",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "vadModelId",
+            "columnName": "vadModelId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "vadModelVersion",
+            "columnName": "vadModelVersion",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "firstPassAsrModelId",
+            "columnName": "firstPassAsrModelId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "firstPassAsrModelVersion",
+            "columnName": "firstPassAsrModelVersion",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "secondPassAsrModelId",
+            "columnName": "secondPassAsrModelId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "secondPassAsrModelVersion",
+            "columnName": "secondPassAsrModelVersion",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "punctuationModelId",
+            "columnName": "punctuationModelId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "punctuationModelVersion",
+            "columnName": "punctuationModelVersion",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "languageConfig",
+            "columnName": "languageConfig",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "configSnapshot",
+            "columnName": "configSnapshot",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "modelManifestDigest",
+            "columnName": "modelManifestDigest",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtMs",
+            "columnName": "createdAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startedAtMs",
+            "columnName": "startedAtMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "updatedAtMs",
+            "columnName": "updatedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "completedAtMs",
+            "columnName": "completedAtMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "errorCode",
+            "columnName": "errorCode",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "errorMessage",
+            "columnName": "errorMessage",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "vadModelRevision",
+            "columnName": "vadModelRevision",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "1"
+          },
+          {
+            "fieldPath": "firstPassAsrModelRevision",
+            "columnName": "firstPassAsrModelRevision",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "1"
+          },
+          {
+            "fieldPath": "secondPassAsrModelRevision",
+            "columnName": "secondPassAsrModelRevision",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "punctuationModelRevision",
+            "columnName": "punctuationModelRevision",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "configSnapshotSchemaVersion",
+            "columnName": "configSnapshotSchemaVersion",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "1"
+          },
+          {
+            "fieldPath": "requestedConfigSnapshot",
+            "columnName": "requestedConfigSnapshot",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'{}'"
+          },
+          {
+            "fieldPath": "effectiveConfigSnapshot",
+            "columnName": "effectiveConfigSnapshot",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'{}'"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_transcriptions_recordingId",
+            "unique": false,
+            "columnNames": [
+              "recordingId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_transcriptions_recordingId` ON `${TABLE_NAME}` (`recordingId`)"
+          },
+          {
+            "name": "index_transcriptions_state",
+            "unique": false,
+            "columnNames": [
+              "state"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_transcriptions_state` ON `${TABLE_NAME}` (`state`)"
+          },
+          {
+            "name": "index_transcriptions_recordingId_createdAtMs",
+            "unique": false,
+            "columnNames": [
+              "recordingId",
+              "createdAtMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_transcriptions_recordingId_createdAtMs` ON `${TABLE_NAME}` (`recordingId`, `createdAtMs`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "recordings",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "recordingId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "transcript_segments",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `transcriptionId` TEXT NOT NULL, `segmentIndex` INTEGER NOT NULL, `startSampleIndex` INTEGER NOT NULL, `endSampleIndexExclusive` INTEGER NOT NULL, `firstPassRawText` TEXT NOT NULL, `secondPassRawText` TEXT, `finalText` TEXT NOT NULL, `detectedLanguage` TEXT, `confidence` REAL, PRIMARY KEY(`id`), FOREIGN KEY(`transcriptionId`) REFERENCES `transcriptions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "transcriptionId",
+            "columnName": "transcriptionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "segmentIndex",
+            "columnName": "segmentIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startSampleIndex",
+            "columnName": "startSampleIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endSampleIndexExclusive",
+            "columnName": "endSampleIndexExclusive",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "firstPassRawText",
+            "columnName": "firstPassRawText",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "secondPassRawText",
+            "columnName": "secondPassRawText",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "finalText",
+            "columnName": "finalText",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "detectedLanguage",
+            "columnName": "detectedLanguage",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "confidence",
+            "columnName": "confidence",
+            "affinity": "REAL"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_transcript_segments_transcriptionId",
+            "unique": false,
+            "columnNames": [
+              "transcriptionId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_transcript_segments_transcriptionId` ON `${TABLE_NAME}` (`transcriptionId`)"
+          },
+          {
+            "name": "index_transcript_segments_transcriptionId_segmentIndex",
+            "unique": true,
+            "columnNames": [
+              "transcriptionId",
+              "segmentIndex"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_transcript_segments_transcriptionId_segmentIndex` ON `${TABLE_NAME}` (`transcriptionId`, `segmentIndex`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "transcriptions",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "transcriptionId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "transcript_tokens",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `transcriptSegmentId` TEXT NOT NULL, `tokenIndex` INTEGER NOT NULL, `text` TEXT NOT NULL, `startSampleIndex` INTEGER, `endSampleIndexExclusive` INTEGER, `source` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`transcriptSegmentId`) REFERENCES `transcript_segments`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "transcriptSegmentId",
+            "columnName": "transcriptSegmentId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tokenIndex",
+            "columnName": "tokenIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "text",
+            "columnName": "text",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startSampleIndex",
+            "columnName": "startSampleIndex",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "endSampleIndexExclusive",
+            "columnName": "endSampleIndexExclusive",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_transcript_tokens_transcriptSegmentId",
+            "unique": false,
+            "columnNames": [
+              "transcriptSegmentId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_transcript_tokens_transcriptSegmentId` ON `${TABLE_NAME}` (`transcriptSegmentId`)"
+          },
+          {
+            "name": "index_transcript_tokens_transcriptSegmentId_source_tokenIndex",
+            "unique": true,
+            "columnNames": [
+              "transcriptSegmentId",
+              "source",
+              "tokenIndex"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_transcript_tokens_transcriptSegmentId_source_tokenIndex` ON `${TABLE_NAME}` (`transcriptSegmentId`, `source`, `tokenIndex`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "transcript_segments",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "transcriptSegmentId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "diarization_runs",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `recordingId` TEXT NOT NULL, `state` TEXT NOT NULL, `sourceCanonicalAssetId` TEXT NOT NULL, `sourceCanonicalSha256` TEXT NOT NULL, `canonicalProfileId` TEXT NOT NULL, `totalSampleCount` INTEGER NOT NULL, `pipelineVersion` INTEGER NOT NULL, `runtimeId` TEXT NOT NULL, `runtimeVersion` TEXT NOT NULL, `vadModelId` TEXT NOT NULL, `vadModelVersion` TEXT NOT NULL, `vadModelRevision` INTEGER NOT NULL, `segmentationModelId` TEXT NOT NULL, `segmentationModelVersion` TEXT NOT NULL, `segmentationModelRevision` INTEGER NOT NULL, `embeddingModelId` TEXT NOT NULL, `embeddingModelVersion` TEXT NOT NULL, `embeddingModelRevision` INTEGER NOT NULL, `modelManifestDigest` TEXT NOT NULL, `configSnapshot` TEXT NOT NULL, `createdAtMs` INTEGER NOT NULL, `startedAtMs` INTEGER, `updatedAtMs` INTEGER NOT NULL, `completedAtMs` INTEGER, `errorCode` TEXT, `errorMessage` TEXT, PRIMARY KEY(`id`), FOREIGN KEY(`recordingId`) REFERENCES `recordings`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recordingId",
+            "columnName": "recordingId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceCanonicalAssetId",
+            "columnName": "sourceCanonicalAssetId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceCanonicalSha256",
+            "columnName": "sourceCanonicalSha256",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "canonicalProfileId",
+            "columnName": "canonicalProfileId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalSampleCount",
+            "columnName": "totalSampleCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pipelineVersion",
+            "columnName": "pipelineVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "runtimeId",
+            "columnName": "runtimeId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "runtimeVersion",
+            "columnName": "runtimeVersion",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "vadModelId",
+            "columnName": "vadModelId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "vadModelVersion",
+            "columnName": "vadModelVersion",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "vadModelRevision",
+            "columnName": "vadModelRevision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "segmentationModelId",
+            "columnName": "segmentationModelId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "segmentationModelVersion",
+            "columnName": "segmentationModelVersion",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "segmentationModelRevision",
+            "columnName": "segmentationModelRevision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "embeddingModelId",
+            "columnName": "embeddingModelId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "embeddingModelVersion",
+            "columnName": "embeddingModelVersion",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "embeddingModelRevision",
+            "columnName": "embeddingModelRevision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "modelManifestDigest",
+            "columnName": "modelManifestDigest",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "configSnapshot",
+            "columnName": "configSnapshot",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtMs",
+            "columnName": "createdAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startedAtMs",
+            "columnName": "startedAtMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "updatedAtMs",
+            "columnName": "updatedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "completedAtMs",
+            "columnName": "completedAtMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "errorCode",
+            "columnName": "errorCode",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "errorMessage",
+            "columnName": "errorMessage",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_diarization_runs_recordingId",
+            "unique": false,
+            "columnNames": [
+              "recordingId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_diarization_runs_recordingId` ON `${TABLE_NAME}` (`recordingId`)"
+          },
+          {
+            "name": "index_diarization_runs_state",
+            "unique": false,
+            "columnNames": [
+              "state"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_diarization_runs_state` ON `${TABLE_NAME}` (`state`)"
+          },
+          {
+            "name": "index_diarization_runs_recordingId_createdAtMs",
+            "unique": false,
+            "columnNames": [
+              "recordingId",
+              "createdAtMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_diarization_runs_recordingId_createdAtMs` ON `${TABLE_NAME}` (`recordingId`, `createdAtMs`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "recordings",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "recordingId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "diarization_speakers",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `diarizationRunId` TEXT NOT NULL, `speakerOrdinal` INTEGER NOT NULL, `displayName` TEXT, PRIMARY KEY(`id`), FOREIGN KEY(`diarizationRunId`) REFERENCES `diarization_runs`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "diarizationRunId",
+            "columnName": "diarizationRunId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "speakerOrdinal",
+            "columnName": "speakerOrdinal",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "displayName",
+            "columnName": "displayName",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_diarization_speakers_diarizationRunId",
+            "unique": false,
+            "columnNames": [
+              "diarizationRunId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_diarization_speakers_diarizationRunId` ON `${TABLE_NAME}` (`diarizationRunId`)"
+          },
+          {
+            "name": "index_diarization_speakers_diarizationRunId_speakerOrdinal",
+            "unique": true,
+            "columnNames": [
+              "diarizationRunId",
+              "speakerOrdinal"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_diarization_speakers_diarizationRunId_speakerOrdinal` ON `${TABLE_NAME}` (`diarizationRunId`, `speakerOrdinal`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "diarization_runs",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "diarizationRunId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "speaker_turns",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `diarizationRunId` TEXT NOT NULL, `turnIndex` INTEGER NOT NULL, `speakerId` TEXT NOT NULL, `startSampleIndex` INTEGER NOT NULL, `endSampleIndexExclusive` INTEGER NOT NULL, `confidence` REAL, `overlap` INTEGER NOT NULL, `overlapMetadata` TEXT, PRIMARY KEY(`id`), FOREIGN KEY(`diarizationRunId`) REFERENCES `diarization_runs`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`speakerId`) REFERENCES `diarization_speakers`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "diarizationRunId",
+            "columnName": "diarizationRunId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "turnIndex",
+            "columnName": "turnIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "speakerId",
+            "columnName": "speakerId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startSampleIndex",
+            "columnName": "startSampleIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endSampleIndexExclusive",
+            "columnName": "endSampleIndexExclusive",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "confidence",
+            "columnName": "confidence",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "overlap",
+            "columnName": "overlap",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "overlapMetadata",
+            "columnName": "overlapMetadata",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_speaker_turns_diarizationRunId",
+            "unique": false,
+            "columnNames": [
+              "diarizationRunId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_speaker_turns_diarizationRunId` ON `${TABLE_NAME}` (`diarizationRunId`)"
+          },
+          {
+            "name": "index_speaker_turns_speakerId",
+            "unique": false,
+            "columnNames": [
+              "speakerId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_speaker_turns_speakerId` ON `${TABLE_NAME}` (`speakerId`)"
+          },
+          {
+            "name": "index_speaker_turns_diarizationRunId_turnIndex",
+            "unique": true,
+            "columnNames": [
+              "diarizationRunId",
+              "turnIndex"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_speaker_turns_diarizationRunId_turnIndex` ON `${TABLE_NAME}` (`diarizationRunId`, `turnIndex`)"
+          },
+          {
+            "name": "index_speaker_turns_diarizationRunId_startSampleIndex",
+            "unique": false,
+            "columnNames": [
+              "diarizationRunId",
+              "startSampleIndex"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_speaker_turns_diarizationRunId_startSampleIndex` ON `${TABLE_NAME}` (`diarizationRunId`, `startSampleIndex`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "diarization_runs",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "diarizationRunId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          },
+          {
+            "table": "diarization_speakers",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "speakerId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "transcript_speaker_alignments",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `transcriptionId` TEXT NOT NULL, `diarizationRunId` TEXT NOT NULL, `alignmentVersion` INTEGER NOT NULL, `configSnapshot` TEXT NOT NULL, `state` TEXT NOT NULL, `createdAtMs` INTEGER NOT NULL, `updatedAtMs` INTEGER NOT NULL, `completedAtMs` INTEGER, `errorCode` TEXT, `errorMessage` TEXT, PRIMARY KEY(`id`), FOREIGN KEY(`transcriptionId`) REFERENCES `transcriptions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`diarizationRunId`) REFERENCES `diarization_runs`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "transcriptionId",
+            "columnName": "transcriptionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "diarizationRunId",
+            "columnName": "diarizationRunId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "alignmentVersion",
+            "columnName": "alignmentVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "configSnapshot",
+            "columnName": "configSnapshot",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtMs",
+            "columnName": "createdAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtMs",
+            "columnName": "updatedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "completedAtMs",
+            "columnName": "completedAtMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "errorCode",
+            "columnName": "errorCode",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "errorMessage",
+            "columnName": "errorMessage",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_transcript_speaker_alignments_transcriptionId",
+            "unique": false,
+            "columnNames": [
+              "transcriptionId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_transcript_speaker_alignments_transcriptionId` ON `${TABLE_NAME}` (`transcriptionId`)"
+          },
+          {
+            "name": "index_transcript_speaker_alignments_diarizationRunId",
+            "unique": false,
+            "columnNames": [
+              "diarizationRunId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_transcript_speaker_alignments_diarizationRunId` ON `${TABLE_NAME}` (`diarizationRunId`)"
+          },
+          {
+            "name": "index_transcript_speaker_alignments_transcriptionId_diarizationRunId",
+            "unique": false,
+            "columnNames": [
+              "transcriptionId",
+              "diarizationRunId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_transcript_speaker_alignments_transcriptionId_diarizationRunId` ON `${TABLE_NAME}` (`transcriptionId`, `diarizationRunId`)"
+          },
+          {
+            "name": "index_transcript_speaker_alignments_state",
+            "unique": false,
+            "columnNames": [
+              "state"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_transcript_speaker_alignments_state` ON `${TABLE_NAME}` (`state`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "transcriptions",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "transcriptionId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          },
+          {
+            "table": "diarization_runs",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "diarizationRunId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "transcript_speaker_spans",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `alignmentId` TEXT NOT NULL, `spanIndex` INTEGER NOT NULL, `sourceTranscriptSegmentId` TEXT NOT NULL, `speakerId` TEXT, `startSampleIndex` INTEGER NOT NULL, `endSampleIndexExclusive` INTEGER NOT NULL, `tokenSource` TEXT, `tokenStartIndex` INTEGER, `tokenEndIndexExclusive` INTEGER, `finalTextStartOffset` INTEGER NOT NULL, `finalTextEndOffsetExclusive` INTEGER NOT NULL, `assignmentQuality` TEXT NOT NULL, `overlap` INTEGER NOT NULL, `ambiguous` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`alignmentId`) REFERENCES `transcript_speaker_alignments`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`sourceTranscriptSegmentId`) REFERENCES `transcript_segments`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`speakerId`) REFERENCES `diarization_speakers`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "alignmentId",
+            "columnName": "alignmentId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "spanIndex",
+            "columnName": "spanIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceTranscriptSegmentId",
+            "columnName": "sourceTranscriptSegmentId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "speakerId",
+            "columnName": "speakerId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "startSampleIndex",
+            "columnName": "startSampleIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endSampleIndexExclusive",
+            "columnName": "endSampleIndexExclusive",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tokenSource",
+            "columnName": "tokenSource",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "tokenStartIndex",
+            "columnName": "tokenStartIndex",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "tokenEndIndexExclusive",
+            "columnName": "tokenEndIndexExclusive",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "finalTextStartOffset",
+            "columnName": "finalTextStartOffset",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "finalTextEndOffsetExclusive",
+            "columnName": "finalTextEndOffsetExclusive",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "assignmentQuality",
+            "columnName": "assignmentQuality",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "overlap",
+            "columnName": "overlap",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ambiguous",
+            "columnName": "ambiguous",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_transcript_speaker_spans_alignmentId",
+            "unique": false,
+            "columnNames": [
+              "alignmentId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_transcript_speaker_spans_alignmentId` ON `${TABLE_NAME}` (`alignmentId`)"
+          },
+          {
+            "name": "index_transcript_speaker_spans_sourceTranscriptSegmentId",
+            "unique": false,
+            "columnNames": [
+              "sourceTranscriptSegmentId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_transcript_speaker_spans_sourceTranscriptSegmentId` ON `${TABLE_NAME}` (`sourceTranscriptSegmentId`)"
+          },
+          {
+            "name": "index_transcript_speaker_spans_speakerId",
+            "unique": false,
+            "columnNames": [
+              "speakerId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_transcript_speaker_spans_speakerId` ON `${TABLE_NAME}` (`speakerId`)"
+          },
+          {
+            "name": "index_transcript_speaker_spans_alignmentId_spanIndex",
+            "unique": true,
+            "columnNames": [
+              "alignmentId",
+              "spanIndex"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_transcript_speaker_spans_alignmentId_spanIndex` ON `${TABLE_NAME}` (`alignmentId`, `spanIndex`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "transcript_speaker_alignments",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "alignmentId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          },
+          {
+            "table": "transcript_segments",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "sourceTranscriptSegmentId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          },
+          {
+            "table": "diarization_speakers",
+            "onDelete": "SET NULL",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "speakerId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "ai_summaries",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `recordingId` TEXT NOT NULL, `transcriptionId` TEXT, `inputMode` TEXT NOT NULL, `mode` TEXT NOT NULL, `templateId` TEXT, `templateSnapshot` TEXT, `providerProfileId` TEXT NOT NULL, `providerNameSnapshot` TEXT NOT NULL, `baseUrlSnapshot` TEXT NOT NULL, `model` TEXT NOT NULL, `promptVersion` INTEGER NOT NULL, `resultSchemaVersion` INTEGER NOT NULL, `contentType` TEXT, `classificationConfidence` REAL, `structuredPayloadJson` TEXT, `displayText` TEXT, `status` TEXT NOT NULL, `createdAtMs` INTEGER NOT NULL, `startedAtMs` INTEGER, `updatedAtMs` INTEGER NOT NULL, `completedAtMs` INTEGER, `errorCode` TEXT, `sanitizedErrorMessage` TEXT, `requestConfigSnapshot` TEXT NOT NULL, `usageSnapshot` TEXT, `alignmentIdSnapshot` TEXT, `sourceLineageSnapshot` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`recordingId`) REFERENCES `recordings`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`transcriptionId`) REFERENCES `transcriptions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recordingId",
+            "columnName": "recordingId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "transcriptionId",
+            "columnName": "transcriptionId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "inputMode",
+            "columnName": "inputMode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mode",
+            "columnName": "mode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "templateId",
+            "columnName": "templateId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "templateSnapshot",
+            "columnName": "templateSnapshot",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "providerProfileId",
+            "columnName": "providerProfileId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "providerNameSnapshot",
+            "columnName": "providerNameSnapshot",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "baseUrlSnapshot",
+            "columnName": "baseUrlSnapshot",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "model",
+            "columnName": "model",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "promptVersion",
+            "columnName": "promptVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "resultSchemaVersion",
+            "columnName": "resultSchemaVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contentType",
+            "columnName": "contentType",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "classificationConfidence",
+            "columnName": "classificationConfidence",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "structuredPayloadJson",
+            "columnName": "structuredPayloadJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "displayText",
+            "columnName": "displayText",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtMs",
+            "columnName": "createdAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startedAtMs",
+            "columnName": "startedAtMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "updatedAtMs",
+            "columnName": "updatedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "completedAtMs",
+            "columnName": "completedAtMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "errorCode",
+            "columnName": "errorCode",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sanitizedErrorMessage",
+            "columnName": "sanitizedErrorMessage",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "requestConfigSnapshot",
+            "columnName": "requestConfigSnapshot",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "usageSnapshot",
+            "columnName": "usageSnapshot",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "alignmentIdSnapshot",
+            "columnName": "alignmentIdSnapshot",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceLineageSnapshot",
+            "columnName": "sourceLineageSnapshot",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_ai_summaries_recordingId",
+            "unique": false,
+            "columnNames": [
+              "recordingId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ai_summaries_recordingId` ON `${TABLE_NAME}` (`recordingId`)"
+          },
+          {
+            "name": "index_ai_summaries_transcriptionId",
+            "unique": false,
+            "columnNames": [
+              "transcriptionId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ai_summaries_transcriptionId` ON `${TABLE_NAME}` (`transcriptionId`)"
+          },
+          {
+            "name": "index_ai_summaries_status",
+            "unique": false,
+            "columnNames": [
+              "status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ai_summaries_status` ON `${TABLE_NAME}` (`status`)"
+          },
+          {
+            "name": "index_ai_summaries_recordingId_createdAtMs",
+            "unique": false,
+            "columnNames": [
+              "recordingId",
+              "createdAtMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ai_summaries_recordingId_createdAtMs` ON `${TABLE_NAME}` (`recordingId`, `createdAtMs`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "recordings",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "recordingId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          },
+          {
+            "table": "transcriptions",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "transcriptionId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "ai_custom_templates",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `schemaVersion` INTEGER NOT NULL, `sectionsConfigJson` TEXT NOT NULL, `focus` TEXT, `userInstruction` TEXT, `createdAtMs` INTEGER NOT NULL, `updatedAtMs` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "schemaVersion",
+            "columnName": "schemaVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sectionsConfigJson",
+            "columnName": "sectionsConfigJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "focus",
+            "columnName": "focus",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "userInstruction",
+            "columnName": "userInstruction",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAtMs",
+            "columnName": "createdAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtMs",
+            "columnName": "updatedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_ai_custom_templates_name",
+            "unique": false,
+            "columnNames": [
+              "name"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ai_custom_templates_name` ON `${TABLE_NAME}` (`name`)"
+          },
+          {
+            "name": "index_ai_custom_templates_updatedAtMs",
+            "unique": false,
+            "columnNames": [
+              "updatedAtMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ai_custom_templates_updatedAtMs` ON `${TABLE_NAME}` (`updatedAtMs`)"
+          }
+        ]
+      },
+      {
+        "tableName": "ai_summary_evidence",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `aiSummaryId` TEXT NOT NULL, `summaryItemId` TEXT NOT NULL, `sourceRef` TEXT NOT NULL, `sourceKind` TEXT NOT NULL, `sourceId` TEXT NOT NULL, `startSampleIndex` INTEGER NOT NULL, `endSampleIndexExclusive` INTEGER NOT NULL, `speakerId` TEXT, `assignmentQuality` TEXT, PRIMARY KEY(`id`), FOREIGN KEY(`aiSummaryId`) REFERENCES `ai_summaries`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "aiSummaryId",
+            "columnName": "aiSummaryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "summaryItemId",
+            "columnName": "summaryItemId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceRef",
+            "columnName": "sourceRef",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceKind",
+            "columnName": "sourceKind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceId",
+            "columnName": "sourceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startSampleIndex",
+            "columnName": "startSampleIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endSampleIndexExclusive",
+            "columnName": "endSampleIndexExclusive",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "speakerId",
+            "columnName": "speakerId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "assignmentQuality",
+            "columnName": "assignmentQuality",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_ai_summary_evidence_aiSummaryId",
+            "unique": false,
+            "columnNames": [
+              "aiSummaryId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ai_summary_evidence_aiSummaryId` ON `${TABLE_NAME}` (`aiSummaryId`)"
+          },
+          {
+            "name": "index_ai_summary_evidence_summaryItemId",
+            "unique": false,
+            "columnNames": [
+              "summaryItemId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ai_summary_evidence_summaryItemId` ON `${TABLE_NAME}` (`summaryItemId`)"
+          },
+          {
+            "name": "index_ai_summary_evidence_aiSummaryId_summaryItemId_sourceRef",
+            "unique": true,
+            "columnNames": [
+              "aiSummaryId",
+              "summaryItemId",
+              "sourceRef"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_ai_summary_evidence_aiSummaryId_summaryItemId_sourceRef` ON `${TABLE_NAME}` (`aiSummaryId`, `summaryItemId`, `sourceRef`)"
+          },
+          {
+            "name": "index_ai_summary_evidence_aiSummaryId_startSampleIndex",
+            "unique": false,
+            "columnNames": [
+              "aiSummaryId",
+              "startSampleIndex"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ai_summary_evidence_aiSummaryId_startSampleIndex` ON `${TABLE_NAME}` (`aiSummaryId`, `startSampleIndex`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "ai_summaries",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "aiSummaryId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "ai_summary_chunks",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `aiSummaryId` TEXT NOT NULL, `level` INTEGER NOT NULL, `chunkIndex` INTEGER NOT NULL, `sourceStartOrdinal` INTEGER NOT NULL, `sourceEndOrdinalExclusive` INTEGER NOT NULL, `startSampleIndex` INTEGER NOT NULL, `endSampleIndexExclusive` INTEGER NOT NULL, `inputDigest` TEXT NOT NULL, `status` TEXT NOT NULL, `attempt` INTEGER NOT NULL, `structuredResultJson` TEXT, `errorCode` TEXT, `sanitizedErrorMessage` TEXT, `updatedAtMs` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`aiSummaryId`) REFERENCES `ai_summaries`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "aiSummaryId",
+            "columnName": "aiSummaryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "level",
+            "columnName": "level",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "chunkIndex",
+            "columnName": "chunkIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceStartOrdinal",
+            "columnName": "sourceStartOrdinal",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceEndOrdinalExclusive",
+            "columnName": "sourceEndOrdinalExclusive",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startSampleIndex",
+            "columnName": "startSampleIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endSampleIndexExclusive",
+            "columnName": "endSampleIndexExclusive",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "inputDigest",
+            "columnName": "inputDigest",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "attempt",
+            "columnName": "attempt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "structuredResultJson",
+            "columnName": "structuredResultJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "errorCode",
+            "columnName": "errorCode",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sanitizedErrorMessage",
+            "columnName": "sanitizedErrorMessage",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "updatedAtMs",
+            "columnName": "updatedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_ai_summary_chunks_aiSummaryId",
+            "unique": false,
+            "columnNames": [
+              "aiSummaryId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ai_summary_chunks_aiSummaryId` ON `${TABLE_NAME}` (`aiSummaryId`)"
+          },
+          {
+            "name": "index_ai_summary_chunks_aiSummaryId_level_chunkIndex",
+            "unique": true,
+            "columnNames": [
+              "aiSummaryId",
+              "level",
+              "chunkIndex"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_ai_summary_chunks_aiSummaryId_level_chunkIndex` ON `${TABLE_NAME}` (`aiSummaryId`, `level`, `chunkIndex`)"
+          },
+          {
+            "name": "index_ai_summary_chunks_aiSummaryId_status",
+            "unique": false,
+            "columnNames": [
+              "aiSummaryId",
+              "status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ai_summary_chunks_aiSummaryId_status` ON `${TABLE_NAME}` (`aiSummaryId`, `status`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "ai_summaries",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "aiSummaryId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "transcription_user_metadata",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`transcriptionId` TEXT NOT NULL, `displayName` TEXT, `currentRevisionId` TEXT, `updatedAtMs` INTEGER NOT NULL, PRIMARY KEY(`transcriptionId`), FOREIGN KEY(`transcriptionId`) REFERENCES `transcriptions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "transcriptionId",
+            "columnName": "transcriptionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "displayName",
+            "columnName": "displayName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "currentRevisionId",
+            "columnName": "currentRevisionId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "updatedAtMs",
+            "columnName": "updatedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "transcriptionId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_transcription_user_metadata_currentRevisionId",
+            "unique": false,
+            "columnNames": [
+              "currentRevisionId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_transcription_user_metadata_currentRevisionId` ON `${TABLE_NAME}` (`currentRevisionId`)"
+          },
+          {
+            "name": "index_transcription_user_metadata_updatedAtMs",
+            "unique": false,
+            "columnNames": [
+              "updatedAtMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_transcription_user_metadata_updatedAtMs` ON `${TABLE_NAME}` (`updatedAtMs`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "transcriptions",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "transcriptionId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "transcription_revisions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `transcriptionId` TEXT NOT NULL, `revisionNumber` INTEGER NOT NULL, `parentRevisionId` TEXT, `createdAtMs` INTEGER NOT NULL, `updatedAtMs` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`transcriptionId`) REFERENCES `transcriptions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "transcriptionId",
+            "columnName": "transcriptionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "revisionNumber",
+            "columnName": "revisionNumber",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parentRevisionId",
+            "columnName": "parentRevisionId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAtMs",
+            "columnName": "createdAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtMs",
+            "columnName": "updatedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_transcription_revisions_transcriptionId",
+            "unique": false,
+            "columnNames": [
+              "transcriptionId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_transcription_revisions_transcriptionId` ON `${TABLE_NAME}` (`transcriptionId`)"
+          },
+          {
+            "name": "index_transcription_revisions_transcriptionId_revisionNumber",
+            "unique": true,
+            "columnNames": [
+              "transcriptionId",
+              "revisionNumber"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_transcription_revisions_transcriptionId_revisionNumber` ON `${TABLE_NAME}` (`transcriptionId`, `revisionNumber`)"
+          },
+          {
+            "name": "index_transcription_revisions_createdAtMs",
+            "unique": false,
+            "columnNames": [
+              "createdAtMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_transcription_revisions_createdAtMs` ON `${TABLE_NAME}` (`createdAtMs`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "transcriptions",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "transcriptionId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "transcription_revision_paragraphs",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `revisionId` TEXT NOT NULL, `paragraphIndex` INTEGER NOT NULL, `text` TEXT NOT NULL, `sourceAnchorRefsJson` TEXT NOT NULL, `anchorStartSampleIndex` INTEGER, `anchorEndSampleIndexExclusive` INTEGER, `speakerId` TEXT, `speakerDisplayMode` TEXT NOT NULL, `timingQuality` TEXT NOT NULL, `isUserModified` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`revisionId`) REFERENCES `transcription_revisions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "revisionId",
+            "columnName": "revisionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "paragraphIndex",
+            "columnName": "paragraphIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "text",
+            "columnName": "text",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceAnchorRefsJson",
+            "columnName": "sourceAnchorRefsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "anchorStartSampleIndex",
+            "columnName": "anchorStartSampleIndex",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "anchorEndSampleIndexExclusive",
+            "columnName": "anchorEndSampleIndexExclusive",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "speakerId",
+            "columnName": "speakerId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "speakerDisplayMode",
+            "columnName": "speakerDisplayMode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timingQuality",
+            "columnName": "timingQuality",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isUserModified",
+            "columnName": "isUserModified",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_transcription_revision_paragraphs_revisionId",
+            "unique": false,
+            "columnNames": [
+              "revisionId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_transcription_revision_paragraphs_revisionId` ON `${TABLE_NAME}` (`revisionId`)"
+          },
+          {
+            "name": "index_transcription_revision_paragraphs_revisionId_paragraphIndex",
+            "unique": true,
+            "columnNames": [
+              "revisionId",
+              "paragraphIndex"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_transcription_revision_paragraphs_revisionId_paragraphIndex` ON `${TABLE_NAME}` (`revisionId`, `paragraphIndex`)"
+          },
+          {
+            "name": "index_transcription_revision_paragraphs_anchorStartSampleIndex",
+            "unique": false,
+            "columnNames": [
+              "anchorStartSampleIndex"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_transcription_revision_paragraphs_anchorStartSampleIndex` ON `${TABLE_NAME}` (`anchorStartSampleIndex`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "transcription_revisions",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "revisionId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "ai_summary_user_metadata",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`aiSummaryId` TEXT NOT NULL, `currentRevisionId` TEXT, `updatedAtMs` INTEGER NOT NULL, PRIMARY KEY(`aiSummaryId`), FOREIGN KEY(`aiSummaryId`) REFERENCES `ai_summaries`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "aiSummaryId",
+            "columnName": "aiSummaryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currentRevisionId",
+            "columnName": "currentRevisionId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "updatedAtMs",
+            "columnName": "updatedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "aiSummaryId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_ai_summary_user_metadata_currentRevisionId",
+            "unique": false,
+            "columnNames": [
+              "currentRevisionId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ai_summary_user_metadata_currentRevisionId` ON `${TABLE_NAME}` (`currentRevisionId`)"
+          },
+          {
+            "name": "index_ai_summary_user_metadata_updatedAtMs",
+            "unique": false,
+            "columnNames": [
+              "updatedAtMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ai_summary_user_metadata_updatedAtMs` ON `${TABLE_NAME}` (`updatedAtMs`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "ai_summaries",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "aiSummaryId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "ai_summary_revisions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `aiSummaryId` TEXT NOT NULL, `revisionNumber` INTEGER NOT NULL, `parentRevisionId` TEXT, `revisionSchemaVersion` INTEGER NOT NULL, `revisionPayloadJson` TEXT NOT NULL, `createdAtMs` INTEGER NOT NULL, `updatedAtMs` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`aiSummaryId`) REFERENCES `ai_summaries`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "aiSummaryId",
+            "columnName": "aiSummaryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "revisionNumber",
+            "columnName": "revisionNumber",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parentRevisionId",
+            "columnName": "parentRevisionId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "revisionSchemaVersion",
+            "columnName": "revisionSchemaVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "revisionPayloadJson",
+            "columnName": "revisionPayloadJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtMs",
+            "columnName": "createdAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtMs",
+            "columnName": "updatedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_ai_summary_revisions_aiSummaryId",
+            "unique": false,
+            "columnNames": [
+              "aiSummaryId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ai_summary_revisions_aiSummaryId` ON `${TABLE_NAME}` (`aiSummaryId`)"
+          },
+          {
+            "name": "index_ai_summary_revisions_aiSummaryId_revisionNumber",
+            "unique": true,
+            "columnNames": [
+              "aiSummaryId",
+              "revisionNumber"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_ai_summary_revisions_aiSummaryId_revisionNumber` ON `${TABLE_NAME}` (`aiSummaryId`, `revisionNumber`)"
+          },
+          {
+            "name": "index_ai_summary_revisions_createdAtMs",
+            "unique": false,
+            "columnNames": [
+              "createdAtMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ai_summary_revisions_createdAtMs` ON `${TABLE_NAME}` (`createdAtMs`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "ai_summaries",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "aiSummaryId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "recording_content_selection",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`recordingId` TEXT NOT NULL, `currentTranscriptionId` TEXT, `currentAiSummaryId` TEXT, `updatedAtMs` INTEGER NOT NULL, PRIMARY KEY(`recordingId`), FOREIGN KEY(`recordingId`) REFERENCES `recordings`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "recordingId",
+            "columnName": "recordingId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currentTranscriptionId",
+            "columnName": "currentTranscriptionId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "currentAiSummaryId",
+            "columnName": "currentAiSummaryId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "updatedAtMs",
+            "columnName": "updatedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "recordingId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_recording_content_selection_currentTranscriptionId",
+            "unique": false,
+            "columnNames": [
+              "currentTranscriptionId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_recording_content_selection_currentTranscriptionId` ON `${TABLE_NAME}` (`currentTranscriptionId`)"
+          },
+          {
+            "name": "index_recording_content_selection_currentAiSummaryId",
+            "unique": false,
+            "columnNames": [
+              "currentAiSummaryId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_recording_content_selection_currentAiSummaryId` ON `${TABLE_NAME}` (`currentAiSummaryId`)"
+          },
+          {
+            "name": "index_recording_content_selection_updatedAtMs",
+            "unique": false,
+            "columnNames": [
+              "updatedAtMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_recording_content_selection_updatedAtMs` ON `${TABLE_NAME}` (`updatedAtMs`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "recordings",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "recordingId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "search_documents",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`rowId` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `documentId` TEXT NOT NULL, `documentType` TEXT NOT NULL, `recordingId` TEXT, `transcriptionId` TEXT, `revisionId` TEXT, `sourceAnchorId` TEXT, `aiSummaryId` TEXT, `sectionId` TEXT, `itemId` TEXT, `folderId` TEXT, `tagId` TEXT, `displayTitle` TEXT NOT NULL, `displayText` TEXT NOT NULL, `indexTitle` TEXT NOT NULL, `indexBody` TEXT NOT NULL, `updatedAtMs` INTEGER NOT NULL, FOREIGN KEY(`recordingId`) REFERENCES `recordings`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "rowId",
+            "columnName": "rowId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "documentId",
+            "columnName": "documentId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "documentType",
+            "columnName": "documentType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recordingId",
+            "columnName": "recordingId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "transcriptionId",
+            "columnName": "transcriptionId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "revisionId",
+            "columnName": "revisionId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceAnchorId",
+            "columnName": "sourceAnchorId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "aiSummaryId",
+            "columnName": "aiSummaryId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sectionId",
+            "columnName": "sectionId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "itemId",
+            "columnName": "itemId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "folderId",
+            "columnName": "folderId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "tagId",
+            "columnName": "tagId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "displayTitle",
+            "columnName": "displayTitle",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "displayText",
+            "columnName": "displayText",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "indexTitle",
+            "columnName": "indexTitle",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "indexBody",
+            "columnName": "indexBody",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtMs",
+            "columnName": "updatedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "rowId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_search_documents_documentId",
+            "unique": true,
+            "columnNames": [
+              "documentId"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_search_documents_documentId` ON `${TABLE_NAME}` (`documentId`)"
+          },
+          {
+            "name": "index_search_documents_recordingId",
+            "unique": false,
+            "columnNames": [
+              "recordingId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_search_documents_recordingId` ON `${TABLE_NAME}` (`recordingId`)"
+          },
+          {
+            "name": "index_search_documents_documentType",
+            "unique": false,
+            "columnNames": [
+              "documentType"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_search_documents_documentType` ON `${TABLE_NAME}` (`documentType`)"
+          },
+          {
+            "name": "index_search_documents_transcriptionId",
+            "unique": false,
+            "columnNames": [
+              "transcriptionId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_search_documents_transcriptionId` ON `${TABLE_NAME}` (`transcriptionId`)"
+          },
+          {
+            "name": "index_search_documents_aiSummaryId",
+            "unique": false,
+            "columnNames": [
+              "aiSummaryId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_search_documents_aiSummaryId` ON `${TABLE_NAME}` (`aiSummaryId`)"
+          },
+          {
+            "name": "index_search_documents_folderId",
+            "unique": false,
+            "columnNames": [
+              "folderId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_search_documents_folderId` ON `${TABLE_NAME}` (`folderId`)"
+          },
+          {
+            "name": "index_search_documents_tagId",
+            "unique": false,
+            "columnNames": [
+              "tagId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_search_documents_tagId` ON `${TABLE_NAME}` (`tagId`)"
+          },
+          {
+            "name": "index_search_documents_updatedAtMs",
+            "unique": false,
+            "columnNames": [
+              "updatedAtMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_search_documents_updatedAtMs` ON `${TABLE_NAME}` (`updatedAtMs`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "recordings",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "recordingId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "search_documents_fts",
+        "createSql": "CREATE VIRTUAL TABLE IF NOT EXISTS `${TABLE_NAME}` USING FTS4(`documentId` TEXT NOT NULL, `indexTitle` TEXT NOT NULL, `indexBody` TEXT NOT NULL, tokenize=unicode61)",
+        "fields": [
+          {
+            "fieldPath": "documentId",
+            "columnName": "documentId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "indexTitle",
+            "columnName": "indexTitle",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "indexBody",
+            "columnName": "indexBody",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "rowid"
+          ]
+        },
+        "ftsVersion": "FTS4",
+        "ftsOptions": {
+          "tokenizer": "unicode61",
+          "tokenizerArgs": [],
+          "contentTable": "",
+          "languageIdColumnName": "",
+          "matchInfo": "FTS4",
+          "notIndexedColumns": [],
+          "prefixSizes": [],
+          "preferredOrder": "ASC"
+        },
+        "contentSyncTriggers": []
+      },
+      {
+        "tableName": "search_index_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `status` TEXT NOT NULL, `indexedDocumentCount` INTEGER NOT NULL, `startedAtMs` INTEGER, `updatedAtMs` INTEGER NOT NULL, `completedAtMs` INTEGER, `errorMessage` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "indexedDocumentCount",
+            "columnName": "indexedDocumentCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startedAtMs",
+            "columnName": "startedAtMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "updatedAtMs",
+            "columnName": "updatedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "completedAtMs",
+            "columnName": "completedAtMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "errorMessage",
+            "columnName": "errorMessage",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '23ecdfafa66456904c8b2c214f10167f')"
+    ]
+  }
+}
