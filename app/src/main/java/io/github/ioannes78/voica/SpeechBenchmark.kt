@@ -64,6 +64,11 @@ data class SpeechBenchmarkCaseResult(
     val peakPssKb: Long,
     val thermalStatusStart: Int?,
     val thermalStatusMax: Int?,
+    val firstPartialAudioMs: Long?,
+    val firstPartialComputeMs: Long?,
+    val finalizationLatencyMs: Long?,
+    val streamingProbeSpeechMs: Long?,
+    val streamingProbeError: String? = null,
     val outputCharacterCount: Int,
     val outputText: String,
     val cer: Double?,
@@ -72,7 +77,7 @@ data class SpeechBenchmarkCaseResult(
 )
 
 data class SpeechBenchmarkReport(
-    val schemaVersion: Int = 1,
+    val schemaVersion: Int = 2,
     val createdAt: String,
     val recordingId: String,
     val environment: SpeechBenchmarkEnvironment,
@@ -127,6 +132,11 @@ data class SpeechBenchmarkReport(
                                 .put("peakPssKb", result.peakPssKb)
                                 .put("thermalStatusStart", jsonNullable(result.thermalStatusStart))
                                 .put("thermalStatusMax", jsonNullable(result.thermalStatusMax))
+                                .put("firstPartialAudioMs", jsonNullable(result.firstPartialAudioMs))
+                                .put("firstPartialComputeMs", jsonNullable(result.firstPartialComputeMs))
+                                .put("finalizationLatencyMs", jsonNullable(result.finalizationLatencyMs))
+                                .put("streamingProbeSpeechMs", jsonNullable(result.streamingProbeSpeechMs))
+                                .put("streamingProbeError", jsonNullable(result.streamingProbeError))
                                 .put("outputCharacterCount", result.outputCharacterCount)
                                 .put("outputText", result.outputText)
                                 .put("cer", jsonNullable(result.cer))
@@ -260,6 +270,28 @@ class SpeechBenchmarkRunner(
                 measured.value.transcriptSegments.joinToString(separator = "") {
                     it.finalText
                 }
+            val streamingProbe =
+                measured.value.speechSegments.firstOrNull()?.let { firstSpeechSegment ->
+                    try {
+                        runStreamingLatencyProbe(
+                            recordingId = recordingId,
+                            asr = asr,
+                            effectiveThreads = effectiveThreads,
+                            speechSegment = firstSpeechSegment,
+                        )
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Throwable) {
+                        StreamingLatencyProbe(
+                            speechDurationMs =
+                                samplesToBenchmarkMs(firstSpeechSegment.sampleCount),
+                            firstPartialAudioMs = null,
+                            firstPartialComputeMs = null,
+                            finalizationLatencyMs = null,
+                            error = error.message ?: error::class.java.simpleName,
+                        )
+                    }
+                }
             val normalizedReference = referenceText?.takeIf { it.isNotBlank() }
             return SpeechBenchmarkCaseResult(
                 modelId = asr.descriptor.modelId,
@@ -288,6 +320,11 @@ class SpeechBenchmarkRunner(
                 peakPssKb = measured.peakPssKb,
                 thermalStatusStart = measured.thermalStatusStart,
                 thermalStatusMax = measured.thermalStatusMax,
+                firstPartialAudioMs = streamingProbe?.firstPartialAudioMs,
+                firstPartialComputeMs = streamingProbe?.firstPartialComputeMs,
+                finalizationLatencyMs = streamingProbe?.finalizationLatencyMs,
+                streamingProbeSpeechMs = streamingProbe?.speechDurationMs,
+                streamingProbeError = streamingProbe?.error,
                 outputCharacterCount = text.codePointCount(0, text.length),
                 outputText = text,
                 cer =
@@ -324,6 +361,11 @@ class SpeechBenchmarkRunner(
                 peakPssKb = 0L,
                 thermalStatusStart = currentThermalStatus(),
                 thermalStatusMax = currentThermalStatus(),
+                firstPartialAudioMs = null,
+                firstPartialComputeMs = null,
+                finalizationLatencyMs = null,
+                streamingProbeSpeechMs = null,
+                streamingProbeError = null,
                 outputCharacterCount = 0,
                 outputText = "",
                 cer = null,
@@ -366,12 +408,137 @@ class SpeechBenchmarkRunner(
             peakPssKb = 0L,
             thermalStatusStart = currentThermalStatus(),
             thermalStatusMax = currentThermalStatus(),
+            firstPartialAudioMs = null,
+            firstPartialComputeMs = null,
+            finalizationLatencyMs = null,
+            streamingProbeSpeechMs = null,
+            streamingProbeError = null,
             outputCharacterCount = 0,
             outputText = "",
             cer = null,
             wer = null,
             error = "model is not active",
         )
+
+    private suspend fun runStreamingLatencyProbe(
+        recordingId: String,
+        asr: ActiveModel,
+        effectiveThreads: Int,
+        speechSegment: io.github.ioannes78.voica.transcript.SpeechSegment,
+    ): StreamingLatencyProbe {
+        val source =
+            pcmSourceResolver.resolvePcmSource(recordingId)
+                ?: error("canonical PCM source is unavailable for streaming latency probe")
+        val engine =
+            try {
+                engineProvider.firstPassFactory(
+                    model = asr,
+                    numThreads = effectiveThreads,
+                ).open()
+            } catch (error: Throwable) {
+                source.close()
+                throw error
+            }
+
+        try {
+            require(engine.capabilities.supportsStreaming) {
+                "streaming latency probe requires a streaming ASR engine"
+            }
+            require(engine.capabilities.supportsPartial) {
+                "streaming latency probe requires partial hypotheses"
+            }
+
+            val session = engine.openSession()
+            try {
+                val buffer = ShortArray(STREAMING_PROBE_CHUNK_SAMPLES)
+                var sourceCursor = 0L
+                var acceptedSpeechSamples = 0L
+                var probeStartNs: Long? = null
+                var firstPartialAudioMs: Long? = null
+                var firstPartialComputeMs: Long? = null
+
+                while (sourceCursor < speechSegment.endSampleIndexExclusive) {
+                    val read = source.read(buffer) ?: break
+                    require(read.startSampleIndex == sourceCursor) {
+                        "PCM source is not sequential during streaming latency probe"
+                    }
+                    val readEnd =
+                        Math.addExact(
+                            read.startSampleIndex,
+                            read.sampleCount.toLong(),
+                        )
+
+                    val overlapStart =
+                        maxOf(speechSegment.startSampleIndex, read.startSampleIndex)
+                    val overlapEnd =
+                        minOf(speechSegment.endSampleIndexExclusive, readEnd)
+                    if (overlapEnd > overlapStart) {
+                        if (probeStartNs == null) {
+                            probeStartNs = SystemClock.elapsedRealtimeNanos()
+                        }
+                        val targetOffset =
+                            Math.toIntExact(overlapStart - read.startSampleIndex)
+                        val count = Math.toIntExact(overlapEnd - overlapStart)
+                        session.acceptSamples(
+                            samples = buffer,
+                            offset = targetOffset,
+                            count = count,
+                        )
+                        acceptedSpeechSamples =
+                            Math.addExact(acceptedSpeechSamples, count.toLong())
+                        val partial = session.decode()
+                        if (firstPartialAudioMs == null && partial.text.isNotBlank()) {
+                            firstPartialAudioMs =
+                                samplesToBenchmarkMs(acceptedSpeechSamples)
+                            firstPartialComputeMs =
+                                (SystemClock.elapsedRealtimeNanos() -
+                                    checkNotNull(probeStartNs)) / 1_000_000L
+                        }
+                    }
+
+                    sourceCursor = readEnd
+                }
+
+                require(
+                    acceptedSpeechSamples == speechSegment.sampleCount,
+                ) {
+                    "streaming latency probe did not consume the complete first speech segment"
+                }
+
+                val finalizeStartNs = SystemClock.elapsedRealtimeNanos()
+                val final = session.finishInput()
+                val finalizationLatencyMs =
+                    (SystemClock.elapsedRealtimeNanos() - finalizeStartNs) / 1_000_000L
+                check(final.isFinal) {
+                    "streaming latency probe did not produce a final hypothesis"
+                }
+
+                return StreamingLatencyProbe(
+                    speechDurationMs = samplesToBenchmarkMs(acceptedSpeechSamples),
+                    firstPartialAudioMs = firstPartialAudioMs,
+                    firstPartialComputeMs = firstPartialComputeMs,
+                    finalizationLatencyMs = finalizationLatencyMs,
+                    error = null,
+                )
+            } finally {
+                session.close()
+            }
+        } finally {
+            engine.close()
+            source.close()
+        }
+    }
+
+    private fun samplesToBenchmarkMs(sampleCount: Long): Long =
+        sampleCount * 1_000L / CanonicalPcmProfile.SAMPLE_RATE_HZ
+
+    private data class StreamingLatencyProbe(
+        val speechDurationMs: Long,
+        val firstPartialAudioMs: Long?,
+        val firstPartialComputeMs: Long?,
+        val finalizationLatencyMs: Long?,
+        val error: String?,
+    )
 
     private suspend fun <T> measureResources(
         block: suspend () -> T,
@@ -464,6 +631,7 @@ class SpeechBenchmarkRunner(
 
     private companion object {
         const val RESOURCE_SAMPLE_INTERVAL_MS = 250L
+        const val STREAMING_PROBE_CHUNK_SAMPLES = 1_600
     }
 }
 

@@ -197,6 +197,36 @@ internal fun SpeechBenchmarkCard(
                                         " · " + resultCase.outputCharacterCount + " 字符",
                                     style = MaterialTheme.typography.bodySmall,
                                 )
+                                if (resultCase.streamingProbeSpeechMs != null) {
+                                    Text(
+                                        buildString {
+                                            append("Realtime probe ")
+                                            resultCase.firstPartialAudioMs?.let {
+                                                append("· 首 partial 需音频 ")
+                                                append(it)
+                                                append(" ms ")
+                                            }
+                                            resultCase.firstPartialComputeMs?.let {
+                                                append("· 加速计算 ")
+                                                append(it)
+                                                append(" ms ")
+                                            }
+                                            resultCase.finalizationLatencyMs?.let {
+                                                append("· Finalize ")
+                                                append(it)
+                                                append(" ms")
+                                            }
+                                        }.trim(),
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                                resultCase.streamingProbeError?.let { probeError ->
+                                    Text(
+                                        "Realtime probe 失败：" + probeError,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                }
                                 if (resultCase.cer != null || resultCase.wer != null) {
                                     Text(
                                         buildString {
