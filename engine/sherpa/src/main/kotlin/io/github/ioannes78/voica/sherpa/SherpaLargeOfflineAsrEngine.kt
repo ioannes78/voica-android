@@ -10,6 +10,7 @@ import io.github.ioannes78.voica.audio.CanonicalPcmProfile
 import io.github.ioannes78.voica.model.ModelDescriptor
 import io.github.ioannes78.voica.model.ModelKind
 import io.github.ioannes78.voica.model.ModelPunctuationMode
+import io.github.ioannes78.voica.model.TimestampCapability
 import io.github.ioannes78.voica.transcript.AsrCapabilities
 import io.github.ioannes78.voica.transcript.AsrHypothesis
 import io.github.ioannes78.voica.transcript.PunctuationCapability
@@ -157,6 +158,9 @@ class SherpaLargeOfflineAsrEngine private constructor(
     private val native: NativeLargeOfflineRecognizer,
 ) : SecondPassAsrEngine {
     private var closed = false
+    private val runtimeSupportsTokenTiming =
+        model.capabilities.supportsTokenTiming ||
+            model.runtimeModelType == SherpaOfflineAsrModelType.FIRE_RED_ASR2_CTC
 
     constructor(
         model: ModelDescriptor,
@@ -188,7 +192,7 @@ class SherpaLargeOfflineAsrEngine private constructor(
         AsrCapabilities(
             supportsStreaming = false,
             supportsPartial = false,
-            supportsTokenTiming = model.capabilities.supportsTokenTiming,
+            supportsTokenTiming = runtimeSupportsTokenTiming,
             supportsLanguageDetection = model.capabilities.supportsLanguageDetection,
             supportsConfidence = model.capabilities.supportsConfidence,
             supportsInverseTextNormalization =
@@ -202,7 +206,12 @@ class SherpaLargeOfflineAsrEngine private constructor(
                 },
             supportsSecondPass = true,
             executionMode = model.capabilities.executionMode,
-            timestampCapability = model.capabilities.timestampCapability,
+            timestampCapability =
+                if (runtimeSupportsTokenTiming) {
+                    TimestampCapability.TOKEN
+                } else {
+                    model.capabilities.timestampCapability
+                },
             supportsLanguageForcing = model.capabilities.supportsLanguageForcing,
             supportsHotwords = model.capabilities.supportsHotwords,
         )
@@ -223,7 +232,7 @@ class SherpaLargeOfflineAsrEngine private constructor(
             }
         val result = native.transcribe(normalized, sampleRateHz)
         val timedTokens =
-            if (model.capabilities.supportsTokenTiming) {
+            if (runtimeSupportsTokenTiming) {
                 validatedTimedTokens(
                     tokens = result.tokens,
                     timestampsSeconds = result.timestampsSeconds,
