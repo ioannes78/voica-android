@@ -10,7 +10,9 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -62,6 +64,9 @@ internal fun LocalSpeechSettingsCard(
     var availability by remember {
         mutableStateOf<Map<String, ModelAvailability?>>(emptyMap())
     }
+    var supportedParameters by remember {
+        mutableStateOf<Map<String, Set<String>>>(emptyMap())
+    }
 
     LaunchedEffect(operations) {
         availability =
@@ -73,6 +78,12 @@ internal fun LocalSpeechSettingsCard(
                 .associateWith { modelId ->
                     modelManager.availability(modelId)
                 }
+        supportedParameters =
+            runCatching {
+                modelManager.catalog().models.associate { descriptor ->
+                    descriptor.modelId to descriptor.capabilities.supportedParameters
+                }
+            }.getOrDefault(emptyMap())
     }
 
     val options =
@@ -202,6 +213,194 @@ internal fun LocalSpeechSettingsCard(
             }
         }
 
+        if (settings.offlineAsrQuality == OfflineAsrQualityChoice.ULTRA) {
+            val qwenParameters =
+                supportedParameters[Stage13AOfflineModelIds.QWEN3_ASR].orEmpty()
+            if (qwenParameters.isNotEmpty()) {
+                Card(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp),
+                ) {
+                    Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Text("Qwen3-ASR 专家参数", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "仅显示当前模型 manifest 明确声明支持的参数。默认值与 sherpa-onnx 1.13.8 保持一致。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if ("maxTotalLen" in qwenParameters) {
+                            VadParameterRow(
+                                title = "最大上下文长度",
+                                value = settings.qwen.maxTotalLen.toString(),
+                                onDecrease = {
+                                    store.setQwenSettings(
+                                        settings.qwen.copy(
+                                            maxTotalLen =
+                                                (settings.qwen.maxTotalLen - 128)
+                                                    .coerceAtLeast(
+                                                        maxOf(
+                                                            128,
+                                                            settings.qwen.maxNewTokens,
+                                                        ),
+                                                    ),
+                                        ),
+                                    )
+                                },
+                                onIncrease = {
+                                    store.setQwenSettings(
+                                        settings.qwen.copy(
+                                            maxTotalLen =
+                                                (settings.qwen.maxTotalLen + 128)
+                                                    .coerceAtMost(2048),
+                                        ),
+                                    )
+                                },
+                            )
+                        }
+                        if ("maxNewTokens" in qwenParameters) {
+                            VadParameterRow(
+                                title = "最大输出 Token",
+                                value = settings.qwen.maxNewTokens.toString(),
+                                onDecrease = {
+                                    store.setQwenSettings(
+                                        settings.qwen.copy(
+                                            maxNewTokens =
+                                                (settings.qwen.maxNewTokens - 16)
+                                                    .coerceAtLeast(16),
+                                        ),
+                                    )
+                                },
+                                onIncrease = {
+                                    store.setQwenSettings(
+                                        settings.qwen.copy(
+                                            maxNewTokens =
+                                                (settings.qwen.maxNewTokens + 16)
+                                                    .coerceAtMost(
+                                                        minOf(
+                                                            512,
+                                                            settings.qwen.maxTotalLen,
+                                                        ),
+                                                    ),
+                                        ),
+                                    )
+                                },
+                            )
+                        }
+                        if ("temperature" in qwenParameters) {
+                            VadParameterRow(
+                                title = "Temperature",
+                                value = formatExpertFloat(settings.qwen.temperature),
+                                onDecrease = {
+                                    val next =
+                                        if (settings.qwen.temperature <= 0.1F) {
+                                            1.0e-6F
+                                        } else {
+                                            (settings.qwen.temperature - 0.1F)
+                                                .coerceAtLeast(0.1F)
+                                        }
+                                    store.setQwenSettings(
+                                        settings.qwen.copy(temperature = next),
+                                    )
+                                },
+                                onIncrease = {
+                                    val next =
+                                        if (settings.qwen.temperature < 0.01F) {
+                                            0.1F
+                                        } else {
+                                            (settings.qwen.temperature + 0.1F)
+                                                .coerceAtMost(2F)
+                                        }
+                                    store.setQwenSettings(
+                                        settings.qwen.copy(temperature = next),
+                                    )
+                                },
+                            )
+                        }
+                        if ("topP" in qwenParameters) {
+                            VadParameterRow(
+                                title = "Top P",
+                                value = formatVad(settings.qwen.topP),
+                                onDecrease = {
+                                    store.setQwenSettings(
+                                        settings.qwen.copy(
+                                            topP =
+                                                (settings.qwen.topP - 0.05F)
+                                                    .coerceAtLeast(0.05F),
+                                        ),
+                                    )
+                                },
+                                onIncrease = {
+                                    store.setQwenSettings(
+                                        settings.qwen.copy(
+                                            topP =
+                                                (settings.qwen.topP + 0.05F)
+                                                    .coerceAtMost(1F),
+                                        ),
+                                    )
+                                },
+                            )
+                        }
+                        if ("seed" in qwenParameters) {
+                            VadParameterRow(
+                                title = "Seed",
+                                value = settings.qwen.seed.toString(),
+                                onDecrease = {
+                                    store.setQwenSettings(
+                                        settings.qwen.copy(
+                                            seed =
+                                                (settings.qwen.seed - 1)
+                                                    .coerceAtLeast(-1_000_000),
+                                        ),
+                                    )
+                                },
+                                onIncrease = {
+                                    store.setQwenSettings(
+                                        settings.qwen.copy(
+                                            seed =
+                                                (settings.qwen.seed + 1)
+                                                    .coerceAtMost(1_000_000),
+                                        ),
+                                    )
+                                },
+                            )
+                        }
+                        if ("hotwords" in qwenParameters) {
+                            OutlinedTextField(
+                                value = settings.qwen.hotwords,
+                                onValueChange = { value ->
+                                    store.setQwenSettings(
+                                        settings.qwen.copy(
+                                            hotwords = value.take(512),
+                                        ),
+                                    )
+                                },
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                                label = { Text("热词") },
+                                supportingText = {
+                                    Text("逗号分隔，例如：Voica,工业互联网,项目名称")
+                                },
+                                minLines = 2,
+                                maxLines = 4,
+                            )
+                        }
+                        TextButton(
+                            onClick = store::resetQwenSettings,
+                            modifier = Modifier.padding(horizontal = 8.dp),
+                        ) {
+                            Text("恢复 Qwen 推荐值")
+                        }
+                    }
+                }
+            }
+        }
+
         Card(
             modifier =
                 Modifier
@@ -235,6 +434,83 @@ internal fun LocalSpeechSettingsCard(
                                     store.setSpeakerCount(option.first)
                                 },
                     )
+                }
+                HorizontalDivider()
+                ListItem(
+                    headlineContent = { Text("转写后自动说话人分离") },
+                    supportingContent = {
+                        Text("关闭后仅停止自动启动；手动“说话人分离/重跑”仍可使用。")
+                    },
+                    trailingContent = {
+                        Switch(
+                            checked = settings.diarization.autoAfterTranscription,
+                            onCheckedChange = { enabled ->
+                                store.setDiarizationSettings(
+                                    settings.diarization.copy(
+                                        autoAfterTranscription = enabled,
+                                    ),
+                                )
+                            },
+                        )
+                    },
+                )
+                if (settings.speakerCount == SpeakerCountChoice.AUTO) {
+                    VadParameterRow(
+                        title = "自动聚类阈值",
+                        value = formatVad(settings.diarization.clusteringThreshold),
+                        onDecrease = {
+                            store.setDiarizationSettings(
+                                settings.diarization.copy(
+                                    clusteringThreshold =
+                                        (settings.diarization.clusteringThreshold - 0.05F)
+                                            .coerceAtLeast(0.05F),
+                                ),
+                            )
+                        },
+                        onIncrease = {
+                            store.setDiarizationSettings(
+                                settings.diarization.copy(
+                                    clusteringThreshold =
+                                        (settings.diarization.clusteringThreshold + 0.05F)
+                                            .coerceAtMost(0.95F),
+                                ),
+                            )
+                        },
+                    )
+                }
+                VadParameterRow(
+                    title = "跨分块相似度阈值",
+                    value = formatVad(settings.diarization.stitchingCosineThreshold),
+                    onDecrease = {
+                        store.setDiarizationSettings(
+                            settings.diarization.copy(
+                                stitchingCosineThreshold =
+                                    (settings.diarization.stitchingCosineThreshold - 0.05F)
+                                        .coerceAtLeast(0.05F),
+                            ),
+                        )
+                    },
+                    onIncrease = {
+                        store.setDiarizationSettings(
+                            settings.diarization.copy(
+                                stitchingCosineThreshold =
+                                    (settings.diarization.stitchingCosineThreshold + 0.05F)
+                                        .coerceAtMost(0.95F),
+                            ),
+                        )
+                    },
+                )
+                Text(
+                    "聚类阈值越高通常越倾向较少 Speaker；跨分块相似度阈值越高越严格，可能增加同一人的跨块碎片化。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+                TextButton(
+                    onClick = store::resetDiarizationSettings,
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                ) {
+                    Text("恢复说话人推荐值")
                 }
             }
         }
@@ -490,6 +766,13 @@ private fun formatVad(value: Float): String {
     val rounded = kotlin.math.round(value * 100F) / 100F
     return rounded.toString()
 }
+
+private fun formatExpertFloat(value: Float): String =
+    if (value > 0F && value < 0.001F) {
+        value.toString()
+    } else {
+        formatVad(value)
+    }
 
 private fun offlineModelOptions() =
     listOf(
