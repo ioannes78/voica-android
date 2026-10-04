@@ -86,9 +86,9 @@ jobs:
         run: |
           schema="core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/7.json"
           if test -f "$schema"; then
-            printf 'ROOM_SCHEMA_V7_GZIP_BASE64='
-            gzip -c "$schema" | base64 -w0
-            printf '\n'
+            echo "ROOM_SCHEMA_V7_BEGIN"
+            cat "$schema"
+            echo "ROOM_SCHEMA_V7_END"
           else
             echo "ROOM_SCHEMA_V7_MISSING"
           fi
