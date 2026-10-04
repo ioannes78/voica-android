@@ -36,6 +36,7 @@ data class DiarizationConfig(
     val stitchingCosineThreshold: Float = 0.75F,
     val stitchingMinimumOverlapSamples: Long = 1_600L,
     val stitchingMinimumAnchorSamples: Long = 16_000L,
+    val stitchingMaxAnchorsPerSpeaker: Int = 3,
 ) {
     init {
         require(sampleRateHz == CANONICAL_SAMPLE_RATE_HZ) {
@@ -50,6 +51,7 @@ data class DiarizationConfig(
         require(stitchingCosineThreshold.isFinite() && stitchingCosineThreshold in 0F..1F)
         require(stitchingMinimumOverlapSamples > 0L)
         require(stitchingMinimumAnchorSamples > 0L)
+        require(stitchingMaxAnchorsPerSpeaker > 0)
     }
 
     companion object {

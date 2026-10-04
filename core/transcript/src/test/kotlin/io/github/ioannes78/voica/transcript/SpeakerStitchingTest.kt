@@ -126,6 +126,104 @@ class SpeakerStitchingTest {
         assertEquals(2, mapped.distinct().size)
     }
 
+
+    @Test
+    fun explicitSingleSpeakerCollapsesCrossChunkFragmentationEvenWithLowCosine() {
+        val result =
+            stitchDiarizationChunks(
+                chunks =
+                    listOf(
+                        chunk(
+                            index = 0,
+                            turns = listOf(turn(0, 0L, 320_000L)),
+                            anchors = listOf(anchor(0, floatArrayOf(1F, 0F))),
+                        ),
+                        chunk(
+                            index = 1,
+                            turns = listOf(turn(7, 320_000L, 640_000L)),
+                            anchors = listOf(anchor(7, floatArrayOf(0F, 1F))),
+                        ),
+                    ),
+                config =
+                    DiarizationConfig(
+                        expectedSpeakerCount = 1,
+                        stitchingCosineThreshold = 0.95F,
+                    ),
+            )
+
+        assertEquals(1, result.speakerCount)
+        assertEquals(0, result.mapping(0, 0))
+        assertEquals(0, result.mapping(1, 7))
+        assertTrue(result.turns.all { it.globalSpeakerIndex == 0 })
+    }
+
+    @Test
+    fun explicitSpeakerCountCapsNewGlobalSpeakersAfterTargetIsEstablished() {
+        val result =
+            stitchDiarizationChunks(
+                chunks =
+                    listOf(
+                        chunk(
+                            index = 0,
+                            turns =
+                                listOf(
+                                    turn(0, 0L, 160_000L),
+                                    turn(1, 160_000L, 320_000L),
+                                ),
+                            anchors =
+                                listOf(
+                                    anchor(0, floatArrayOf(1F, 0F)),
+                                    anchor(1, floatArrayOf(0F, 1F)),
+                                ),
+                        ),
+                        chunk(
+                            index = 1,
+                            turns = listOf(turn(9, 320_000L, 480_000L)),
+                            anchors = listOf(anchor(9, floatArrayOf(-1F, 0F))),
+                        ),
+                    ),
+                config =
+                    DiarizationConfig(
+                        expectedSpeakerCount = 2,
+                        stitchingCosineThreshold = 0.99F,
+                    ),
+            )
+
+        assertEquals(2, result.speakerCount)
+        assertTrue(result.mapping(1, 9) in 0..1)
+    }
+
+    @Test
+    fun autoSpeakerCountStillAllowsLowCosineToCreateNewGlobalSpeaker() {
+        val result =
+            stitchDiarizationChunks(
+                chunks =
+                    listOf(
+                        chunk(
+                            index = 0,
+                            turns =
+                                listOf(
+                                    turn(0, 0L, 160_000L),
+                                    turn(1, 160_000L, 320_000L),
+                                ),
+                            anchors =
+                                listOf(
+                                    anchor(0, floatArrayOf(1F, 0F)),
+                                    anchor(1, floatArrayOf(0F, 1F)),
+                                ),
+                        ),
+                        chunk(
+                            index = 1,
+                            turns = listOf(turn(9, 320_000L, 480_000L)),
+                            anchors = listOf(anchor(9, floatArrayOf(-1F, 0F))),
+                        ),
+                    ),
+                config = DiarizationConfig(stitchingCosineThreshold = 0.99F),
+            )
+
+        assertEquals(3, result.speakerCount)
+    }
+
     @Test
     fun duplicateSameSpeakerTurnsFromChunkOverlapAreMerged() {
         val result =

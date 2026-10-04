@@ -149,7 +149,10 @@ class SherpaStage9DiarizationEngineProvider(
     private val validatedBundles = ConcurrentHashMap.newKeySet<String>()
 
     override fun vadFactory(model: ActiveModel): VadEngineFactory =
-        stage8Provider.vadFactory(model)
+        stage8Provider.vadFactory(
+            model = model,
+            numThreads = SherpaRuntime.DEFAULT_NUM_THREADS,
+        )
 
     override suspend fun validateBundle(
         segmentation: ActiveModel,
@@ -689,7 +692,7 @@ class DiarizationCoordinator(
             .entries
             .sortedBy { it.key }
             .mapNotNull { entry ->
-                val best =
+                val ranges =
                     entry.value
                         .mapNotNull { turn ->
                             val start =
@@ -706,26 +709,50 @@ class DiarizationCoordinator(
                                 null
                             }
                         }
-                        .maxByOrNull { it.sampleCount }
-                        ?: return@mapNotNull null
+                        .filter { it.sampleCount >= config.stitchingMinimumAnchorSamples }
+                        .sortedByDescending { it.sampleCount }
+                        .take(config.stitchingMaxAnchorsPerSpeaker)
 
-                if (best.sampleCount < config.stitchingMinimumAnchorSamples) {
+                if (ranges.isEmpty()) {
                     return@mapNotNull null
                 }
 
-                val startOffset =
-                    Math.toIntExact(best.startSampleIndex - windowStartSampleIndex)
-                val endOffset =
-                    Math.toIntExact(best.endSampleIndexExclusive - windowStartSampleIndex)
-                val embedding =
-                    embeddingEngine.embed(
-                        samples = windowSamples.copyOfRange(startOffset, endOffset),
-                        sampleRateHz = config.sampleRateHz,
-                    )
+                var totalWeight = 0L
+                var weightedEmbedding: DoubleArray? = null
+                ranges.forEach { range ->
+                    val startOffset =
+                        Math.toIntExact(range.startSampleIndex - windowStartSampleIndex)
+                    val endOffset =
+                        Math.toIntExact(range.endSampleIndexExclusive - windowStartSampleIndex)
+                    val normalized =
+                        normalizeSpeakerEmbedding(
+                            embeddingEngine.embed(
+                                samples = windowSamples.copyOfRange(startOffset, endOffset),
+                                sampleRateHz = config.sampleRateHz,
+                            ),
+                        )
+                    val accumulator =
+                        weightedEmbedding ?: DoubleArray(normalized.size).also {
+                            weightedEmbedding = it
+                        }
+                    require(accumulator.size == normalized.size) {
+                        "speaker embedding dimension changed while aggregating anchors"
+                    }
+                    normalized.indices.forEach { index ->
+                        accumulator[index] +=
+                            normalized[index].toDouble() * range.sampleCount.toDouble()
+                    }
+                    totalWeight = Math.addExact(totalWeight, range.sampleCount)
+                }
+
+                val combined =
+                    checkNotNull(weightedEmbedding) {
+                        "speaker anchor aggregation produced no embedding"
+                    }
                 SpeakerAnchorEmbedding(
-                    localSpeakerIndex = best.speakerIndex,
-                    embedding = embedding,
-                    anchorSampleCount = best.sampleCount,
+                    localSpeakerIndex = entry.key,
+                    embedding = FloatArray(combined.size) { index -> combined[index].toFloat() },
+                    anchorSampleCount = totalWeight,
                 )
             }
     }
@@ -983,7 +1010,11 @@ class DiarizationCoordinator(
         models: List<ActiveModel>,
     ): String =
         buildString {
-            append("{\"sampleRateHz\":").append(config.sampleRateHz)
+            append("{\"schemaVersion\":2")
+            append(",\"pipelineVersion\":").append(DIARIZATION_PIPELINE_VERSION)
+            append(",\"stitchingAlgorithmVersion\":").append(STITCHING_ALGORITHM_VERSION)
+            append(",\"anchorStrategy\":\"").append(ANCHOR_STRATEGY).append("\"")
+            append(",\"sampleRateHz\":").append(config.sampleRateHz)
             append(",\"chunkSizeSamples\":").append(config.chunkSizeSamples)
             append(",\"chunkOverlapSamples\":").append(config.chunkOverlapSamples)
             append(",\"vadContextPaddingSamples\":").append(config.vadContextPaddingSamples)
@@ -996,6 +1027,15 @@ class DiarizationCoordinator(
                 .append(config.stitchingMinimumOverlapSamples)
             append(",\"stitchingMinimumAnchorSamples\":")
                 .append(config.stitchingMinimumAnchorSamples)
+            append(",\"stitchingMaxAnchorsPerSpeaker\":")
+                .append(config.stitchingMaxAnchorsPerSpeaker)
+            append(",\"sherpaDefaults\":{")
+            append("\"numThreads\":").append(SherpaRuntime.DEFAULT_NUM_THREADS)
+            append(",\"pyannoteWindowShiftRatio\":0.1")
+            append(",\"minDurationOnSeconds\":0.2")
+            append(",\"minDurationOffSeconds\":0.5")
+            append(",\"defaultClusteringThreshold\":0.5")
+            append(",\"computeConfidence\":true}")
             append(",\"models\":[")
             models.forEachIndexed { index, model ->
                 if (index > 0) append(',')
@@ -1055,8 +1095,22 @@ class DiarizationCoordinator(
             get() = endSampleIndexExclusive - startSampleIndex
     }
 
+    private fun normalizeSpeakerEmbedding(values: FloatArray): FloatArray {
+        require(values.isNotEmpty())
+        var sumSquares = 0.0
+        values.forEach { value ->
+            require(value.isFinite())
+            sumSquares += value.toDouble() * value.toDouble()
+        }
+        require(sumSquares > 0.0) { "speaker embedding norm must be positive" }
+        val norm = kotlin.math.sqrt(sumSquares).toFloat()
+        return FloatArray(values.size) { index -> values[index] / norm }
+    }
+
     private companion object {
-        const val DIARIZATION_PIPELINE_VERSION = 1
+        const val DIARIZATION_PIPELINE_VERSION = 2
         const val ALIGNMENT_VERSION = 1
+        const val STITCHING_ALGORITHM_VERSION = 2
+        const val ANCHOR_STRATEGY = "multi-clean-weighted-v2"
     }
 }
