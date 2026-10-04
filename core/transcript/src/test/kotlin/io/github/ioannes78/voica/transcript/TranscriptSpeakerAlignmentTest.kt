@@ -78,6 +78,7 @@ class TranscriptSpeakerAlignmentTest {
                 segmentIndex = 0,
                 startSampleIndex = 0L,
                 endSampleIndexExclusive = 16_000L,
+                firstPassRawText = "",
                 secondPassRawText = "活动。",
                 finalText = "活动。",
                 tokens =
