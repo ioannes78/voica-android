@@ -92,6 +92,41 @@ class LocalSpeechSettingsTest {
     }
 
     @Test
+    fun realtimeDecoderDefaultsMatchSherpaAndUnsupportedModelsForceGreedy() {
+        val defaults = LocalRealtimeAsrSettings()
+        val unsupported = defaults.copy(
+            decodingMethod = RealtimeDecodingMethod.MODIFIED_BEAM_SEARCH,
+            maxActivePaths = 8,
+        ).resolveFor(setOf("numThreads"))
+
+        assertEquals(RealtimeDecodingMethod.GREEDY_SEARCH, defaults.decodingMethod)
+        assertEquals(4, defaults.maxActivePaths)
+        assertEquals(RealtimeDecodingMethod.GREEDY_SEARCH, unsupported.decodingMethod)
+        assertEquals(4, unsupported.maxActivePaths)
+    }
+
+    @Test
+    fun transducerCapabilityEnablesModifiedBeamAndActivePaths() {
+        val resolved =
+            LocalRealtimeAsrSettings(
+                decodingMethod = RealtimeDecodingMethod.MODIFIED_BEAM_SEARCH,
+                maxActivePaths = 8,
+            ).resolveFor(
+                setOf(
+                    "numThreads",
+                    "decodingMethod",
+                    "maxActivePaths",
+                ),
+            )
+
+        assertEquals(
+            RealtimeDecodingMethod.MODIFIED_BEAM_SEARCH,
+            resolved.decodingMethod,
+        )
+        assertEquals(8, resolved.maxActivePaths)
+    }
+
+    @Test
     fun senseVoiceDefaultsPreserveAutoLanguageAndItn() {
         val senseVoice = LocalSenseVoiceSettings()
 

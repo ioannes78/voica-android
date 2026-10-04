@@ -29,6 +29,7 @@ import io.github.ioannes78.voica.LocalVadSettings
 import io.github.ioannes78.voica.MAX_CONFIGURABLE_THREADS
 import io.github.ioannes78.voica.OfflineAsrQualityChoice
 import io.github.ioannes78.voica.RealtimeAsrModelChoice
+import io.github.ioannes78.voica.RealtimeDecodingMethod
 import io.github.ioannes78.voica.SenseVoiceLanguageChoice
 import io.github.ioannes78.voica.SpeakerCountChoice
 import io.github.ioannes78.voica.SpeakerEmbeddingModelChoice
@@ -36,6 +37,7 @@ import io.github.ioannes78.voica.SpeechPerformanceProfile
 import io.github.ioannes78.voica.Stage13AOfflineModelIds
 import io.github.ioannes78.voica.Stage13ARealtimeModelIds
 import io.github.ioannes78.voica.Stage13ASpeakerEmbeddingModelIds
+import io.github.ioannes78.voica.preferredModelIds
 import io.github.ioannes78.voica.resolvePerformance
 import io.github.ioannes78.voica.model.ModelAvailability
 import io.github.ioannes78.voica.model.ModelManager
@@ -165,6 +167,103 @@ internal fun LocalSpeechSettingsCard(
                                 store.setRealtimeAsrModel(option.choice)
                             },
                 )
+            }
+        }
+
+        val decoderModelId =
+            settings.realtimeAsrModel.preferredModelIds()
+                .firstOrNull { modelId ->
+                    availability[modelId]?.activeVersion != null
+                }
+                ?: settings.realtimeAsrModel.preferredModelIds().first()
+        val decoderParameters = supportedParameters[decoderModelId].orEmpty()
+        if ("decodingMethod" in decoderParameters) {
+            Card(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp),
+            ) {
+                Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        Text("实时 Decoder 高级参数", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "仅对当前实时模型 manifest 明确支持的 decoder 参数生效。CTC 与旧模型不显示无效 Beam Search 设置。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    listOf(
+                        Triple(
+                            RealtimeDecodingMethod.GREEDY_SEARCH,
+                            "Greedy Search（推荐）",
+                            "最低解码开销，保持 sherpa 默认行为",
+                        ),
+                        Triple(
+                            RealtimeDecodingMethod.MODIFIED_BEAM_SEARCH,
+                            "Modified Beam Search",
+                            "仅 Transducer 候选支持；可能提高准确率但增加计算量",
+                        ),
+                    ).forEachIndexed { index, option ->
+                        if (index > 0) HorizontalDivider()
+                        ListItem(
+                            headlineContent = { Text(option.second) },
+                            supportingContent = { Text(option.third) },
+                            leadingContent = {
+                                RadioButton(
+                                    selected =
+                                        settings.realtime.decodingMethod == option.first,
+                                    onClick = null,
+                                )
+                            },
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        store.setRealtimeSettings(
+                                            settings.realtime.copy(
+                                                decodingMethod = option.first,
+                                            ),
+                                        )
+                                    },
+                        )
+                    }
+                    if (
+                        settings.realtime.decodingMethod ==
+                            RealtimeDecodingMethod.MODIFIED_BEAM_SEARCH &&
+                        "maxActivePaths" in decoderParameters
+                    ) {
+                        HorizontalDivider()
+                        VadParameterRow(
+                            title = "Max Active Paths",
+                            value = settings.realtime.maxActivePaths.toString(),
+                            onDecrease = {
+                                store.setRealtimeSettings(
+                                    settings.realtime.copy(
+                                        maxActivePaths =
+                                            (settings.realtime.maxActivePaths - 1)
+                                                .coerceAtLeast(1),
+                                    ),
+                                )
+                            },
+                            onIncrease = {
+                                store.setRealtimeSettings(
+                                    settings.realtime.copy(
+                                        maxActivePaths =
+                                            (settings.realtime.maxActivePaths + 1)
+                                                .coerceAtMost(16),
+                                    ),
+                                )
+                            },
+                        )
+                    }
+                    TextButton(
+                        onClick = store::resetRealtimeSettings,
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                    ) {
+                        Text("恢复 Decoder 推荐值")
+                    }
+                }
             }
         }
 

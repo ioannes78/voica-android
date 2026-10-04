@@ -106,6 +106,7 @@ interface Stage8TranscriptionEngineProvider {
     fun firstPassFactory(
         model: ActiveModel,
         numThreads: Int,
+        realtimeSettings: LocalRealtimeAsrSettings = LocalRealtimeAsrSettings(),
     ): StreamingAsrEngineFactory
 
     fun punctuationFactory(
@@ -163,16 +164,26 @@ class SherpaStage8TranscriptionEngineProvider(
     override fun firstPassFactory(
         model: ActiveModel,
         numThreads: Int,
+        realtimeSettings: LocalRealtimeAsrSettings,
     ): StreamingAsrEngineFactory {
         require(model.descriptor.kind == ModelKind.ASR_STREAMING)
         val directory =
             model.installedDirectory
                 ?: error("first-pass ASR must be a managed installed model")
+        val resolved =
+            realtimeSettings.resolveFor(
+                model.descriptor.capabilities.supportedParameters,
+            )
         return StreamingAsrEngineFactory {
             createSherpaStreamingAsrEngine(
                 model = model.descriptor,
                 modelDirectory = directory,
-                settings = StreamingZipformerSettings(numThreads = numThreads),
+                settings =
+                    StreamingZipformerSettings(
+                        numThreads = numThreads,
+                        decodingMethod = resolved.decodingMethod.runtimeValue,
+                        maxActivePaths = resolved.maxActivePaths,
+                    ),
             )
         }
     }
@@ -386,6 +397,7 @@ class TranscriptionCoordinator(
                                     engineProvider.firstPassFactory(
                                         models.firstPass,
                                         models.performance.effectiveThreads,
+                                        models.realtimeSettings,
                                     ),
                                 punctuationEngineFactory =
                                     engineProvider.punctuationFactory(
@@ -419,6 +431,7 @@ class TranscriptionCoordinator(
                                     engineProvider.firstPassFactory(
                                         models.firstPass,
                                         models.performance.effectiveThreads,
+                                        models.realtimeSettings,
                                     ),
                                 secondPassAsrEngineFactory =
                                     engineProvider.secondPassFactory(
@@ -595,6 +608,7 @@ class TranscriptionCoordinator(
             realtimeAsrChoice = settings.realtimeAsrModel,
             realtimeAsrFallbackUsed = resolvedFirstPass.fallbackUsed,
             offlineAsrQualityChoice = settings.offlineAsrQuality,
+            realtimeSettings = settings.realtime,
             performance = performance,
             senseVoiceSettings = settings.senseVoice,
             qwenSettings = settings.qwen,
@@ -702,6 +716,7 @@ class TranscriptionCoordinator(
         val realtimeAsrChoice: RealtimeAsrModelChoice,
         val realtimeAsrFallbackUsed: Boolean,
         val offlineAsrQualityChoice: OfflineAsrQualityChoice,
+        val realtimeSettings: LocalRealtimeAsrSettings,
         val performance: ResolvedSpeechPerformance,
         val senseVoiceSettings: LocalSenseVoiceSettings,
         val qwenSettings: LocalQwenAsrSettings,
@@ -743,6 +758,8 @@ class TranscriptionCoordinator(
             appendJsonString(models.realtimeAsrChoice.name)
             append(",\"offlineAsrQuality\":")
             appendJsonString(models.offlineAsrQualityChoice.name)
+            append(",\"realtimeDecoder\":")
+            appendRealtimeRequestedSnapshot(models.realtimeSettings)
             append(",\"performanceProfile\":")
             appendJsonString(models.performance.profile.name)
             append(",\"requestedThreads\":")
@@ -783,6 +800,12 @@ class TranscriptionCoordinator(
             appendJsonString(models.firstPass.descriptor.modelId)
             append(",\"realtimeAsrFallbackUsed\":")
             append(models.realtimeAsrFallbackUsed)
+            append(",\"realtimeDecoder\":")
+            appendRealtimeEffectiveSnapshot(
+                models.realtimeSettings.resolveFor(
+                    models.firstPass.descriptor.capabilities.supportedParameters,
+                ),
+            )
             append(",\"offlineAsrModelId\":")
             val offlineAsrModelId = models.secondPass?.descriptor?.modelId
             if (offlineAsrModelId == null) append("null") else appendJsonString(offlineAsrModelId)
@@ -848,6 +871,24 @@ class TranscriptionCoordinator(
         appendJsonString(settings.language.runtimeValue.ifBlank { "auto" })
         append(",\"useInverseTextNormalization\":")
             .append(settings.useInverseTextNormalization)
+        append('}')
+    }
+
+    private fun StringBuilder.appendRealtimeRequestedSnapshot(
+        settings: LocalRealtimeAsrSettings,
+    ) {
+        append("{\"decodingMethod\":")
+        appendJsonString(settings.decodingMethod.runtimeValue)
+        append(",\"maxActivePaths\":").append(settings.maxActivePaths)
+        append('}')
+    }
+
+    private fun StringBuilder.appendRealtimeEffectiveSnapshot(
+        settings: ResolvedRealtimeAsrSettings,
+    ) {
+        append("{\"decodingMethod\":")
+        appendJsonString(settings.decodingMethod.runtimeValue)
+        append(",\"maxActivePaths\":").append(settings.maxActivePaths)
         append('}')
     }
 

@@ -65,6 +65,49 @@ fun SpeakerEmbeddingModelChoice.modelId(): String =
         SpeakerEmbeddingModelChoice.CAMP_PLUS -> Stage13ASpeakerEmbeddingModelIds.CAMP_PLUS
     }
 
+enum class RealtimeDecodingMethod(
+    val runtimeValue: String,
+) {
+    GREEDY_SEARCH("greedy_search"),
+    MODIFIED_BEAM_SEARCH("modified_beam_search"),
+}
+
+data class LocalRealtimeAsrSettings(
+    val decodingMethod: RealtimeDecodingMethod = RealtimeDecodingMethod.GREEDY_SEARCH,
+    val maxActivePaths: Int = 4,
+) {
+    init {
+        require(maxActivePaths in 1..16)
+    }
+
+    fun resolveFor(supportedParameters: Set<String>): ResolvedRealtimeAsrSettings {
+        val effectiveMethod =
+            if ("decodingMethod" in supportedParameters) {
+                decodingMethod
+            } else {
+                RealtimeDecodingMethod.GREEDY_SEARCH
+            }
+        val effectiveMaxActivePaths =
+            if (
+                effectiveMethod == RealtimeDecodingMethod.MODIFIED_BEAM_SEARCH &&
+                "maxActivePaths" in supportedParameters
+            ) {
+                maxActivePaths
+            } else {
+                4
+            }
+        return ResolvedRealtimeAsrSettings(
+            decodingMethod = effectiveMethod,
+            maxActivePaths = effectiveMaxActivePaths,
+        )
+    }
+}
+
+data class ResolvedRealtimeAsrSettings(
+    val decodingMethod: RealtimeDecodingMethod,
+    val maxActivePaths: Int,
+)
+
 enum class SpeechPerformanceProfile {
     AUTO,
     POWER_SAVER,
@@ -195,6 +238,7 @@ data class LocalSpeechSettings(
     val offlineAsrQuality: OfflineAsrQualityChoice = OfflineAsrQualityChoice.AUTO,
     val performanceProfile: SpeechPerformanceProfile = SpeechPerformanceProfile.AUTO,
     val requestedThreads: Int? = null,
+    val realtime: LocalRealtimeAsrSettings = LocalRealtimeAsrSettings(),
     val senseVoice: LocalSenseVoiceSettings = LocalSenseVoiceSettings(),
     val qwen: LocalQwenAsrSettings = LocalQwenAsrSettings(),
     val vad: LocalVadSettings = LocalVadSettings(),
@@ -278,6 +322,10 @@ interface LocalSpeechSettingsStore {
 
     fun setRequestedThreads(threads: Int?)
 
+    fun setRealtimeSettings(settings: LocalRealtimeAsrSettings)
+
+    fun resetRealtimeSettings()
+
     fun setSenseVoiceSettings(settings: LocalSenseVoiceSettings)
 
     fun resetSenseVoiceSettings()
@@ -326,6 +374,7 @@ class SharedPreferencesLocalSpeechSettingsStore(
                 requestedThreads =
                     preferences.getInt(KEY_REQUESTED_THREADS, 0)
                         .takeIf { it > 0 },
+                realtime = readRealtimeSettings(preferences),
                 senseVoice = readSenseVoiceSettings(preferences),
                 qwen = readQwenSettings(preferences),
                 vad = readVadSettings(preferences),
@@ -383,6 +432,25 @@ class SharedPreferencesLocalSpeechSettingsStore(
         editor.apply()
         mutableSettings.value =
             mutableSettings.value.copy(requestedThreads = threads)
+    }
+
+    override fun setRealtimeSettings(settings: LocalRealtimeAsrSettings) {
+        preferences.edit()
+            .putString(KEY_REALTIME_DECODING_METHOD, settings.decodingMethod.name)
+            .putInt(KEY_REALTIME_MAX_ACTIVE_PATHS, settings.maxActivePaths)
+            .apply()
+        mutableSettings.value =
+            mutableSettings.value.copy(realtime = settings)
+    }
+
+    override fun resetRealtimeSettings() {
+        val defaults = LocalRealtimeAsrSettings()
+        preferences.edit()
+            .remove(KEY_REALTIME_DECODING_METHOD)
+            .remove(KEY_REALTIME_MAX_ACTIVE_PATHS)
+            .apply()
+        mutableSettings.value =
+            mutableSettings.value.copy(realtime = defaults)
     }
 
     override fun setSenseVoiceSettings(settings: LocalSenseVoiceSettings) {
@@ -504,6 +572,8 @@ class SharedPreferencesLocalSpeechSettingsStore(
         const val KEY_OFFLINE_ASR_QUALITY = "offline-asr-quality"
         const val KEY_PERFORMANCE_PROFILE = "performance-profile"
         const val KEY_REQUESTED_THREADS = "requested-threads"
+        const val KEY_REALTIME_DECODING_METHOD = "realtime-decoding-method"
+        const val KEY_REALTIME_MAX_ACTIVE_PATHS = "realtime-max-active-paths"
         const val KEY_SENSEVOICE_LANGUAGE = "sensevoice-language"
         const val KEY_SENSEVOICE_USE_ITN = "sensevoice-use-itn"
         const val KEY_QWEN_MAX_TOTAL_LEN = "qwen-max-total-len"
@@ -524,6 +594,24 @@ class SharedPreferencesLocalSpeechSettingsStore(
             "diarization-stitching-cosine-threshold"
         const val KEY_SPEAKER_COUNT = "speaker-count"
         const val KEY_SPEAKER_EMBEDDING_MODEL = "speaker-embedding-model"
+
+        fun readRealtimeSettings(
+            preferences: android.content.SharedPreferences,
+        ): LocalRealtimeAsrSettings =
+            runCatching {
+                LocalRealtimeAsrSettings(
+                    decodingMethod =
+                        preferences.getString(KEY_REALTIME_DECODING_METHOD, null)
+                            ?.let {
+                                runCatching {
+                                    RealtimeDecodingMethod.valueOf(it)
+                                }.getOrNull()
+                            }
+                            ?: RealtimeDecodingMethod.GREEDY_SEARCH,
+                    maxActivePaths =
+                        preferences.getInt(KEY_REALTIME_MAX_ACTIVE_PATHS, 4),
+                )
+            }.getOrDefault(LocalRealtimeAsrSettings())
 
         fun readSenseVoiceSettings(
             preferences: android.content.SharedPreferences,

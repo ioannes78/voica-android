@@ -59,6 +59,8 @@ data class SpeechBenchmarkCaseResult(
     val quantization: String?,
     val pipelineFirstPassModelId: String,
     val pipelinePunctuationModelId: String,
+    val pipelineFirstPassDecodingMethod: String?,
+    val pipelineFirstPassMaxActivePaths: Int?,
     val performanceProfile: String,
     val requestedThreads: Int?,
     val effectiveThreads: Int,
@@ -132,6 +134,14 @@ data class SpeechBenchmarkReport(
                                 .put("quantization", jsonNullable(result.quantization))
                                 .put("pipelineFirstPassModelId", result.pipelineFirstPassModelId)
                                 .put("pipelinePunctuationModelId", result.pipelinePunctuationModelId)
+                                .put(
+                                    "pipelineFirstPassDecodingMethod",
+                                    jsonNullable(result.pipelineFirstPassDecodingMethod),
+                                )
+                                .put(
+                                    "pipelineFirstPassMaxActivePaths",
+                                    jsonNullable(result.pipelineFirstPassMaxActivePaths),
+                                )
                                 .put("performanceProfile", result.performanceProfile)
                                 .put("requestedThreads", jsonNullable(result.requestedThreads))
                                 .put("effectiveThreads", result.effectiveThreads)
@@ -353,6 +363,7 @@ class SpeechBenchmarkRunner(
                             engineProvider.firstPassFactory(
                                 model = firstPass,
                                 numThreads = effectiveThreads,
+                                realtimeSettings = settings.realtime,
                             ),
                         secondPassAsrEngineFactory =
                             engineProvider.secondPassFactory(
@@ -390,6 +401,14 @@ class SpeechBenchmarkRunner(
                 quantization = secondPass.descriptor.quantization,
                 pipelineFirstPassModelId = firstPass.descriptor.modelId,
                 pipelinePunctuationModelId = punctuation.descriptor.modelId,
+                pipelineFirstPassDecodingMethod =
+                    settings.realtime.resolveFor(
+                        firstPass.descriptor.capabilities.supportedParameters,
+                    ).decodingMethod.runtimeValue,
+                pipelineFirstPassMaxActivePaths =
+                    settings.realtime.resolveFor(
+                        firstPass.descriptor.capabilities.supportedParameters,
+                    ).maxActivePaths,
                 performanceProfile = settings.performanceProfile.name,
                 requestedThreads = settings.requestedThreads,
                 effectiveThreads = effectiveThreads,
@@ -433,6 +452,14 @@ class SpeechBenchmarkRunner(
                 quantization = secondPass.descriptor.quantization,
                 pipelineFirstPassModelId = firstPass.descriptor.modelId,
                 pipelinePunctuationModelId = punctuation.descriptor.modelId,
+                pipelineFirstPassDecodingMethod =
+                    settings.realtime.resolveFor(
+                        firstPass.descriptor.capabilities.supportedParameters,
+                    ).decodingMethod.runtimeValue,
+                pipelineFirstPassMaxActivePaths =
+                    settings.realtime.resolveFor(
+                        firstPass.descriptor.capabilities.supportedParameters,
+                    ).maxActivePaths,
                 performanceProfile = settings.performanceProfile.name,
                 requestedThreads = settings.requestedThreads,
                 effectiveThreads = effectiveThreads,
@@ -503,6 +530,7 @@ class SpeechBenchmarkRunner(
                             engineProvider.firstPassFactory(
                                 model = asr,
                                 numThreads = effectiveThreads,
+                                realtimeSettings = settings.realtime,
                             ),
                         punctuationEngineFactory =
                             engineProvider.punctuationFactory(
@@ -522,6 +550,7 @@ class SpeechBenchmarkRunner(
                             recordingId = recordingId,
                             asr = asr,
                             effectiveThreads = effectiveThreads,
+                            realtimeSettings = settings.realtime,
                             speechSegment = firstSpeechSegment,
                         )
                     } catch (cancelled: CancellationException) {
@@ -549,6 +578,14 @@ class SpeechBenchmarkRunner(
                 quantization = asr.descriptor.quantization,
                 pipelineFirstPassModelId = asr.descriptor.modelId,
                 pipelinePunctuationModelId = punctuation.descriptor.modelId,
+                pipelineFirstPassDecodingMethod =
+                    settings.realtime.resolveFor(
+                        asr.descriptor.capabilities.supportedParameters,
+                    ).decodingMethod.runtimeValue,
+                pipelineFirstPassMaxActivePaths =
+                    settings.realtime.resolveFor(
+                        asr.descriptor.capabilities.supportedParameters,
+                    ).maxActivePaths,
                 performanceProfile = settings.performanceProfile.name,
                 requestedThreads = settings.requestedThreads,
                 effectiveThreads = effectiveThreads,
@@ -598,6 +635,14 @@ class SpeechBenchmarkRunner(
                 quantization = asr.descriptor.quantization,
                 pipelineFirstPassModelId = asr.descriptor.modelId,
                 pipelinePunctuationModelId = punctuation.descriptor.modelId,
+                pipelineFirstPassDecodingMethod =
+                    settings.realtime.resolveFor(
+                        asr.descriptor.capabilities.supportedParameters,
+                    ).decodingMethod.runtimeValue,
+                pipelineFirstPassMaxActivePaths =
+                    settings.realtime.resolveFor(
+                        asr.descriptor.capabilities.supportedParameters,
+                    ).maxActivePaths,
                 performanceProfile = settings.performanceProfile.name,
                 requestedThreads = settings.requestedThreads,
                 effectiveThreads = effectiveThreads,
@@ -650,6 +695,8 @@ class SpeechBenchmarkRunner(
             quantization = null,
             pipelineFirstPassModelId = pipelineFirstPassModelId,
             pipelinePunctuationModelId = pipelinePunctuationModelId,
+            pipelineFirstPassDecodingMethod = null,
+            pipelineFirstPassMaxActivePaths = null,
             performanceProfile = settings.performanceProfile.name,
             requestedThreads = settings.requestedThreads,
             effectiveThreads = effectiveThreads,
@@ -681,6 +728,7 @@ class SpeechBenchmarkRunner(
         recordingId: String,
         asr: ActiveModel,
         effectiveThreads: Int,
+        realtimeSettings: LocalRealtimeAsrSettings,
         speechSegment: io.github.ioannes78.voica.transcript.SpeechSegment,
     ): StreamingLatencyProbe {
         val source =
@@ -691,6 +739,7 @@ class SpeechBenchmarkRunner(
                 engineProvider.firstPassFactory(
                     model = asr,
                     numThreads = effectiveThreads,
+                    realtimeSettings = realtimeSettings,
                 ).open()
             } catch (error: Throwable) {
                 source.close()

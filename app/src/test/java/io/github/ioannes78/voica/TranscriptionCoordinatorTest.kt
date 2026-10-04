@@ -290,6 +290,7 @@ class TranscriptionCoordinatorTest {
         override fun firstPassFactory(
             model: ActiveModel,
             numThreads: Int,
+            realtimeSettings: LocalRealtimeAsrSettings,
         ) = StreamingAsrEngineFactory { FakeStreamingEngine(model.descriptor) }
 
         override fun punctuationFactory(
