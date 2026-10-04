@@ -162,14 +162,14 @@ fun createSherpaStreamingAsrEngine(
             SherpaStreamingZipformerCtcEngine(
                 model = model,
                 modelDirectory = modelDirectory,
-                settings = settings.copy(nativeModelType = ""),
+                settings = settings.copy(nativeModelType = "zipformer2"),
             )
 
         SherpaStreamingAsrModelType.ZIPFORMER2_TRANSDUCER ->
             SherpaStreamingZipformerEngine(
                 model = model,
                 modelDirectory = modelDirectory,
-                settings = settings.copy(nativeModelType = ""),
+                settings = settings.copy(nativeModelType = "zipformer2"),
             )
 
         null,
