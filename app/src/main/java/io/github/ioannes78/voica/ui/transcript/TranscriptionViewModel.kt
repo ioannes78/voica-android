@@ -18,6 +18,7 @@ import io.github.ioannes78.voica.database.TranscriptionStateValue
 import io.github.ioannes78.voica.transcript.SpeakerAssignmentQuality
 import io.github.ioannes78.voica.transcript.TimedTextCue
 import io.github.ioannes78.voica.transcript.TranscriptTimeline
+import io.github.ioannes78.voica.transcript.TranscriptionMode
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -55,6 +56,7 @@ data class TranscriptDocument(
     val transcriptionId: String,
     val mode: String,
     val segments: List<TranscriptDisplaySegment>,
+    val sourceModelId: String? = null,
     val diarizationRunId: String? = null,
     val alignmentId: String? = null,
     val speakers: List<TranscriptSpeakerDisplay> = emptyList(),
@@ -164,8 +166,7 @@ class TranscriptionViewModel(
 
                     is SpeakerAlignmentRunState.Failed -> {
                         if (mutableDocument.value?.transcriptionId == state.transcriptionId) {
-                            mutableNotice.value =
-                                "说话人对齐失败：" + state.message
+                            mutableNotice.value = "说话人对齐失败：" + state.message
                         }
                     }
 
@@ -183,13 +184,15 @@ class TranscriptionViewModel(
         }
     }
 
-    fun startFast(recordingId: String) {
-        start(recordingId, io.github.ioannes78.voica.transcript.TranscriptionMode.FAST)
+    /** Recording-file transcription always uses the configured offline ASR model. */
+    fun startOffline(recordingId: String) {
+        start(recordingId, TranscriptionMode.HIGH_QUALITY)
     }
 
-    fun startHighQuality(recordingId: String) {
-        start(recordingId, io.github.ioannes78.voica.transcript.TranscriptionMode.HIGH_QUALITY)
-    }
+    /** Source-compatible aliases while QA5 removes the old two-button product UI. */
+    fun startFast(recordingId: String) = startOffline(recordingId)
+
+    fun startHighQuality(recordingId: String) = startOffline(recordingId)
 
     fun cancel() {
         coordinator.cancel()
@@ -282,9 +285,7 @@ class TranscriptionViewModel(
     ) {
         val transcription = repository.find(transcriptionId)
         if (!isCurrentDocumentLoad(generation)) return
-        if (transcription == null ||
-            transcription.state != TranscriptionStateValue.COMPLETED
-        ) {
+        if (transcription == null || transcription.state != TranscriptionStateValue.COMPLETED) {
             mutableNotice.value = "转写版本不存在或尚未完成"
             return
         }
@@ -322,6 +323,9 @@ class TranscriptionViewModel(
                 transcriptionId = transcription.id,
                 mode = transcription.mode,
                 segments = timelineDisplaySegments(baseTimeline, sourceSegments),
+                sourceModelId =
+                    transcription.secondPassAsrModelId
+                        ?: transcription.firstPassAsrModelId,
                 timeline = baseTimeline,
                 compatiblePlaybackAssetId = compatiblePlaybackAssetId,
             )
@@ -355,10 +359,7 @@ class TranscriptionViewModel(
         if (!isCurrentDocumentLoad(generation)) return
 
         if (completedAlignment == null) {
-            mutableDocument.value =
-                baseDocument.copy(
-                    diarizationRunId = compatibleRun.id,
-                )
+            mutableDocument.value = baseDocument.copy(diarizationRunId = compatibleRun.id)
             if (!isCurrentDocumentLoad(generation)) return
             val started =
                 diarizationCoordinator.alignTranscription(
@@ -430,8 +431,7 @@ class TranscriptionViewModel(
                     recordingId = transcription.recordingId,
                     transcriptionId = transcription.id,
                     mode = transcription.mode,
-                    completedAtMs =
-                        transcription.completedAtMs ?: transcription.updatedAtMs,
+                    completedAtMs = transcription.completedAtMs ?: transcription.updatedAtMs,
                     segmentCount = repository.loadSegments(transcription.id).size,
                     latest = index == 0,
                 )
@@ -455,7 +455,7 @@ class TranscriptionViewModel(
 
     private fun start(
         recordingId: String,
-        mode: io.github.ioannes78.voica.transcript.TranscriptionMode,
+        mode: TranscriptionMode,
     ) {
         mutableNotice.value = null
         cancelDocumentLoad(clearCurrent = true)
