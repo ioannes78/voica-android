@@ -269,43 +269,79 @@ class SpeechBenchmarkRunner(
         val vad =
             modelManager.activeModel(Stage8ModelIds.VAD)
                 ?: error("offline benchmark requires active VAD model")
-        val punctuation =
-            modelManager.activeModel(Stage8ModelIds.PUNCTUATION)
-                ?: error("offline benchmark requires active punctuation model")
-        val firstPass =
-            settings.realtimeAsrModel.preferredModelIds()
-                .firstNotNullOfOrNull { modelManager.activeModel(it) }
-                ?: error("offline benchmark requires an active realtime first-pass ASR")
+        val punctuation = modelManager.activeModel(Stage8ModelIds.PUNCTUATION)
+        val qwenTimelineAlignment =
+            modelManager.activeModel(Stage13ARealtimeModelIds.SMALL_BILINGUAL)
+                ?.takeIf {
+                    it.descriptor.kind == ModelKind.ASR_STREAMING &&
+                        it.descriptor.capabilities.supportsTokenTiming
+                }
 
         require(vad.descriptor.kind == ModelKind.VAD)
-        require(firstPass.descriptor.kind == ModelKind.ASR_STREAMING)
-        require(punctuation.descriptor.kind == ModelKind.PUNCTUATION)
 
         val results =
             modelIds.map { modelId ->
-                val secondPass = modelManager.activeModel(modelId)
-                if (secondPass == null) {
-                    missingModelResult(
-                        track = SpeechBenchmarkTrack.OFFLINE,
-                        modelId = modelId,
-                        totalSampleCount = totalSampleCount,
-                        settings = settings,
-                        effectiveThreads = performance.effectiveThreads,
-                        pipelineFirstPassModelId = firstPass.descriptor.modelId,
-                        pipelinePunctuationModelId = punctuation.descriptor.modelId,
-                    )
-                } else {
-                    runOfflineModelCase(
-                        recordingId = recordingId,
-                        totalSampleCount = totalSampleCount,
-                        referenceText = referenceText,
-                        vad = vad,
-                        firstPass = firstPass,
-                        secondPass = secondPass,
-                        punctuation = punctuation,
-                        settings = settings,
-                        effectiveThreads = performance.effectiveThreads,
-                    )
+                val offline = modelManager.activeModel(modelId)
+                val externalPunctuationRequired =
+                    when (modelId) {
+                        Stage13AOfflineModelIds.SENSEVOICE ->
+                            !settings.senseVoice.useInverseTextNormalization
+                        Stage13AOfflineModelIds.FIRERED_ASR2 -> true
+                        Stage13AOfflineModelIds.QWEN3_ASR -> false
+                        else -> false
+                    }
+                val timelineAlignment =
+                    if (modelId == Stage13AOfflineModelIds.QWEN3_ASR) {
+                        qwenTimelineAlignment
+                    } else {
+                        null
+                    }
+                val pipelineTimingModelId =
+                    timelineAlignment?.descriptor?.modelId ?: "NONE"
+                val pipelinePunctuationModelId =
+                    when {
+                        externalPunctuationRequired && punctuation != null ->
+                            punctuation.descriptor.modelId
+                        externalPunctuationRequired -> "MISSING"
+                        else -> "NATIVE_OR_NONE"
+                    }
+
+                when {
+                    offline == null ->
+                        missingModelResult(
+                            track = SpeechBenchmarkTrack.OFFLINE,
+                            modelId = modelId,
+                            totalSampleCount = totalSampleCount,
+                            settings = settings,
+                            effectiveThreads = performance.effectiveThreads,
+                            pipelineFirstPassModelId = pipelineTimingModelId,
+                            pipelinePunctuationModelId = pipelinePunctuationModelId,
+                        )
+
+                    externalPunctuationRequired && punctuation == null ->
+                        missingModelResult(
+                            track = SpeechBenchmarkTrack.OFFLINE,
+                            modelId = modelId,
+                            totalSampleCount = totalSampleCount,
+                            settings = settings,
+                            effectiveThreads = performance.effectiveThreads,
+                            pipelineFirstPassModelId = pipelineTimingModelId,
+                            pipelinePunctuationModelId = "MISSING",
+                        )
+
+                    else ->
+                        runOfflineModelCase(
+                            recordingId = recordingId,
+                            totalSampleCount = totalSampleCount,
+                            referenceText = referenceText,
+                            vad = vad,
+                            offline = offline,
+                            punctuation =
+                                if (externalPunctuationRequired) punctuation else null,
+                            timelineAlignment = timelineAlignment,
+                            settings = settings,
+                            effectiveThreads = performance.effectiveThreads,
+                        )
                 }
             }
 
@@ -324,19 +360,36 @@ class SpeechBenchmarkRunner(
         totalSampleCount: Long,
         referenceText: String?,
         vad: ActiveModel,
-        firstPass: ActiveModel,
-        secondPass: ActiveModel,
-        punctuation: ActiveModel,
+        offline: ActiveModel,
+        punctuation: ActiveModel?,
+        timelineAlignment: ActiveModel?,
         settings: LocalSpeechSettings,
         effectiveThreads: Int,
     ): SpeechBenchmarkCaseResult {
         require(
-            secondPass.descriptor.kind == ModelKind.ASR_SECOND_PASS ||
-                secondPass.descriptor.kind == ModelKind.ASR_LARGE,
+            offline.descriptor.kind == ModelKind.ASR_SECOND_PASS ||
+                offline.descriptor.kind == ModelKind.ASR_LARGE,
         ) {
-            "offline benchmark model must support second-pass ASR"
+            "offline benchmark model must support offline ASR"
         }
-        val leasedModels = listOf(vad, firstPass, secondPass, punctuation)
+        require(punctuation == null || punctuation.descriptor.kind == ModelKind.PUNCTUATION)
+        require(
+            timelineAlignment == null ||
+                (
+                    timelineAlignment.descriptor.kind == ModelKind.ASR_STREAMING &&
+                        timelineAlignment.descriptor.capabilities.supportsTokenTiming
+                ),
+        )
+
+        val leasedModels =
+            listOfNotNull(vad, offline, punctuation, timelineAlignment)
+                .distinctBy {
+                    Triple(
+                        it.descriptor.modelId,
+                        it.descriptor.version,
+                        it.descriptor.revision,
+                    )
+                }
         val leases =
             leasedModels.map { model ->
                 modelUseRegistry.acquire(
@@ -347,6 +400,14 @@ class SpeechBenchmarkRunner(
             }
         val audioDurationMs =
             totalSampleCount * 1_000L / CanonicalPcmProfile.SAMPLE_RATE_HZ
+        val timingModelId = timelineAlignment?.descriptor?.modelId ?: "NONE"
+        val punctuationModelId = punctuation?.descriptor?.modelId ?: "NATIVE_OR_NONE"
+        val timingSettings =
+            timelineAlignment?.let {
+                settings.realtime.resolveFor(
+                    it.descriptor.capabilities.supportedParameters,
+                )
+            }
 
         try {
             val measured =
@@ -359,30 +420,30 @@ class SpeechBenchmarkRunner(
                                 numThreads = effectiveThreads,
                                 vadSettings = settings.vad,
                             ),
-                        asrEngineFactory =
-                            engineProvider.firstPassFactory(
-                                model = firstPass,
-                                numThreads = effectiveThreads,
-                                realtimeSettings = settings.realtime,
-                            ),
                         secondPassAsrEngineFactory =
                             engineProvider.secondPassFactory(
-                                model = secondPass,
+                                model = offline,
                                 numThreads = effectiveThreads,
                                 senseVoiceSettings = settings.senseVoice,
                                 qwenSettings = settings.qwen,
                             ),
                         punctuationEngineFactory =
-                            engineProvider.punctuationFactory(
-                                model = punctuation,
-                                numThreads = effectiveThreads,
-                            ),
+                            punctuation?.let { model ->
+                                engineProvider.punctuationFactory(
+                                    model = model,
+                                    numThreads = effectiveThreads,
+                                )
+                            },
+                        timelineAlignmentAsrEngineFactory =
+                            timelineAlignment?.let { model ->
+                                engineProvider.firstPassFactory(
+                                    model = model,
+                                    numThreads = effectiveThreads,
+                                    realtimeSettings = settings.realtime,
+                                )
+                            },
                     ).transcribe(recordingId)
                 }
-            check(measured.value.secondPassApplied) {
-                "offline benchmark second pass fell back: " +
-                    (measured.value.secondPassFallbackError ?: "unknown error")
-            }
 
             val text =
                 measured.value.transcriptSegments.joinToString(separator = "") {
@@ -392,23 +453,17 @@ class SpeechBenchmarkRunner(
 
             return SpeechBenchmarkCaseResult(
                 benchmarkTrack = SpeechBenchmarkTrack.OFFLINE,
-                modelId = secondPass.descriptor.modelId,
-                displayName = secondPass.descriptor.displayName,
-                version = secondPass.descriptor.version,
-                revision = secondPass.descriptor.revision,
-                manifestDigest = secondPass.manifestDigest,
-                runtimeModelType = secondPass.descriptor.runtimeModelType,
-                quantization = secondPass.descriptor.quantization,
-                pipelineFirstPassModelId = firstPass.descriptor.modelId,
-                pipelinePunctuationModelId = punctuation.descriptor.modelId,
-                pipelineFirstPassDecodingMethod =
-                    settings.realtime.resolveFor(
-                        firstPass.descriptor.capabilities.supportedParameters,
-                    ).decodingMethod.runtimeValue,
-                pipelineFirstPassMaxActivePaths =
-                    settings.realtime.resolveFor(
-                        firstPass.descriptor.capabilities.supportedParameters,
-                    ).maxActivePaths,
+                modelId = offline.descriptor.modelId,
+                displayName = offline.descriptor.displayName,
+                version = offline.descriptor.version,
+                revision = offline.descriptor.revision,
+                manifestDigest = offline.manifestDigest,
+                runtimeModelType = offline.descriptor.runtimeModelType,
+                quantization = offline.descriptor.quantization,
+                pipelineFirstPassModelId = timingModelId,
+                pipelinePunctuationModelId = punctuationModelId,
+                pipelineFirstPassDecodingMethod = timingSettings?.decodingMethod?.runtimeValue,
+                pipelineFirstPassMaxActivePaths = timingSettings?.maxActivePaths,
                 performanceProfile = settings.performanceProfile.name,
                 requestedThreads = settings.requestedThreads,
                 effectiveThreads = effectiveThreads,
@@ -432,34 +487,29 @@ class SpeechBenchmarkRunner(
                 firstPartialComputeMs = null,
                 finalizationLatencyMs = null,
                 streamingProbeSpeechMs = null,
-                streamingProbeError = null,
+                streamingProbeError = measured.value.timelineAlignmentFallbackError,
                 outputCharacterCount = text.codePointCount(0, text.length),
                 outputText = text,
                 cer = normalizedReference?.let { speechBenchmarkCer(it, text) },
                 wer = normalizedReference?.let { speechBenchmarkWer(it, text) },
+                error = measured.value.punctuationFallbackError,
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Throwable) {
             return SpeechBenchmarkCaseResult(
                 benchmarkTrack = SpeechBenchmarkTrack.OFFLINE,
-                modelId = secondPass.descriptor.modelId,
-                displayName = secondPass.descriptor.displayName,
-                version = secondPass.descriptor.version,
-                revision = secondPass.descriptor.revision,
-                manifestDigest = secondPass.manifestDigest,
-                runtimeModelType = secondPass.descriptor.runtimeModelType,
-                quantization = secondPass.descriptor.quantization,
-                pipelineFirstPassModelId = firstPass.descriptor.modelId,
-                pipelinePunctuationModelId = punctuation.descriptor.modelId,
-                pipelineFirstPassDecodingMethod =
-                    settings.realtime.resolveFor(
-                        firstPass.descriptor.capabilities.supportedParameters,
-                    ).decodingMethod.runtimeValue,
-                pipelineFirstPassMaxActivePaths =
-                    settings.realtime.resolveFor(
-                        firstPass.descriptor.capabilities.supportedParameters,
-                    ).maxActivePaths,
+                modelId = offline.descriptor.modelId,
+                displayName = offline.descriptor.displayName,
+                version = offline.descriptor.version,
+                revision = offline.descriptor.revision,
+                manifestDigest = offline.manifestDigest,
+                runtimeModelType = offline.descriptor.runtimeModelType,
+                quantization = offline.descriptor.quantization,
+                pipelineFirstPassModelId = timingModelId,
+                pipelinePunctuationModelId = punctuationModelId,
+                pipelineFirstPassDecodingMethod = timingSettings?.decodingMethod?.runtimeValue,
+                pipelineFirstPassMaxActivePaths = timingSettings?.maxActivePaths,
                 performanceProfile = settings.performanceProfile.name,
                 requestedThreads = settings.requestedThreads,
                 effectiveThreads = effectiveThreads,
