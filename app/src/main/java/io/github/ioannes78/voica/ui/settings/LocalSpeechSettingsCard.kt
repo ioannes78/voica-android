@@ -378,13 +378,13 @@ private fun speakerCountOptions() =
     listOf(
         Triple(SpeakerCountChoice.AUTO, "自动", "自动估算说话人数"),
         Triple(SpeakerCountChoice.ONE, "1 人", "整个录音最终只保留一个 GLOBAL speaker"),
-        Triple(SpeakerCountChoice.TWO, "2 人", "明确 2 人；阻止跨分块继续新增第 3 人"),
-        Triple(SpeakerCountChoice.THREE, "3 人", "明确 3 人；全局人数上限为 3"),
-        Triple(SpeakerCountChoice.FOUR, "4 人", "明确 4 人；全局人数上限为 4"),
+        Triple(SpeakerCountChoice.TWO, "2 人", "精确 2 人；原生聚类与跨分块全局结果都受约束"),
+        Triple(SpeakerCountChoice.THREE, "3 人", "精确 3 人；不足 3 个有效 speaker 时不伪造结果"),
+        Triple(SpeakerCountChoice.FOUR, "4 人", "精确 4 人；不足 4 个有效 speaker 时不伪造结果"),
         Triple(
             SpeakerCountChoice.FIVE_PLUS,
             "5+ 人",
-            "多人敏感自动模式；不是固定 5 人，Stage 13A 初始 clustering threshold = 0.45",
+            "至少 5 人，允许自动增长到 8 人；不足 5 个有效 speaker 时不伪造结果",
         ),
     )
 

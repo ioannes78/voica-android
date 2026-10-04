@@ -32,6 +32,8 @@ data class DiarizationConfig(
     val chunkOverlapSamples: Long = 10L * CANONICAL_SAMPLE_RATE_HZ,
     val vadContextPaddingSamples: Long = CANONICAL_SAMPLE_RATE_HZ / 2L,
     val expectedSpeakerCount: Int? = null,
+    val minimumGlobalSpeakerCount: Int? = expectedSpeakerCount,
+    val maximumGlobalSpeakerCount: Int? = expectedSpeakerCount,
     val clusteringThreshold: Float? = null,
     val stitchingCosineThreshold: Float = 0.75F,
     val stitchingMinimumOverlapSamples: Long = 1_600L,
@@ -47,6 +49,23 @@ data class DiarizationConfig(
         require(chunkOverlapSamples < chunkSizeSamples)
         require(vadContextPaddingSamples >= 0L)
         require(expectedSpeakerCount == null || expectedSpeakerCount > 0)
+        require(minimumGlobalSpeakerCount == null || minimumGlobalSpeakerCount > 0)
+        require(maximumGlobalSpeakerCount == null || maximumGlobalSpeakerCount > 0)
+        require(
+            minimumGlobalSpeakerCount == null ||
+                maximumGlobalSpeakerCount == null ||
+                minimumGlobalSpeakerCount <= maximumGlobalSpeakerCount
+        )
+        require(
+            expectedSpeakerCount == null ||
+                minimumGlobalSpeakerCount == null ||
+                expectedSpeakerCount >= minimumGlobalSpeakerCount
+        )
+        require(
+            expectedSpeakerCount == null ||
+                maximumGlobalSpeakerCount == null ||
+                expectedSpeakerCount <= maximumGlobalSpeakerCount
+        )
         require(clusteringThreshold == null || clusteringThreshold.isFinite())
         require(stitchingCosineThreshold.isFinite() && stitchingCosineThreshold in 0F..1F)
         require(stitchingMinimumOverlapSamples > 0L)

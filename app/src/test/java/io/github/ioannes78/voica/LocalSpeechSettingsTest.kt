@@ -70,18 +70,27 @@ class LocalSpeechSettingsTest {
     }
 
     @Test
-    fun explicitSpeakerCountPresetsResolveToNativeClusterCounts() {
-        assertEquals(1, SpeakerCountChoice.ONE.toDiarizationConfig().expectedSpeakerCount)
-        assertEquals(2, SpeakerCountChoice.TWO.toDiarizationConfig().expectedSpeakerCount)
-        assertEquals(3, SpeakerCountChoice.THREE.toDiarizationConfig().expectedSpeakerCount)
-        assertEquals(4, SpeakerCountChoice.FOUR.toDiarizationConfig().expectedSpeakerCount)
+    fun explicitSpeakerCountPresetsResolveToExactNativeAndGlobalCounts() {
+        listOf(
+            SpeakerCountChoice.ONE to 1,
+            SpeakerCountChoice.TWO to 2,
+            SpeakerCountChoice.THREE to 3,
+            SpeakerCountChoice.FOUR to 4,
+        ).forEach { (choice, expectedCount) ->
+            val config = choice.toDiarizationConfig()
+            assertEquals(expectedCount, config.expectedSpeakerCount)
+            assertEquals(expectedCount, config.minimumGlobalSpeakerCount)
+            assertEquals(expectedCount, config.maximumGlobalSpeakerCount)
+        }
     }
 
     @Test
-    fun fivePlusUsesAutomaticClusterCountWithMoreSensitiveInitialThreshold() {
+    fun fivePlusStartsAtFiveAndAllowsBoundedGlobalGrowth() {
         val config = SpeakerCountChoice.FIVE_PLUS.toDiarizationConfig()
 
-        assertEquals(null, config.expectedSpeakerCount)
+        assertEquals(FIVE_PLUS_MINIMUM_SPEAKERS, config.expectedSpeakerCount)
+        assertEquals(FIVE_PLUS_MINIMUM_SPEAKERS, config.minimumGlobalSpeakerCount)
+        assertEquals(FIVE_PLUS_MAXIMUM_SPEAKERS, config.maximumGlobalSpeakerCount)
         assertEquals(FIVE_PLUS_INITIAL_CLUSTERING_THRESHOLD, config.clusteringThreshold)
     }
 

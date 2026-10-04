@@ -48,16 +48,34 @@ fun SpeakerCountChoice.toDiarizationConfig(): DiarizationConfig =
         SpeakerCountChoice.AUTO ->
             DiarizationConfig()
         SpeakerCountChoice.ONE ->
-            DiarizationConfig(expectedSpeakerCount = 1)
+            DiarizationConfig(
+                expectedSpeakerCount = 1,
+                minimumGlobalSpeakerCount = 1,
+                maximumGlobalSpeakerCount = 1,
+            )
         SpeakerCountChoice.TWO ->
-            DiarizationConfig(expectedSpeakerCount = 2)
+            DiarizationConfig(
+                expectedSpeakerCount = 2,
+                minimumGlobalSpeakerCount = 2,
+                maximumGlobalSpeakerCount = 2,
+            )
         SpeakerCountChoice.THREE ->
-            DiarizationConfig(expectedSpeakerCount = 3)
+            DiarizationConfig(
+                expectedSpeakerCount = 3,
+                minimumGlobalSpeakerCount = 3,
+                maximumGlobalSpeakerCount = 3,
+            )
         SpeakerCountChoice.FOUR ->
-            DiarizationConfig(expectedSpeakerCount = 4)
+            DiarizationConfig(
+                expectedSpeakerCount = 4,
+                minimumGlobalSpeakerCount = 4,
+                maximumGlobalSpeakerCount = 4,
+            )
         SpeakerCountChoice.FIVE_PLUS ->
             DiarizationConfig(
-                expectedSpeakerCount = null,
+                expectedSpeakerCount = FIVE_PLUS_MINIMUM_SPEAKERS,
+                minimumGlobalSpeakerCount = FIVE_PLUS_MINIMUM_SPEAKERS,
+                maximumGlobalSpeakerCount = FIVE_PLUS_MAXIMUM_SPEAKERS,
                 clusteringThreshold = FIVE_PLUS_INITIAL_CLUSTERING_THRESHOLD,
             )
     }
@@ -273,5 +291,7 @@ class SharedPreferencesLocalSpeechSettingsStore(
 
 const val MAX_CONFIGURABLE_THREADS = 8
 const val FIVE_PLUS_INITIAL_CLUSTERING_THRESHOLD = 0.45F
+const val FIVE_PLUS_MINIMUM_SPEAKERS = 5
+const val FIVE_PLUS_MAXIMUM_SPEAKERS = 8
 private const val DEFAULT_BALANCED_THREADS = 2
 private const val PERFORMANCE_THREADS = 4

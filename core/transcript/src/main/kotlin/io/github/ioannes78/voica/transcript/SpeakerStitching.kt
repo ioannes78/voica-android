@@ -96,8 +96,9 @@ fun stitchDiarizationChunks(
             val anchor = anchors[localSpeakerIndex]
             val normalizedAnchor = anchor?.embedding?.let(::normalizedCopy)
             val requestedSpeakerCount = config.expectedSpeakerCount
+            val maximumGlobalSpeakerCount = config.maximumGlobalSpeakerCount
             val match =
-                if (requestedSpeakerCount == 1) {
+                if (maximumGlobalSpeakerCount == 1) {
                     states.firstOrNull()
                 } else {
                     findBestGlobalMatch(
@@ -112,8 +113,8 @@ fun stitchDiarizationChunks(
                 when {
                     match != null -> match
 
-                    requestedSpeakerCount == null ||
-                        states.size < requestedSpeakerCount ->
+                    maximumGlobalSpeakerCount == null ||
+                        states.size < maximumGlobalSpeakerCount ->
                         GlobalSpeakerState(globalSpeakerIndex = states.size).also(states::add)
 
                     else ->
@@ -158,6 +159,27 @@ fun stitchDiarizationChunks(
                     maxOf(state.lastEndSampleIndex, turn.endSampleIndexExclusive)
             }
         }
+    }
+
+    val minimumGlobalSpeakerCount = config.minimumGlobalSpeakerCount
+    if (minimumGlobalSpeakerCount != null && states.size < minimumGlobalSpeakerCount) {
+        error(
+            "speaker-count constraint requires at least " +
+                minimumGlobalSpeakerCount +
+                " global speakers, but only " +
+                states.size +
+                " were resolved",
+        )
+    }
+    val maximumGlobalSpeakerCount = config.maximumGlobalSpeakerCount
+    if (maximumGlobalSpeakerCount != null && states.size > maximumGlobalSpeakerCount) {
+        error(
+            "speaker-count constraint allows at most " +
+                maximumGlobalSpeakerCount +
+                " global speakers, but " +
+                states.size +
+                " were resolved",
+        )
     }
 
     val normalizedTurns =

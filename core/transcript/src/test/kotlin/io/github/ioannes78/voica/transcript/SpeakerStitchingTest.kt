@@ -158,7 +158,7 @@ class SpeakerStitchingTest {
     }
 
     @Test
-    fun explicitSpeakerCountCapsNewGlobalSpeakersAfterTargetIsEstablished() {
+    fun exactSpeakerCountCapsNewGlobalSpeakersAfterTargetIsEstablished() {
         val result =
             stitchDiarizationChunks(
                 chunks =
@@ -191,6 +191,84 @@ class SpeakerStitchingTest {
 
         assertEquals(2, result.speakerCount)
         assertTrue(result.mapping(1, 9) in 0..1)
+    }
+
+    @Test
+    fun exactSpeakerCountFailsRatherThanInventingMissingGlobalSpeakers() {
+        val failure =
+            runCatching {
+                stitchDiarizationChunks(
+                    chunks =
+                        listOf(
+                            chunk(
+                                index = 0,
+                                turns = listOf(turn(0, 0L, 320_000L)),
+                                anchors = listOf(anchor(0, floatArrayOf(1F, 0F))),
+                            ),
+                        ),
+                    config = DiarizationConfig(expectedSpeakerCount = 2),
+                )
+            }.exceptionOrNull()
+
+        assertTrue(failure is IllegalStateException)
+        assertTrue(failure?.message.orEmpty().contains("at least 2 global speakers"))
+    }
+
+    @Test
+    fun fivePlusAllowsGrowthAboveFiveButNeverAboveSafetyMaximum() {
+        val config =
+            DiarizationConfig(
+                expectedSpeakerCount = 5,
+                minimumGlobalSpeakerCount = 5,
+                maximumGlobalSpeakerCount = 8,
+                stitchingCosineThreshold = 0.99F,
+            )
+        val firstChunkTurns =
+            (0 until 5).map { speaker ->
+                turn(
+                    speaker = speaker,
+                    start = speaker * 100_000L,
+                    end = (speaker + 1) * 100_000L,
+                )
+            }
+        val firstChunkAnchors =
+            (0 until 5).map { speaker ->
+                val embedding = FloatArray(8)
+                embedding[speaker] = 1F
+                anchor(speaker, embedding)
+            }
+        val laterChunks =
+            (5 until 10).mapIndexed { index, speaker ->
+                val embedding = FloatArray(8)
+                embedding[speaker.coerceAtMost(7)] = if (speaker < 8) -1F else 1F
+                chunk(
+                    index = index + 1,
+                    turns =
+                        listOf(
+                            turn(
+                                speaker = speaker,
+                                start = (speaker + 1) * 100_000L,
+                                end = (speaker + 2) * 100_000L,
+                            ),
+                        ),
+                    anchors = listOf(anchor(speaker, embedding)),
+                )
+            }
+
+        val result =
+            stitchDiarizationChunks(
+                chunks =
+                    listOf(
+                        chunk(
+                            index = 0,
+                            turns = firstChunkTurns,
+                            anchors = firstChunkAnchors,
+                        ),
+                    ) + laterChunks,
+                config = config,
+            )
+
+        assertTrue(result.speakerCount in 5..8)
     }
 
     @Test
