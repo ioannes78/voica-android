@@ -25,6 +25,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.SpeechBenchmarkReport
 import io.github.ioannes78.voica.SpeechBenchmarkRunner
+import io.github.ioannes78.voica.SpeechBenchmarkTrack
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -61,7 +62,7 @@ internal fun SpeechBenchmarkCard(
                 style = MaterialTheme.typography.titleLarge,
             )
             Text(
-                "QA/Debug 专用。按 Small Bilingual → Large Transducer → Large CTC 顺序运行真实 FAST 管线；不会创建或覆盖转写版本。",
+                "QA/Debug 专用。实时轨比较 3 个 streaming 模型；离线轨固定同一 VAD / first-pass / 标点，仅替换 SenseVoice / FireRed / Qwen 第二遍模型。不会创建或覆盖转写版本。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -120,7 +121,37 @@ internal fun SpeechBenchmarkCard(
                             }
                     },
                 ) {
-                    Text(if (running) "Benchmark 运行中…" else "运行 3 模型 Benchmark")
+                    Text(if (running) "运行中…" else "实时 3 模型")
+                }
+                Button(
+                    enabled = canonicalReady && !blocked && !running,
+                    onClick = {
+                        errorMessage = null
+                        report = null
+                        runningJob =
+                            scope.launch {
+                                try {
+                                    report =
+                                        runner.runOfflineComparison(
+                                            recordingId = recordingId,
+                                            referenceText =
+                                                referenceText.trim().takeIf {
+                                                    it.isNotEmpty()
+                                                },
+                                        )
+                                } catch (cancelled: CancellationException) {
+                                    errorMessage = "Benchmark 已取消"
+                                    throw cancelled
+                                } catch (error: Throwable) {
+                                    errorMessage =
+                                        error.message ?: error::class.java.simpleName
+                                } finally {
+                                    runningJob = null
+                                }
+                            }
+                    },
+                ) {
+                    Text(if (running) "运行中…" else "离线 3 模型")
                 }
                 if (running) {
                     OutlinedButton(
@@ -135,7 +166,7 @@ internal fun SpeechBenchmarkCard(
 
             if (running) {
                 Text(
-                    "三模型顺序执行，为减少相互干扰不并行运行。建议测试期间不要播放音频或运行其它重任务。",
+                    "模型按顺序执行，为减少相互干扰不并行运行。离线 Qwen 体积和内存占用较高；建议测试期间不要播放音频或运行其它重任务。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -155,6 +186,14 @@ internal fun SpeechBenchmarkCard(
             }
 
             report?.let { result ->
+                Text(
+                    if (result.track == SpeechBenchmarkTrack.REALTIME) {
+                        "Realtime ASR Benchmark"
+                    } else {
+                        "Offline Final-Pass Benchmark"
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                )
                 Text(
                     result.environment.manufacturer + " " +
                         result.environment.model + " · " +
@@ -181,6 +220,12 @@ internal fun SpeechBenchmarkCard(
                                     color = MaterialTheme.colorScheme.error,
                                 )
                             } else {
+                                Text(
+                                    "依赖 first-pass: " + resultCase.pipelineFirstPassModelId +
+                                        " · punctuation: " + resultCase.pipelinePunctuationModelId,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                                 Text(
                                     String.format(
                                         Locale.US,
