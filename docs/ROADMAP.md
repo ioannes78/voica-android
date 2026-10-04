@@ -586,7 +586,7 @@ Stage 12B QA 收口同时处理跨页面任务可见性与既有 Stage 11 回归
 
 ### Stage 12C — 转写 / AI 总结内容管理 + 统一全文搜索
 
-状态：**开发中 / QA 前收口**
+状态：**已完成 / 已真机验收 / FROZEN**
 
 ### 转写内容管理
 
@@ -686,6 +686,15 @@ Stage 12C 不包含：
 - 对 Stage 8/10 原始 token、speaker 或 sample timeline 的人工改写
 
 Stage 13、Stage 19、Stage 20 的边界保持不变。
+
+冻结证据：
+
+- `docs/STAGE_12C_TEST.md`
+- `docs/STAGE_12C_FREEZE.md`
+- `docs/STAGE_12C_HANDOFF.md`
+- QA：`0.12.4-stage12c-qa1` / Room v6
+- 用户明确确认：**“测试通过”**
+
 
 ## Stage 13 — 稳定性与长录音专项
 
