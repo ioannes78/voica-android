@@ -32,6 +32,7 @@ import io.github.ioannes78.voica.transcript.PunctuationEngine
 import io.github.ioannes78.voica.transcript.PunctuationEngineFactory
 import io.github.ioannes78.voica.transcript.ProgressListener
 import io.github.ioannes78.voica.transcript.RelativeTimedToken
+import io.github.ioannes78.voica.transcript.SecondPassAsrEngine
 import io.github.ioannes78.voica.transcript.SecondPassAsrEngineFactory
 import io.github.ioannes78.voica.transcript.SpeechSegment
 import io.github.ioannes78.voica.transcript.StreamingAsrEngine
@@ -108,63 +109,12 @@ class TranscriptionCoordinatorTest {
     }
 
     @Test
-    fun missingRequiredModelsFailsBeforeCreatingTranscriptionRow() = runBlocking {
+    fun fastLegacyPathDefaultsToSmallBilingualOnly() = runBlocking {
         val vad = active(descriptor(Stage8ModelIds.VAD, ModelKind.VAD))
         val modelManager = FakeModelManager(mapOf(Stage8ModelIds.VAD to vad))
-        val coordinator =
-            coordinator(
-                modelManager = modelManager,
-                registry = ModelUseRegistry(),
-            )
+        val coordinator = coordinator(modelManager)
 
         assertTrue(coordinator.start(RECORDING_ID, TranscriptionMode.FAST))
-
-        val failed =
-            coordinator.state
-                .filterIsInstance<TranscriptionRunState.Failed>()
-                .first()
-
-        assertEquals(
-            (
-                Stage13ARealtimeModelIds.ALL +
-                    Stage8ModelIds.PUNCTUATION
-            ).distinct().sorted(),
-            failed.missingModelIds,
-        )
-        assertTrue(repository.observeVersions(RECORDING_ID).first().isEmpty())
-    }
-
-    @Test
-    fun explicitRealtimeSelectionReportsOnlySelectedAsrWhenMissing() = runBlocking {
-        val vad = active(descriptor(Stage8ModelIds.VAD, ModelKind.VAD))
-        val modelManager = FakeModelManager(mapOf(Stage8ModelIds.VAD to vad))
-        val coordinator =
-            TranscriptionCoordinator(
-                scope = scope,
-                pcmSourceResolver = FakePcmSourceResolver(),
-                transcriptionRepository = repository,
-                loadCanonicalLineage = { recordingId, profileId ->
-                    CanonicalTranscriptionLineage(
-                        recordingId = recordingId,
-                        canonicalAssetId = "canonical-1",
-                        canonicalSha256 = "a".repeat(64),
-                        canonicalProfileId = profileId,
-                        canonicalPipelineVersion = 1,
-                    )
-                },
-                modelManager = modelManager,
-                modelUseRegistry = ModelUseRegistry(),
-                engineProvider = FakeEngineProvider,
-                localSpeechSettings = {
-                    LocalSpeechSettings(
-                        realtimeAsrModel =
-                            RealtimeAsrModelChoice.CHINESE_LARGE_TRANSDUCER,
-                    )
-                },
-            )
-
-        assertTrue(coordinator.start(RECORDING_ID, TranscriptionMode.FAST))
-
         val failed =
             coordinator.state
                 .filterIsInstance<TranscriptionRunState.Failed>()
@@ -172,7 +122,7 @@ class TranscriptionCoordinatorTest {
 
         assertEquals(
             listOf(
-                Stage13ARealtimeModelIds.CHINESE_LARGE_TRANSDUCER,
+                Stage13ARealtimeModelIds.SMALL_BILINGUAL,
                 Stage8ModelIds.PUNCTUATION,
             ).sorted(),
             failed.missingModelIds,
@@ -181,52 +131,96 @@ class TranscriptionCoordinatorTest {
     }
 
     @Test
-    fun fastTranscriptionCompletesPersistsAndReleasesModelLeases() = runBlocking {
-        val models =
-            listOf(
-                descriptor(Stage8ModelIds.VAD, ModelKind.VAD),
-                descriptor(Stage8ModelIds.FIRST_PASS_ASR, ModelKind.ASR_STREAMING),
-                descriptor(Stage8ModelIds.PUNCTUATION, ModelKind.PUNCTUATION),
-            )
-        val active = models.associate { it.modelId to active(it) }
-        val registry = ModelUseRegistry()
+    fun legacyLargeTransducerChoiceCannotSelectTransducerInQa5() = runBlocking {
+        val vad = active(descriptor(Stage8ModelIds.VAD, ModelKind.VAD))
+        val modelManager = FakeModelManager(mapOf(Stage8ModelIds.VAD to vad))
         val coordinator =
             coordinator(
-                modelManager = FakeModelManager(active),
-                registry = registry,
+                modelManager = modelManager,
+                settings =
+                    LocalSpeechSettings(
+                        realtimeAsrModel = RealtimeAsrModelChoice.CHINESE_LARGE_TRANSDUCER,
+                    ),
             )
 
         assertTrue(coordinator.start(RECORDING_ID, TranscriptionMode.FAST))
+        val failed =
+            coordinator.state
+                .filterIsInstance<TranscriptionRunState.Failed>()
+                .first()
 
+        assertEquals(
+            listOf(
+                Stage13ARealtimeModelIds.SMALL_BILINGUAL,
+                Stage8ModelIds.PUNCTUATION,
+            ).sorted(),
+            failed.missingModelIds,
+        )
+    }
+
+    @Test
+    fun senseVoiceOfflineTranscriptionCompletesAndPersists() = runBlocking {
+        val descriptors =
+            listOf(
+                descriptor(Stage8ModelIds.VAD, ModelKind.VAD),
+                descriptor(Stage13AOfflineModelIds.SENSEVOICE, ModelKind.ASR_SECOND_PASS),
+                descriptor(Stage8ModelIds.PUNCTUATION, ModelKind.PUNCTUATION),
+            )
+        val registry = ModelUseRegistry()
+        val coordinator =
+            coordinator(
+                modelManager = FakeModelManager(descriptors.associate { it.modelId to active(it) }),
+                registry = registry,
+            )
+
+        assertTrue(coordinator.start(RECORDING_ID, TranscriptionMode.HIGH_QUALITY))
         val completed =
             coordinator.state
                 .filterIsInstance<TranscriptionRunState.Completed>()
                 .first()
 
-        assertEquals(RECORDING_ID, completed.recordingId)
         assertEquals("测试。", completed.segments.single().finalText)
-
         val persisted = repository.find(completed.transcriptionId)!!
         assertEquals(TranscriptionStateValue.COMPLETED, persisted.state)
-        assertEquals(
-            "测试。",
-            repository.loadSegments(completed.transcriptionId).single().finalText,
-        )
-
-        models.forEach { model ->
+        assertEquals(Stage13AOfflineModelIds.SENSEVOICE, persisted.secondPassAsrModelId)
+        descriptors.forEach { descriptor ->
             assertFalse(
-                registry.isInUse(
-                    modelId = model.modelId,
-                    version = model.version,
-                    revision = model.revision,
-                ),
+                registry.isInUse(descriptor.modelId, descriptor.version, descriptor.revision),
             )
         }
     }
 
+    @Test
+    fun qwenHighQualityChoiceUsesQwenInsteadOfFireRed() = runBlocking {
+        val descriptors =
+            listOf(
+                descriptor(Stage8ModelIds.VAD, ModelKind.VAD),
+                descriptor(Stage13AOfflineModelIds.QWEN3_ASR, ModelKind.ASR_LARGE),
+            )
+        val coordinator =
+            coordinator(
+                modelManager = FakeModelManager(descriptors.associate { it.modelId to active(it) }),
+                settings =
+                    LocalSpeechSettings(
+                        offlineAsrQuality = OfflineAsrQualityChoice.HIGH_QUALITY,
+                    ),
+            )
+
+        assertTrue(coordinator.start(RECORDING_ID, TranscriptionMode.HIGH_QUALITY))
+        val completed =
+            coordinator.state
+                .filterIsInstance<TranscriptionRunState.Completed>()
+                .first()
+
+        val persisted = repository.find(completed.transcriptionId)!!
+        assertEquals(Stage13AOfflineModelIds.QWEN3_ASR, persisted.secondPassAsrModelId)
+        assertEquals("测试。", completed.segments.single().finalText)
+    }
+
     private fun coordinator(
         modelManager: ModelManager,
-        registry: ModelUseRegistry,
+        registry: ModelUseRegistry = ModelUseRegistry(),
+        settings: LocalSpeechSettings = LocalSpeechSettings(),
     ) =
         TranscriptionCoordinator(
             scope = scope,
@@ -244,6 +238,7 @@ class TranscriptionCoordinatorTest {
             modelManager = modelManager,
             modelUseRegistry = registry,
             engineProvider = FakeEngineProvider,
+            localSpeechSettings = { settings },
         )
 
     private class FakePcmSourceResolver : PcmSourceResolver {
@@ -303,8 +298,18 @@ class TranscriptionCoordinatorTest {
             numThreads: Int,
             senseVoiceSettings: LocalSenseVoiceSettings,
             qwenSettings: LocalQwenAsrSettings,
-        ): SecondPassAsrEngineFactory =
-            error("second pass is not used in FAST test")
+        ) =
+            SecondPassAsrEngineFactory {
+                FakeOfflineEngine(
+                    model = model.descriptor,
+                    punctuationCapability =
+                        if (model.descriptor.modelId == Stage13AOfflineModelIds.QWEN3_ASR) {
+                            PunctuationCapability.RELIABLE
+                        } else {
+                            PunctuationCapability.NONE
+                        },
+                )
+            }
     }
 
     private class FakeVadEngine(
@@ -340,6 +345,43 @@ class TranscriptionCoordinatorTest {
         override fun close() = Unit
     }
 
+    private class FakeOfflineEngine(
+        override val model: ModelDescriptor,
+        private val punctuationCapability: PunctuationCapability,
+    ) : SecondPassAsrEngine {
+        override val capabilities =
+            AsrCapabilities(
+                supportsStreaming = false,
+                supportsPartial = false,
+                supportsTokenTiming = true,
+                supportsLanguageDetection = false,
+                supportsConfidence = false,
+                supportsInverseTextNormalization = true,
+                punctuationCapability = punctuationCapability,
+                supportsSecondPass = true,
+            )
+
+        override suspend fun transcribe(
+            samples: ShortArray,
+            sampleRateHz: Int,
+        ) =
+            AsrHypothesis(
+                text = if (punctuationCapability == PunctuationCapability.RELIABLE) "测试。" else "测试",
+                tokens =
+                    listOf(
+                        RelativeTimedToken(
+                            text = "测试",
+                            startSampleOffset = 0L,
+                            endSampleOffsetExclusive = samples.size.toLong(),
+                        ),
+                    ),
+                punctuationCapability = punctuationCapability,
+                isFinal = true,
+            )
+
+        override fun close() = Unit
+    }
+
     private class FakeStreamingEngine(
         override val model: ModelDescriptor,
     ) : StreamingAsrEngine {
@@ -357,11 +399,7 @@ class TranscriptionCoordinatorTest {
 
         override suspend fun openSession(): StreamingAsrSession =
             object : StreamingAsrSession {
-                override suspend fun acceptSamples(
-                    samples: ShortArray,
-                    offset: Int,
-                    count: Int,
-                ) = Unit
+                override suspend fun acceptSamples(samples: ShortArray, offset: Int, count: Int) = Unit
 
                 override suspend fun decode() =
                     AsrHypothesis(
@@ -373,13 +411,7 @@ class TranscriptionCoordinatorTest {
                 override suspend fun finishInput() =
                     AsrHypothesis(
                         text = "测试",
-                        tokens =
-                            listOf(
-                                RelativeTimedToken(
-                                    text = "测试",
-                                    startSampleOffset = 0L,
-                                ),
-                            ),
+                        tokens = listOf(RelativeTimedToken("测试", 0L)),
                         punctuationCapability = PunctuationCapability.NONE,
                         isFinal = true,
                     )
@@ -422,22 +454,15 @@ class TranscriptionCoordinatorTest {
 
         override suspend fun checkForUpdates(force: Boolean): ModelCatalog = catalog()
 
-        override suspend fun install(modelId: String, version: String, revision: Long) =
-            error("not used")
+        override suspend fun install(modelId: String, version: String, revision: Long) = error("not used")
 
         override suspend fun cancelInstall(modelId: String) = Unit
 
-        override suspend fun confirmInstalledVersion(
-            modelId: String,
-            version: String,
-            revision: Long,
-        ) = error("not used")
+        override suspend fun confirmInstalledVersion(modelId: String, version: String, revision: Long) =
+            error("not used")
 
-        override suspend fun removeDownloadedVersion(
-            modelId: String,
-            version: String,
-            revision: Long,
-        ) = error("not used")
+        override suspend fun removeDownloadedVersion(modelId: String, version: String, revision: Long) =
+            error("not used")
 
         override suspend fun rollback(modelId: String) = error("not used")
     }
@@ -454,10 +479,7 @@ class TranscriptionCoordinatorTest {
                 installedDirectory = null,
             )
 
-        private fun descriptor(
-            modelId: String,
-            kind: ModelKind,
-        ) =
+        private fun descriptor(modelId: String, kind: ModelKind) =
             ModelDescriptor(
                 modelId = modelId,
                 kind = kind,
@@ -472,12 +494,19 @@ class TranscriptionCoordinatorTest {
                     ModelCapabilities(
                         supportsStreaming = kind == ModelKind.ASR_STREAMING,
                         supportsPartial = kind == ModelKind.ASR_STREAMING,
-                        supportsTokenTiming = kind == ModelKind.ASR_STREAMING,
+                        supportsTokenTiming =
+                            kind == ModelKind.ASR_STREAMING ||
+                                kind == ModelKind.ASR_SECOND_PASS ||
+                                kind == ModelKind.ASR_LARGE,
+                        supportsInverseTextNormalization = kind == ModelKind.ASR_SECOND_PASS,
+                        supportsSecondPass =
+                            kind == ModelKind.ASR_SECOND_PASS || kind == ModelKind.ASR_LARGE,
                     ),
                 sourceType = ModelSourceType.BUILTIN,
                 builtinAssetPath = "models/fake.bin",
                 packageFormat = ModelPackageFormat.SINGLE_FILE,
                 downloadUrl = null,
+                downloadMirrors = emptyList(),
                 downloadSizeBytes = null,
                 installedSizeBytes = 1L,
                 packageSha256 = null,
@@ -494,13 +523,15 @@ class TranscriptionCoordinatorTest {
                 appVersionMin = 20,
                 appVersionMax = null,
                 licenseId = "test",
-                licenseUrl = null,
-                sourceUrl = "https://example.invalid/source",
-                homepage = null,
-                attribution = "fixture",
-                redistributionPolicy = RedistributionPolicy.NO_REDISTRIBUTION,
+                licenseUrl = "https://example.com/license",
+                attribution = "test",
+                redistributionPolicy = RedistributionPolicy.UPSTREAM_ONLY,
+                sourceUrl = "https://example.com/source",
+                homepage = "https://example.com",
                 releaseChannel = "test",
                 autoUpdateEligible = false,
+                deprecated = false,
+                criticalUpdate = false,
             )
     }
 }
