@@ -70,6 +70,22 @@ class LocalSpeechSettingsTest {
     }
 
     @Test
+    fun explicitSpeakerCountPresetsResolveToNativeClusterCounts() {
+        assertEquals(1, SpeakerCountChoice.ONE.toDiarizationConfig().expectedSpeakerCount)
+        assertEquals(2, SpeakerCountChoice.TWO.toDiarizationConfig().expectedSpeakerCount)
+        assertEquals(3, SpeakerCountChoice.THREE.toDiarizationConfig().expectedSpeakerCount)
+        assertEquals(4, SpeakerCountChoice.FOUR.toDiarizationConfig().expectedSpeakerCount)
+    }
+
+    @Test
+    fun fivePlusUsesAutomaticClusterCountWithMoreSensitiveInitialThreshold() {
+        val config = SpeakerCountChoice.FIVE_PLUS.toDiarizationConfig()
+
+        assertEquals(null, config.expectedSpeakerCount)
+        assertEquals(FIVE_PLUS_INITIAL_CLUSTERING_THRESHOLD, config.clusteringThreshold)
+    }
+
+    @Test
     fun performanceProfilesResolveToRealThreadCounts() {
         assertEquals(
             1,

@@ -26,6 +26,7 @@ import io.github.ioannes78.voica.LocalSpeechSettingsStore
 import io.github.ioannes78.voica.LocalVadSettings
 import io.github.ioannes78.voica.MAX_CONFIGURABLE_THREADS
 import io.github.ioannes78.voica.RealtimeAsrModelChoice
+import io.github.ioannes78.voica.SpeakerCountChoice
 import io.github.ioannes78.voica.SpeechPerformanceProfile
 import io.github.ioannes78.voica.Stage13ARealtimeModelIds
 import io.github.ioannes78.voica.resolvePerformance
@@ -136,6 +137,43 @@ internal fun LocalSpeechSettingsCard(
                                 store.setRealtimeAsrModel(option.choice)
                             },
                 )
+            }
+        }
+
+        Card(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
+        ) {
+            Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Text("说话人数", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "明确人数会同时约束原生 clustering 与跨分块 global stitching。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                speakerCountOptions().forEachIndexed { index, option ->
+                    if (index > 0) HorizontalDivider()
+                    ListItem(
+                        headlineContent = { Text(option.second) },
+                        supportingContent = { Text(option.third) },
+                        leadingContent = {
+                            RadioButton(
+                                selected = settings.speakerCount == option.first,
+                                onClick = null,
+                            )
+                        },
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    store.setSpeakerCount(option.first)
+                                },
+                    )
+                }
             }
         }
 
@@ -335,6 +373,20 @@ private fun formatVad(value: Float): String {
     val rounded = kotlin.math.round(value * 100F) / 100F
     return rounded.toString()
 }
+
+private fun speakerCountOptions() =
+    listOf(
+        Triple(SpeakerCountChoice.AUTO, "自动", "自动估算说话人数"),
+        Triple(SpeakerCountChoice.ONE, "1 人", "整个录音最终只保留一个 GLOBAL speaker"),
+        Triple(SpeakerCountChoice.TWO, "2 人", "明确 2 人；阻止跨分块继续新增第 3 人"),
+        Triple(SpeakerCountChoice.THREE, "3 人", "明确 3 人；全局人数上限为 3"),
+        Triple(SpeakerCountChoice.FOUR, "4 人", "明确 4 人；全局人数上限为 4"),
+        Triple(
+            SpeakerCountChoice.FIVE_PLUS,
+            "5+ 人",
+            "多人敏感自动模式；不是固定 5 人，Stage 13A 初始 clustering threshold = 0.45",
+        ),
+    )
 
 private fun performanceOptions() =
     listOf(

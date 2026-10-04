@@ -1,6 +1,7 @@
 package io.github.ioannes78.voica
 
 import android.app.Application
+import io.github.ioannes78.voica.transcript.DiarizationConfig
 import kotlin.math.min
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -33,6 +34,34 @@ enum class SpeechPerformanceProfile {
     PERFORMANCE,
 }
 
+enum class SpeakerCountChoice {
+    AUTO,
+    ONE,
+    TWO,
+    THREE,
+    FOUR,
+    FIVE_PLUS,
+}
+
+fun SpeakerCountChoice.toDiarizationConfig(): DiarizationConfig =
+    when (this) {
+        SpeakerCountChoice.AUTO ->
+            DiarizationConfig()
+        SpeakerCountChoice.ONE ->
+            DiarizationConfig(expectedSpeakerCount = 1)
+        SpeakerCountChoice.TWO ->
+            DiarizationConfig(expectedSpeakerCount = 2)
+        SpeakerCountChoice.THREE ->
+            DiarizationConfig(expectedSpeakerCount = 3)
+        SpeakerCountChoice.FOUR ->
+            DiarizationConfig(expectedSpeakerCount = 4)
+        SpeakerCountChoice.FIVE_PLUS ->
+            DiarizationConfig(
+                expectedSpeakerCount = null,
+                clusteringThreshold = FIVE_PLUS_INITIAL_CLUSTERING_THRESHOLD,
+            )
+    }
+
 data class LocalVadSettings(
     val threshold: Float = 0.5F,
     val minSilenceDurationSeconds: Float = 0.25F,
@@ -52,6 +81,7 @@ data class LocalSpeechSettings(
     val performanceProfile: SpeechPerformanceProfile = SpeechPerformanceProfile.AUTO,
     val requestedThreads: Int? = null,
     val vad: LocalVadSettings = LocalVadSettings(),
+    val speakerCount: SpeakerCountChoice = SpeakerCountChoice.AUTO,
 )
 
 data class ResolvedSpeechPerformance(
@@ -118,6 +148,8 @@ interface LocalSpeechSettingsStore {
     fun setVadSettings(settings: LocalVadSettings)
 
     fun resetVadSettings()
+
+    fun setSpeakerCount(choice: SpeakerCountChoice)
 }
 
 class SharedPreferencesLocalSpeechSettingsStore(
@@ -144,6 +176,10 @@ class SharedPreferencesLocalSpeechSettingsStore(
                     preferences.getInt(KEY_REQUESTED_THREADS, 0)
                         .takeIf { it > 0 },
                 vad = readVadSettings(preferences),
+                speakerCount =
+                    preferences.getString(KEY_SPEAKER_COUNT, null)
+                        ?.let { runCatching { SpeakerCountChoice.valueOf(it) }.getOrNull() }
+                        ?: SpeakerCountChoice.AUTO,
             ),
         )
 
@@ -200,6 +236,13 @@ class SharedPreferencesLocalSpeechSettingsStore(
         mutableSettings.value = mutableSettings.value.copy(vad = defaults)
     }
 
+    override fun setSpeakerCount(choice: SpeakerCountChoice) {
+        preferences.edit()
+            .putString(KEY_SPEAKER_COUNT, choice.name)
+            .apply()
+        mutableSettings.value = mutableSettings.value.copy(speakerCount = choice)
+    }
+
     private companion object {
         const val PREFERENCES_NAME = "voica-local-speech"
         const val KEY_REALTIME_ASR_MODEL = "realtime-asr-model"
@@ -209,6 +252,7 @@ class SharedPreferencesLocalSpeechSettingsStore(
         const val KEY_VAD_MIN_SILENCE = "vad-min-silence"
         const val KEY_VAD_MIN_SPEECH = "vad-min-speech"
         const val KEY_VAD_MAX_SPEECH = "vad-max-speech"
+        const val KEY_SPEAKER_COUNT = "speaker-count"
 
         fun readVadSettings(
             preferences: android.content.SharedPreferences,
@@ -228,5 +272,6 @@ class SharedPreferencesLocalSpeechSettingsStore(
 }
 
 const val MAX_CONFIGURABLE_THREADS = 8
+const val FIVE_PLUS_INITIAL_CLUSTERING_THRESHOLD = 0.45F
 private const val DEFAULT_BALANCED_THREADS = 2
 private const val PERFORMANCE_THREADS = 4

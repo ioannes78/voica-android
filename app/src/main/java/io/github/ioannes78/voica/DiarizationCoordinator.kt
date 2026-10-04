@@ -269,14 +269,24 @@ class DiarizationCoordinator(
 
     fun start(
         recordingId: String,
-        config: DiarizationConfig = DiarizationConfig(),
+        config: DiarizationConfig? = null,
     ): Boolean {
         require(recordingId.isNotBlank())
         synchronized(lock) {
             if (currentJob?.isActive == true) return false
+            val speechSettings = localSpeechSettings()
+            val requestedSpeakerCount =
+                if (config == null) speechSettings.speakerCount else null
+            val effectiveConfig =
+                config ?: speechSettings.speakerCount.toDiarizationConfig()
             val job =
                 scope.launch {
-                    runDiarization(recordingId, config)
+                    runDiarization(
+                        recordingId = recordingId,
+                        config = effectiveConfig,
+                        speechSettings = speechSettings,
+                        requestedSpeakerCount = requestedSpeakerCount,
+                    )
                 }
             installCurrentJob(job, OperationTarget.Recording(recordingId))
             return true
@@ -373,6 +383,8 @@ class DiarizationCoordinator(
     private suspend fun runDiarization(
         recordingId: String,
         config: DiarizationConfig,
+        speechSettings: LocalSpeechSettings,
+        requestedSpeakerCount: SpeakerCountChoice?,
     ) {
         var runId: String? = null
         var leases: List<ModelLease> = emptyList()
@@ -401,7 +413,6 @@ class DiarizationCoordinator(
                 } ?: error("canonical PCM source is unavailable")
 
             val models = resolveActiveModels()
-            val speechSettings = localSpeechSettings()
             val performance = speechSettings.resolvePerformance()
             leases =
                 models.all.map { active ->
@@ -448,6 +459,7 @@ class DiarizationCoordinator(
                                 models = models.all,
                                 vadSettings = speechSettings.vad,
                                 performance = performance,
+                                requestedSpeakerCount = requestedSpeakerCount,
                             ),
                     ),
                 )
@@ -1053,6 +1065,7 @@ class DiarizationCoordinator(
         models: List<ActiveModel>,
         vadSettings: LocalVadSettings,
         performance: ResolvedSpeechPerformance,
+        requestedSpeakerCount: SpeakerCountChoice?,
     ): String =
         buildString {
             append("{\"schemaVersion\":2")
@@ -1063,6 +1076,9 @@ class DiarizationCoordinator(
             append(",\"chunkSizeSamples\":").append(config.chunkSizeSamples)
             append(",\"chunkOverlapSamples\":").append(config.chunkOverlapSamples)
             append(",\"vadContextPaddingSamples\":").append(config.vadContextPaddingSamples)
+            append(",\"speakerCountPreset\":\"")
+                .append(requestedSpeakerCount?.name ?: "CUSTOM")
+                .append("\"")
             append(",\"expectedSpeakerCount\":")
                 .append(config.expectedSpeakerCount?.toString() ?: "null")
             append(",\"clusteringThreshold\":")
