@@ -235,16 +235,25 @@ class TranscriptionCoordinatorTest {
     }
 
     private object FakeEngineProvider : Stage8TranscriptionEngineProvider {
-        override fun vadFactory(model: ActiveModel) =
-            VadEngineFactory { FakeVadEngine(model.descriptor) }
+        override fun vadFactory(
+            model: ActiveModel,
+            numThreads: Int,
+        ) = VadEngineFactory { FakeVadEngine(model.descriptor) }
 
-        override fun firstPassFactory(model: ActiveModel) =
-            StreamingAsrEngineFactory { FakeStreamingEngine(model.descriptor) }
+        override fun firstPassFactory(
+            model: ActiveModel,
+            numThreads: Int,
+        ) = StreamingAsrEngineFactory { FakeStreamingEngine(model.descriptor) }
 
-        override fun punctuationFactory(model: ActiveModel) =
-            PunctuationEngineFactory { FakePunctuationEngine(model.descriptor) }
+        override fun punctuationFactory(
+            model: ActiveModel,
+            numThreads: Int,
+        ) = PunctuationEngineFactory { FakePunctuationEngine(model.descriptor) }
 
-        override fun secondPassFactory(model: ActiveModel): SecondPassAsrEngineFactory =
+        override fun secondPassFactory(
+            model: ActiveModel,
+            numThreads: Int,
+        ): SecondPassAsrEngineFactory =
             error("second pass is not used in FAST test")
     }
 

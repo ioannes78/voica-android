@@ -31,4 +31,53 @@ class LocalSpeechSettingsTest {
             RealtimeAsrModelChoice.CHINESE_LARGE_CTC.preferredModelIds(),
         )
     }
+
+    @Test
+    fun performanceResolverKeepsAutoBackwardCompatibleAtTwoThreads() {
+        val resolved =
+            LocalSpeechSettings(
+                performanceProfile = SpeechPerformanceProfile.AUTO,
+            ).resolvePerformance(logicalProcessors = 8)
+
+        assertEquals(2, resolved.effectiveThreads)
+        assertEquals(8, resolved.logicalProcessors)
+    }
+
+    @Test
+    fun performanceResolverCapsManualThreadsToDeviceAndEightThreadSafetyLimit() {
+        assertEquals(
+            4,
+            LocalSpeechSettings(requestedThreads = 8)
+                .resolvePerformance(logicalProcessors = 4)
+                .effectiveThreads,
+        )
+        assertEquals(
+            8,
+            LocalSpeechSettings(requestedThreads = 64)
+                .resolvePerformance(logicalProcessors = 16)
+                .effectiveThreads,
+        )
+    }
+
+    @Test
+    fun performanceProfilesResolveToRealThreadCounts() {
+        assertEquals(
+            1,
+            LocalSpeechSettings(performanceProfile = SpeechPerformanceProfile.POWER_SAVER)
+                .resolvePerformance(logicalProcessors = 8)
+                .effectiveThreads,
+        )
+        assertEquals(
+            2,
+            LocalSpeechSettings(performanceProfile = SpeechPerformanceProfile.BALANCED)
+                .resolvePerformance(logicalProcessors = 8)
+                .effectiveThreads,
+        )
+        assertEquals(
+            4,
+            LocalSpeechSettings(performanceProfile = SpeechPerformanceProfile.PERFORMANCE)
+                .resolvePerformance(logicalProcessors = 8)
+                .effectiveThreads,
+        )
+    }
 }

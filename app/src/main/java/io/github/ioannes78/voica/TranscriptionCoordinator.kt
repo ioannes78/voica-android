@@ -16,12 +16,16 @@ import io.github.ioannes78.voica.model.ModelKind
 import io.github.ioannes78.voica.model.ModelLease
 import io.github.ioannes78.voica.model.ModelManager
 import io.github.ioannes78.voica.model.ModelUseRegistry
+import io.github.ioannes78.voica.sherpa.PunctuationSettings
+import io.github.ioannes78.voica.sherpa.SenseVoiceSettings
 import io.github.ioannes78.voica.sherpa.SherpaCtTransformerPunctuationEngine
 import io.github.ioannes78.voica.sherpa.SherpaSenseVoiceEngine
 import io.github.ioannes78.voica.sherpa.SherpaSileroVadEngine
-import io.github.ioannes78.voica.sherpa.createSherpaStreamingAsrEngine
-import io.github.ioannes78.voica.sherpa.SherpaVadModelLocation
 import io.github.ioannes78.voica.sherpa.SherpaRuntime
+import io.github.ioannes78.voica.sherpa.SherpaVadModelLocation
+import io.github.ioannes78.voica.sherpa.SileroVadSettings
+import io.github.ioannes78.voica.sherpa.StreamingZipformerSettings
+import io.github.ioannes78.voica.sherpa.createSherpaStreamingAsrEngine
 import io.github.ioannes78.voica.transcript.FastTranscriptionPipeline
 import io.github.ioannes78.voica.transcript.HighQualityTranscriptionPipeline
 import io.github.ioannes78.voica.transcript.PunctuationEngineFactory
@@ -91,19 +95,34 @@ class MissingTranscriptionModelsException(
 )
 
 interface Stage8TranscriptionEngineProvider {
-    fun vadFactory(model: ActiveModel): VadEngineFactory
+    fun vadFactory(
+        model: ActiveModel,
+        numThreads: Int,
+    ): VadEngineFactory
 
-    fun firstPassFactory(model: ActiveModel): StreamingAsrEngineFactory
+    fun firstPassFactory(
+        model: ActiveModel,
+        numThreads: Int,
+    ): StreamingAsrEngineFactory
 
-    fun punctuationFactory(model: ActiveModel): PunctuationEngineFactory
+    fun punctuationFactory(
+        model: ActiveModel,
+        numThreads: Int,
+    ): PunctuationEngineFactory
 
-    fun secondPassFactory(model: ActiveModel): SecondPassAsrEngineFactory
+    fun secondPassFactory(
+        model: ActiveModel,
+        numThreads: Int,
+    ): SecondPassAsrEngineFactory
 }
 
 class SherpaStage8TranscriptionEngineProvider(
     private val assetManager: AssetManager,
 ) : Stage8TranscriptionEngineProvider {
-    override fun vadFactory(model: ActiveModel): VadEngineFactory {
+    override fun vadFactory(
+        model: ActiveModel,
+        numThreads: Int,
+    ): VadEngineFactory {
         require(model.descriptor.kind == ModelKind.VAD)
         return VadEngineFactory {
             val location =
@@ -123,11 +142,15 @@ class SherpaStage8TranscriptionEngineProvider(
             SherpaSileroVadEngine(
                 model = model.descriptor,
                 modelLocation = location,
+                settings = SileroVadSettings(numThreads = numThreads),
             )
         }
     }
 
-    override fun firstPassFactory(model: ActiveModel): StreamingAsrEngineFactory {
+    override fun firstPassFactory(
+        model: ActiveModel,
+        numThreads: Int,
+    ): StreamingAsrEngineFactory {
         require(model.descriptor.kind == ModelKind.ASR_STREAMING)
         val directory =
             model.installedDirectory
@@ -136,11 +159,15 @@ class SherpaStage8TranscriptionEngineProvider(
             createSherpaStreamingAsrEngine(
                 model = model.descriptor,
                 modelDirectory = directory,
+                settings = StreamingZipformerSettings(numThreads = numThreads),
             )
         }
     }
 
-    override fun punctuationFactory(model: ActiveModel): PunctuationEngineFactory {
+    override fun punctuationFactory(
+        model: ActiveModel,
+        numThreads: Int,
+    ): PunctuationEngineFactory {
         require(model.descriptor.kind == ModelKind.PUNCTUATION)
         val directory =
             model.installedDirectory
@@ -149,11 +176,15 @@ class SherpaStage8TranscriptionEngineProvider(
             SherpaCtTransformerPunctuationEngine(
                 model = model.descriptor,
                 modelDirectory = directory,
+                settings = PunctuationSettings(numThreads = numThreads),
             )
         }
     }
 
-    override fun secondPassFactory(model: ActiveModel): SecondPassAsrEngineFactory {
+    override fun secondPassFactory(
+        model: ActiveModel,
+        numThreads: Int,
+    ): SecondPassAsrEngineFactory {
         require(model.descriptor.kind == ModelKind.ASR_SECOND_PASS)
         val directory =
             model.installedDirectory
@@ -162,6 +193,7 @@ class SherpaStage8TranscriptionEngineProvider(
             SherpaSenseVoiceEngine(
                 model = model.descriptor,
                 modelDirectory = directory,
+                settings = SenseVoiceSettings(numThreads = numThreads),
             )
         }
     }
@@ -301,10 +333,21 @@ class TranscriptionCoordinator(
                         val result =
                             FastTranscriptionPipeline(
                                 pcmSourceResolver = pcmSourceResolver,
-                                vadEngineFactory = engineProvider.vadFactory(models.vad),
-                                asrEngineFactory = engineProvider.firstPassFactory(models.firstPass),
+                                vadEngineFactory =
+                                    engineProvider.vadFactory(
+                                        models.vad,
+                                        models.performance.effectiveThreads,
+                                    ),
+                                asrEngineFactory =
+                                    engineProvider.firstPassFactory(
+                                        models.firstPass,
+                                        models.performance.effectiveThreads,
+                                    ),
                                 punctuationEngineFactory =
-                                    engineProvider.punctuationFactory(models.punctuation),
+                                    engineProvider.punctuationFactory(
+                                        models.punctuation,
+                                        models.performance.effectiveThreads,
+                                    ),
                             ).transcribe(
                                 recordingId = recordingId,
                                 progressListener = progressListener,
@@ -322,12 +365,26 @@ class TranscriptionCoordinator(
                         val result =
                             HighQualityTranscriptionPipeline(
                                 pcmSourceResolver = pcmSourceResolver,
-                                vadEngineFactory = engineProvider.vadFactory(models.vad),
-                                asrEngineFactory = engineProvider.firstPassFactory(models.firstPass),
+                                vadEngineFactory =
+                                    engineProvider.vadFactory(
+                                        models.vad,
+                                        models.performance.effectiveThreads,
+                                    ),
+                                asrEngineFactory =
+                                    engineProvider.firstPassFactory(
+                                        models.firstPass,
+                                        models.performance.effectiveThreads,
+                                    ),
                                 secondPassAsrEngineFactory =
-                                    engineProvider.secondPassFactory(secondPass),
+                                    engineProvider.secondPassFactory(
+                                        secondPass,
+                                        models.performance.effectiveThreads,
+                                    ),
                                 punctuationEngineFactory =
-                                    engineProvider.punctuationFactory(models.punctuation),
+                                    engineProvider.punctuationFactory(
+                                        models.punctuation,
+                                        models.performance.effectiveThreads,
+                                    ),
                             ).transcribe(
                                 recordingId = recordingId,
                                 progressListener = progressListener,
@@ -407,6 +464,7 @@ class TranscriptionCoordinator(
 
     private suspend fun resolveActiveModels(mode: TranscriptionMode): ActiveModels {
         val settings = localSpeechSettings()
+        val performance = settings.resolvePerformance()
         val firstPassSelection = resolveRealtimeAsr(settings.realtimeAsrModel)
         val requiredIds =
             buildList {
@@ -439,6 +497,7 @@ class TranscriptionCoordinator(
                 },
             realtimeAsrChoice = settings.realtimeAsrModel,
             realtimeAsrFallbackUsed = firstPassSelection.fallbackUsed,
+            performance = performance,
         )
     }
 
@@ -565,6 +624,7 @@ class TranscriptionCoordinator(
         val secondPass: ActiveModel?,
         val realtimeAsrChoice: RealtimeAsrModelChoice,
         val realtimeAsrFallbackUsed: Boolean,
+        val performance: ResolvedSpeechPerformance,
     ) {
         val all: List<ActiveModel>
             get() = listOfNotNull(vad, firstPass, punctuation, secondPass)
@@ -599,6 +659,11 @@ class TranscriptionCoordinator(
             append(",\"language\":\"auto\"")
             append(",\"realtimeAsrModel\":")
             appendJsonString(models.realtimeAsrChoice.name)
+            append(",\"performanceProfile\":")
+            appendJsonString(models.performance.profile.name)
+            append(",\"requestedThreads\":")
+            val requestedThreads = models.performance.requestedThreads
+            if (requestedThreads == null) append("null") else append(requestedThreads)
             append('}')
         }
 
@@ -614,6 +679,12 @@ class TranscriptionCoordinator(
             appendJsonString(models.firstPass.descriptor.modelId)
             append(",\"realtimeAsrFallbackUsed\":")
             append(models.realtimeAsrFallbackUsed)
+            append(",\"performanceProfile\":")
+            appendJsonString(models.performance.profile.name)
+            append(",\"effectiveThreads\":")
+            append(models.performance.effectiveThreads)
+            append(",\"logicalProcessors\":")
+            append(models.performance.logicalProcessors)
             append(",\"runtime\":{\"id\":")
             appendJsonString(SherpaRuntime.RUNTIME_ID)
             append(",\"version\":")

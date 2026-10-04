@@ -21,8 +21,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.LocalSpeechSettingsStore
+import io.github.ioannes78.voica.MAX_CONFIGURABLE_THREADS
 import io.github.ioannes78.voica.RealtimeAsrModelChoice
+import io.github.ioannes78.voica.SpeechPerformanceProfile
 import io.github.ioannes78.voica.Stage13ARealtimeModelIds
+import io.github.ioannes78.voica.resolvePerformance
 import io.github.ioannes78.voica.model.ModelAvailability
 import io.github.ioannes78.voica.model.ModelManager
 
@@ -40,6 +43,7 @@ internal fun LocalSpeechSettingsCard(
 ) {
     val settings by store.settings.collectAsState()
     val operations by modelManager.operations.collectAsState()
+    val resolvedPerformance = settings.resolvePerformance()
     var availability by remember {
         mutableStateOf<Map<String, ModelAvailability?>>(emptyMap())
     }
@@ -131,8 +135,90 @@ internal fun LocalSpeechSettingsCard(
                 )
             }
         }
+
+        Text(
+            "性能模式",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 4.dp),
+        )
+        performanceOptions().forEachIndexed { index, option ->
+            if (index > 0) HorizontalDivider()
+            ListItem(
+                headlineContent = { Text(option.second) },
+                supportingContent = { Text(option.third) },
+                leadingContent = {
+                    RadioButton(
+                        selected = settings.performanceProfile == option.first,
+                        onClick = null,
+                    )
+                },
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            store.setPerformanceProfile(option.first)
+                        },
+            )
+        }
+
+        Text(
+            "CPU 线程数",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 4.dp),
+        )
+        val threadChoices =
+            buildList<Int?> {
+                add(null)
+                listOf(1, 2, 3, 4, 6, 8)
+                    .filter { it <= minOf(Runtime.getRuntime().availableProcessors().coerceAtLeast(1), MAX_CONFIGURABLE_THREADS) }
+                    .forEach(::add)
+            }
+        threadChoices.forEachIndexed { index, threads ->
+            if (index > 0) HorizontalDivider()
+            ListItem(
+                headlineContent = {
+                    Text(if (threads == null) "自动" else "$threads 线程")
+                },
+                supportingContent = {
+                    Text(
+                        if (threads == null) {
+                            "当前有效值：${resolvedPerformance.effectiveThreads} 线程"
+                        } else {
+                            "手动线程数优先于性能模式"
+                        },
+                    )
+                },
+                leadingContent = {
+                    RadioButton(
+                        selected = settings.requestedThreads == threads,
+                        onClick = null,
+                    )
+                },
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            store.setRequestedThreads(threads)
+                        },
+            )
+        }
+
+        Text(
+            "线程数会同时应用于 VAD、实时 ASR、二遍 ASR 和标点。上限按设备逻辑核心数及 8 线程安全上限裁剪。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(16.dp),
+        )
     }
 }
+
+private fun performanceOptions() =
+    listOf(
+        Triple(SpeechPerformanceProfile.AUTO, "自动", "保持兼容默认；当前按 2 线程起步"),
+        Triple(SpeechPerformanceProfile.POWER_SAVER, "省电", "1 线程，优先降低持续 CPU 压力"),
+        Triple(SpeechPerformanceProfile.BALANCED, "均衡", "2 线程，作为当前默认基线"),
+        Triple(SpeechPerformanceProfile.PERFORMANCE, "性能", "最多 4 线程，优先降低推理延迟"),
+    )
 
 private fun availabilityStatus(availability: ModelAvailability?): String =
     when {
