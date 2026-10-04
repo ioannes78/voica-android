@@ -57,8 +57,15 @@ object ModelCatalogCodec {
         val license = obj.requiredObject("license")
         val capabilities = obj.requiredObject("capabilities")
         val supportsStreaming = capabilities.boolean("supportsStreaming")
-        val supportsTokenTiming = capabilities.boolean("supportsTokenTiming")
+        val declaredSupportsTokenTiming = capabilities.boolean("supportsTokenTiming")
         val supportsSecondPass = capabilities.boolean("supportsSecondPass")
+        val runtimeModelType = obj.optionalString("runtimeModelType")
+        // Stage 13A candidate r1 predates sherpa-onnx FireRedASR2 CTC timestamp
+        // verification and declared NONE. The runtime result does expose token timestamps,
+        // so normalize this known stale capability without changing manifest integrity.
+        val supportsTokenTiming =
+            declaredSupportsTokenTiming ||
+                runtimeModelType == "fire-red-asr2-ctc"
 
         return ModelDescriptor(
             modelId = obj.requiredString("modelId"),
@@ -92,12 +99,16 @@ object ModelCatalogCodec {
                             else -> AsrExecutionMode.OFFLINE
                         },
                     timestampCapability =
-                        capabilities.optionalString("timestampCapability")?.let {
-                            enumValueOf<TimestampCapability>(it)
-                        } ?: if (supportsTokenTiming) {
+                        if (runtimeModelType == "fire-red-asr2-ctc") {
                             TimestampCapability.TOKEN
                         } else {
-                            TimestampCapability.NONE
+                            capabilities.optionalString("timestampCapability")?.let {
+                                enumValueOf<TimestampCapability>(it)
+                            } ?: if (supportsTokenTiming) {
+                                TimestampCapability.TOKEN
+                            } else {
+                                TimestampCapability.NONE
+                            }
                         },
                     supportsLanguageForcing =
                         capabilities.optionalBoolean("supportsLanguageForcing") ?: false,
@@ -162,7 +173,7 @@ object ModelCatalogCodec {
             recommendedDeviceTier = obj.optionalString("recommendedDeviceTier"),
             estimatedPeakRamBytes = obj.optionalLong("estimatedPeakRamBytes"),
             recommendedProfile = obj.optionalString("recommendedProfile"),
-            runtimeModelType = obj.optionalString("runtimeModelType"),
+            runtimeModelType = runtimeModelType,
         )
     }
 
