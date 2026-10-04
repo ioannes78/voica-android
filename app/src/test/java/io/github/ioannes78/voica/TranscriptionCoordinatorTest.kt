@@ -43,7 +43,6 @@ import io.github.ioannes78.voica.transcript.TranscriptionPhase
 import io.github.ioannes78.voica.transcript.TranscriptionProgress
 import io.github.ioannes78.voica.transcript.VadEngine
 import io.github.ioannes78.voica.transcript.VadEngineFactory
-import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -83,7 +82,6 @@ class TranscriptionCoordinatorTest {
                     .build()
             repository = TranscriptionRepository(database)
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-
             database.recordingDao().insertRecordingIgnore(
                 RecordingEntity(
                     id = RECORDING_ID,
@@ -109,34 +107,12 @@ class TranscriptionCoordinatorTest {
     }
 
     @Test
-    fun fastLegacyPathDefaultsToSmallBilingualOnly() = runBlocking {
+    fun legacyFastPathCanNoLongerSelectLargeTransducer() = runBlocking {
         val vad = active(descriptor(Stage8ModelIds.VAD, ModelKind.VAD))
-        val modelManager = FakeModelManager(mapOf(Stage8ModelIds.VAD to vad))
-        val coordinator = coordinator(modelManager)
-
-        assertTrue(coordinator.start(RECORDING_ID, TranscriptionMode.FAST))
-        val failed =
-            coordinator.state
-                .filterIsInstance<TranscriptionRunState.Failed>()
-                .first()
-
-        assertEquals(
-            listOf(
-                Stage13ARealtimeModelIds.SMALL_BILINGUAL,
-                Stage8ModelIds.PUNCTUATION,
-            ).sorted(),
-            failed.missingModelIds,
-        )
-        assertTrue(repository.observeVersions(RECORDING_ID).first().isEmpty())
-    }
-
-    @Test
-    fun legacyLargeTransducerChoiceCannotSelectTransducerInQa5() = runBlocking {
-        val vad = active(descriptor(Stage8ModelIds.VAD, ModelKind.VAD))
-        val modelManager = FakeModelManager(mapOf(Stage8ModelIds.VAD to vad))
+        val manager = FakeModelManager(mapOf(Stage8ModelIds.VAD to vad))
         val coordinator =
             coordinator(
-                modelManager = modelManager,
+                modelManager = manager,
                 settings =
                     LocalSpeechSettings(
                         realtimeAsrModel = RealtimeAsrModelChoice.CHINESE_LARGE_TRANSDUCER,
@@ -144,10 +120,7 @@ class TranscriptionCoordinatorTest {
             )
 
         assertTrue(coordinator.start(RECORDING_ID, TranscriptionMode.FAST))
-        val failed =
-            coordinator.state
-                .filterIsInstance<TranscriptionRunState.Failed>()
-                .first()
+        val failed = coordinator.state.filterIsInstance<TranscriptionRunState.Failed>().first()
 
         assertEquals(
             listOf(
@@ -159,12 +132,12 @@ class TranscriptionCoordinatorTest {
     }
 
     @Test
-    fun senseVoiceOfflineTranscriptionCompletesAndPersists() = runBlocking {
+    fun defaultOfflineTranscriptionUsesSenseVoice() = runBlocking {
         val descriptors =
             listOf(
                 descriptor(Stage8ModelIds.VAD, ModelKind.VAD),
-                descriptor(Stage13AOfflineModelIds.SENSEVOICE, ModelKind.ASR_SECOND_PASS),
                 descriptor(Stage8ModelIds.PUNCTUATION, ModelKind.PUNCTUATION),
+                descriptor(Stage13AOfflineModelIds.SENSEVOICE, ModelKind.ASR_SECOND_PASS),
             )
         val registry = ModelUseRegistry()
         val coordinator =
@@ -174,24 +147,19 @@ class TranscriptionCoordinatorTest {
             )
 
         assertTrue(coordinator.start(RECORDING_ID, TranscriptionMode.HIGH_QUALITY))
-        val completed =
-            coordinator.state
-                .filterIsInstance<TranscriptionRunState.Completed>()
-                .first()
+        val completed = coordinator.state.filterIsInstance<TranscriptionRunState.Completed>().first()
+        val persisted = checkNotNull(repository.find(completed.transcriptionId))
 
-        assertEquals("测试。", completed.segments.single().finalText)
-        val persisted = repository.find(completed.transcriptionId)!!
         assertEquals(TranscriptionStateValue.COMPLETED, persisted.state)
         assertEquals(Stage13AOfflineModelIds.SENSEVOICE, persisted.secondPassAsrModelId)
-        descriptors.forEach { descriptor ->
-            assertFalse(
-                registry.isInUse(descriptor.modelId, descriptor.version, descriptor.revision),
-            )
+        assertEquals("测试。", completed.segments.single().finalText)
+        descriptors.forEach { model ->
+            assertFalse(registry.isInUse(model.modelId, model.version, model.revision))
         }
     }
 
     @Test
-    fun qwenHighQualityChoiceUsesQwenInsteadOfFireRed() = runBlocking {
+    fun highQualityOfflineChoiceUsesQwenInsteadOfFireRed() = runBlocking {
         val descriptors =
             listOf(
                 descriptor(Stage8ModelIds.VAD, ModelKind.VAD),
@@ -207,12 +175,9 @@ class TranscriptionCoordinatorTest {
             )
 
         assertTrue(coordinator.start(RECORDING_ID, TranscriptionMode.HIGH_QUALITY))
-        val completed =
-            coordinator.state
-                .filterIsInstance<TranscriptionRunState.Completed>()
-                .first()
+        val completed = coordinator.state.filterIsInstance<TranscriptionRunState.Completed>().first()
+        val persisted = checkNotNull(repository.find(completed.transcriptionId))
 
-        val persisted = repository.find(completed.transcriptionId)!!
         assertEquals(Stage13AOfflineModelIds.QWEN3_ASR, persisted.secondPassAsrModelId)
         assertEquals("测试。", completed.segments.single().finalText)
     }
@@ -322,20 +287,7 @@ class TranscriptionCoordinatorTest {
             progressListener?.onProgress(
                 TranscriptionProgress(
                     phase = TranscriptionPhase.VAD,
-                    processedUnits = 0L,
-                    totalUnits = source.totalSampleCount,
-                ),
-            )
-            val buffer = ShortArray(256)
-            var processed = 0L
-            while (true) {
-                val read = source.read(buffer) ?: break
-                processed += read.sampleCount
-            }
-            progressListener?.onProgress(
-                TranscriptionProgress(
-                    phase = TranscriptionPhase.VAD,
-                    processedUnits = processed,
+                    processedUnits = source.totalSampleCount,
                     totalUnits = source.totalSampleCount,
                 ),
             )
@@ -399,7 +351,11 @@ class TranscriptionCoordinatorTest {
 
         override suspend fun openSession(): StreamingAsrSession =
             object : StreamingAsrSession {
-                override suspend fun acceptSamples(samples: ShortArray, offset: Int, count: Int) = Unit
+                override suspend fun acceptSamples(
+                    samples: ShortArray,
+                    offset: Int,
+                    count: Int,
+                ) = Unit
 
                 override suspend fun decode() =
                     AsrHypothesis(
@@ -454,15 +410,22 @@ class TranscriptionCoordinatorTest {
 
         override suspend fun checkForUpdates(force: Boolean): ModelCatalog = catalog()
 
-        override suspend fun install(modelId: String, version: String, revision: Long) = error("not used")
+        override suspend fun install(modelId: String, version: String, revision: Long) =
+            error("not used")
 
         override suspend fun cancelInstall(modelId: String) = Unit
 
-        override suspend fun confirmInstalledVersion(modelId: String, version: String, revision: Long) =
-            error("not used")
+        override suspend fun confirmInstalledVersion(
+            modelId: String,
+            version: String,
+            revision: Long,
+        ) = error("not used")
 
-        override suspend fun removeDownloadedVersion(modelId: String, version: String, revision: Long) =
-            error("not used")
+        override suspend fun removeDownloadedVersion(
+            modelId: String,
+            version: String,
+            revision: Long,
+        ) = error("not used")
 
         override suspend fun rollback(modelId: String) = error("not used")
     }
@@ -479,7 +442,10 @@ class TranscriptionCoordinatorTest {
                 installedDirectory = null,
             )
 
-        private fun descriptor(modelId: String, kind: ModelKind) =
+        private fun descriptor(
+            modelId: String,
+            kind: ModelKind,
+        ) =
             ModelDescriptor(
                 modelId = modelId,
                 kind = kind,
@@ -500,13 +466,13 @@ class TranscriptionCoordinatorTest {
                                 kind == ModelKind.ASR_LARGE,
                         supportsInverseTextNormalization = kind == ModelKind.ASR_SECOND_PASS,
                         supportsSecondPass =
-                            kind == ModelKind.ASR_SECOND_PASS || kind == ModelKind.ASR_LARGE,
+                            kind == ModelKind.ASR_SECOND_PASS ||
+                                kind == ModelKind.ASR_LARGE,
                     ),
                 sourceType = ModelSourceType.BUILTIN,
                 builtinAssetPath = "models/fake.bin",
                 packageFormat = ModelPackageFormat.SINGLE_FILE,
                 downloadUrl = null,
-                downloadMirrors = emptyList(),
                 downloadSizeBytes = null,
                 installedSizeBytes = 1L,
                 packageSha256 = null,
@@ -524,14 +490,12 @@ class TranscriptionCoordinatorTest {
                 appVersionMax = null,
                 licenseId = "test",
                 licenseUrl = "https://example.com/license",
-                attribution = "test",
-                redistributionPolicy = RedistributionPolicy.UPSTREAM_ONLY,
                 sourceUrl = "https://example.com/source",
                 homepage = "https://example.com",
+                attribution = "test",
+                redistributionPolicy = RedistributionPolicy.UPSTREAM_ONLY,
                 releaseChannel = "test",
                 autoUpdateEligible = false,
-                deprecated = false,
-                criticalUpdate = false,
             )
     }
 }
