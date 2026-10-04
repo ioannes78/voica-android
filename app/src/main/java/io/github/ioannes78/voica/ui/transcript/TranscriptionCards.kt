@@ -32,6 +32,8 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.R
+import io.github.ioannes78.voica.Stage13AOfflineModelIds
+import io.github.ioannes78.voica.Stage13ARealtimeModelIds
 import io.github.ioannes78.voica.TranscriptionRunState
 import io.github.ioannes78.voica.transcript.TextProjectionQuality
 import io.github.ioannes78.voica.transcript.TranscriptionMode
@@ -72,7 +74,7 @@ fun TranscriptionStatusCard(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            modeLabel(state.mode) + " · " + phaseLabel(state.progress.phase),
+                            "离线转写 · " + phaseLabel(state.progress.phase),
                             style = MaterialTheme.typography.labelLarge,
                         )
                         recordingName?.let {
@@ -163,7 +165,7 @@ fun TranscriptVersionListCard(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                modeLabel(selected.mode),
+                "离线转写",
                 style = MaterialTheme.typography.titleSmall,
             )
             Text(
@@ -187,7 +189,7 @@ fun TranscriptVersionListCard(
                             Column {
                                 Text(
                                     (if (version.transcriptionId == selected.transcriptionId) "✓ " else "") +
-                                        modeLabel(version.mode),
+                                        "离线转写",
                                 )
                                 Text(
                                     formatCompletedAt(version.completedAtMs) +
@@ -213,16 +215,10 @@ fun TranscriptDocumentHeader(
     recordingName: String?,
     onRenameSpeaker: (speakerId: String, requestedName: String?) -> Unit,
 ) {
-    var speakerListOpen by remember(document.alignmentId) {
-        mutableStateOf(false)
-    }
-    var pendingSpeaker by remember(document.alignmentId) {
-        mutableStateOf<TranscriptSpeakerDisplay?>(null)
-    }
-    var renameValue by remember(document.alignmentId) {
-        mutableStateOf("")
-    }
-    val modeText = modeLabel(document.mode)
+    var speakerListOpen by remember(document.alignmentId) { mutableStateOf(false) }
+    var pendingSpeaker by remember(document.alignmentId) { mutableStateOf<TranscriptSpeakerDisplay?>(null) }
+    var renameValue by remember(document.alignmentId) { mutableStateOf("") }
+    val sourceText = sourceModelLabel(document.sourceModelId)
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -230,7 +226,7 @@ fun TranscriptDocumentHeader(
     ) {
         Text(
             buildString {
-                append(modeText)
+                append(sourceText)
                 append(" · ")
                 append(document.segments.size)
                 append(" 段")
@@ -301,9 +297,7 @@ fun TranscriptDocumentHeader(
                     value = renameValue,
                     onValueChange = { renameValue = it },
                     singleLine = true,
-                    label = {
-                        Text(stringResource(R.string.diarization_speaker_name_label))
-                    },
+                    label = { Text(stringResource(R.string.diarization_speaker_name_label)) },
                 )
             },
             confirmButton = {
@@ -363,9 +357,7 @@ fun TranscriptSegmentCard(
                 )
             }
         }
-    var textLayout by remember(segment.stableId) {
-        mutableStateOf<TextLayoutResult?>(null)
-    }
+    var textLayout by remember(segment.stableId) { mutableStateOf<TextLayoutResult?>(null) }
 
     val speakerLabel =
         when {
@@ -375,10 +367,8 @@ fun TranscriptSegmentCard(
                     R.string.diarization_speaker_default,
                     segment.speakerOrdinal,
                 )
-            segment.ambiguous ->
-                stringResource(R.string.diarization_speaker_overlap_ambiguous)
-            segment.speakerAssignmentAvailable ->
-                stringResource(R.string.diarization_speaker_unresolved)
+            segment.ambiguous -> stringResource(R.string.diarization_speaker_overlap_ambiguous)
+            segment.speakerAssignmentAvailable -> stringResource(R.string.diarization_speaker_unresolved)
             else -> null
         }
 
@@ -410,11 +400,8 @@ fun TranscriptSegmentCard(
                     it,
                     style = MaterialTheme.typography.labelMedium,
                     color =
-                        if (isActive) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
+                        if (isActive) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -439,14 +426,10 @@ fun TranscriptSegmentCard(
                 ) {
                     detectTapGestures { position ->
                         if (!syncEnabled) return@detectTapGestures
-                        val offset =
-                            textLayout
-                                ?.getOffsetForPosition(position)
-                                ?: return@detectTapGestures
+                        val offset = textLayout?.getOffsetForPosition(position) ?: return@detectTapGestures
                         val cue =
                             segment.cues.firstOrNull { candidate ->
-                                candidate.projectionQuality ==
-                                    TextProjectionQuality.EXACT &&
+                                candidate.projectionQuality == TextProjectionQuality.EXACT &&
                                     offset >= candidate.textStartOffset &&
                                     offset < candidate.textEndOffsetExclusive
                             }
@@ -457,38 +440,30 @@ fun TranscriptSegmentCard(
     }
 }
 
-@Composable
-private fun modeLabel(mode: TranscriptionMode): String =
-    when (mode) {
-        TranscriptionMode.FAST ->
-            stringResource(R.string.transcription_mode_fast)
-        TranscriptionMode.HIGH_QUALITY ->
-            stringResource(R.string.transcription_mode_high_quality)
+private fun sourceModelLabel(modelId: String?): String =
+    when (modelId) {
+        Stage13AOfflineModelIds.SENSEVOICE -> "SenseVoice · 快速"
+        Stage13AOfflineModelIds.QWEN3_ASR -> "Qwen3-ASR · 高质量"
+        Stage13AOfflineModelIds.FIRERED_ASR2 -> "FireRedASR2 · 历史转写"
+        Stage13ARealtimeModelIds.SMALL_BILINGUAL -> "Small Bilingual · 历史转写"
+        else -> "离线转写"
     }
 
 @Composable
-private fun modeLabel(mode: String): String =
-    when (mode) {
-        "FAST" -> stringResource(R.string.transcription_mode_fast)
-        "HIGH_QUALITY" -> stringResource(R.string.transcription_mode_high_quality)
-        else -> mode
-    }
+private fun modeLabel(mode: TranscriptionMode): String = "离线转写"
+
+@Composable
+private fun modeLabel(mode: String): String = "离线转写"
 
 @Composable
 private fun phaseLabel(phase: TranscriptionPhase): String =
     when (phase) {
-        TranscriptionPhase.PREPARING ->
-            stringResource(R.string.transcription_phase_preparing)
-        TranscriptionPhase.VAD ->
-            stringResource(R.string.transcription_phase_vad)
-        TranscriptionPhase.FIRST_PASS ->
-            stringResource(R.string.transcription_phase_first_pass)
-        TranscriptionPhase.SECOND_PASS ->
-            stringResource(R.string.transcription_phase_second_pass)
-        TranscriptionPhase.PUNCTUATION ->
-            stringResource(R.string.transcription_phase_punctuation)
-        TranscriptionPhase.PERSISTING ->
-            stringResource(R.string.transcription_phase_persisting)
+        TranscriptionPhase.PREPARING -> "正在准备…"
+        TranscriptionPhase.VAD -> "正在分析语音…"
+        TranscriptionPhase.FIRST_PASS -> "正在生成时间轴…"
+        TranscriptionPhase.SECOND_PASS -> "正在识别…"
+        TranscriptionPhase.PUNCTUATION -> "正在处理标点…"
+        TranscriptionPhase.PERSISTING -> "正在保存转写结果…"
     }
 
 private fun formatCompletedAt(epochMs: Long): String =
@@ -497,10 +472,7 @@ private fun formatCompletedAt(epochMs: Long): String =
         .toLocalDateTime()
         .format(COMPLETED_AT_FORMAT)
 
-private fun formatSampleRange(
-    start: Long,
-    end: Long,
-): String =
+private fun formatSampleRange(start: Long, end: Long): String =
     formatSampleTime(start) + " – " + formatSampleTime(end)
 
 private val COMPLETED_AT_FORMAT: DateTimeFormatter =
