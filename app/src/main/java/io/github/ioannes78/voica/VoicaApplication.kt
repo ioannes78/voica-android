@@ -183,6 +183,7 @@ class AppContainer(
                 SherpaStage9DiarizationEngineProvider(
                     assetManager = application.assets,
                 ),
+            localSpeechSettings = { localSpeechSettingsStore.settings.value },
             isRecordingActive = recordingLibraryRepository::isRecordingActive,
         )
 

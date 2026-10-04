@@ -238,6 +238,7 @@ class TranscriptionCoordinatorTest {
         override fun vadFactory(
             model: ActiveModel,
             numThreads: Int,
+            vadSettings: LocalVadSettings,
         ) = VadEngineFactory { FakeVadEngine(model.descriptor) }
 
         override fun firstPassFactory(

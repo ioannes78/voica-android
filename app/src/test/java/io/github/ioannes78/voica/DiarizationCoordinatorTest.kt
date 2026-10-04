@@ -401,7 +401,11 @@ class DiarizationCoordinatorTest {
         private val noSpeech: Boolean = false,
         private val blockVad: Boolean = false,
     ) : Stage9DiarizationEngineProvider {
-        override fun vadFactory(model: ActiveModel) =
+        override fun vadFactory(
+            model: ActiveModel,
+            numThreads: Int,
+            vadSettings: LocalVadSettings,
+        ) =
             VadEngineFactory {
                 FakeVadEngine(
                     model = model.descriptor,
@@ -424,13 +428,17 @@ class DiarizationCoordinatorTest {
         override fun diarizationEngine(
             segmentation: ActiveModel,
             embedding: ActiveModel,
+            numThreads: Int,
         ): DiarizationEngine =
             FakeDiarizationEngine(
                 segmentationModel = segmentation.descriptor,
                 embeddingModel = embedding.descriptor,
             )
 
-        override fun embeddingEngine(model: ActiveModel): SpeakerEmbeddingEngine =
+        override fun embeddingEngine(
+            model: ActiveModel,
+            numThreads: Int,
+        ): SpeakerEmbeddingEngine =
             FakeEmbeddingEngine(model.descriptor)
     }
 

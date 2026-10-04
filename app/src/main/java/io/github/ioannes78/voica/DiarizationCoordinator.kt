@@ -21,6 +21,7 @@ import io.github.ioannes78.voica.model.ModelManager
 import io.github.ioannes78.voica.model.ModelUseRegistry
 import io.github.ioannes78.voica.model.SpeakerModelRole
 import io.github.ioannes78.voica.sherpa.SherpaDiarizationBundleValidator
+import io.github.ioannes78.voica.sherpa.SherpaDiarizationSettings
 import io.github.ioannes78.voica.sherpa.SherpaOfflineDiarizationEngine
 import io.github.ioannes78.voica.sherpa.SherpaRuntime
 import io.github.ioannes78.voica.sherpa.SherpaSpeakerEmbeddingEngine
@@ -126,7 +127,11 @@ class MissingDiarizationModelsException(
 )
 
 interface Stage9DiarizationEngineProvider {
-    fun vadFactory(model: ActiveModel): VadEngineFactory
+    fun vadFactory(
+        model: ActiveModel,
+        numThreads: Int,
+        vadSettings: LocalVadSettings,
+    ): VadEngineFactory
 
     suspend fun validateBundle(
         segmentation: ActiveModel,
@@ -136,9 +141,13 @@ interface Stage9DiarizationEngineProvider {
     fun diarizationEngine(
         segmentation: ActiveModel,
         embedding: ActiveModel,
+        numThreads: Int,
     ): DiarizationEngine
 
-    fun embeddingEngine(model: ActiveModel): SpeakerEmbeddingEngine
+    fun embeddingEngine(
+        model: ActiveModel,
+        numThreads: Int,
+    ): SpeakerEmbeddingEngine
 }
 
 class SherpaStage9DiarizationEngineProvider(
@@ -148,10 +157,15 @@ class SherpaStage9DiarizationEngineProvider(
     private val bundleValidator = SherpaDiarizationBundleValidator()
     private val validatedBundles = ConcurrentHashMap.newKeySet<String>()
 
-    override fun vadFactory(model: ActiveModel): VadEngineFactory =
+    override fun vadFactory(
+        model: ActiveModel,
+        numThreads: Int,
+        vadSettings: LocalVadSettings,
+    ): VadEngineFactory =
         stage8Provider.vadFactory(
             model = model,
-            numThreads = SherpaRuntime.DEFAULT_NUM_THREADS,
+            numThreads = numThreads,
+            vadSettings = vadSettings,
         )
 
     override suspend fun validateBundle(
@@ -187,6 +201,7 @@ class SherpaStage9DiarizationEngineProvider(
     override fun diarizationEngine(
         segmentation: ActiveModel,
         embedding: ActiveModel,
+        numThreads: Int,
     ): DiarizationEngine {
         val segmentationDirectory =
             segmentation.installedDirectory
@@ -199,16 +214,21 @@ class SherpaStage9DiarizationEngineProvider(
             segmentationModelDirectory = segmentationDirectory,
             embeddingModel = embedding.descriptor,
             embeddingModelDirectory = embeddingDirectory,
+            settings = SherpaDiarizationSettings(numThreads = numThreads),
         )
     }
 
-    override fun embeddingEngine(model: ActiveModel): SpeakerEmbeddingEngine {
+    override fun embeddingEngine(
+        model: ActiveModel,
+        numThreads: Int,
+    ): SpeakerEmbeddingEngine {
         val directory =
             model.installedDirectory
                 ?: error("speaker embedding must be a managed installed model")
         return SherpaSpeakerEmbeddingEngine(
             model = model.descriptor,
             modelDirectory = directory,
+            numThreads = numThreads,
         )
     }
 }
@@ -223,6 +243,7 @@ class DiarizationCoordinator(
     private val modelManager: ModelManager,
     private val modelUseRegistry: ModelUseRegistry,
     private val engineProvider: Stage9DiarizationEngineProvider,
+    private val localSpeechSettings: () -> LocalSpeechSettings = { LocalSpeechSettings() },
     private val isRecordingActive: suspend (String) -> Boolean = { true },
 ) {
     private val lock = Any()
@@ -380,6 +401,8 @@ class DiarizationCoordinator(
                 } ?: error("canonical PCM source is unavailable")
 
             val models = resolveActiveModels()
+            val speechSettings = localSpeechSettings()
+            val performance = speechSettings.resolvePerformance()
             leases =
                 models.all.map { active ->
                     modelUseRegistry.acquire(
@@ -419,7 +442,13 @@ class DiarizationCoordinator(
                         embeddingModelVersion = models.embedding.descriptor.version,
                         embeddingModelRevision = models.embedding.descriptor.revision,
                         modelManifestDigest = lineageDigest(models.all),
-                        configSnapshot = configSnapshot(config, models.all),
+                        configSnapshot =
+                            configSnapshot(
+                                config = config,
+                                models = models.all,
+                                vadSettings = speechSettings.vad,
+                                performance = performance,
+                            ),
                     ),
                 )
             runId = createdRunId
@@ -429,6 +458,8 @@ class DiarizationCoordinator(
                     recordingId = recordingId,
                     runId = createdRunId,
                     model = models.vad,
+                    numThreads = performance.effectiveThreads,
+                    vadSettings = speechSettings.vad,
                 )
 
             val ranges =
@@ -473,6 +504,7 @@ class DiarizationCoordinator(
                     totalSampleCount = totalSampleCount,
                     models = models,
                     config = config,
+                    numThreads = performance.effectiveThreads,
                 )
 
             currentCoroutineContext().ensureActive()
@@ -564,8 +596,14 @@ class DiarizationCoordinator(
         recordingId: String,
         runId: String,
         model: ActiveModel,
+        numThreads: Int,
+        vadSettings: LocalVadSettings,
     ) =
-        engineProvider.vadFactory(model).open().use { vad ->
+        engineProvider.vadFactory(
+            model = model,
+            numThreads = numThreads,
+            vadSettings = vadSettings,
+        ).open().use { vad ->
             diarizationRepository.transitionRun(
                 runId,
                 DiarizationStateValue.VAD_ANALYZING,
@@ -602,6 +640,7 @@ class DiarizationCoordinator(
         totalSampleCount: Long,
         models: ActiveDiarizationModels,
         config: DiarizationConfig,
+        numThreads: Int,
     ): List<DiarizationChunkStitchInput> {
         val totalWindowSamples =
             ranges.fold(0L) { total, range ->
@@ -621,9 +660,13 @@ class DiarizationCoordinator(
             engineProvider.diarizationEngine(
                 segmentation = models.segmentation,
                 embedding = models.embedding,
+                numThreads = numThreads,
             )
         val embeddingEngine =
-            engineProvider.embeddingEngine(models.embedding)
+            engineProvider.embeddingEngine(
+                model = models.embedding,
+                numThreads = numThreads,
+            )
 
         try {
             source.use {
@@ -1008,6 +1051,8 @@ class DiarizationCoordinator(
     private fun configSnapshot(
         config: DiarizationConfig,
         models: List<ActiveModel>,
+        vadSettings: LocalVadSettings,
+        performance: ResolvedSpeechPerformance,
     ): String =
         buildString {
             append("{\"schemaVersion\":2")
@@ -1029,8 +1074,18 @@ class DiarizationCoordinator(
                 .append(config.stitchingMinimumAnchorSamples)
             append(",\"stitchingMaxAnchorsPerSpeaker\":")
                 .append(config.stitchingMaxAnchorsPerSpeaker)
+            append(",\"performanceProfile\":\"").append(performance.profile.name).append("\"")
+            append(",\"requestedThreads\":")
+                .append(performance.requestedThreads?.toString() ?: "null")
+            append(",\"effectiveThreads\":").append(performance.effectiveThreads)
+            append(",\"vad\":{")
+            append("\"threshold\":").append(vadSettings.threshold)
+            append(",\"minSilenceDurationSeconds\":").append(vadSettings.minSilenceDurationSeconds)
+            append(",\"minSpeechDurationSeconds\":").append(vadSettings.minSpeechDurationSeconds)
+            append(",\"maxSpeechDurationSeconds\":").append(vadSettings.maxSpeechDurationSeconds)
+            append(",\"windowSizeSamples\":512}")
             append(",\"sherpaDefaults\":{")
-            append("\"numThreads\":").append(SherpaRuntime.DEFAULT_NUM_THREADS)
+            append("\"numThreads\":").append(performance.effectiveThreads)
             append(",\"pyannoteWindowShiftRatio\":0.1")
             append(",\"minDurationOnSeconds\":0.2")
             append(",\"minDurationOffSeconds\":0.5")

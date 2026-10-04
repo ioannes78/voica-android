@@ -98,6 +98,7 @@ interface Stage8TranscriptionEngineProvider {
     fun vadFactory(
         model: ActiveModel,
         numThreads: Int,
+        vadSettings: LocalVadSettings = LocalVadSettings(),
     ): VadEngineFactory
 
     fun firstPassFactory(
@@ -122,6 +123,7 @@ class SherpaStage8TranscriptionEngineProvider(
     override fun vadFactory(
         model: ActiveModel,
         numThreads: Int,
+        vadSettings: LocalVadSettings,
     ): VadEngineFactory {
         require(model.descriptor.kind == ModelKind.VAD)
         return VadEngineFactory {
@@ -142,7 +144,14 @@ class SherpaStage8TranscriptionEngineProvider(
             SherpaSileroVadEngine(
                 model = model.descriptor,
                 modelLocation = location,
-                settings = SileroVadSettings(numThreads = numThreads),
+                settings =
+                    SileroVadSettings(
+                        threshold = vadSettings.threshold,
+                        minSilenceDurationSeconds = vadSettings.minSilenceDurationSeconds,
+                        minSpeechDurationSeconds = vadSettings.minSpeechDurationSeconds,
+                        maxSpeechDurationSeconds = vadSettings.maxSpeechDurationSeconds,
+                        numThreads = numThreads,
+                    ),
             )
         }
     }
@@ -337,16 +346,19 @@ class TranscriptionCoordinator(
                                     engineProvider.vadFactory(
                                         models.vad,
                                         models.performance.effectiveThreads,
+                                        models.vadSettings,
                                     ),
                                 asrEngineFactory =
                                     engineProvider.firstPassFactory(
                                         models.firstPass,
                                         models.performance.effectiveThreads,
+                                        models.vadSettings,
                                     ),
                                 punctuationEngineFactory =
                                     engineProvider.punctuationFactory(
                                         models.punctuation,
                                         models.performance.effectiveThreads,
+                                        models.vadSettings,
                                     ),
                             ).transcribe(
                                 recordingId = recordingId,
@@ -369,21 +381,25 @@ class TranscriptionCoordinator(
                                     engineProvider.vadFactory(
                                         models.vad,
                                         models.performance.effectiveThreads,
+                                        models.vadSettings,
                                     ),
                                 asrEngineFactory =
                                     engineProvider.firstPassFactory(
                                         models.firstPass,
                                         models.performance.effectiveThreads,
+                                        models.vadSettings,
                                     ),
                                 secondPassAsrEngineFactory =
                                     engineProvider.secondPassFactory(
                                         secondPass,
                                         models.performance.effectiveThreads,
+                                        models.vadSettings,
                                     ),
                                 punctuationEngineFactory =
                                     engineProvider.punctuationFactory(
                                         models.punctuation,
                                         models.performance.effectiveThreads,
+                                        models.vadSettings,
                                     ),
                             ).transcribe(
                                 recordingId = recordingId,
@@ -498,6 +514,7 @@ class TranscriptionCoordinator(
             realtimeAsrChoice = settings.realtimeAsrModel,
             realtimeAsrFallbackUsed = firstPassSelection.fallbackUsed,
             performance = performance,
+            vadSettings = settings.vad,
         )
     }
 
@@ -625,6 +642,7 @@ class TranscriptionCoordinator(
         val realtimeAsrChoice: RealtimeAsrModelChoice,
         val realtimeAsrFallbackUsed: Boolean,
         val performance: ResolvedSpeechPerformance,
+        val vadSettings: LocalVadSettings,
     ) {
         val all: List<ActiveModel>
             get() = listOfNotNull(vad, firstPass, punctuation, secondPass)
@@ -664,6 +682,8 @@ class TranscriptionCoordinator(
             append(",\"requestedThreads\":")
             val requestedThreads = models.performance.requestedThreads
             if (requestedThreads == null) append("null") else append(requestedThreads)
+            append(",\"vad\":")
+            appendVadSnapshot(models.vadSettings)
             append('}')
         }
 
@@ -685,6 +705,9 @@ class TranscriptionCoordinator(
             append(models.performance.effectiveThreads)
             append(",\"logicalProcessors\":")
             append(models.performance.logicalProcessors)
+            append(",\"vad\":")
+            appendVadSnapshot(models.vadSettings)
+            append(",\"vadWindowSizeSamples\":512")
             append(",\"runtime\":{\"id\":")
             appendJsonString(SherpaRuntime.RUNTIME_ID)
             append(",\"version\":")
@@ -715,6 +738,14 @@ class TranscriptionCoordinator(
             }
             append("]}")
         }
+
+    private fun StringBuilder.appendVadSnapshot(settings: LocalVadSettings) {
+        append("{\"threshold\":").append(settings.threshold)
+        append(",\"minSilenceDurationSeconds\":").append(settings.minSilenceDurationSeconds)
+        append(",\"minSpeechDurationSeconds\":").append(settings.minSpeechDurationSeconds)
+        append(",\"maxSpeechDurationSeconds\":").append(settings.maxSpeechDurationSeconds)
+        append('}')
+    }
 
     private fun StringBuilder.appendJsonString(value: String) {
         append('"')

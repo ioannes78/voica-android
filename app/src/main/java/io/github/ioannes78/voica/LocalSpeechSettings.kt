@@ -33,10 +33,25 @@ enum class SpeechPerformanceProfile {
     PERFORMANCE,
 }
 
+data class LocalVadSettings(
+    val threshold: Float = 0.5F,
+    val minSilenceDurationSeconds: Float = 0.25F,
+    val minSpeechDurationSeconds: Float = 0.25F,
+    val maxSpeechDurationSeconds: Float = 30F,
+) {
+    init {
+        require(threshold in 0F..1F)
+        require(minSilenceDurationSeconds >= 0F)
+        require(minSpeechDurationSeconds >= 0F)
+        require(maxSpeechDurationSeconds > 0F)
+    }
+}
+
 data class LocalSpeechSettings(
     val realtimeAsrModel: RealtimeAsrModelChoice = RealtimeAsrModelChoice.AUTO,
     val performanceProfile: SpeechPerformanceProfile = SpeechPerformanceProfile.AUTO,
     val requestedThreads: Int? = null,
+    val vad: LocalVadSettings = LocalVadSettings(),
 )
 
 data class ResolvedSpeechPerformance(
@@ -99,6 +114,10 @@ interface LocalSpeechSettingsStore {
     fun setPerformanceProfile(profile: SpeechPerformanceProfile)
 
     fun setRequestedThreads(threads: Int?)
+
+    fun setVadSettings(settings: LocalVadSettings)
+
+    fun resetVadSettings()
 }
 
 class SharedPreferencesLocalSpeechSettingsStore(
@@ -124,6 +143,7 @@ class SharedPreferencesLocalSpeechSettingsStore(
                 requestedThreads =
                     preferences.getInt(KEY_REQUESTED_THREADS, 0)
                         .takeIf { it > 0 },
+                vad = readVadSettings(preferences),
             ),
         )
 
@@ -159,11 +179,51 @@ class SharedPreferencesLocalSpeechSettingsStore(
             mutableSettings.value.copy(requestedThreads = threads)
     }
 
+    override fun setVadSettings(settings: LocalVadSettings) {
+        preferences.edit()
+            .putFloat(KEY_VAD_THRESHOLD, settings.threshold)
+            .putFloat(KEY_VAD_MIN_SILENCE, settings.minSilenceDurationSeconds)
+            .putFloat(KEY_VAD_MIN_SPEECH, settings.minSpeechDurationSeconds)
+            .putFloat(KEY_VAD_MAX_SPEECH, settings.maxSpeechDurationSeconds)
+            .apply()
+        mutableSettings.value = mutableSettings.value.copy(vad = settings)
+    }
+
+    override fun resetVadSettings() {
+        val defaults = LocalVadSettings()
+        preferences.edit()
+            .remove(KEY_VAD_THRESHOLD)
+            .remove(KEY_VAD_MIN_SILENCE)
+            .remove(KEY_VAD_MIN_SPEECH)
+            .remove(KEY_VAD_MAX_SPEECH)
+            .apply()
+        mutableSettings.value = mutableSettings.value.copy(vad = defaults)
+    }
+
     private companion object {
         const val PREFERENCES_NAME = "voica-local-speech"
         const val KEY_REALTIME_ASR_MODEL = "realtime-asr-model"
         const val KEY_PERFORMANCE_PROFILE = "performance-profile"
         const val KEY_REQUESTED_THREADS = "requested-threads"
+        const val KEY_VAD_THRESHOLD = "vad-threshold"
+        const val KEY_VAD_MIN_SILENCE = "vad-min-silence"
+        const val KEY_VAD_MIN_SPEECH = "vad-min-speech"
+        const val KEY_VAD_MAX_SPEECH = "vad-max-speech"
+
+        fun readVadSettings(
+            preferences: android.content.SharedPreferences,
+        ): LocalVadSettings =
+            runCatching {
+                LocalVadSettings(
+                    threshold = preferences.getFloat(KEY_VAD_THRESHOLD, 0.5F),
+                    minSilenceDurationSeconds =
+                        preferences.getFloat(KEY_VAD_MIN_SILENCE, 0.25F),
+                    minSpeechDurationSeconds =
+                        preferences.getFloat(KEY_VAD_MIN_SPEECH, 0.25F),
+                    maxSpeechDurationSeconds =
+                        preferences.getFloat(KEY_VAD_MAX_SPEECH, 30F),
+                )
+            }.getOrDefault(LocalVadSettings())
     }
 }
 

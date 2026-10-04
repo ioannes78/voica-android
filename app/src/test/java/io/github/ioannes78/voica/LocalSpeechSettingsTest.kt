@@ -60,6 +60,16 @@ class LocalSpeechSettingsTest {
     }
 
     @Test
+    fun vadDefaultsMatchExistingSherpaBaseline() {
+        val vad = LocalVadSettings()
+
+        assertEquals(0.5F, vad.threshold)
+        assertEquals(0.25F, vad.minSilenceDurationSeconds)
+        assertEquals(0.25F, vad.minSpeechDurationSeconds)
+        assertEquals(30F, vad.maxSpeechDurationSeconds)
+    }
+
+    @Test
     fun performanceProfilesResolveToRealThreadCounts() {
         assertEquals(
             1,

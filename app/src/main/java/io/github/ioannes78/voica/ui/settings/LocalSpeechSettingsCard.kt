@@ -3,6 +3,7 @@ package io.github.ioannes78.voica.ui.settings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Card
@@ -11,6 +12,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -21,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.LocalSpeechSettingsStore
+import io.github.ioannes78.voica.LocalVadSettings
 import io.github.ioannes78.voica.MAX_CONFIGURABLE_THREADS
 import io.github.ioannes78.voica.RealtimeAsrModelChoice
 import io.github.ioannes78.voica.SpeechPerformanceProfile
@@ -204,12 +207,133 @@ internal fun LocalSpeechSettingsCard(
         }
 
         Text(
-            "线程数会同时应用于 VAD、实时 ASR、二遍 ASR 和标点。上限按设备逻辑核心数及 8 线程安全上限裁剪。",
+            "线程数会同时应用于 VAD、实时 ASR、二遍 ASR、标点、说话人分离和 Speaker Embedding。上限按设备逻辑核心数及 8 线程安全上限裁剪。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(16.dp),
         )
+
+        HorizontalDivider()
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Text("VAD 高级参数", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "仅开放 Silero 当前真正生效的参数。数值同时用于转写和说话人分离。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        VadParameterRow(
+            title = "检测阈值",
+            value = formatVad(settings.vad.threshold),
+            onDecrease = {
+                store.setVadSettings(
+                    settings.vad.copy(
+                        threshold = (settings.vad.threshold - 0.05F).coerceAtLeast(0.05F),
+                    ),
+                )
+            },
+            onIncrease = {
+                store.setVadSettings(
+                    settings.vad.copy(
+                        threshold = (settings.vad.threshold + 0.05F).coerceAtMost(0.95F),
+                    ),
+                )
+            },
+        )
+        VadParameterRow(
+            title = "最短静音",
+            value = formatVad(settings.vad.minSilenceDurationSeconds) + " s",
+            onDecrease = {
+                store.setVadSettings(
+                    settings.vad.copy(
+                        minSilenceDurationSeconds =
+                            (settings.vad.minSilenceDurationSeconds - 0.05F).coerceAtLeast(0.05F),
+                    ),
+                )
+            },
+            onIncrease = {
+                store.setVadSettings(
+                    settings.vad.copy(
+                        minSilenceDurationSeconds =
+                            (settings.vad.minSilenceDurationSeconds + 0.05F).coerceAtMost(2F),
+                    ),
+                )
+            },
+        )
+        VadParameterRow(
+            title = "最短语音",
+            value = formatVad(settings.vad.minSpeechDurationSeconds) + " s",
+            onDecrease = {
+                store.setVadSettings(
+                    settings.vad.copy(
+                        minSpeechDurationSeconds =
+                            (settings.vad.minSpeechDurationSeconds - 0.05F).coerceAtLeast(0.05F),
+                    ),
+                )
+            },
+            onIncrease = {
+                store.setVadSettings(
+                    settings.vad.copy(
+                        minSpeechDurationSeconds =
+                            (settings.vad.minSpeechDurationSeconds + 0.05F).coerceAtMost(2F),
+                    ),
+                )
+            },
+        )
+        VadParameterRow(
+            title = "最长语音段",
+            value = settings.vad.maxSpeechDurationSeconds.toInt().toString() + " s",
+            onDecrease = {
+                store.setVadSettings(
+                    settings.vad.copy(
+                        maxSpeechDurationSeconds =
+                            (settings.vad.maxSpeechDurationSeconds - 5F).coerceAtLeast(5F),
+                    ),
+                )
+            },
+            onIncrease = {
+                store.setVadSettings(
+                    settings.vad.copy(
+                        maxSpeechDurationSeconds =
+                            (settings.vad.maxSpeechDurationSeconds + 5F).coerceAtMost(120F),
+                    ),
+                )
+            },
+        )
+        TextButton(
+            onClick = store::resetVadSettings,
+            modifier = Modifier.padding(horizontal = 8.dp),
+        ) {
+            Text("恢复 VAD 推荐值")
+        }
     }
+}
+
+@Composable
+private fun VadParameterRow(
+    title: String,
+    value: String,
+    onDecrease: () -> Unit,
+    onIncrease: () -> Unit,
+) {
+    ListItem(
+        headlineContent = { Text(title) },
+        trailingContent = {
+            Row {
+                TextButton(onClick = onDecrease) { Text("−") }
+                Text(
+                    value,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 12.dp),
+                )
+                TextButton(onClick = onIncrease) { Text("+") }
+            }
+        },
+    )
+}
+
+private fun formatVad(value: Float): String {
+    val rounded = kotlin.math.round(value * 100F) / 100F
+    return rounded.toString()
 }
 
 private fun performanceOptions() =
