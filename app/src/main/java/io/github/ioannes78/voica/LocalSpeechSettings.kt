@@ -12,12 +12,8 @@ object Stage13ARealtimeModelIds {
     const val CHINESE_LARGE_TRANSDUCER = "zipformer-large-zh-transducer-int8"
     const val CHINESE_LARGE_CTC = "zipformer-large-zh-ctc-int8"
 
-    val ALL =
-        listOf(
-            SMALL_BILINGUAL,
-            CHINESE_LARGE_TRANSDUCER,
-            CHINESE_LARGE_CTC,
-        )
+    /** Product matrix for Stage 13A QA5. The transducer runtime remains supported internally. */
+    val ALL = listOf(SMALL_BILINGUAL, CHINESE_LARGE_CTC)
 }
 
 enum class RealtimeAsrModelChoice {
@@ -32,12 +28,8 @@ object Stage13AOfflineModelIds {
     const val FIRERED_ASR2 = "fireredasr2-ctc-zh-en-int8"
     const val QWEN3_ASR = "qwen3-asr-0.6b-int8"
 
-    val ALL =
-        listOf(
-            SENSEVOICE,
-            FIRERED_ASR2,
-            QWEN3_ASR,
-        )
+    /** Product matrix for recording-file offline transcription. */
+    val ALL = listOf(SENSEVOICE, QWEN3_ASR)
 }
 
 enum class OfflineAsrQualityChoice {
@@ -51,7 +43,8 @@ object Stage13ASpeakerEmbeddingModelIds {
     const val ERES2NET = "3dspeaker-eres2net-base-zh-cn-16k"
     const val CAMP_PLUS = "3dspeaker-campplus-zh-cn-16k"
 
-    val ALL = listOf(ERES2NET, CAMP_PLUS)
+    /** CAM++ is the only Stage 13A QA5 product embedding model. */
+    val ALL = listOf(CAMP_PLUS)
 }
 
 enum class SpeakerEmbeddingModelChoice {
@@ -234,8 +227,8 @@ data class LocalVadSettings(
 }
 
 data class LocalSpeechSettings(
-    val realtimeAsrModel: RealtimeAsrModelChoice = RealtimeAsrModelChoice.AUTO,
-    val offlineAsrQuality: OfflineAsrQualityChoice = OfflineAsrQualityChoice.AUTO,
+    val realtimeAsrModel: RealtimeAsrModelChoice = RealtimeAsrModelChoice.SMALL_BILINGUAL,
+    val offlineAsrQuality: OfflineAsrQualityChoice = OfflineAsrQualityChoice.BALANCED,
     val performanceProfile: SpeechPerformanceProfile = SpeechPerformanceProfile.AUTO,
     val requestedThreads: Int? = null,
     val realtime: LocalRealtimeAsrSettings = LocalRealtimeAsrSettings(),
@@ -245,7 +238,7 @@ data class LocalSpeechSettings(
     val diarization: LocalDiarizationSettings = LocalDiarizationSettings(),
     val speakerCount: SpeakerCountChoice = SpeakerCountChoice.AUTO,
     val speakerEmbeddingModel: SpeakerEmbeddingModelChoice =
-        SpeakerEmbeddingModelChoice.ERES2NET,
+        SpeakerEmbeddingModelChoice.CAMP_PLUS,
 )
 
 data class ResolvedSpeechPerformance(
@@ -260,31 +253,30 @@ data class ResolvedSpeechPerformance(
     }
 }
 
+/**
+ * Only Small Bilingual and Large CTC are exposed by the QA5 product UI.
+ * Legacy enum values are intentionally mapped onto the current product defaults so they cannot
+ * select Large Transducer even if invoked by stale internal/test code.
+ */
 fun RealtimeAsrModelChoice.preferredModelIds(): List<String> =
     when (this) {
-        RealtimeAsrModelChoice.AUTO ->
-            listOf(
-                Stage13ARealtimeModelIds.CHINESE_LARGE_TRANSDUCER,
-                Stage13ARealtimeModelIds.CHINESE_LARGE_CTC,
-                Stage13ARealtimeModelIds.SMALL_BILINGUAL,
-            )
-        RealtimeAsrModelChoice.SMALL_BILINGUAL ->
-            listOf(Stage13ARealtimeModelIds.SMALL_BILINGUAL)
-        RealtimeAsrModelChoice.CHINESE_LARGE_TRANSDUCER ->
-            listOf(Stage13ARealtimeModelIds.CHINESE_LARGE_TRANSDUCER)
         RealtimeAsrModelChoice.CHINESE_LARGE_CTC ->
             listOf(Stage13ARealtimeModelIds.CHINESE_LARGE_CTC)
+        RealtimeAsrModelChoice.AUTO,
+        RealtimeAsrModelChoice.SMALL_BILINGUAL,
+        RealtimeAsrModelChoice.CHINESE_LARGE_TRANSDUCER,
+        -> listOf(Stage13ARealtimeModelIds.SMALL_BILINGUAL)
     }
 
+/** SenseVoice is the fast/default offline model; Qwen3-ASR is the high-quality model. */
 fun OfflineAsrQualityChoice.preferredModelIds(): List<String> =
     when (this) {
         OfflineAsrQualityChoice.AUTO,
         OfflineAsrQualityChoice.BALANCED,
         -> listOf(Stage13AOfflineModelIds.SENSEVOICE)
-        OfflineAsrQualityChoice.HIGH_QUALITY ->
-            listOf(Stage13AOfflineModelIds.FIRERED_ASR2)
-        OfflineAsrQualityChoice.ULTRA ->
-            listOf(Stage13AOfflineModelIds.QWEN3_ASR)
+        OfflineAsrQualityChoice.HIGH_QUALITY,
+        OfflineAsrQualityChoice.ULTRA,
+        -> listOf(Stage13AOfflineModelIds.QWEN3_ASR)
     }
 
 fun LocalSpeechSettings.resolvePerformance(
@@ -362,11 +354,11 @@ class SharedPreferencesLocalSpeechSettingsStore(
                 realtimeAsrModel =
                     preferences.getString(KEY_REALTIME_ASR_MODEL, null)
                         ?.let { runCatching { RealtimeAsrModelChoice.valueOf(it) }.getOrNull() }
-                        ?: RealtimeAsrModelChoice.AUTO,
+                        ?: RealtimeAsrModelChoice.SMALL_BILINGUAL,
                 offlineAsrQuality =
                     preferences.getString(KEY_OFFLINE_ASR_QUALITY, null)
                         ?.let { runCatching { OfflineAsrQualityChoice.valueOf(it) }.getOrNull() }
-                        ?: OfflineAsrQualityChoice.AUTO,
+                        ?: OfflineAsrQualityChoice.BALANCED,
                 performanceProfile =
                     preferences.getString(KEY_PERFORMANCE_PROFILE, null)
                         ?.let { runCatching { SpeechPerformanceProfile.valueOf(it) }.getOrNull() }
@@ -383,55 +375,48 @@ class SharedPreferencesLocalSpeechSettingsStore(
                     preferences.getString(KEY_SPEAKER_COUNT, null)
                         ?.let { runCatching { SpeakerCountChoice.valueOf(it) }.getOrNull() }
                         ?: SpeakerCountChoice.AUTO,
-                speakerEmbeddingModel =
-                    preferences.getString(KEY_SPEAKER_EMBEDDING_MODEL, null)
-                        ?.let {
-                            runCatching {
-                                SpeakerEmbeddingModelChoice.valueOf(it)
-                            }.getOrNull()
-                        }
-                        ?: SpeakerEmbeddingModelChoice.ERES2NET,
+                speakerEmbeddingModel = SpeakerEmbeddingModelChoice.CAMP_PLUS,
             ),
         )
 
-    override val settings: StateFlow<LocalSpeechSettings> =
-        mutableSettings.asStateFlow()
+    override val settings: StateFlow<LocalSpeechSettings> = mutableSettings.asStateFlow()
 
     override fun setRealtimeAsrModel(choice: RealtimeAsrModelChoice) {
-        preferences.edit()
-            .putString(KEY_REALTIME_ASR_MODEL, choice.name)
-            .apply()
-        mutableSettings.value =
-            mutableSettings.value.copy(realtimeAsrModel = choice)
+        val normalized =
+            if (choice == RealtimeAsrModelChoice.CHINESE_LARGE_CTC) {
+                choice
+            } else {
+                RealtimeAsrModelChoice.SMALL_BILINGUAL
+            }
+        preferences.edit().putString(KEY_REALTIME_ASR_MODEL, normalized.name).apply()
+        mutableSettings.value = mutableSettings.value.copy(realtimeAsrModel = normalized)
     }
 
     override fun setOfflineAsrQuality(choice: OfflineAsrQualityChoice) {
-        preferences.edit()
-            .putString(KEY_OFFLINE_ASR_QUALITY, choice.name)
-            .apply()
-        mutableSettings.value =
-            mutableSettings.value.copy(offlineAsrQuality = choice)
+        val normalized =
+            when (choice) {
+                OfflineAsrQualityChoice.HIGH_QUALITY,
+                OfflineAsrQualityChoice.ULTRA,
+                -> OfflineAsrQualityChoice.HIGH_QUALITY
+                OfflineAsrQualityChoice.AUTO,
+                OfflineAsrQualityChoice.BALANCED,
+                -> OfflineAsrQualityChoice.BALANCED
+            }
+        preferences.edit().putString(KEY_OFFLINE_ASR_QUALITY, normalized.name).apply()
+        mutableSettings.value = mutableSettings.value.copy(offlineAsrQuality = normalized)
     }
 
     override fun setPerformanceProfile(profile: SpeechPerformanceProfile) {
-        preferences.edit()
-            .putString(KEY_PERFORMANCE_PROFILE, profile.name)
-            .apply()
-        mutableSettings.value =
-            mutableSettings.value.copy(performanceProfile = profile)
+        preferences.edit().putString(KEY_PERFORMANCE_PROFILE, profile.name).apply()
+        mutableSettings.value = mutableSettings.value.copy(performanceProfile = profile)
     }
 
     override fun setRequestedThreads(threads: Int?) {
         require(threads == null || threads > 0)
         val editor = preferences.edit()
-        if (threads == null) {
-            editor.remove(KEY_REQUESTED_THREADS)
-        } else {
-            editor.putInt(KEY_REQUESTED_THREADS, threads)
-        }
+        if (threads == null) editor.remove(KEY_REQUESTED_THREADS) else editor.putInt(KEY_REQUESTED_THREADS, threads)
         editor.apply()
-        mutableSettings.value =
-            mutableSettings.value.copy(requestedThreads = threads)
+        mutableSettings.value = mutableSettings.value.copy(requestedThreads = threads)
     }
 
     override fun setRealtimeSettings(settings: LocalRealtimeAsrSettings) {
@@ -439,8 +424,7 @@ class SharedPreferencesLocalSpeechSettingsStore(
             .putString(KEY_REALTIME_DECODING_METHOD, settings.decodingMethod.name)
             .putInt(KEY_REALTIME_MAX_ACTIVE_PATHS, settings.maxActivePaths)
             .apply()
-        mutableSettings.value =
-            mutableSettings.value.copy(realtime = settings)
+        mutableSettings.value = mutableSettings.value.copy(realtime = settings)
     }
 
     override fun resetRealtimeSettings() {
@@ -449,20 +433,15 @@ class SharedPreferencesLocalSpeechSettingsStore(
             .remove(KEY_REALTIME_DECODING_METHOD)
             .remove(KEY_REALTIME_MAX_ACTIVE_PATHS)
             .apply()
-        mutableSettings.value =
-            mutableSettings.value.copy(realtime = defaults)
+        mutableSettings.value = mutableSettings.value.copy(realtime = defaults)
     }
 
     override fun setSenseVoiceSettings(settings: LocalSenseVoiceSettings) {
         preferences.edit()
             .putString(KEY_SENSEVOICE_LANGUAGE, settings.language.name)
-            .putBoolean(
-                KEY_SENSEVOICE_USE_ITN,
-                settings.useInverseTextNormalization,
-            )
+            .putBoolean(KEY_SENSEVOICE_USE_ITN, settings.useInverseTextNormalization)
             .apply()
-        mutableSettings.value =
-            mutableSettings.value.copy(senseVoice = settings)
+        mutableSettings.value = mutableSettings.value.copy(senseVoice = settings)
     }
 
     override fun resetSenseVoiceSettings() {
@@ -471,8 +450,7 @@ class SharedPreferencesLocalSpeechSettingsStore(
             .remove(KEY_SENSEVOICE_LANGUAGE)
             .remove(KEY_SENSEVOICE_USE_ITN)
             .apply()
-        mutableSettings.value =
-            mutableSettings.value.copy(senseVoice = defaults)
+        mutableSettings.value = mutableSettings.value.copy(senseVoice = defaults)
     }
 
     override fun setQwenSettings(settings: LocalQwenAsrSettings) {
@@ -523,21 +501,11 @@ class SharedPreferencesLocalSpeechSettingsStore(
 
     override fun setDiarizationSettings(settings: LocalDiarizationSettings) {
         preferences.edit()
-            .putBoolean(
-                KEY_DIARIZATION_AUTO_AFTER_TRANSCRIPTION,
-                settings.autoAfterTranscription,
-            )
-            .putFloat(
-                KEY_DIARIZATION_CLUSTERING_THRESHOLD,
-                settings.clusteringThreshold,
-            )
-            .putFloat(
-                KEY_DIARIZATION_STITCHING_COSINE_THRESHOLD,
-                settings.stitchingCosineThreshold,
-            )
+            .putBoolean(KEY_DIARIZATION_AUTO_AFTER_TRANSCRIPTION, settings.autoAfterTranscription)
+            .putFloat(KEY_DIARIZATION_CLUSTERING_THRESHOLD, settings.clusteringThreshold)
+            .putFloat(KEY_DIARIZATION_STITCHING_COSINE_THRESHOLD, settings.stitchingCosineThreshold)
             .apply()
-        mutableSettings.value =
-            mutableSettings.value.copy(diarization = settings)
+        mutableSettings.value = mutableSettings.value.copy(diarization = settings)
     }
 
     override fun resetDiarizationSettings() {
@@ -547,23 +515,19 @@ class SharedPreferencesLocalSpeechSettingsStore(
             .remove(KEY_DIARIZATION_CLUSTERING_THRESHOLD)
             .remove(KEY_DIARIZATION_STITCHING_COSINE_THRESHOLD)
             .apply()
-        mutableSettings.value =
-            mutableSettings.value.copy(diarization = defaults)
+        mutableSettings.value = mutableSettings.value.copy(diarization = defaults)
     }
 
     override fun setSpeakerCount(choice: SpeakerCountChoice) {
-        preferences.edit()
-            .putString(KEY_SPEAKER_COUNT, choice.name)
-            .apply()
+        preferences.edit().putString(KEY_SPEAKER_COUNT, choice.name).apply()
         mutableSettings.value = mutableSettings.value.copy(speakerCount = choice)
     }
 
+    /** Kept for source compatibility; Stage 13A QA5 always uses CAM++. */
     override fun setSpeakerEmbeddingModel(choice: SpeakerEmbeddingModelChoice) {
-        preferences.edit()
-            .putString(KEY_SPEAKER_EMBEDDING_MODEL, choice.name)
-            .apply()
+        preferences.edit().remove(KEY_SPEAKER_EMBEDDING_MODEL).apply()
         mutableSettings.value =
-            mutableSettings.value.copy(speakerEmbeddingModel = choice)
+            mutableSettings.value.copy(speakerEmbeddingModel = SpeakerEmbeddingModelChoice.CAMP_PLUS)
     }
 
     private companion object {
@@ -586,44 +550,28 @@ class SharedPreferencesLocalSpeechSettingsStore(
         const val KEY_VAD_MIN_SILENCE = "vad-min-silence"
         const val KEY_VAD_MIN_SPEECH = "vad-min-speech"
         const val KEY_VAD_MAX_SPEECH = "vad-max-speech"
-        const val KEY_DIARIZATION_AUTO_AFTER_TRANSCRIPTION =
-            "diarization-auto-after-transcription"
-        const val KEY_DIARIZATION_CLUSTERING_THRESHOLD =
-            "diarization-clustering-threshold"
-        const val KEY_DIARIZATION_STITCHING_COSINE_THRESHOLD =
-            "diarization-stitching-cosine-threshold"
+        const val KEY_DIARIZATION_AUTO_AFTER_TRANSCRIPTION = "diarization-auto-after-transcription"
+        const val KEY_DIARIZATION_CLUSTERING_THRESHOLD = "diarization-clustering-threshold"
+        const val KEY_DIARIZATION_STITCHING_COSINE_THRESHOLD = "diarization-stitching-cosine-threshold"
         const val KEY_SPEAKER_COUNT = "speaker-count"
         const val KEY_SPEAKER_EMBEDDING_MODEL = "speaker-embedding-model"
 
-        fun readRealtimeSettings(
-            preferences: android.content.SharedPreferences,
-        ): LocalRealtimeAsrSettings =
+        fun readRealtimeSettings(preferences: android.content.SharedPreferences): LocalRealtimeAsrSettings =
             runCatching {
                 LocalRealtimeAsrSettings(
                     decodingMethod =
                         preferences.getString(KEY_REALTIME_DECODING_METHOD, null)
-                            ?.let {
-                                runCatching {
-                                    RealtimeDecodingMethod.valueOf(it)
-                                }.getOrNull()
-                            }
+                            ?.let { runCatching { RealtimeDecodingMethod.valueOf(it) }.getOrNull() }
                             ?: RealtimeDecodingMethod.GREEDY_SEARCH,
-                    maxActivePaths =
-                        preferences.getInt(KEY_REALTIME_MAX_ACTIVE_PATHS, 4),
+                    maxActivePaths = preferences.getInt(KEY_REALTIME_MAX_ACTIVE_PATHS, 4),
                 )
             }.getOrDefault(LocalRealtimeAsrSettings())
 
-        fun readSenseVoiceSettings(
-            preferences: android.content.SharedPreferences,
-        ): LocalSenseVoiceSettings =
+        fun readSenseVoiceSettings(preferences: android.content.SharedPreferences): LocalSenseVoiceSettings =
             LocalSenseVoiceSettings(
                 language =
                     preferences.getString(KEY_SENSEVOICE_LANGUAGE, null)
-                        ?.let {
-                            runCatching {
-                                SenseVoiceLanguageChoice.valueOf(it)
-                            }.getOrNull()
-                        }
+                        ?.let { runCatching { SenseVoiceLanguageChoice.valueOf(it) }.getOrNull() }
                         ?: SenseVoiceLanguageChoice.AUTO,
                 useInverseTextNormalization =
                     preferences.getBoolean(
@@ -632,9 +580,7 @@ class SharedPreferencesLocalSpeechSettingsStore(
                     ),
             )
 
-        fun readQwenSettings(
-            preferences: android.content.SharedPreferences,
-        ): LocalQwenAsrSettings =
+        fun readQwenSettings(preferences: android.content.SharedPreferences): LocalQwenAsrSettings =
             runCatching {
                 LocalQwenAsrSettings(
                     maxTotalLen = preferences.getInt(KEY_QWEN_MAX_TOTAL_LEN, 512),
@@ -646,41 +592,25 @@ class SharedPreferencesLocalSpeechSettingsStore(
                 )
             }.getOrDefault(LocalQwenAsrSettings())
 
-        fun readDiarizationSettings(
-            preferences: android.content.SharedPreferences,
-        ): LocalDiarizationSettings =
+        fun readDiarizationSettings(preferences: android.content.SharedPreferences): LocalDiarizationSettings =
             runCatching {
                 LocalDiarizationSettings(
                     autoAfterTranscription =
-                        preferences.getBoolean(
-                            KEY_DIARIZATION_AUTO_AFTER_TRANSCRIPTION,
-                            true,
-                        ),
+                        preferences.getBoolean(KEY_DIARIZATION_AUTO_AFTER_TRANSCRIPTION, true),
                     clusteringThreshold =
-                        preferences.getFloat(
-                            KEY_DIARIZATION_CLUSTERING_THRESHOLD,
-                            0.5F,
-                        ),
+                        preferences.getFloat(KEY_DIARIZATION_CLUSTERING_THRESHOLD, 0.5F),
                     stitchingCosineThreshold =
-                        preferences.getFloat(
-                            KEY_DIARIZATION_STITCHING_COSINE_THRESHOLD,
-                            0.75F,
-                        ),
+                        preferences.getFloat(KEY_DIARIZATION_STITCHING_COSINE_THRESHOLD, 0.75F),
                 )
             }.getOrDefault(LocalDiarizationSettings())
 
-        fun readVadSettings(
-            preferences: android.content.SharedPreferences,
-        ): LocalVadSettings =
+        fun readVadSettings(preferences: android.content.SharedPreferences): LocalVadSettings =
             runCatching {
                 LocalVadSettings(
                     threshold = preferences.getFloat(KEY_VAD_THRESHOLD, 0.5F),
-                    minSilenceDurationSeconds =
-                        preferences.getFloat(KEY_VAD_MIN_SILENCE, 0.25F),
-                    minSpeechDurationSeconds =
-                        preferences.getFloat(KEY_VAD_MIN_SPEECH, 0.25F),
-                    maxSpeechDurationSeconds =
-                        preferences.getFloat(KEY_VAD_MAX_SPEECH, 30F),
+                    minSilenceDurationSeconds = preferences.getFloat(KEY_VAD_MIN_SILENCE, 0.25F),
+                    minSpeechDurationSeconds = preferences.getFloat(KEY_VAD_MIN_SPEECH, 0.25F),
+                    maxSpeechDurationSeconds = preferences.getFloat(KEY_VAD_MAX_SPEECH, 30F),
                 )
             }.getOrDefault(LocalVadSettings())
     }
