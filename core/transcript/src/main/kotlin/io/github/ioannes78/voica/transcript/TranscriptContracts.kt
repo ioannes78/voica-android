@@ -1,7 +1,9 @@
 package io.github.ioannes78.voica.transcript
 
 import io.github.ioannes78.voica.audio.PcmSource
+import io.github.ioannes78.voica.model.AsrExecutionMode
 import io.github.ioannes78.voica.model.ModelDescriptor
+import io.github.ioannes78.voica.model.TimestampCapability
 import java.io.Closeable
 import kotlin.math.roundToLong
 
@@ -14,6 +16,12 @@ enum class PunctuationCapability {
 enum class TranscriptionMode {
     FAST,
     HIGH_QUALITY,
+}
+
+enum class AsrHypothesisStability {
+    PARTIAL,
+    STABLE,
+    FINAL,
 }
 
 enum class TranscriptionState {
@@ -76,6 +84,16 @@ data class AsrCapabilities(
     val supportsInverseTextNormalization: Boolean,
     val punctuationCapability: PunctuationCapability,
     val supportsSecondPass: Boolean,
+    val executionMode: AsrExecutionMode =
+        when {
+            supportsStreaming -> AsrExecutionMode.TRUE_STREAMING
+            supportsSecondPass -> AsrExecutionMode.SECOND_PASS
+            else -> AsrExecutionMode.OFFLINE
+        },
+    val timestampCapability: TimestampCapability =
+        if (supportsTokenTiming) TimestampCapability.TOKEN else TimestampCapability.NONE,
+    val supportsLanguageForcing: Boolean = false,
+    val supportsHotwords: Boolean = false,
 )
 
 data class AsrHypothesis(
@@ -85,6 +103,8 @@ data class AsrHypothesis(
     val confidence: Float? = null,
     val punctuationCapability: PunctuationCapability,
     val isFinal: Boolean,
+    val stability: AsrHypothesisStability =
+        if (isFinal) AsrHypothesisStability.FINAL else AsrHypothesisStability.PARTIAL,
 )
 
 data class TranscriptToken(

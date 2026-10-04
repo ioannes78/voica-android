@@ -56,6 +56,9 @@ object ModelCatalogCodec {
         val compatibility = obj.requiredObject("compatibility")
         val license = obj.requiredObject("license")
         val capabilities = obj.requiredObject("capabilities")
+        val supportsStreaming = capabilities.boolean("supportsStreaming")
+        val supportsTokenTiming = capabilities.boolean("supportsTokenTiming")
+        val supportsSecondPass = capabilities.boolean("supportsSecondPass")
 
         return ModelDescriptor(
             modelId = obj.requiredString("modelId"),
@@ -71,15 +74,41 @@ object ModelCatalogCodec {
             },
             capabilities =
                 ModelCapabilities(
-                    supportsStreaming = capabilities.boolean("supportsStreaming"),
+                    supportsStreaming = supportsStreaming,
                     supportsPartial = capabilities.boolean("supportsPartial"),
-                    supportsTokenTiming = capabilities.boolean("supportsTokenTiming"),
+                    supportsTokenTiming = supportsTokenTiming,
                     supportsLanguageDetection = capabilities.boolean("supportsLanguageDetection"),
                     supportsConfidence = capabilities.boolean("supportsConfidence"),
                     supportsInverseTextNormalization =
                         capabilities.boolean("supportsInverseTextNormalization"),
-                    supportsSecondPass = capabilities.boolean("supportsSecondPass"),
+                    supportsSecondPass = supportsSecondPass,
                     supportsHotwords = capabilities.boolean("supportsHotwords"),
+                    executionMode =
+                        capabilities.optionalString("executionMode")?.let {
+                            enumValueOf<AsrExecutionMode>(it)
+                        } ?: when {
+                            supportsStreaming -> AsrExecutionMode.TRUE_STREAMING
+                            supportsSecondPass -> AsrExecutionMode.SECOND_PASS
+                            else -> AsrExecutionMode.OFFLINE
+                        },
+                    timestampCapability =
+                        capabilities.optionalString("timestampCapability")?.let {
+                            enumValueOf<TimestampCapability>(it)
+                        } ?: if (supportsTokenTiming) {
+                            TimestampCapability.TOKEN
+                        } else {
+                            TimestampCapability.NONE
+                        },
+                    supportsLanguageForcing =
+                        capabilities.optionalBoolean("supportsLanguageForcing") ?: false,
+                    punctuationMode =
+                        capabilities.optionalString("punctuationMode")?.let {
+                            enumValueOf<ModelPunctuationMode>(it)
+                        } ?: ModelPunctuationMode.NONE,
+                    supportedParameters =
+                        capabilities["supportedParameters"]?.jsonArray?.mapTo(linkedSetOf()) {
+                            it.jsonPrimitive.content
+                        } ?: emptySet(),
                 ),
             sourceType = enumValueOf(obj.requiredString("sourceType")),
             builtinAssetPath = obj.optionalString("builtinAssetPath"),
@@ -129,6 +158,10 @@ object ModelCatalogCodec {
                 obj.optionalString("speakerRole")?.let {
                     enumValueOf<SpeakerModelRole>(it)
                 },
+            quantization = obj.optionalString("quantization"),
+            recommendedDeviceTier = obj.optionalString("recommendedDeviceTier"),
+            estimatedPeakRamBytes = obj.optionalLong("estimatedPeakRamBytes"),
+            recommendedProfile = obj.optionalString("recommendedProfile"),
         )
     }
 
