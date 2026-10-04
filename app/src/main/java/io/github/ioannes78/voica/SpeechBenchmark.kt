@@ -358,6 +358,7 @@ class SpeechBenchmarkRunner(
                             engineProvider.secondPassFactory(
                                 model = secondPass,
                                 numThreads = effectiveThreads,
+                                senseVoiceSettings = settings.senseVoice,
                                 qwenSettings = settings.qwen,
                             ),
                         punctuationEngineFactory =

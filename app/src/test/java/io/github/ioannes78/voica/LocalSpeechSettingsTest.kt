@@ -92,6 +92,17 @@ class LocalSpeechSettingsTest {
     }
 
     @Test
+    fun senseVoiceDefaultsPreserveAutoLanguageAndItn() {
+        val senseVoice = LocalSenseVoiceSettings()
+
+        assertEquals(SenseVoiceLanguageChoice.AUTO, senseVoice.language)
+        assertEquals("", senseVoice.language.runtimeValue)
+        assertEquals(true, senseVoice.useInverseTextNormalization)
+        assertEquals("zh", SenseVoiceLanguageChoice.ZH.runtimeValue)
+        assertEquals("yue", SenseVoiceLanguageChoice.YUE.runtimeValue)
+    }
+
+    @Test
     fun qwenDefaultsMatchSherpaRuntimeDefaults() {
         val qwen = LocalQwenAsrSettings()
 

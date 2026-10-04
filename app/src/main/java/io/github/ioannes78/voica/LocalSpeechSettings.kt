@@ -128,6 +128,22 @@ fun SpeakerCountChoice.toDiarizationConfig(
             )
     }
 
+enum class SenseVoiceLanguageChoice(
+    val runtimeValue: String,
+) {
+    AUTO(""),
+    ZH("zh"),
+    EN("en"),
+    JA("ja"),
+    KO("ko"),
+    YUE("yue"),
+}
+
+data class LocalSenseVoiceSettings(
+    val language: SenseVoiceLanguageChoice = SenseVoiceLanguageChoice.AUTO,
+    val useInverseTextNormalization: Boolean = true,
+)
+
 data class LocalQwenAsrSettings(
     val maxTotalLen: Int = 512,
     val maxNewTokens: Int = 128,
@@ -179,6 +195,7 @@ data class LocalSpeechSettings(
     val offlineAsrQuality: OfflineAsrQualityChoice = OfflineAsrQualityChoice.AUTO,
     val performanceProfile: SpeechPerformanceProfile = SpeechPerformanceProfile.AUTO,
     val requestedThreads: Int? = null,
+    val senseVoice: LocalSenseVoiceSettings = LocalSenseVoiceSettings(),
     val qwen: LocalQwenAsrSettings = LocalQwenAsrSettings(),
     val vad: LocalVadSettings = LocalVadSettings(),
     val diarization: LocalDiarizationSettings = LocalDiarizationSettings(),
@@ -261,6 +278,10 @@ interface LocalSpeechSettingsStore {
 
     fun setRequestedThreads(threads: Int?)
 
+    fun setSenseVoiceSettings(settings: LocalSenseVoiceSettings)
+
+    fun resetSenseVoiceSettings()
+
     fun setQwenSettings(settings: LocalQwenAsrSettings)
 
     fun resetQwenSettings()
@@ -305,6 +326,7 @@ class SharedPreferencesLocalSpeechSettingsStore(
                 requestedThreads =
                     preferences.getInt(KEY_REQUESTED_THREADS, 0)
                         .takeIf { it > 0 },
+                senseVoice = readSenseVoiceSettings(preferences),
                 qwen = readQwenSettings(preferences),
                 vad = readVadSettings(preferences),
                 diarization = readDiarizationSettings(preferences),
@@ -361,6 +383,28 @@ class SharedPreferencesLocalSpeechSettingsStore(
         editor.apply()
         mutableSettings.value =
             mutableSettings.value.copy(requestedThreads = threads)
+    }
+
+    override fun setSenseVoiceSettings(settings: LocalSenseVoiceSettings) {
+        preferences.edit()
+            .putString(KEY_SENSEVOICE_LANGUAGE, settings.language.name)
+            .putBoolean(
+                KEY_SENSEVOICE_USE_ITN,
+                settings.useInverseTextNormalization,
+            )
+            .apply()
+        mutableSettings.value =
+            mutableSettings.value.copy(senseVoice = settings)
+    }
+
+    override fun resetSenseVoiceSettings() {
+        val defaults = LocalSenseVoiceSettings()
+        preferences.edit()
+            .remove(KEY_SENSEVOICE_LANGUAGE)
+            .remove(KEY_SENSEVOICE_USE_ITN)
+            .apply()
+        mutableSettings.value =
+            mutableSettings.value.copy(senseVoice = defaults)
     }
 
     override fun setQwenSettings(settings: LocalQwenAsrSettings) {
@@ -460,6 +504,8 @@ class SharedPreferencesLocalSpeechSettingsStore(
         const val KEY_OFFLINE_ASR_QUALITY = "offline-asr-quality"
         const val KEY_PERFORMANCE_PROFILE = "performance-profile"
         const val KEY_REQUESTED_THREADS = "requested-threads"
+        const val KEY_SENSEVOICE_LANGUAGE = "sensevoice-language"
+        const val KEY_SENSEVOICE_USE_ITN = "sensevoice-use-itn"
         const val KEY_QWEN_MAX_TOTAL_LEN = "qwen-max-total-len"
         const val KEY_QWEN_MAX_NEW_TOKENS = "qwen-max-new-tokens"
         const val KEY_QWEN_TEMPERATURE = "qwen-temperature"
@@ -478,6 +524,22 @@ class SharedPreferencesLocalSpeechSettingsStore(
             "diarization-stitching-cosine-threshold"
         const val KEY_SPEAKER_COUNT = "speaker-count"
         const val KEY_SPEAKER_EMBEDDING_MODEL = "speaker-embedding-model"
+
+        fun readSenseVoiceSettings(
+            preferences: android.content.SharedPreferences,
+        ): LocalSenseVoiceSettings =
+            LocalSenseVoiceSettings(
+                language =
+                    preferences.getString(KEY_SENSEVOICE_LANGUAGE, null)
+                        ?.let {
+                            runCatching {
+                                SenseVoiceLanguageChoice.valueOf(it)
+                            }.getOrNull()
+                        }
+                        ?: SenseVoiceLanguageChoice.AUTO,
+                useInverseTextNormalization =
+                    preferences.getBoolean(KEY_SENSEVOICE_USE_ITN, true),
+            )
 
         fun readQwenSettings(
             preferences: android.content.SharedPreferences,

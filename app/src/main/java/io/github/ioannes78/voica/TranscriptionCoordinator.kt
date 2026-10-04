@@ -116,6 +116,7 @@ interface Stage8TranscriptionEngineProvider {
     fun secondPassFactory(
         model: ActiveModel,
         numThreads: Int,
+        senseVoiceSettings: LocalSenseVoiceSettings = LocalSenseVoiceSettings(),
         qwenSettings: LocalQwenAsrSettings = LocalQwenAsrSettings(),
     ): SecondPassAsrEngineFactory
 }
@@ -196,6 +197,7 @@ class SherpaStage8TranscriptionEngineProvider(
     override fun secondPassFactory(
         model: ActiveModel,
         numThreads: Int,
+        senseVoiceSettings: LocalSenseVoiceSettings,
         qwenSettings: LocalQwenAsrSettings,
     ): SecondPassAsrEngineFactory {
         require(
@@ -211,7 +213,13 @@ class SherpaStage8TranscriptionEngineProvider(
                     SherpaSenseVoiceEngine(
                         model = model.descriptor,
                         modelDirectory = directory,
-                        settings = SenseVoiceSettings(numThreads = numThreads),
+                        settings =
+                            SenseVoiceSettings(
+                                numThreads = numThreads,
+                                language = senseVoiceSettings.language.runtimeValue,
+                                useInverseTextNormalization =
+                                    senseVoiceSettings.useInverseTextNormalization,
+                            ),
                     )
                 ModelKind.ASR_LARGE ->
                     createSherpaLargeOfflineAsrEngine(
@@ -414,9 +422,10 @@ class TranscriptionCoordinator(
                                     ),
                                 secondPassAsrEngineFactory =
                                     engineProvider.secondPassFactory(
-                                        secondPass,
-                                        models.performance.effectiveThreads,
-                                        models.qwenSettings,
+                                        model = secondPass,
+                                        numThreads = models.performance.effectiveThreads,
+                                        senseVoiceSettings = models.senseVoiceSettings,
+                                        qwenSettings = models.qwenSettings,
                                     ),
                                 punctuationEngineFactory =
                                     engineProvider.punctuationFactory(
@@ -587,6 +596,7 @@ class TranscriptionCoordinator(
             realtimeAsrFallbackUsed = resolvedFirstPass.fallbackUsed,
             offlineAsrQualityChoice = settings.offlineAsrQuality,
             performance = performance,
+            senseVoiceSettings = settings.senseVoice,
             qwenSettings = settings.qwen,
             vadSettings = settings.vad,
         )
@@ -622,7 +632,7 @@ class TranscriptionCoordinator(
             secondPassAsrModelVersion = models.secondPass?.descriptor?.version,
             punctuationModelId = models.punctuation.descriptor.modelId,
             punctuationModelVersion = models.punctuation.descriptor.version,
-            languageConfig = "auto",
+            languageConfig = models.effectiveLanguageConfig(),
             configSnapshot = configSnapshot(mode, models),
             modelManifestDigest = lineageDigest(modelList),
             vadModelRevision = models.vad.descriptor.revision,
@@ -693,6 +703,7 @@ class TranscriptionCoordinator(
         val realtimeAsrFallbackUsed: Boolean,
         val offlineAsrQualityChoice: OfflineAsrQualityChoice,
         val performance: ResolvedSpeechPerformance,
+        val senseVoiceSettings: LocalSenseVoiceSettings,
         val qwenSettings: LocalQwenAsrSettings,
         val vadSettings: LocalVadSettings,
     ) {
@@ -726,7 +737,8 @@ class TranscriptionCoordinator(
         buildString {
             append("{\"schemaVersion\":2,\"mode\":")
             appendJsonString(mode.name)
-            append(",\"language\":\"auto\"")
+            append(",\"language\":")
+            appendJsonString(models.effectiveLanguageConfig())
             append(",\"realtimeAsrModel\":")
             appendJsonString(models.realtimeAsrChoice.name)
             append(",\"offlineAsrQuality\":")
@@ -736,6 +748,16 @@ class TranscriptionCoordinator(
             append(",\"requestedThreads\":")
             val requestedThreads = models.performance.requestedThreads
             if (requestedThreads == null) append("null") else append(requestedThreads)
+            if (
+                mode == TranscriptionMode.HIGH_QUALITY &&
+                (
+                    models.offlineAsrQualityChoice == OfflineAsrQualityChoice.AUTO ||
+                        models.offlineAsrQualityChoice == OfflineAsrQualityChoice.BALANCED
+                )
+            ) {
+                append(",\"senseVoice\":")
+                appendSenseVoiceSnapshot(models.senseVoiceSettings)
+            }
             if (
                 mode == TranscriptionMode.HIGH_QUALITY &&
                 models.offlineAsrQualityChoice == OfflineAsrQualityChoice.ULTRA
@@ -755,7 +777,8 @@ class TranscriptionCoordinator(
         buildString {
             append("{\"schemaVersion\":2,\"mode\":")
             appendJsonString(mode.name)
-            append(",\"language\":\"auto\"")
+            append(",\"language\":")
+            appendJsonString(models.effectiveLanguageConfig())
             append(",\"realtimeAsrModelId\":")
             appendJsonString(models.firstPass.descriptor.modelId)
             append(",\"realtimeAsrFallbackUsed\":")
@@ -771,6 +794,10 @@ class TranscriptionCoordinator(
             append(models.performance.effectiveThreads)
             append(",\"logicalProcessors\":")
             append(models.performance.logicalProcessors)
+            if (offlineAsrModelId == Stage13AOfflineModelIds.SENSEVOICE) {
+                append(",\"senseVoice\":")
+                appendSenseVoiceSnapshot(models.senseVoiceSettings)
+            }
             if (offlineAsrModelId == Stage13AOfflineModelIds.QWEN3_ASR) {
                 append(",\"qwen\":")
                 appendQwenSnapshot(models.qwenSettings)
@@ -808,6 +835,21 @@ class TranscriptionCoordinator(
             }
             append("]}")
         }
+
+    private fun ActiveModels.effectiveLanguageConfig(): String =
+        if (secondPass?.descriptor?.modelId == Stage13AOfflineModelIds.SENSEVOICE) {
+            senseVoiceSettings.language.runtimeValue.ifBlank { "auto" }
+        } else {
+            "auto"
+        }
+
+    private fun StringBuilder.appendSenseVoiceSnapshot(settings: LocalSenseVoiceSettings) {
+        append("{\"language\":")
+        appendJsonString(settings.language.runtimeValue.ifBlank { "auto" })
+        append(",\"useInverseTextNormalization\":")
+            .append(settings.useInverseTextNormalization)
+        append('}')
+    }
 
     private fun StringBuilder.appendQwenSnapshot(settings: LocalQwenAsrSettings) {
         append("{\"maxTotalLen\":").append(settings.maxTotalLen)
