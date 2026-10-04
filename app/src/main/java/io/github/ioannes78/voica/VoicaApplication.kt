@@ -102,6 +102,8 @@ class AppContainer(
         SharedPreferencesModelUpdateSettingsStore(application)
     val themeSettingsStore =
         SharedPreferencesThemeSettingsStore(application)
+    val localSpeechSettingsStore =
+        SharedPreferencesLocalSpeechSettingsStore(application)
     val modelUpdateController =
         ModelUpdateController(
             modelManager = modelManager,
@@ -164,6 +166,7 @@ class AppContainer(
                 SherpaStage8TranscriptionEngineProvider(
                     assetManager = application.assets,
                 ),
+            localSpeechSettings = { localSpeechSettingsStore.settings.value },
             isRecordingActive = recordingLibraryRepository::isRecordingActive,
         )
 

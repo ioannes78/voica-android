@@ -176,6 +176,7 @@ class TranscriptionCoordinator(
     private val modelManager: ModelManager,
     private val modelUseRegistry: ModelUseRegistry,
     private val engineProvider: Stage8TranscriptionEngineProvider,
+    private val localSpeechSettings: () -> LocalSpeechSettings = { LocalSpeechSettings() },
     private val isRecordingActive: suspend (String) -> Boolean = { true },
 ) {
     private val lock = Any()
@@ -405,10 +406,11 @@ class TranscriptionCoordinator(
     }
 
     private suspend fun resolveActiveModels(mode: TranscriptionMode): ActiveModels {
+        val settings = localSpeechSettings()
+        val firstPassSelection = resolveRealtimeAsr(settings.realtimeAsrModel)
         val requiredIds =
             buildList {
                 add(Stage8ModelIds.VAD)
-                add(Stage8ModelIds.FIRST_PASS_ASR)
                 add(Stage8ModelIds.PUNCTUATION)
                 if (mode == TranscriptionMode.HIGH_QUALITY) {
                     add(Stage8ModelIds.SECOND_PASS_ASR)
@@ -427,7 +429,7 @@ class TranscriptionCoordinator(
         }
         return ActiveModels(
             vad = checkNotNull(active[Stage8ModelIds.VAD]),
-            firstPass = checkNotNull(active[Stage8ModelIds.FIRST_PASS_ASR]),
+            firstPass = firstPassSelection.model,
             punctuation = checkNotNull(active[Stage8ModelIds.PUNCTUATION]),
             secondPass =
                 if (mode == TranscriptionMode.HIGH_QUALITY) {
@@ -435,6 +437,32 @@ class TranscriptionCoordinator(
                 } else {
                     null
                 },
+            realtimeAsrChoice = settings.realtimeAsrModel,
+            realtimeAsrFallbackUsed = firstPassSelection.fallbackUsed,
+        )
+    }
+
+    private suspend fun resolveRealtimeAsr(
+        choice: RealtimeAsrModelChoice,
+    ): ResolvedRealtimeAsr {
+        val candidates = choice.preferredModelIds()
+        for ((index, modelId) in candidates.withIndex()) {
+            val model = modelManager.activeModel(modelId) ?: continue
+            require(model.descriptor.kind == ModelKind.ASR_STREAMING) {
+                "selected realtime ASR is not ASR_STREAMING: $modelId"
+            }
+            return ResolvedRealtimeAsr(
+                model = model,
+                fallbackUsed = choice == RealtimeAsrModelChoice.AUTO && index > 0,
+            )
+        }
+
+        throw MissingTranscriptionModelsException(
+            if (choice == RealtimeAsrModelChoice.AUTO) {
+                Stage13ARealtimeModelIds.ALL
+            } else {
+                candidates
+            },
         )
     }
 
@@ -469,15 +497,15 @@ class TranscriptionCoordinator(
             punctuationModelId = models.punctuation.descriptor.modelId,
             punctuationModelVersion = models.punctuation.descriptor.version,
             languageConfig = "auto",
-            configSnapshot = configSnapshot(mode, modelList),
+            configSnapshot = configSnapshot(mode, models),
             modelManifestDigest = lineageDigest(modelList),
             vadModelRevision = models.vad.descriptor.revision,
             firstPassAsrModelRevision = models.firstPass.descriptor.revision,
             secondPassAsrModelRevision = models.secondPass?.descriptor?.revision,
             punctuationModelRevision = models.punctuation.descriptor.revision,
             configSnapshotSchemaVersion = 2,
-            requestedConfigSnapshot = requestedConfigSnapshot(mode),
-            effectiveConfigSnapshot = effectiveConfigSnapshot(mode, modelList),
+            requestedConfigSnapshot = requestedConfigSnapshot(mode, models),
+            effectiveConfigSnapshot = effectiveConfigSnapshot(mode, models),
         )
     }
 
@@ -535,10 +563,17 @@ class TranscriptionCoordinator(
         val firstPass: ActiveModel,
         val punctuation: ActiveModel,
         val secondPass: ActiveModel?,
+        val realtimeAsrChoice: RealtimeAsrModelChoice,
+        val realtimeAsrFallbackUsed: Boolean,
     ) {
         val all: List<ActiveModel>
             get() = listOfNotNull(vad, firstPass, punctuation, secondPass)
     }
+
+    private data class ResolvedRealtimeAsr(
+        val model: ActiveModel,
+        val fallbackUsed: Boolean,
+    )
 
     private data class CompletedPipeline(
         val segments: List<TranscriptSegment>,
@@ -547,30 +582,38 @@ class TranscriptionCoordinator(
 
     private fun configSnapshot(
         mode: TranscriptionMode,
-        models: List<ActiveModel>,
+        models: ActiveModels,
     ): String {
-        val requested = requestedConfigSnapshot(mode)
+        val requested = requestedConfigSnapshot(mode, models)
         val effective = effectiveConfigSnapshot(mode, models)
         return "{\"schemaVersion\":2,\"requested\":$requested,\"effective\":$effective}"
     }
 
-    private fun requestedConfigSnapshot(mode: TranscriptionMode): String =
-        buildString {
-            append("{\"schemaVersion\":2,\"mode\":")
-            appendJsonString(mode.name)
-            append(",\"language\":\"auto\"")
-            append(",\"performanceProfile\":\"AUTO\"")
-            append(",\"modelSelection\":\"LEGACY_MODE_MAPPING\"}")
-        }
-
-    private fun effectiveConfigSnapshot(
+    private fun requestedConfigSnapshot(
         mode: TranscriptionMode,
-        models: List<ActiveModel>,
+        models: ActiveModels,
     ): String =
         buildString {
             append("{\"schemaVersion\":2,\"mode\":")
             appendJsonString(mode.name)
             append(",\"language\":\"auto\"")
+            append(",\"realtimeAsrModel\":")
+            appendJsonString(models.realtimeAsrChoice.name)
+            append('}')
+        }
+
+    private fun effectiveConfigSnapshot(
+        mode: TranscriptionMode,
+        models: ActiveModels,
+    ): String =
+        buildString {
+            append("{\"schemaVersion\":2,\"mode\":")
+            appendJsonString(mode.name)
+            append(",\"language\":\"auto\"")
+            append(",\"realtimeAsrModelId\":")
+            appendJsonString(models.firstPass.descriptor.modelId)
+            append(",\"realtimeAsrFallbackUsed\":")
+            append(models.realtimeAsrFallbackUsed)
             append(",\"runtime\":{\"id\":")
             appendJsonString(SherpaRuntime.RUNTIME_ID)
             append(",\"version\":")
@@ -578,7 +621,7 @@ class TranscriptionCoordinator(
             append(",\"provider\":")
             appendJsonString(SherpaRuntime.PROVIDER_CPU)
             append("},\"models\":[")
-            models.forEachIndexed { index, model ->
+            models.all.forEachIndexed { index, model ->
                 if (index > 0) append(',')
                 append("{\"id\":")
                 appendJsonString(model.descriptor.modelId)
