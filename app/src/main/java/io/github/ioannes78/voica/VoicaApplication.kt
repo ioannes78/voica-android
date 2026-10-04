@@ -227,6 +227,17 @@ class AppContainer(
             isRecordingActive = recordingLibraryRepository::isRecordingActive,
         )
 
+    val autoDiarizationPostProcessor =
+        AutoDiarizationPostProcessor(
+            application = application,
+            scope = applicationScope,
+            transcriptionCoordinator = transcriptionCoordinator,
+            transcriptionRepository = transcriptionRepository,
+            diarizationCoordinator = diarizationCoordinator,
+            diarizationRepository = diarizationRepository,
+            localSpeechSettings = { localSpeechSettingsStore.settings.value },
+        )
+
     val playbackController =
         AndroidPlaybackController(
             context = application,
@@ -332,6 +343,7 @@ class AppContainer(
             canonicalAudioCoordinator.reconcileOnStartup()
             transcriptionCoordinator.reconcileOnStartup()
             diarizationCoordinator.reconcileOnStartup()
+            autoDiarizationPostProcessor.recoverPendingOnStartup()
             aiSummaryRepository.reconcileInterruptedOnStartup()
             searchIndexRebuilder.rebuildIfRequired()
         }
