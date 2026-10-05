@@ -1,266 +1,204 @@
-# Voica Stage 13A — QA5 真机验收
+# Voica Stage 13A — 本地语音引擎 V2 真机验收
 
-状态：**QA5 候选 / 待真机验收 / 未冻结**
+状态：**QA5 候选 / 待用户真机验收 / 未冻结**
 
-## 1. 候选基线
+## 1. QA5 候选基线
 
 - 分支：`stage13a-local-speech-engine-v2`
-- PR：#15（Draft / 未合并）
+- PR：#15（Draft / `[APK]`）
+- HEAD：`d947397b01bd2261521ab68a1c04f0d6f0cb5e7a`
 - versionCode：45
 - versionName：`0.13.0-stage13a-qa5`
-- QA Application ID：`io.github.ioannes78.voica.qa`
 - Room schema：7
 - ABI：arm64-v8a
 - sherpa-onnx：1.13.8
-- production model manifest：**本阶段不修改**
-- 真机可继续使用 `candidate-stage13a-all-r1` 作为 Debug 候选来源；QA5 App 会在 catalog 边界仅保留最终产品模型矩阵。
+- Android PR CI：#680 success
+- QA Application ID：`io.github.ioannes78.voica.qa`
+- production model channel：保持不变
 
-本轮允许卸载旧 QA App 后全新安装，因此不做覆盖安装、旧 SharedPreferences 或旧 QA 数据库迁移验收。
+QA5 按**全新安装**验收，不做旧 QA 版本覆盖升级兼容测试。
 
-## 2. QA5 最终模型矩阵
+## 2. 最终产品模型矩阵
 
-### 离线转写
+### 离线录音文件转写
 
-- [ ] 快速 · SenseVoice（默认）
-- [ ] 高质量 · Qwen3-ASR 0.6B INT8
-- [ ] FireRedASR2 不再出现在产品模型清单/设置/转写入口
+- [ ] SenseVoice INT8：快速 / 默认
+- [ ] Qwen3-ASR 0.6B INT8：高质量
+- [ ] FireRedASR2 不出现在产品模型列表与离线转写设置
 
-### 实时转写（为后续 Stage 15/16 准备）
+### 未来实时转写
 
-- [ ] 轻量 · Small Bilingual（默认）
-- [ ] 高质量 · Chinese Large CTC INT8
-- [ ] 不显示 AUTO
-- [ ] 不显示 Large Transducer
-- [ ] 不显示 Modified Beam Search
-- [ ] 不显示 Max Active Paths
+- [ ] Small Bilingual Zipformer INT8：轻量 / 默认
+- [ ] Chinese Large CTC INT8：高质量
+- [ ] Large Transducer 不出现在产品模型列表与实时转写设置
+- [ ] 不显示 AUTO / Modified Beam / Max Active Paths 等 Transducer 产品选项
 
 ### 说话人分离
 
-- [ ] Pyannote Segmentation 3.0 INT8
-- [ ] CAM++
-- [ ] 不显示 ERes2Net 选择
-- [ ] 普通用户不需要选择 Speaker Embedding 模型
+- [ ] Pyannote Segmentation 3.0 INT8 + CAM++
+- [ ] ERes2Net 不出现在产品模型列表与说话人设置
+- [ ] 用户不需要选择 embedding 模型
 
-### 其他
+### 其它
 
 - [ ] Silero VAD
 - [ ] CT-Transformer punctuation
 
-## 3. 全新安装准备
+## 3. 全新安装与模型页
 
-1. 卸载旧 QA App。
+1. 卸载当前 QA App。
 2. 安装 QA5 APK。
-3. 打开“设置 → 本地模型 → 开发选项”。
-4. 使用 Stage 13A 全量候选清单。
-5. 完全退出并重新打开 App。
-6. 检查模型列表。
+3. 打开设置 → 本地模型 / 开发选项。
+4. 使用 Stage 13A 候选源并刷新模型列表。
 
-验收：
+确认：
 
-- [ ] 本地模型页最终只显示 QA5 产品矩阵中的模型
-- [ ] FireRedASR2 / Large Transducer / ERes2Net 不显示
-- [ ] production channel 未被改写
+- [ ] App 正常启动，无闪退
+- [ ] 最终产品只接受：Silero、CT、SenseVoice、Qwen3-ASR、Small Bilingual、Large CTC、Pyannote、CAM++
+- [ ] FireRedASR2 不可见
+- [ ] Chinese Large Transducer 不可见
+- [ ] ERes2Net 不可见
+- [ ] production channel 未被修改
+- [ ] 模型下载失败/取消后不会显示伪“已安装”
+- [ ] 模型验证失败时 App 不退出，并显示可理解错误
 
-## 4. “本地语音识别”页面
+## 4. “本地语音识别”页面产品化
 
-页面应为四个一级折叠区：
+进入：设置 → 本地语音识别。
 
-### 4.1 离线转写
+### 离线转写（默认展开）
 
-默认展开。
-
-- [ ] 只显示“快速 · SenseVoice”与“高质量 · Qwen3-ASR”
-- [ ] 当前选择清晰显示在折叠标题摘要中
+- [ ] 仅显示 SenseVoice / Qwen3-ASR 两个选择
 - [ ] 默认 SenseVoice
-- [ ] 选择 SenseVoice 时显示语言与 ITN
-- [ ] 选择 Qwen 时显示 maxTotalLen / maxNewTokens / temperature / topP / seed / hotwords
+- [ ] 当前选择清晰可见
+- [ ] SenseVoice 选中时可展开语言、ITN
+- [ ] Qwen 选中时可展开 maxTotalLen / maxNewTokens / temperature / topP / seed / hotwords
 
-### 4.2 实时转写
+### 实时转写（默认折叠）
 
-默认折叠。
+- [ ] 仅显示 Small Bilingual / Large CTC
+- [ ] 默认 Small Bilingual
+- [ ] 明确说明该设置用于未来“录音 + 实时转写”，不影响当前录音文件离线转写
 
-- [ ] 只显示 Small Bilingual / Large CTC
-- [ ] 明确提示“用于后续边录边转写，不影响当前录音文件的离线转写”
+### 说话人分离（默认折叠）
 
-### 4.3 说话人分离
-
-默认折叠。
-
-- [ ] 转写后自动说话人分离开关
-- [ ] 说话人数：自动 / 1 / 2 / 3 / 4 / 5+
-- [ ] 高级设置包含自动聚类阈值、跨分块相似度阈值
+- [ ] 自动说话人分离开关存在
+- [ ] 人数可选 Auto / 1 / 2 / 3 / 4 / 5+
+- [ ] 高级设置可调 clustering threshold / 跨分块相似度阈值
 - [ ] 不显示 CAM++ / ERes2Net 模型选择器
 
-### 4.4 性能与语音检测
+### 性能与语音检测（默认折叠）
 
-默认折叠。
+- [ ] 性能模式可调
+- [ ] CPU threads 可调
+- [ ] VAD threshold / min silence / min speech / max speech 可调
 
-- [ ] 性能模式
-- [ ] CPU 线程数
-- [ ] VAD threshold
-- [ ] min silence
-- [ ] min speech
-- [ ] max speech
+### 产品文案
 
-## 5. 录音文件离线转写统一入口
+- [ ] 不显示“第一遍识别 / 第二遍识别 / 二遍 ASR / first-pass / second-pass”等工程术语
+- [ ] 不显示 Speech Benchmark / Diarization Benchmark 产品入口
 
-录音详情 → 转写：
+## 5. 统一离线转写入口
 
-- [ ] 只有一个主要动作“开始离线转写”
-- [ ] 不再同时提供“快速转写 / 高质量转写”两个入口
-- [ ] 模型由“设置 → 本地语音识别 → 离线转写”决定
-- [ ] 未生成标准音频时先显示生成/取消标准音频动作
+进入任意本地录音详情 → 转写。
 
-## 6. SenseVoice 离线转写
+- [ ] 只显示一个主要动作：`开始离线转写`
+- [ ] 不再显示“快速转写 / 高质量转写”两个独立按钮
+- [ ] 当前离线模型由设置页决定
+- [ ] 运行时显示实际模型名
 
-准备一条 1–3 分钟普通话录音，最好包含数字、日期、英文词和多个停顿。
+### SenseVoice
 
-### ITN 关闭
+设置 SenseVoice 后：
 
-- [ ] VAD → SenseVoice → CT-Transformer → 保存
-- [ ] 转写完成
-- [ ] 标点自然
-- [ ] punctuation-only token 不形成独立 speaker/timeline cue
-- [ ] 运行时只有实际执行 CT 时显示“正在处理标点…”
-- [ ] 结果顶部显示“SenseVoice · 快速”
+- [ ] 可直接开始离线转写
+- [ ] 运行状态显示 `离线转写 · SenseVoice`
+- [ ] 结果显示 `SenseVoice · 快速`
+- [ ] 不要求 Small Bilingual / Large CTC 才能完成正文识别
 
-### ITN 开启
+ITN=关闭：
 
-- [ ] SenseVoice 原生 ITN/文本处理生效
-- [ ] 不运行 CT-Transformer
-- [ ] 不显示“正在处理标点…”
-- [ ] 不出现独立“。/，/？”说话人段
-- [ ] 结果顶部仍显示“SenseVoice · 快速”
+- [ ] 使用 CT-Transformer 标点
+- [ ] 标点与正文保持正常段落关系
+- [ ] 不出现独立标点 speaker 段
 
-## 7. Qwen3-ASR 离线转写
+ITN=开启：
 
-- [ ] Qwen3-ASR 可独立完成最终文本
-- [ ] 结果顶部显示“Qwen3-ASR · 高质量”
-- [ ] 不显示“第一遍 / 第二遍 / 二次 ASR”等工程文案
-- [ ] 若 Small Bilingual 已启用，可作为内部后置时间轴 alignment 使用
-- [ ] 后置 alignment 时用户只看到“正在生成时间轴…”
-- [ ] alignment 不得覆盖 Qwen 最终文本
-- [ ] alignment 失败只降级时间轴，不把 Qwen 最终文本标记失败
-- [ ] 未启用 Small Bilingual 时仍可完成 Qwen 转写并退化为 segment timeline
+- [ ] 使用 SenseVoice 原生 ITN/标点
+- [ ] 不重复运行 CT
+- [ ] 不出现重复标点
 
-## 8. 自动说话人分离
+### Qwen3-ASR
 
-设置“转写后自动说话人分离”= 开。
+设置 Qwen3-ASR 后：
 
-- [ ] SenseVoice 转写后自动运行
-- [ ] Qwen 转写后自动运行
-- [ ] 离开录音详情页后任务仍能完成
-- [ ] 同一录音已有 compatible completed diarization 时，新转写版本复用 Speaker Turns，只重新做 Speaker Alignment
-- [ ] 不重复跑重型 embedding/clustering
-- [ ] 失败可手动重试，不形成无限自动重试
+- [ ] 可直接开始离线转写
+- [ ] 运行状态显示 `离线转写 · Qwen3-ASR`
+- [ ] 结果显示 `Qwen3-ASR · 高质量`
+- [ ] Qwen 最终文字不被 Small Bilingual 的 alignment 文本覆盖
+- [ ] 没有 Small Bilingual timing model 时仍可完成转写，并退化为安全时间轴
+- [ ] 有 Small Bilingual 时可作为后置时间轴对齐辅助
+- [ ] alignment 失败只作为 warning，不把 Qwen 正文转写标记失败
 
-## 9. CAM++ / Speaker Auto 专项
+## 6. 自动说话人分离 + CAM++
+
+设置 → 本地语音识别 → 自动说话人分离 = 开。
+
+- [ ] 转写完成后自动触发
+- [ ] 离开录音详情页后仍能完成
+- [ ] 自动任务不重复创建
+- [ ] 已有兼容 completed diarization 时可复用并重新做 speaker alignment
+- [ ] 手动重新运行 diarization 使用 CAM++
+- [ ] 失败可重试，不无限自动重试
+
+### Auto Speaker 质量门槛
 
 至少准备：
 
 1. 单人录音
-2. 双人录音
-3. 3～4 人录音
+2. 两人对话
+3. 3–4 人多人录音
 
-记录每条录音真实人数与识别人数。
+确认：
 
-### 单人
+- [ ] 单人录音不会明显碎成大量 speaker
+- [ ] 两人录音可稳定区分主要两人
+- [ ] 3–4 人录音不会明显合并/碎裂到不可用
+- [ ] 固定人数 1 / 2 / 3 / 4 严格遵守
+- [ ] 5+ 使用受控上限
 
-- [ ] Auto 不再明显碎成大量 speaker
-- [ ] 固定 1 人严格得到 1 个 speaker
+若单人仍明显被拆成很多 speaker，本项视为 QA5 blocker，需要继续调 clustering / stitching / anchor 聚合 / speaker merge。
 
-### 双人
-
-- [ ] Auto 不错误合并成 1 人
-- [ ] 不明显碎裂成大量 speaker
-- [ ] 固定 2 人结果稳定
-
-### 3～4 人
-
-- [ ] speaker 数基本稳定
-- [ ] 跨 chunk 身份连续性可接受
-- [ ] 固定人数约束正常
-
-高级参数回归：
-
-- [ ] clustering threshold 只影响 Auto
-- [ ] stitching cosine threshold 生效
-- [ ] stitching threshold 调高不会被误解为“更容易合并”；越高应越严格
-
-若单人仍出现类似 1 → 6 的严重碎片化，QA5 不直接判定通过，应继续调整 clustering / stitching / anchor aggregation / speaker merge。
-
-## 10. 性能与 VAD
-
-- [ ] 自动 / 省电 / 均衡 / 性能模式正常
-- [ ] 手动 CPU threads 受设备核心数与 8 线程安全上限约束
-- [ ] VAD threshold / min silence / min speech / max speech 可调
-- [ ] 恢复推荐值正常
-
-## 11. Benchmark 已退出产品
-
-QA5 不再使用 Benchmark 做模型选型。
-
-- [ ] 录音详情无 Speech Benchmark
-- [ ] 录音详情无 Diarization Benchmark
-- [ ] 无 Benchmark 产品入口
-- [ ] Benchmark 自动退出问题不再作为 QA5 阻塞项
-
-必须继续保留并回归：
-
-- [ ] isolated model validator
-- [ ] 模型 SHA / 文件完整性校验
-- [ ] native runtime smoke/验证
-- [ ] sherpa runtime probe
-
-## 12. 用户文案
-
-整个普通用户 UI 检查：
-
-- [ ] 不出现“第一遍识别”
-- [ ] 不出现“第二遍识别”
-- [ ] 不出现“二遍 ASR”
-- [ ] 不出现 `first-pass` / `second-pass`
-- [ ] 使用“离线转写 / 实时转写 / 正在识别 / 正在生成时间轴 / 标点处理 / 说话人分离”等产品语言
-
-内部 Kotlin enum、Room state、数据库字段可以继续保留 `FIRST_PASS / SECOND_PASS`。
-
-## 13. 核心功能回归
+## 7. 核心回归
 
 - [ ] BLE 连接 / 自动连接 / 电量 / 容量 / Firmware
 - [ ] 开始 / 暂停 / 继续 / 停止录音
 - [ ] 设备文件刷新 / OPUS / WAV 下载 / 删除
 - [ ] 本地录音库 / 导入 / canonical WAV
 - [ ] 播放 / seek / Audio Focus / Mini Player
-- [ ] 离线转写
-- [ ] 时间轴 / 播放同步
+- [ ] SenseVoice 离线转写
+- [ ] Qwen3-ASR 高质量离线转写
+- [ ] Stage 10 时间轴 / 播放同步
 - [ ] 自动说话人分离 / speaker alignment
 - [ ] 转写阅读稿 / 编辑 / 版本 / 搜索
 - [ ] AI 总结 / Provider / Model 选择
 - [ ] 全局任务状态
 - [ ] BLE Diagnostics
 
-## 14. CI Gate
+## 8. QA5 通过条件
 
-- [ ] Unit tests 通过
-- [ ] Debug/QA build 通过
-- [ ] Room schema 校验通过，仍为 v7
-- [ ] QA signing identity 校验通过
-- [ ] APK artifact 成功上传
+以下全部满足后，用户明确回复 `测试通过`：
 
-## 15. QA5 完成条件
+- [ ] QA5 页面与模型矩阵符合最终产品设计
+- [ ] SenseVoice 真机转写通过
+- [ ] Qwen3-ASR 真机转写通过
+- [ ] CAM++ Auto Speaker 的 1 / 2 / 3–4 人场景达到可用水平
+- [ ] 核心功能无新增阻断回归
+- [ ] production model channel 未修改
 
-只有用户明确回复：
+在用户明确 `测试通过` 前：
 
-**“测试通过”**
-
-之后才可以进入 QA6：
-
-- Recording Detail V2
-- 转写 / AI 总结最终内容生命周期收口
-
-在此之前：
-
-- 不 Freeze
+- 不创建 Freeze/Handoff
 - 不 merge PR #15
-- 不修改 production model channel
 - 不进入 Stage 13B
+- 不提升 Stage 13A candidate 到 production model channel
