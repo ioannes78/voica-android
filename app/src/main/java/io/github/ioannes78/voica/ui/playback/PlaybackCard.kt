@@ -1,21 +1,34 @@
 package io.github.ioannes78.voica.ui.playback
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Forward10
+import androidx.compose.material.icons.outlined.GraphicEq
+import androidx.compose.material.icons.outlined.Pause
+import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Replay10
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,11 +38,15 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.audio.CanonicalPcmProfile
@@ -51,6 +68,7 @@ fun PlaybackCard(
     onRetry: () -> Unit,
     waveform: WaveformOverviewResult = WaveformOverviewResult.Unavailable,
 ) {
+    @Suppress("UNUSED_VARIABLE") val ignoredRecordingName = recordingName
     val totalSamples = snapshot.durationSampleCount.coerceAtLeast(0L)
     var dragging by remember(snapshot.recordingId) { mutableStateOf(false) }
     var previewRatio by remember(snapshot.recordingId) { mutableFloatStateOf(0f) }
@@ -99,23 +117,64 @@ fun PlaybackCard(
         onSeek(target)
     }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            ),
+    ) {
         Column(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(
-                    playbackStateText(snapshot.state),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Icon(
+                    imageVector = Icons.Outlined.GraphicEq,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp),
+                )
+                Box(
+                    modifier =
+                        Modifier
+                            .size(9.dp)
+                            .background(
+                                if (snapshot.state == PlaybackState.PLAYING) {
+                                    MaterialTheme.colorScheme.tertiary
+                                } else {
+                                    MaterialTheme.colorScheme.outline
+                                },
+                                CircleShape,
+                            ),
                 )
                 Text(
-                    formatPlaybackTime(displaySample) + " / " + formatPlaybackTime(totalSamples),
-                    style = MaterialTheme.typography.bodySmall,
+                    playbackStateText(snapshot.state),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    formatPlaybackTime(displaySample),
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    "/ " + formatPlaybackTime(totalSamples),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 3.dp),
                 )
             }
 
@@ -135,6 +194,20 @@ fun PlaybackCard(
                         )
                     },
                 )
+            } else {
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .height(92.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "波形暂不可用",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
 
             RoundProgressTrack(
@@ -150,52 +223,104 @@ fun PlaybackCard(
                     )
                 },
             )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    formatPlaybackTime(displaySample),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    formatPlaybackTime(totalSamples),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                OutlinedButton(
+                SeekControl(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Outlined.Replay10,
+                    label = "-10s",
+                    enabled = totalSamples > 0L && controlsEnabled,
                     onClick = {
                         onSeek((displaySample - SEEK_STEP_SAMPLES).coerceAtLeast(0L))
                     },
-                    enabled = totalSamples > 0L && controlsEnabled,
-                    modifier = Modifier.weight(1f),
-                ) { Text("-10s") }
+                )
 
-                when (snapshot.state) {
-                    PlaybackState.PLAYING ->
-                        Button(onClick = onPause, modifier = Modifier.weight(1f)) {
-                            Text(stringResource(R.string.playback_pause))
-                        }
-                    PlaybackState.ERROR ->
-                        Button(onClick = onRetry, modifier = Modifier.weight(1f)) {
-                            Text(stringResource(R.string.playback_retry))
-                        }
-                    PlaybackState.PREPARING,
-                    PlaybackState.SEEKING,
-                    PlaybackState.RELEASED,
-                    PlaybackState.IDLE,
-                    ->
-                        Button(onClick = {}, enabled = false, modifier = Modifier.weight(1f)) {
-                            Text(stringResource(R.string.playback_play))
-                        }
-                    else ->
-                        Button(onClick = onPlay, modifier = Modifier.weight(1f)) {
-                            Text(stringResource(R.string.playback_play))
-                        }
+                val transportEnabled =
+                    snapshot.state !in
+                        setOf(
+                            PlaybackState.PREPARING,
+                            PlaybackState.SEEKING,
+                            PlaybackState.RELEASED,
+                            PlaybackState.IDLE,
+                        )
+                val transportIcon =
+                    when (snapshot.state) {
+                        PlaybackState.PLAYING -> Icons.Outlined.Pause
+                        PlaybackState.ERROR -> Icons.Outlined.Refresh
+                        else -> Icons.Outlined.PlayArrow
+                    }
+                val transportLabel =
+                    when (snapshot.state) {
+                        PlaybackState.PLAYING -> stringResource(R.string.playback_pause)
+                        PlaybackState.ERROR -> stringResource(R.string.playback_retry)
+                        else -> stringResource(R.string.playback_play)
+                    }
+                val transportClick =
+                    when (snapshot.state) {
+                        PlaybackState.PLAYING -> onPause
+                        PlaybackState.ERROR -> onRetry
+                        else -> onPlay
+                    }
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Button(
+                        onClick = transportClick,
+                        enabled = transportEnabled,
+                        modifier = Modifier.size(86.dp),
+                        shape = CircleShape,
+                        contentPadding = PaddingValues(0.dp),
+                    ) {
+                        Icon(
+                            imageVector = transportIcon,
+                            contentDescription = transportLabel,
+                            modifier = Modifier.size(40.dp),
+                        )
+                    }
+                    Text(
+                        transportLabel,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
                 }
 
-                OutlinedButton(
+                SeekControl(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Outlined.Forward10,
+                    label = "+10s",
+                    enabled = totalSamples > 0L && controlsEnabled,
                     onClick = {
                         onSeek((displaySample + SEEK_STEP_SAMPLES).coerceAtMost(totalSamples))
                     },
-                    enabled = totalSamples > 0L && controlsEnabled,
-                    modifier = Modifier.weight(1f),
-                ) { Text("+10s") }
+                )
             }
 
-            Text("播放速度", style = MaterialTheme.typography.labelLarge)
+            Text(
+                "播放速度",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
             SegmentedSpeedControl(
                 selectedSpeed = snapshot.speed,
                 enabled = controlsEnabled,
@@ -214,6 +339,49 @@ fun PlaybackCard(
 }
 
 @Composable
+private fun SeekControl(
+    modifier: Modifier,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Surface(
+            modifier =
+                Modifier
+                    .size(66.dp)
+                    .clickable(enabled = enabled, onClick = onClick),
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            contentColor =
+                if (enabled) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                },
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = label,
+                    modifier = Modifier.size(32.dp),
+                )
+            }
+        }
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
 private fun WaveformSeekOverview(
     amplitudes: List<Float>,
     progress: Float,
@@ -223,12 +391,12 @@ private fun WaveformSeekOverview(
     onTapSeek: (Double) -> Unit,
 ) {
     val playedColor = MaterialTheme.colorScheme.primary
-    val remainingColor = MaterialTheme.colorScheme.surfaceVariant
+    val remainingColor = MaterialTheme.colorScheme.outlineVariant
     Canvas(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .height(72.dp)
+                .height(92.dp)
                 .pointerInput(enabled) {
                     if (!enabled) return@pointerInput
                     detectTapGestures { offset ->
@@ -255,12 +423,12 @@ private fun WaveformSeekOverview(
         val progressX = progress.coerceIn(0f, 1f) * size.width
         amplitudes.forEachIndexed { index, value ->
             val x = step * (index + 0.5f)
-            val halfHeight = (value.coerceIn(0.04f, 1f) * size.height * 0.44f)
+            val halfHeight = value.coerceIn(0.05f, 1f) * size.height * 0.45f
             drawLine(
                 color = if (x <= progressX) playedColor else remainingColor,
                 start = Offset(x, centerY - halfHeight),
                 end = Offset(x, centerY + halfHeight),
-                strokeWidth = (step * 0.42f).coerceAtLeast(2f),
+                strokeWidth = (step * 0.48f).coerceIn(2f, 7f),
                 cap = StrokeCap.Round,
             )
         }
@@ -276,12 +444,13 @@ private fun RoundProgressTrack(
     onTapSeek: (Double) -> Unit,
 ) {
     val active = MaterialTheme.colorScheme.primary
-    val inactive = MaterialTheme.colorScheme.surfaceVariant
+    val inactive = MaterialTheme.colorScheme.outlineVariant
+    val thumbRing = MaterialTheme.colorScheme.surface
     Canvas(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .height(22.dp)
+                .height(26.dp)
                 .pointerInput(enabled) {
                     if (!enabled) return@pointerInput
                     detectTapGestures { offset ->
@@ -304,9 +473,10 @@ private fun RoundProgressTrack(
     ) {
         val y = size.height / 2f
         val x = progress.coerceIn(0f, 1f) * size.width
-        drawLine(inactive, Offset(0f, y), Offset(size.width, y), strokeWidth = 3f, cap = StrokeCap.Round)
-        drawLine(active, Offset(0f, y), Offset(x, y), strokeWidth = 3f, cap = StrokeCap.Round)
-        drawCircle(color = active, radius = 7f, center = Offset(x, y))
+        drawLine(inactive, Offset(0f, y), Offset(size.width, y), strokeWidth = 6f, cap = StrokeCap.Round)
+        drawLine(active, Offset(0f, y), Offset(x, y), strokeWidth = 6f, cap = StrokeCap.Round)
+        drawCircle(color = thumbRing, radius = 12f, center = Offset(x, y))
+        drawCircle(color = active, radius = 8f, center = Offset(x, y))
     }
 }
 
@@ -316,35 +486,45 @@ private fun SegmentedSpeedControl(
     enabled: Boolean,
     onSpeed: (Float) -> Unit,
 ) {
-    Row(modifier = Modifier.fillMaxWidth()) {
-        SUPPORTED_SPEEDS.forEachIndexed { index, speed ->
-            val selected = kotlin.math.abs(selectedSpeed - speed) < 0.01f
-            val shape =
-                when (index) {
-                    0 -> RoundedCornerShape(topStart = 10.dp, bottomStart = 10.dp)
-                    SUPPORTED_SPEEDS.lastIndex -> RoundedCornerShape(topEnd = 10.dp, bottomEnd = 10.dp)
-                    else -> RoundedCornerShape(0.dp)
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        color = MaterialTheme.colorScheme.surface,
+    ) {
+        Row(
+            modifier = Modifier.padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            SUPPORTED_SPEEDS.forEach { speed ->
+                val selected = kotlin.math.abs(selectedSpeed - speed) < 0.01f
+                Surface(
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .clickable(enabled = enabled) { onSpeed(speed) },
+                    shape = RoundedCornerShape(18.dp),
+                    color =
+                        if (selected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            Color.Transparent
+                        },
+                    contentColor =
+                        if (selected) {
+                            MaterialTheme.colorScheme.onPrimary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                ) {
+                    Text(
+                        text = formatSpeed(speed),
+                        modifier = Modifier.padding(vertical = 10.dp),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                        textAlign = TextAlign.Center,
+                    )
                 }
-            Surface(
-                modifier =
-                    Modifier
-                        .weight(1f)
-                        .clickable(enabled = enabled) { onSpeed(speed) },
-                shape = shape,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                color =
-                    if (selected) {
-                        MaterialTheme.colorScheme.secondaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surface
-                    },
-            ) {
-                Text(
-                    text = formatSpeed(speed),
-                    modifier = Modifier.padding(vertical = 9.dp),
-                    style = MaterialTheme.typography.labelMedium,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                )
             }
         }
     }
