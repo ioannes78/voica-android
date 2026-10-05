@@ -1,8 +1,14 @@
 # Voica Stage 13A Handoff
 
-状态：**Stage 13A 已完成 / 已真机验收 / 已冻结**
+> **SUPERSEDED / PREMATURE CLOSURE**
+>
+> 本文件记录 QA5 后曾发生的 Stage 13A 过早 Handoff，作为历史证据保留，不删除、不回滚。
+> 自 2026-10-05 QA6 开发重新打开后，当前治理状态以 `docs/STAGE_13A_QA6_DEVELOPMENT.md` 为准：Stage 13A = IN PROGRESS，QA5 = ACCEPTED，QA6 = IN DEVELOPMENT，Stage 13B = BLOCKED。
+> QA6 经用户真机明确“测试通过”并重新完成 Final Freeze/Handoff 前，不得按本文件启动 Stage 13B。
 
-下一阶段：**Stage 13B — 稳定性、后台与真实长录音专项**
+状态：**历史记录 / 已被 QA6 reopening supersede**
+
+下一阶段：**Stage 13B — 当前 BLOCKED**
 
 ## 1. 接管原则
 
@@ -193,14 +199,12 @@ Stage 13B 正式负责：
 
 ## 12. Stage 13B 开发门禁
 
-开始 Stage 13B 时：
+本节为历史 Handoff 原门禁。QA6 reopening 后附加门禁优先：
 
-1. 重新读取 GitHub `main`。
-2. 确认 Stage 13A 已合并。
-3. 重新核对 Room v7、最终模型矩阵与 production model-channel 状态。
-4. 输出 Stage 13B 修订需求。
-5. 等用户确认。
-6. 输出 Stage 13B 修订开发规划。
-7. 再次确认后才创建开发分支和编码。
+1. QA6 完成代码、测试、PR CI 与 QA APK；
+2. 用户明确真机“测试通过”；
+3. 重新创建 Stage 13A Final Freeze/Handoff；
+4. merge QA6 PR 并核验 main；
+5. Stage 13B 才可解锁。
 
-不得因为稳定性/后台工作破坏 Stage 13A 已冻结的模型矩阵、canonical sample timeline、transcription lineage、speaker alignment 与 AI Summary cancellation 语义。
+在此之前不得启动 Stage 13B 编码。
