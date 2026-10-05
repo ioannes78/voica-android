@@ -57,6 +57,21 @@ interface TranscriptionDao {
 
     @Query(
         """
+        SELECT * FROM transcriptions
+        WHERE recordingId = :recordingId
+          AND state = 'COMPLETED'
+          AND id != :excludedId
+        ORDER BY completedAtMs DESC, createdAtMs DESC
+        LIMIT 1
+        """,
+    )
+    suspend fun findLatestCompletedExcluding(
+        recordingId: String,
+        excludedId: String,
+    ): TranscriptionEntity?
+
+    @Query(
+        """
         SELECT * FROM transcript_segments
         WHERE transcriptionId = :transcriptionId
         ORDER BY segmentIndex ASC

@@ -2,7 +2,6 @@ package io.github.ioannes78.voica.database
 
 import io.github.ioannes78.voica.ai.AiSummaryRevisionCodec
 import io.github.ioannes78.voica.ai.SummaryResultCodec
-import kotlinx.coroutines.flow.first
 
 class SearchIndexRebuilder(
     private val database: VoicaDatabase,
@@ -12,10 +11,11 @@ class SearchIndexRebuilder(
     private val transcriptionDao = database.transcriptionDao()
     private val aiSummaryDao = database.aiSummaryDao()
     private val contentDao = database.stage12cContentDao()
+    private val searchDao = database.searchDao()
 
     suspend fun rebuildIfRequired() {
         val state = searchRepository.state()
-        if (state?.status != SearchIndexStatusValue.READY) {
+        if (state?.status != SearchIndexStatusValue.READY || !isEffectiveOnlyIndex()) {
             rebuildAll()
         }
     }
@@ -27,27 +27,15 @@ class SearchIndexRebuilder(
             recordingDao.allRecordings()
                 .filter { it.state == RecordingState.ACTIVE }
                 .forEach { recording ->
-                    reindexRecording(recording)
+                    indexRecording(recording)
                     count += 1L
+                    resolveCurrentTranscription(recording.id)?.let { transcription ->
+                        count += reindexTranscriptionInternal(transcription)
+                    }
+                    resolveCurrentAiSummary(recording.id)?.let { summary ->
+                        count += reindexAiSummaryInternal(summary)
+                    }
                 }
-
-            recordingDao.observeFolders().first().forEach { folder ->
-                reindexFolder(folder)
-                count += 1L
-            }
-
-            recordingDao.observeTags().first().forEach { tag ->
-                reindexTag(tag)
-                count += 1L
-            }
-
-            transcriptionDao.loadAllCompleted().forEach { transcription ->
-                count += reindexTranscriptionInternal(transcription)
-            }
-
-            aiSummaryDao.loadAllCompleted().forEach { summary ->
-                count += reindexAiSummaryInternal(summary)
-            }
 
             searchRepository.markReady(count)
         } catch (error: Throwable) {
@@ -57,36 +45,42 @@ class SearchIndexRebuilder(
     }
 
     suspend fun reindexRecording(recordingId: String) {
-        searchRepository.delete("recording:" + recordingId)
+        reindexEffectiveRecording(recordingId)
+    }
+
+    suspend fun reindexEffectiveRecording(recordingId: String) {
+        searchRepository.deleteForRecording(recordingId)
         val recording =
             recordingDao.allRecordings().firstOrNull {
                 it.id == recordingId && it.state == RecordingState.ACTIVE
             } ?: return
-        reindexRecording(recording)
+        indexRecording(recording)
+        resolveCurrentTranscription(recordingId)?.let { reindexTranscriptionInternal(it) }
+        resolveCurrentAiSummary(recordingId)?.let { reindexAiSummaryInternal(it) }
     }
 
     suspend fun reindexFolder(folderId: String) {
-        searchRepository.delete("folder:" + folderId)
-        recordingDao.findFolder(folderId)?.let { reindexFolder(it) }
+        searchRepository.deleteForFolder(folderId)
     }
 
     suspend fun reindexTag(tagId: String) {
-        searchRepository.delete("tag:" + tagId)
-        recordingDao.findTag(tagId)?.let { reindexTag(it) }
+        searchRepository.deleteForTag(tagId)
     }
 
     suspend fun reindexTranscription(transcriptionId: String) {
         searchRepository.deleteForTranscription(transcriptionId)
-        val transcription = transcriptionDao.findTranscription(transcriptionId)
-        if (transcription?.state == TranscriptionStateValue.COMPLETED) {
+        val transcription = transcriptionDao.findTranscription(transcriptionId) ?: return
+        if (transcription.state != TranscriptionStateValue.COMPLETED) return
+        if (resolveCurrentTranscription(transcription.recordingId)?.id == transcription.id) {
             reindexTranscriptionInternal(transcription)
         }
     }
 
     suspend fun reindexAiSummary(summaryId: String) {
         searchRepository.deleteForAiSummary(summaryId)
-        val summary = aiSummaryDao.findSummary(summaryId)
-        if (summary?.status == AiSummaryStateValue.COMPLETED) {
+        val summary = aiSummaryDao.findSummary(summaryId) ?: return
+        if (summary.status != AiSummaryStateValue.COMPLETED) return
+        if (resolveCurrentAiSummary(summary.recordingId)?.id == summary.id) {
             reindexAiSummaryInternal(summary)
         }
     }
@@ -96,14 +90,49 @@ class SearchIndexRebuilder(
     }
 
     suspend fun removeTranscription(transcriptionId: String) {
+        val transcription = transcriptionDao.findTranscription(transcriptionId)
         searchRepository.deleteForTranscription(transcriptionId)
+        transcription?.recordingId?.let { reindexEffectiveRecording(it) }
     }
 
     suspend fun removeAiSummary(summaryId: String) {
+        val summary = aiSummaryDao.findSummary(summaryId)
         searchRepository.deleteForAiSummary(summaryId)
+        summary?.recordingId?.let { reindexEffectiveRecording(it) }
     }
 
-    private suspend fun reindexRecording(recording: RecordingEntity) {
+    private suspend fun isEffectiveOnlyIndex(): Boolean {
+        if (searchDao.countLegacyProductSearchRows() != 0) return false
+        val activeRecordings = recordingDao.allRecordings().filter { it.state == RecordingState.ACTIVE }
+        val expectedTranscriptions =
+            activeRecordings.mapNotNull { resolveCurrentTranscription(it.id)?.id }.toSet()
+        val expectedSummaries =
+            activeRecordings.mapNotNull { resolveCurrentAiSummary(it.id)?.id }.toSet()
+        val indexedTranscriptions = searchDao.findIndexedTranscriptionIds().toSet()
+        val indexedSummaries = searchDao.findIndexedAiSummaryIds().toSet()
+        return indexedTranscriptions == expectedTranscriptions &&
+            indexedSummaries == expectedSummaries
+    }
+
+    private suspend fun resolveCurrentTranscription(recordingId: String): TranscriptionEntity? {
+        val selectedId = contentDao.findContentSelection(recordingId)?.currentTranscriptionId
+        val selected = selectedId?.let { transcriptionDao.findTranscription(it) }
+        if (selected?.recordingId == recordingId && selected.state == TranscriptionStateValue.COMPLETED) {
+            return selected
+        }
+        return transcriptionDao.findLatestCompleted(recordingId)
+    }
+
+    private suspend fun resolveCurrentAiSummary(recordingId: String): AiSummaryEntity? {
+        val selectedId = contentDao.findContentSelection(recordingId)?.currentAiSummaryId
+        val selected = selectedId?.let { aiSummaryDao.findSummary(it) }
+        if (selected?.recordingId == recordingId && selected.status == AiSummaryStateValue.COMPLETED) {
+            return selected
+        }
+        return aiSummaryDao.findLatestCompleted(recordingId)
+    }
+
+    private suspend fun indexRecording(recording: RecordingEntity) {
         searchRepository.upsert(
             SearchDocumentDraft(
                 documentId = "recording:" + recording.id,
@@ -116,32 +145,6 @@ class SearchIndexRebuilder(
                         recording.recordedAtLocalIso,
                     ).joinToString(" · "),
                 updatedAtMs = recording.updatedAtMs,
-            ),
-        )
-    }
-
-    private suspend fun reindexFolder(folder: FolderEntity) {
-        searchRepository.upsert(
-            SearchDocumentDraft(
-                documentId = "folder:" + folder.folderId,
-                documentType = SearchDocumentTypeValue.FOLDER,
-                folderId = folder.folderId,
-                displayTitle = folder.name,
-                displayText = "文件夹",
-                updatedAtMs = folder.updatedAtMs,
-            ),
-        )
-    }
-
-    private suspend fun reindexTag(tag: TagEntity) {
-        searchRepository.upsert(
-            SearchDocumentDraft(
-                documentId = "tag:" + tag.tagId,
-                documentType = SearchDocumentTypeValue.TAG,
-                tagId = tag.tagId,
-                displayTitle = tag.name,
-                displayText = "标签",
-                updatedAtMs = tag.updatedAtMs,
             ),
         )
     }
@@ -185,11 +188,7 @@ class SearchIndexRebuilder(
 
         val versionTitle =
             metadata?.displayName?.takeIf { it.isNotBlank() }
-                ?: when (transcription.mode) {
-                    "FAST" -> "快速转写"
-                    "HIGH_QUALITY" -> "高质量转写"
-                    else -> "转写"
-                }
+                ?: "转写"
 
         units.forEachIndexed { index, unit ->
             searchRepository.upsert(
@@ -252,7 +251,7 @@ class SearchIndexRebuilder(
                         transcriptionId = summary.transcriptionId,
                         aiSummaryId = summary.id,
                         revisionId = currentRevisionId,
-                        displayTitle = "AI 总结",
+                        displayTitle = "总结",
                         displayText = fallback,
                         updatedAtMs = summary.completedAtMs ?: summary.updatedAtMs,
                     ),
@@ -271,7 +270,7 @@ class SearchIndexRebuilder(
                 transcriptionId = summary.transcriptionId,
                 aiSummaryId = summary.id,
                 revisionId = currentRevisionId,
-                displayTitle = effective.title.ifBlank { "AI 总结" },
+                displayTitle = effective.title.ifBlank { "总结" },
                 displayText = effective.overview,
                 updatedAtMs = summary.completedAtMs ?: summary.updatedAtMs,
             ),

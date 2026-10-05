@@ -1,38 +1,51 @@
 package io.github.ioannes78.voica.ui.playback
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.R
-import io.github.ioannes78.voica.audio.CanonicalPcmProfile
+import io.github.ioannes78.voica.VoicaApplication
 import io.github.ioannes78.voica.audio.PlaybackState
-import kotlin.math.roundToLong
+import java.io.File
 
 @Composable
 fun RecordingPlaybackCard(
@@ -43,14 +56,42 @@ fun RecordingPlaybackCard(
     playbackViewModel: PlaybackViewModel,
 ) {
     val snapshot by playbackViewModel.snapshot.collectAsState()
+    val context = LocalContext.current
+    val application = context.applicationContext as? VoicaApplication
+    val waveformRepository =
+        remember(application) {
+            application?.let { app ->
+                WaveformOverviewRepository(
+                    sourceResolver = app.container.audioSourceResolver,
+                    cacheRoot = File(app.cacheDir, "waveforms"),
+                )
+            }
+        }
+    var waveform by remember(recordingId) {
+        mutableStateOf<WaveformOverviewResult>(WaveformOverviewResult.Unavailable)
+    }
+
+    LaunchedEffect(recordingId, canonicalReady, waveformRepository) {
+        waveform = WaveformOverviewResult.Unavailable
+        if (canonicalReady && waveformRepository != null) {
+            waveform = waveformRepository.load(recordingId)
+        }
+    }
 
     if (deviceRecordingActive) {
-        Card(modifier = Modifier.fillMaxWidth()) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            colors =
+                CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                ),
+        ) {
             Text(
                 "设备正在录音，播放已暂停。",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(14.dp),
+                modifier = Modifier.padding(18.dp),
             )
         }
     } else if (snapshot.recordingId == recordingId) {
@@ -62,24 +103,57 @@ fun RecordingPlaybackCard(
             onSeek = playbackViewModel::seekToSample,
             onSpeed = playbackViewModel::setSpeed,
             onRetry = playbackViewModel::retryCurrent,
+            waveform = waveform,
         )
     } else {
-        Card(modifier = Modifier.fillMaxWidth()) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            colors =
+                CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                ),
+        ) {
             Column(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(
-                    stringResource(R.string.playback_title),
-                    style = MaterialTheme.typography.titleLarge,
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.GraphicEq,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp),
+                    )
+                    Text(
+                        stringResource(R.string.playback_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
                 Button(
                     onClick = { playbackViewModel.loadAndPlay(recordingId) },
                     enabled = canonicalReady,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.size(86.dp),
+                    shape = CircleShape,
+                    contentPadding = PaddingValues(0.dp),
                 ) {
-                    Text(stringResource(R.string.playback_play))
+                    Icon(
+                        imageVector = Icons.Outlined.PlayArrow,
+                        contentDescription = stringResource(R.string.playback_play),
+                        modifier = Modifier.size(40.dp),
+                    )
                 }
+                Text(
+                    stringResource(R.string.playback_play),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
                 if (!canonicalReady) {
                     Text(
                         stringResource(R.string.detail_canonical_required),
@@ -95,132 +169,104 @@ fun RecordingPlaybackCard(
 @Composable
 fun MiniPlaybackBar(
     recordingId: String,
+    recordingName: String = "",
     durationMs: Long?,
     canonicalReady: Boolean,
     deviceRecordingActive: Boolean,
     playbackViewModel: PlaybackViewModel,
     onOpenFullPlayer: () -> Unit,
 ) {
+    @Suppress("UNUSED_VARIABLE") val ignoredDurationMs = durationMs
     if (!canonicalReady || deviceRecordingActive) return
 
     val snapshot by playbackViewModel.snapshot.collectAsState()
     val loaded = snapshot.recordingId == recordingId
-    val totalSamples =
-        if (loaded && snapshot.durationSampleCount > 0L) {
-            snapshot.durationSampleCount
-        } else {
-            durationMs
-                ?.coerceAtLeast(0L)
-                ?.times(CanonicalPcmProfile.SAMPLE_RATE_HZ.toLong())
-                ?.div(1_000L)
-                ?: 0L
-        }
-    val actualPosition =
-        if (loaded) {
-            snapshot.positionSampleIndex.coerceIn(0L, totalSamples.coerceAtLeast(0L))
-        } else {
-            0L
-        }
-    val actualRatio =
+    if (
+        !loaded ||
+        snapshot.state !in setOf(PlaybackState.PLAYING, PlaybackState.PAUSED)
+    ) {
+        return
+    }
+
+    val totalSamples = snapshot.durationSampleCount.coerceAtLeast(0L)
+    val position = snapshot.positionSampleIndex.coerceIn(0L, totalSamples)
+    val ratio =
         if (totalSamples > 0L) {
-            (actualPosition.toDouble() / totalSamples.toDouble())
-                .coerceIn(0.0, 1.0)
-                .toFloat()
+            (position.toDouble() / totalSamples.toDouble()).coerceIn(0.0, 1.0).toFloat()
         } else {
             0f
         }
 
-    var dragging by remember(recordingId) { mutableStateOf(false) }
-    var previewRatio by remember(recordingId) { mutableFloatStateOf(0f) }
-
-    LaunchedEffect(actualRatio, dragging) {
-        if (!dragging) {
-            previewRatio = actualRatio
-        }
-    }
-
-    val previewPosition =
-        if (dragging && totalSamples > 0L) {
-            (previewRatio.toDouble() * totalSamples.toDouble())
-                .roundToLong()
-                .coerceIn(0L, totalSamples)
-        } else {
-            actualPosition
-        }
-
     Surface(
         tonalElevation = 3.dp,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onOpenFullPlayer),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onOpenFullPlayer),
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 IconButton(
                     onClick = {
-                        when {
-                            loaded && snapshot.state == PlaybackState.PLAYING ->
-                                playbackViewModel.pause()
-                            loaded && snapshot.state == PlaybackState.ERROR ->
-                                playbackViewModel.retryCurrent()
-                            loaded -> playbackViewModel.play()
-                            else -> playbackViewModel.loadAndPlay(recordingId)
+                        if (snapshot.state == PlaybackState.PLAYING) {
+                            playbackViewModel.pause()
+                        } else {
+                            playbackViewModel.play()
                         }
                     },
                 ) {
                     Icon(
-                        if (loaded && snapshot.state == PlaybackState.PLAYING) {
+                        if (snapshot.state == PlaybackState.PLAYING) {
                             Icons.Outlined.Pause
                         } else {
                             Icons.Outlined.PlayArrow
                         },
                         contentDescription =
-                            if (loaded && snapshot.state == PlaybackState.PLAYING) {
-                                "暂停"
-                            } else {
-                                "播放"
-                            },
+                            if (snapshot.state == PlaybackState.PLAYING) "暂停" else "播放",
                     )
                 }
-                Text(
-                    formatPlaybackTime(previewPosition) +
-                        " / " + formatPlaybackTime(totalSamples),
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(onClick = onOpenFullPlayer) {
-                    Icon(Icons.Outlined.ChevronRight, contentDescription = "打开播放器")
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        recordingName.ifBlank { "正在播放" },
+                        style = MaterialTheme.typography.labelLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        formatPlaybackTime(position) + " / " + formatPlaybackTime(totalSamples),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(onClick = playbackViewModel::closePlayer) {
+                    Icon(Icons.Outlined.Close, contentDescription = "关闭播放器")
                 }
             }
-            Slider(
-                value = if (dragging) previewRatio else actualRatio,
-                onValueChange = {
-                    dragging = true
-                    previewRatio = it.coerceIn(0f, 1f)
-                },
-                onValueChangeFinished = {
-                    if (loaded && totalSamples > 0L) {
-                        val target =
-                            (previewRatio.toDouble() * totalSamples.toDouble())
-                                .roundToLong()
-                                .coerceIn(0L, totalSamples)
-                        playbackViewModel.seekToSample(target)
-                    }
-                    dragging = false
-                },
-                enabled =
-                    loaded &&
-                        totalSamples > 0L &&
-                        snapshot.state != PlaybackState.PREPARING &&
-                        snapshot.state != PlaybackState.ERROR &&
-                        snapshot.state != PlaybackState.RELEASED,
-            )
+            MiniProgress(ratio)
         }
+    }
+}
+
+@Composable
+private fun MiniProgress(progress: Float) {
+    val active = MaterialTheme.colorScheme.primary
+    val inactive = MaterialTheme.colorScheme.surfaceVariant
+    Canvas(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(4.dp),
+    ) {
+        val y = size.height / 2f
+        val x = size.width * progress.coerceIn(0f, 1f)
+        drawLine(inactive, Offset(0f, y), Offset(size.width, y), 3f, StrokeCap.Round)
+        drawLine(active, Offset(0f, y), Offset(x, y), 3f, StrokeCap.Round)
     }
 }

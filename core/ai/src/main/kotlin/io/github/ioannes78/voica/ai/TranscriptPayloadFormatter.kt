@@ -12,6 +12,9 @@ object TranscriptPayloadFormatter {
 
     fun formatUnit(unit: StructuredTranscriptUnit): String {
         val evidence = unit.evidence
+        if (evidence == null) {
+            return "[NO_AUDIO_EVIDENCE] " + unit.text
+        }
         val time = formatElapsed(evidence.startSampleIndex)
         val speaker =
             evidence.speakerDisplayName

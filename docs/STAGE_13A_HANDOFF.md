@@ -1,51 +1,50 @@
-# Voica Stage 13A Handoff
+# Voica Stage 13A Final Handoff
 
-状态：**Stage 13A 已完成 / 已真机验收 / 已冻结**
+状态：**FINAL / ACCEPTED**
 
-下一阶段：**Stage 13B — 稳定性、后台与真实长录音专项**
+下一阶段：**Stage 13B — UNBLOCKED after PR #16 merge + main verification**
+
+日期：2026-10-05
 
 ## 1. 接管原则
 
 GitHub 当前仓库是唯一事实来源。
 
-开始 Stage 13B 前必须重新核对：
+Stage 13B 开始编码前必须重新核对：
 
 - `main` HEAD
-- PR #15 最终合并状态
+- PR #16 最终合并状态
 - GitHub Actions
 - `docs/STAGE_13A_FREEZE.md`
+- `docs/STAGE_13A_HANDOFF.md`
 - `docs/STAGE_13A_QA5_FINAL_DECISIONS.md`
 - `docs/STAGE_13A_FROZEN_ROADMAP_NOTE.md`
 - `docs/STAGE_16_STREAMING_CONTRACT_V2.md`
 - Room v7 schema
 - production model-channel 当前 HEAD
-- 当前 APK/version/ABI
-- transcription / diarization / AI Summary cancellation lifecycle
+- 当前 APK / version / ABI
+- transcription / diarization / AI Summary lifecycle
 
 聊天记录只能作为线索。
 
-## 2. Stage 13A 最终基线
+## 2. Stage 13A 最终验收基线
 
-功能 / 真机 QA 基线：
+最终功能 / 真机 QA 基线：
 
-`6543d9f45ed73bb3a815456968518f0d3641b774`
-
-Freeze 内容基线：
-
-`230aa3304b76781a34d2ec5bd74ea0c4b7990aab`
+`e008e90939b13cf273b14a6e323fa1307b960b24`
 
 最终 QA：
 
-- versionCode 46
-- versionName `0.13.0-stage13a-qa5-fix1`
+- versionCode 48
+- versionName `0.13.0-stage13a-qa6`
 - QA package `io.github.ioannes78.voica.qa`
 - Room v7
 - arm64-v8a
 - sherpa-onnx 1.13.8
-- CI #693 / run `37264265999` — success
-- Artifact ID `11326236293`
-- Artifact digest `sha256:e86a9379fe5f5d08d1978cd9e1e9598898c5ce93609e0304fba00dd2274f8d66`
-- Accepted APK SHA-256 `cebc706417abf881ecc3360b922e8fe98369320f16d4f0c4bdad5955ec62bc05`
+- CI #712 / run `37290584023` — success
+- Artifact ID `11336208987`
+- Artifact digest `sha256:a279eda54678717ef78dbb31262dc42cd7f9b1f692dc39619c3c611914ab01d0`
+- Accepted APK SHA-256 `87e5920fea6eb48f31aa4d4170d0e4735e926bc92363ab04aa361cf79ca2799f`
 
 用户最终明确：
 
@@ -77,130 +76,120 @@ Freeze 内容基线：
 - Silero VAD
 - CT-Transformer zh-en punctuation
 
-## 4. Recording-file transcription 约束
+## 4. 内容生命周期约束
 
-产品层只有一个入口：
+Stage 13B 不得破坏 QA6 已冻结的内容生命周期：
 
-`开始离线转写`
+- Recording 只有一个 Current Effective Transcription / Summary。
+- 新 completed 结果在已有 current 时只能成为 candidate；不得自动覆盖 current。
+- 只有用户明确“使用新结果”才切换 current。
+- 人工 Revision 与原始模型事实分离保存。
+- AI Summary 输入必须来自任务开始时冻结的 Current Effective Transcription。
+- Summary stale 判断必须同时比较 transcriptionId 与 transcriptionRevisionId。
+- 无音频锚点的人工文本不得生成虚假时间戳 / evidence。
+- 普通搜索只能暴露 Current Effective 转写 / 总结；candidate 和历史底层结果不能泄漏到普通搜索。
 
-当前选择来自“设置 → 本地语音识别 → 离线转写”。
+## 5. Recording UI / Playback 约束
 
-Qwen 正文不可被 Small Bilingual reference text 替换。
+Stage 13A 最终录音详情冻结为产品化播放器：
 
-Small Bilingual 只可做 Qwen 的可选时间轴辅助；缺失或失败时，Qwen 正文仍必须可以完成。
+- 全宽真实波形
+- 圆形 seek point
+- ±10s 图标控制
+- 大圆形播放 / 暂停主按钮
+- 固定速度 `0.5× / 0.75× / 1.0× / 1.5× / 2.0×`
+- 录音信息图标化对齐
+- 重命名 / 分享 / 导出 / 删除图标化操作
+- Mini Player 只在 PLAYING / PAUSED 显示
 
-时间轴 activity 使用“正在生成时间轴… XX%”，不新增持久化 Room state。
+Stage 13B 做后台、长录音、恢复时不得造成播放器生命周期倒退。
 
-## 5. Stage 16 streaming contract
+## 6. Search 约束
+
+录音库搜索现已同时覆盖基础元数据与 Current Effective 转写 / 总结内容。
+
+Stage 13B 若改动索引重建、进程恢复或长文本路径，必须回归：
+
+- Current 转写可搜
+- Current 总结可搜
+- candidate / 历史独有文本不可搜
+- 修改 current 后旧索引不会残留
+- 中文 CJK 查询保持可用
+
+## 7. Recording-file transcription 约束
+
+产品层离线转写保持单入口。
+
+Qwen 正文不可被 Small Bilingual reference text 替换。Small Bilingual 仅做可选时间轴辅助；缺失或失败时 Qwen 正文仍必须完成。
+
+## 8. Stage 16 streaming contract
 
 Stage 16 必须复用：
 
 `docs/STAGE_16_STREAMING_CONTRACT_V2.md`
 
-真正实时模型只冻结：
+真正实时模型只冻结 Small Bilingual 与 Chinese Large CTC。SenseVoice / Qwen3-ASR 不得通过分块离线识别伪装成 true streaming。
 
-- Small Bilingual
-- Chinese Large CTC
-
-SenseVoice / Qwen3-ASR 不得通过“分块离线识别”被伪装成 true streaming。
-
-Stage 16 仍负责完整 live stabilizer、BLE/live audio 接入、PARTIAL/STABLE/FINAL UI 与实时标点策略；Stage 13A 只冻结 engine/capability contract。
-
-## 6. Diarization 约束
-
-Stage 13B 不得重新把 ERes2Net 作为普通产品选项。
+## 9. Diarization 约束
 
 冻结链：
 
-`Silero VAD → Pyannote Segmentation 3.0 INT8 → CAM++ → clustering/stitching`
+`Silero VAD → Pyannote Segmentation 3.0 INT8 → CAM++ → clustering / stitching`
 
-Stage 13B 可以做稳定性与长录音验证，但不得在没有新明确决策的情况下重新做大规模 speaker embedding 选型。
+Stage 13B 可以做长录音稳定性与参数验证，但不得无新决策重新做 speaker embedding 大规模选型。
 
-若必须改动 clustering/stitching 默认参数，应记录改动原因并补单人、双人、3–4 人回归。
+## 10. AI Summary cancellation 约束
 
-## 7. AI Summary cancellation 约束
+必须继续保护：
 
-Fix 1 已成为冻结行为：
+- 用户取消会终止 active LLM request
+- CANCELLED 可靠落库
+- late response / late progress 不得复活任务
+- CANCELLED / FAILED 不计正式 Summary 版本
+- completed transaction 一旦提交，completed 为权威终态
 
-- 用户取消必须终止 active LLM request。
-- CANCELLED 必须可靠落库。
-- late response / late progress 不得复活任务。
-- CANCELLED/FAILED 不计正式 Summary 版本。
-- completed transaction 一旦提交，completed 为权威终态。
+## 11. Room / 媒体时间边界
 
-Stage 13B 的 process recovery / background testing 必须继续保护这些语义。
+Room v7 为 Stage 13A 最终冻结 schema。
 
-## 8. Room / 内容管理边界
-
-Room v7 为 Stage 13A 冻结 schema。
-
-不得破坏 Stage 12C 的：
+不得破坏：
 
 - 原始 Transcription / Segment / Token 不可变事实
 - User Revision 独立保存
 - SearchDocument / FTS 仅是可重建派生数据
 - AI Summary 原始 structured result / evidence 与人工 revision 分离
-- 当前版本选择持久化
+- Current selection 持久化
+- canonical 16 kHz absolute sample index 为唯一媒体时间真值
 
-媒体时间事实继续唯一使用 canonical 16 kHz absolute sample index。
+## 12. Model channel
 
-## 9. Model channel
+Stage 13A Final Freeze / merge 不执行 production model-channel promotion。
 
-Stage 13A Freeze 时 production model-channel 仍为：
+任何 production manifest 提升必须作为独立受控操作重新核对并取得明确授权。
 
-`ioannes78/voica-model-channel@e4e64d29b8c92b97de4298ec6e292c33273f3ba4`
+## 13. Stage 13B 正式目标
 
-本次 Freeze/Handoff 不执行 production promotion。
-
-后续如要提升 production manifest，应单独重新核对 model-channel main、候选 manifest、最终 8 模型清单与下载/校验事实，并取得明确授权后再做。
-
-## 10. 历史候选文档的优先级
-
-如果 `docs/ROADMAP.md`、`AGENTS.md`、Stage 12C Handoff 仍出现：
-
-- FireRedASR2 High Quality
-- Large Transducer realtime
-- ERes2Net product embedding
-- Benchmark 产品化
-
-这些都属于 Stage 13A pre-freeze 候选历史，不能覆盖 Stage 13A Freeze。
-
-Stage 13B 接管优先级：
-
-1. 当前 GitHub `main`
-2. `docs/STAGE_13A_FREEZE.md`
-3. `docs/STAGE_13A_HANDOFF.md`
-4. `docs/STAGE_13A_QA5_FINAL_DECISIONS.md`
-5. `docs/STAGE_13A_FROZEN_ROADMAP_NOTE.md`
-6. `docs/STAGE_16_STREAMING_CONTRACT_V2.md`
-7. 旧 ROADMAP/历史 Stage 文档
-
-## 11. Stage 13B 目标
-
-Stage 13B 正式负责：
+Stage 13B 解锁后负责：
 
 - 真实 30 分钟 / 1 小时 / 2 小时录音专项
 - ASR / diarization RTF、RAM/PSS、CPU、thermal、storage、battery（可测时）
 - BLE 长时连接与 soak
 - Foreground Service
-- App 后台/锁屏文件下载
-- 系统通知中的真实进度与取消
-- 断连/失败/低存储恢复
+- App 后台 / 锁屏文件下载
+- 系统通知真实进度与取消
+- 断连 / 失败 / 低存储恢复
 - App 进程回收后的任务状态恢复
 - playback / seek / timeline / revision / search / AI Summary 长文本回归
 
 过去 virtual 30/60/120min 自动化不能替代真实长时真机证据。
 
-## 12. Stage 13B 开发门禁
+## 14. Stage 13B 开发门禁
 
-开始 Stage 13B 时：
+Stage 13A QA6 已取得用户明确“测试通过”，Final Freeze/Handoff 可提交并合并 PR #16。
 
-1. 重新读取 GitHub `main`。
-2. 确认 Stage 13A 已合并。
-3. 重新核对 Room v7、最终模型矩阵与 production model-channel 状态。
-4. 输出 Stage 13B 修订需求。
-5. 等用户确认。
-6. 输出 Stage 13B 修订开发规划。
-7. 再次确认后才创建开发分支和编码。
+PR #16 合并后还必须：
 
-不得因为稳定性/后台工作破坏 Stage 13A 已冻结的模型矩阵、canonical sample timeline、transcription lineage、speaker alignment 与 AI Summary cancellation 语义。
+1. 核验新的 `main` HEAD；
+2. 核验 post-merge CI；
+3. 确认 Room 仍为 v7、model channel 未被提升；
+4. 然后才开始 Stage 13B 编码。

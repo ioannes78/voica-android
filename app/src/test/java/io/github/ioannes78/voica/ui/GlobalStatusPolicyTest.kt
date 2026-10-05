@@ -12,31 +12,34 @@ import org.junit.Test
 
 class GlobalStatusPolicyTest {
     @Test
-    fun completedPlaybackDoesNotKeepGlobalMiniPlayerVisible() {
-        assertTrue(
-            shouldShowGlobalPlayback(
-                PlaybackSnapshot(
-                    recordingId = "recording-a",
-                    state = PlaybackState.PLAYING,
+    fun globalMiniPlayerIsVisibleOnlyWhilePlayingOrPaused() {
+        listOf(PlaybackState.PLAYING, PlaybackState.PAUSED).forEach { state ->
+            assertTrue(
+                shouldShowGlobalPlayback(
+                    PlaybackSnapshot(
+                        recordingId = "recording-a",
+                        state = state,
+                    ),
                 ),
-            ),
-        )
-        assertTrue(
-            shouldShowGlobalPlayback(
-                PlaybackSnapshot(
-                    recordingId = "recording-a",
-                    state = PlaybackState.PAUSED,
+            )
+        }
+
+        listOf(
+            PlaybackState.PREPARING,
+            PlaybackState.READY,
+            PlaybackState.SEEKING,
+            PlaybackState.ERROR,
+            PlaybackState.COMPLETED,
+        ).forEach { state ->
+            assertFalse(
+                shouldShowGlobalPlayback(
+                    PlaybackSnapshot(
+                        recordingId = "recording-a",
+                        state = state,
+                    ),
                 ),
-            ),
-        )
-        assertFalse(
-            shouldShowGlobalPlayback(
-                PlaybackSnapshot(
-                    recordingId = "recording-a",
-                    state = PlaybackState.COMPLETED,
-                ),
-            ),
-        )
+            )
+        }
         assertFalse(
             shouldShowGlobalPlayback(
                 PlaybackSnapshot(
@@ -99,7 +102,7 @@ class GlobalStatusPolicyTest {
             ).single()
 
         assertTrue(completed.terminal)
-        assertEquals("AI 总结完成", completed.label)
+        assertEquals("总结完成", completed.label)
 
         val failed =
             buildGlobalTaskItems(
@@ -117,6 +120,6 @@ class GlobalStatusPolicyTest {
             ).single()
 
         assertTrue(failed.terminal)
-        assertEquals("AI 总结失败", failed.label)
+        assertEquals("总结失败", failed.label)
     }
 }

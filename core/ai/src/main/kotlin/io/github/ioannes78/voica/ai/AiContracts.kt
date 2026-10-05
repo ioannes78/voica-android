@@ -88,7 +88,7 @@ data class EvidenceSourceRef(
 }
 
 data class StructuredTranscriptUnit(
-    val evidence: EvidenceSourceRef,
+    val evidence: EvidenceSourceRef?,
     val text: String,
     val detectedLanguage: String?,
 ) {
@@ -100,6 +100,8 @@ data class StructuredTranscriptUnit(
 data class StructuredTranscriptInput(
     val recordingId: String,
     val transcriptionId: String,
+    val transcriptionRevisionId: String? = null,
+    val inputContentDigest: String = "0000000000000000000000000000000000000000000000000000000000000000",
     val transcriptionMode: String,
     val canonicalAssetId: String,
     val canonicalSha256: String,
@@ -113,19 +115,21 @@ data class StructuredTranscriptInput(
     init {
         require(recordingId.isNotBlank())
         require(transcriptionId.isNotBlank())
+        require(inputContentDigest.matches(Regex("^[0-9a-f]{64}$")))
         require(canonicalAssetId.isNotBlank())
         require(canonicalSha256.isNotBlank())
         require(canonicalProfileId.isNotBlank())
         require(totalSampleCount >= 0L)
         require(inputMode == AiInputMode.TRANSCRIPT_TEXT)
         require(units.isNotEmpty()) { "completed transcript must contain text for AI summary" }
-        require(units.map { it.evidence.ref }.toSet().size == units.size) { "duplicate evidence ref" }
-        units.forEach { unit ->
-            require(unit.evidence.endSampleIndexExclusive <= totalSampleCount)
+        val anchored = units.mapNotNull { it.evidence }
+        require(anchored.map { it.ref }.toSet().size == anchored.size) { "duplicate evidence ref" }
+        anchored.forEach { evidence ->
+            require(evidence.endSampleIndexExclusive <= totalSampleCount)
         }
         require(
-            units.zipWithNext().all { (left, right) ->
-                left.evidence.startSampleIndex <= right.evidence.startSampleIndex
+            anchored.zipWithNext().all { (left, right) ->
+                left.startSampleIndex <= right.startSampleIndex
             },
         )
     }

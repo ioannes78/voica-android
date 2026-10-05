@@ -4,21 +4,24 @@ data class SummaryInputChunk(
     val index: Int,
     val sourceStartOrdinal: Int,
     val sourceEndOrdinalExclusive: Int,
-    val startSampleIndex: Long,
-    val endSampleIndexExclusive: Long,
+    val startSampleIndex: Long?,
+    val endSampleIndexExclusive: Long?,
     val units: List<StructuredTranscriptUnit>,
 ) {
     init {
         require(index >= 0)
         require(sourceStartOrdinal >= 0)
         require(sourceEndOrdinalExclusive > sourceStartOrdinal)
-        require(startSampleIndex >= 0)
-        require(endSampleIndexExclusive > startSampleIndex)
+        require((startSampleIndex == null) == (endSampleIndexExclusive == null))
+        if (startSampleIndex != null && endSampleIndexExclusive != null) {
+            require(startSampleIndex >= 0)
+            require(endSampleIndexExclusive > startSampleIndex)
+        }
         require(units.isNotEmpty())
     }
 
     val evidenceRefs: Set<String>
-        get() = units.mapTo(LinkedHashSet()) { it.evidence.ref }
+        get() = units.mapNotNullTo(LinkedHashSet()) { it.evidence?.ref }
 
     val payload: String
         get() = TranscriptPayloadFormatter.formatUnits(units)
@@ -62,13 +65,13 @@ class SummaryChunkPlanner(
         }
 
         return chunks.mapIndexed { index, group ->
+            val evidence = group.mapNotNull { it.unit.evidence }
             SummaryInputChunk(
                 index = index,
                 sourceStartOrdinal = group.minOf { it.sourceOrdinal },
                 sourceEndOrdinalExclusive = group.maxOf { it.sourceOrdinal } + 1,
-                startSampleIndex = group.minOf { it.unit.evidence.startSampleIndex },
-                endSampleIndexExclusive =
-                    group.maxOf { it.unit.evidence.endSampleIndexExclusive },
+                startSampleIndex = evidence.minOfOrNull { it.startSampleIndex },
+                endSampleIndexExclusive = evidence.maxOfOrNull { it.endSampleIndexExclusive },
                 units = group.map { it.unit },
             )
         }

@@ -7,6 +7,7 @@ import io.github.ioannes78.voica.ai.AiSummaryEngineRequest
 import io.github.ioannes78.voica.ai.AiSummaryMode
 import io.github.ioannes78.voica.ai.ProviderFailureCarrier
 import io.github.ioannes78.voica.ai.ProviderProfile
+import io.github.ioannes78.voica.ai.StructuredTranscriptInput
 import io.github.ioannes78.voica.ai.SummaryDisplayFormatter
 import io.github.ioannes78.voica.ai.SummaryPromptFactory
 import io.github.ioannes78.voica.ai.SummaryStructuredOutputErrorCode
@@ -35,7 +36,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 sealed interface AiSummaryRunState {
@@ -205,7 +211,9 @@ class AiSummaryCoordinator(
                     transcriptionId = transcriptionId,
                     phase = AiSummaryEnginePhase.PREPARING,
                 )
-            val input = inputBuilder.build(transcriptionId)
+            // QA6 P0: resolve the effective revision and materialize all text/evidence once.
+            // The same immutable in-memory snapshot is used for lineage and the provider request.
+            val input = inputBuilder.buildEffective(transcriptionId)
             val profile = resolveProfile(providerProfileId, modelOverride)
             validateProfileForGeneration(profile)
             if (!isRecordingActive(input.recordingId)) {
@@ -230,6 +238,10 @@ class AiSummaryCoordinator(
                                 buildJsonObject {
                                     put("inputMode", "TRANSCRIPT_TEXT")
                                     put("mode", mode.name)
+                                    put("inputContentDigest", input.inputContentDigest)
+                                    input.transcriptionRevisionId?.let {
+                                        put("transcriptionRevisionId", it)
+                                    }
                                     template.id?.let { put("templateId", it) }
                                 }.toString(),
                             alignmentIdSnapshot = input.alignmentId,
@@ -240,7 +252,7 @@ class AiSummaryCoordinator(
             currentCoroutineContext().ensureActive()
             runGeneration(
                 summaryId = summaryId,
-                inputTranscriptionId = transcriptionId,
+                input = input,
                 profile = profile,
                 mode = mode,
                 template = template,
@@ -299,6 +311,15 @@ class AiSummaryCoordinator(
             val mode =
                 AiSummaryMode.entries.firstOrNull { it.databaseValue() == summary.mode }
                     ?: AiSummaryMode.SMART
+            val lineage = parseLineage(summary.sourceLineageSnapshot)
+            val input =
+                inputBuilder.buildSnapshot(
+                    transcriptionId = transcriptionId,
+                    revisionId = lineage.revisionId,
+                )
+            if (lineage.inputContentDigest != null && lineage.inputContentDigest != input.inputContentDigest) {
+                throw AiSummaryConfigurationException("原总结输入内容已无法恢复，请重新生成总结")
+            }
             if (!isRecordingActive(summary.recordingId)) {
                 throw CancellationException("recording is being deleted")
             }
@@ -312,7 +333,7 @@ class AiSummaryCoordinator(
             currentCoroutineContext().ensureActive()
             runGeneration(
                 summaryId = summaryId,
-                inputTranscriptionId = transcriptionId,
+                input = input,
                 profile = profile,
                 mode = mode,
                 template = template,
@@ -341,12 +362,11 @@ class AiSummaryCoordinator(
 
     private suspend fun runGeneration(
         summaryId: String,
-        inputTranscriptionId: String,
+        input: StructuredTranscriptInput,
         profile: ProviderProfile,
         mode: AiSummaryMode,
         template: SummaryTemplateSpec,
     ) {
-        val input = inputBuilder.build(inputTranscriptionId)
         val provider = providerRegistry.forProfile(profile)
         val output =
             engine.generate(
@@ -373,7 +393,10 @@ class AiSummaryCoordinator(
             }
 
         currentCoroutineContext().ensureActive()
-        val sources = input.units.associateBy { it.evidence.ref }
+        val sources =
+            input.units.mapNotNull { unit ->
+                unit.evidence?.let { evidence -> evidence.ref to evidence }
+            }.toMap()
         val evidence =
             output.result.sections.flatMap { section ->
                 section.items.flatMap { item ->
@@ -384,12 +407,12 @@ class AiSummaryCoordinator(
                         AiSummaryEvidenceWrite(
                             summaryItemId = item.id,
                             sourceRef = ref,
-                            sourceKind = source.evidence.sourceKind.name,
-                            sourceId = source.evidence.sourceId,
-                            startSampleIndex = source.evidence.startSampleIndex,
-                            endSampleIndexExclusive = source.evidence.endSampleIndexExclusive,
-                            speakerId = source.evidence.speakerId,
-                            assignmentQuality = source.evidence.assignmentQuality,
+                            sourceKind = source.sourceKind.name,
+                            sourceId = source.sourceId,
+                            startSampleIndex = source.startSampleIndex,
+                            endSampleIndexExclusive = source.endSampleIndexExclusive,
+                            speakerId = source.speakerId,
+                            assignmentQuality = source.assignmentQuality,
                         )
                     }
                 }
@@ -546,18 +569,42 @@ class AiSummaryCoordinator(
                 "AI_SUMMARY_FAILED" to "AI 总结生成失败，请重试"
         }
 
-    private fun lineageSnapshot(
-        input: io.github.ioannes78.voica.ai.StructuredTranscriptInput,
-    ): String =
+    private fun lineageSnapshot(input: StructuredTranscriptInput): String =
         buildJsonObject {
+            put("lineageVersion", 2)
             put("recordingId", input.recordingId)
             put("transcriptionId", input.transcriptionId)
+            if (input.transcriptionRevisionId == null) {
+                put("transcriptionRevisionId", JsonNull)
+            } else {
+                put("transcriptionRevisionId", input.transcriptionRevisionId)
+            }
+            put("inputContentDigest", input.inputContentDigest)
             put("canonicalAssetId", input.canonicalAssetId)
             put("canonicalSha256", input.canonicalSha256)
             put("canonicalProfileId", input.canonicalProfileId)
             put("totalSampleCount", input.totalSampleCount)
             input.alignmentId?.let { put("alignmentId", it) }
+            put("evidenceMappingVersion", 2)
         }.toString()
+
+    private fun parseLineage(raw: String): LineageInputRef =
+        runCatching {
+            val root = Json.parseToJsonElement(raw).jsonObject
+            LineageInputRef(
+                revisionId =
+                    root["transcriptionRevisionId"]
+                        ?.takeUnless { it is JsonNull }
+                        ?.jsonPrimitive
+                        ?.contentOrNull,
+                inputContentDigest = root["inputContentDigest"]?.jsonPrimitive?.contentOrNull,
+            )
+        }.getOrDefault(LineageInputRef(revisionId = null, inputContentDigest = null))
+
+    private data class LineageInputRef(
+        val revisionId: String?,
+        val inputContentDigest: String?,
+    )
 
     private fun AiSummaryMode.databaseValue(): String =
         when (this) {

@@ -265,7 +265,10 @@ class TranscriptionRepository(
                 ) == 1,
             )
         }
-        SearchIndexRebuilder(database).reindexTranscription(transcriptionId)
+        Stage12CContentRepository(database).onTranscriptionCompleted(
+            recordingId = transcription.recordingId,
+            transcriptionId = transcriptionId,
+        )
     }
 
     suspend fun reconcileInterruptedOnStartup(): Int =

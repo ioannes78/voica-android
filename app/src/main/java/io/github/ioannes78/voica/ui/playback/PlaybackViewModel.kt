@@ -3,9 +3,9 @@ package io.github.ioannes78.voica.ui.playback
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import io.github.ioannes78.voica.LocalRecordingDeleteCoordinator
 import io.github.ioannes78.voica.audio.PlaybackController
 import io.github.ioannes78.voica.audio.PlaybackState
-import io.github.ioannes78.voica.LocalRecordingDeleteCoordinator
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
@@ -43,6 +43,11 @@ class PlaybackViewModel(
         viewModelScope.launch { controller.pause() }
     }
 
+    fun closePlayer() {
+        transcriptPlaybackJob?.cancel()
+        viewModelScope.launch { controller.unload() }
+    }
+
     fun seekToSample(sampleIndex: Long) {
         viewModelScope.launch { controller.seekToSample(sampleIndex) }
     }
@@ -77,9 +82,6 @@ class PlaybackViewModel(
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            PlaybackViewModel(
-                controller,
-                deleteCoordinator,
-            ) as T
+            PlaybackViewModel(controller, deleteCoordinator) as T
     }
 }

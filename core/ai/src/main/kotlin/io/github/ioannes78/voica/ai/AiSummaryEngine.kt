@@ -246,9 +246,14 @@ class AiSummaryEngine(
             result: AiSummaryResult,
             sourceStartOrdinal: Int,
             sourceEndOrdinalExclusive: Int,
-            startSampleIndex: Long,
-            endSampleIndexExclusive: Long,
+            startSampleIndex: Long?,
+            endSampleIndexExclusive: Long?,
         ) {
+            if (startSampleIndex == null || endSampleIndexExclusive == null) {
+                // An all-unanchored revision chunk has no truthful audio range. It may be sent to
+                // the LLM, but it must not acquire a synthetic 00:00/0..1 evidence/checkpoint span.
+                return
+            }
             request.checkpointStore?.save(
                 SummaryCheckpointRecord(
                     level = level,
@@ -265,7 +270,8 @@ class AiSummaryEngine(
 
         try {
             if (budget is TokenBudgetPlan.Direct) {
-                val allRefs = request.input.units.mapTo(LinkedHashSet()) { it.evidence.ref }
+                val allRefs =
+                    request.input.units.mapNotNullTo(LinkedHashSet()) { it.evidence?.ref }
                 val direct =
                     try {
                         call(taskInstruction, fullPayload, allRefs)
@@ -405,8 +411,10 @@ class AiSummaryEngine(
                                 )
                             val sourceStart = group.minOf { it.sourceStartOrdinal }
                             val sourceEnd = group.maxOf { it.sourceEndOrdinalExclusive }
-                            val sampleStart = group.minOf { it.startSampleIndex }
-                            val sampleEnd = group.maxOf { it.endSampleIndexExclusive }
+                            val sampleStarts = group.mapNotNull { it.startSampleIndex }
+                            val sampleEnds = group.mapNotNull { it.endSampleIndexExclusive }
+                            val sampleStart = sampleStarts.minOrNull()
+                            val sampleEnd = sampleEnds.maxOrNull()
                             val result =
                                 loadCheckpoint(
                                     level = reductionLevel,
@@ -502,8 +510,8 @@ class AiSummaryEngine(
         val result: AiSummaryResult,
         val sourceStartOrdinal: Int,
         val sourceEndOrdinalExclusive: Int,
-        val startSampleIndex: Long,
-        val endSampleIndexExclusive: Long,
+        val startSampleIndex: Long?,
+        val endSampleIndexExclusive: Long?,
     )
 
     private class UsageAccumulator {

@@ -1,37 +1,36 @@
-# Voica Stage 13A Freeze
+# Voica Stage 13A Final Freeze
 
-状态：**FROZEN / 用户真机验收通过**
+状态：**FINAL / ACCEPTED / FROZEN**
 
 日期：2026-10-05
 
-## 1. Freeze 结论
+## 1. 最终结论
 
-Stage 13A — 本地语音引擎增强与产品化收口完成并冻结。
+Stage 13A — 本地语音引擎增强与产品化收口，已完成最终真机验收并冻结。
 
 用户最终明确确认：
 
 **“测试通过”**
 
-功能 / QA 验收基线：
+最终功能 / 真机 QA 基线：
 
-`6543d9f45ed73bb3a815456968518f0d3641b774`
+`e008e90939b13cf273b14a6e323fa1307b960b24`
 
-Freeze 内容基线提交：
+最终候选：
 
-`230aa3304b76781a34d2ec5bd74ea0c4b7990aab`
-
-最终 QA：
-
-- versionCode：46
-- versionName：`0.13.0-stage13a-qa5-fix1`
-- QA Application ID：`io.github.ioannes78.voica.qa`
-- Room schema：7
+- versionCode：48
+- versionName：`0.13.0-stage13a-qa6`
+- QA package：`io.github.ioannes78.voica.qa`
 - ABI：arm64-v8a
+- Room schema：7
 - sherpa-onnx：1.13.8
-- Android PR CI：#693 / run `37264265999` — success
-- Artifact：`Voica-qa-apk` / ID `11326236293`
-- Artifact digest：`sha256:e86a9379fe5f5d08d1978cd9e1e9598898c5ce93609e0304fba00dd2274f8d66`
-- 用户验收 APK SHA-256：`cebc706417abf881ecc3360b922e8fe98369320f16d4f0c4bdad5955ec62bc05`
+- Android PR CI：#712 / run `37290584023` — success
+- Artifact：`Voica-qa-apk`
+- Artifact ID：`11336208987`
+- Artifact digest：`sha256:a279eda54678717ef78dbb31262dc42cd7f9b1f692dc39619c3c611914ab01d0`
+- 用户验收 APK SHA-256：`87e5920fea6eb48f31aa4d4170d0e4735e926bc92363ab04aa361cf79ca2799f`
+
+QA5 后的早期 Freeze 曾因 QA6 reopening 被判定为 premature closure；本文件现已更新为真正的 Stage 13A Final Freeze。
 
 ## 2. 冻结模型矩阵
 
@@ -41,9 +40,7 @@ Freeze 内容基线提交：
 - Qwen3-ASR 0.6B INT8：高质量
 - FireRedASR2：移出产品矩阵
 
-录音文件产品层只有一个动作：`开始离线转写`。
-
-Qwen 最终正文是权威文本。Small Bilingual 仅可作为可选时间轴对齐辅助，不得替换 Qwen 正文，也不得成为 Qwen 正文成功的硬依赖。
+产品层只保留一个离线转写入口。Qwen 最终正文为权威文本；Small Bilingual 仅允许作为可选时间轴辅助，缺失或失败不得使 Qwen 正文整体失败。
 
 ### 未来实时转写
 
@@ -52,9 +49,7 @@ Qwen 最终正文是权威文本。Small Bilingual 仅可作为可选时间轴�
 - Chinese Large Transducer：移出产品矩阵
 - 不提供 AUTO 产品路由
 
-冻结 streaming contract：
-
-`docs/STAGE_16_STREAMING_CONTRACT_V2.md`
+实时 contract 继续以 `docs/STAGE_16_STREAMING_CONTRACT_V2.md` 为准。
 
 ### 说话人分离
 
@@ -62,145 +57,110 @@ Qwen 最终正文是权威文本。Small Bilingual 仅可作为可选时间轴�
 
 `Silero VAD → Pyannote Segmentation 3.0 INT8 → CAM++ → clustering / stitching`
 
-- CAM++ 为唯一产品 speaker embedding 模型
-- ERes2Net 移出产品选择
-- 用户侧保留预计说话人数与高级聚类/拼接参数能力
+CAM++ 为唯一产品 speaker embedding 模型；ERes2Net 不进入产品选择。
 
 ### 辅助模型
 
 - Silero VAD
 - CT-Transformer zh-en punctuation
 
-## 3. 本地语音识别产品面冻结
+## 3. QA6 内容生命周期冻结
 
-`设置 → 本地语音识别` 冻结为四个区域：
+每条 Recording 只存在一个 Current Effective Transcription 与一个 Current Effective Summary。
 
-1. 离线转写
-2. 实时转写
-3. 说话人分离
-4. 性能与语音检测
+- 第一个 completed 可自动成为 current。
+- 已存在 current 后，新 completed 结果只能成为 candidate / “新结果”，不得自动抢占 current。
+- 用户必须明确执行“使用新结果”才能切换 current。
+- 人工编辑作为 Revision 保存，不覆盖原始模型事实。
+- AI Summary 输入必须冻结当前 Effective Transcription，包括当前人工 Revision。
+- Summary lineage 记录 transcriptionId + transcriptionRevisionId，并据此判断 stale。
+- 无 audio anchor 的人工文本可以进入总结输入，但不得制造虚假时间戳或音频证据。
+- 普通搜索只索引 Recording + Current Effective Transcription + Current Effective Summary；candidate / 历史底层结果不进入普通搜索。
 
-离线只暴露 SenseVoice / Qwen3-ASR。
+## 4. QA6 产品 UI / UX 冻结
 
-实时只暴露 Small Bilingual / Large CTC，并明确说明用于未来实时转写，不影响录音文件离线转写。
+录音详情一级 Tab：`录音 / 转写 / 总结`。
 
-说话人分离不再暴露 CAM++ / ERes2Net 模型选择器，CAM++ 为固定产品路径。
+### 录音
 
-性能/VAD 高级设置保持 capability 驱动、合法范围与可追溯 config snapshot。
+- 全宽真实波形 overview
+- 已播放 / 未播放波形区分
+- 圆形进度点，可 seek
+- ±10s 图标控制
+- 大圆形播放 / 暂停主按钮
+- 固定速度：`0.5× / 0.75× / 1.0× / 1.5× / 2.0×`，1.0 居中
+- 录音信息卡：录制时间、文件大小、来源 / 格式，图标与文字列对齐
+- 重命名 / 分享 / 导出 / 删除使用图标化操作按钮；删除使用错误色强调
 
-内部 FAST/HIGH_QUALITY、FIRST_PASS/SECOND_PASS 等历史持久化/状态名可继续存在，但不得重新作为产品概念暴露。
+### 转写
 
-## 4. Qwen 时间轴冻结
+- 默认连续全文阅读
+- 正文作为一个连续可选择区域，允许跨段选择复制
+- 时间轴保留用于听原音与校对
+- 普通 UI 不再向用户暴露 Version / Revision 等工程概念
 
-Qwen 负责最终正文；当 Small Bilingual 可用时，可在 Qwen 主识别后内部生成 token timing/reference timeline。
+### 总结
 
-运行期必须明确显示：
+- 只显示当前有效 Summary
+- 当当前总结基于较早转写 lineage 时显示 stale 提示，并提供重新生成入口
+- 新完成结果作为“新结果”，只有明确“使用新结果”后才成为 current
 
-`正在生成时间轴… XX%`
+### Mini Player
 
-该 activity 不新增 Room 持久化状态，继续复用既有 SECOND_PASS 状态边界，避免 schema/state migration。
+仅在 PLAYING / PAUSED 时显示；COMPLETED / READY / ERROR / 无 active recording 时不得残留。
 
-Small Bilingual 缺失或时间轴对齐失败不得使 Qwen 正文任务整体失败。
+## 5. 搜索冻结
 
-## 5. SenseVoice / 标点冻结
+录音库搜索同时覆盖：
 
-SenseVoice：
+- 录音名称 / 原始文件名
+- 文件夹 / 标签
+- 导入来源元数据
+- Current Effective Transcription
+- Current Effective Summary
 
-- ITN 开启：使用模型原生 ITN/标点能力，不重复跑外部 CT 标点。
-- ITN 关闭：允许 CT-Transformer 执行外部标点恢复。
-- punctuation-only token 不参与 speaker/timeline 伪时间定位。
+中文正文检索统一使用现有 CJK FTS 规则。QA6 最终真机已确认转写正文关键词可从录音库命中对应录音。
 
-用户可见文案不得再暴露“第一遍/第二遍/二遍 ASR”等工程术语。
+## 6. AI Summary cancellation 冻结
 
-## 6. AI Summary cancellation Fix 1 冻结
+QA5 Fix 1 的取消语义继续属于 Stage 13A 冻结行为：
 
-Stage 13A QA5 Fix 1 同时冻结 AI Summary 取消语义：
+- 取消 coroutine 的同时主动断开当前 LLM HTTP request
+- `CancellationException` 不映射为普通 NETWORK failure
+- CANCELLED 可靠落库
+- late progress / late provider response 不得复活任务
+- CANCELLED / FAILED 不计正式 Summary 版本
 
-- 取消 coroutine 的同时主动断开当前 LLM HTTP request。
-- `CancellationException` 不得映射成普通 NETWORK failure。
-- 取消终态使用 `NonCancellable` 可靠写入 Room。
-- Room 使用 ACTIVE-state CAS；迟到 progress / provider response 不得把 CANCELLED/FAILED 任务复活成 COMPLETED。
-- 只有 COMPLETED Summary 计入正式“版本 N”。
-- CANCELLED / FAILED 不增加正式版本数，也不抢占已有 completed 内容。
-- INTERRUPTED 仅在无 completed 内容时作为可恢复任务入口。
+## 7. Room / 数据边界
 
-## 7. Benchmark 产品边界
+Room schema 最终冻结为 v7。
 
-Speech Benchmark / Diarization Benchmark 是 Stage 13A 选型期间的临时开发能力，不属于冻结产品功能。
-
-冻结产品中不提供 Benchmark 卡片、按钮或 runner。
-
-继续保留：
-
-- 模型安装/完整性验证
-- isolated native smoke
-- runtime capability 检查
-- model/config snapshot
-- deterministic regression tests
-
-## 8. Room / 数据边界
-
-Room schema 冻结为 v7。
-
-Stage 13A 不改变以下核心事实：
+继续保护：
 
 - canonical 16 kHz mono PCM16 absolute sample index 是唯一媒体时间真值
-- Transcription version 继续保存真实 model/runtime/config lineage
-- 原始 Segment/Token/Speaker alignment 不被人工 Revision 覆盖
-- Stage 12C Revision / Search 派生数据边界保持不变
+- 原始 Transcription / Segment / Token / Speaker alignment 不被人工 Revision 覆盖
+- SearchDocument / FTS 是可重建派生数据
+- Current selection 与 Revision lineage 必须保持一致
 - 不允许 destructive migration
 
-## 9. Model channel 状态
+## 8. Model channel
 
-本次 Freeze **不提升 production model-channel**。
+本次 Final Freeze **不提升 production model-channel**。
 
-冻结时 production：
+production manifest promotion 是独立受控操作，不得因 Stage 13A merge 自动执行。
 
-`ioannes78/voica-model-channel@e4e64d29b8c92b97de4298ec6e292c33273f3ba4`
+## 9. 真机验收
 
-Stage 13A 真机验收通过的是 candidate/debug 模型源 + App 最终模型过滤路径。
-
-production manifest promotion 是独立受控操作，需单独明确授权；不得把 Stage 13A Freeze/merge 自动等同为 production promotion。
-
-## 10. 路线覆盖说明
-
-`docs/ROADMAP.md`、`AGENTS.md`、Stage 12C Handoff 中仍可能保留 Stage 13A pre-freeze 候选文字，例如：
-
-- FireRedASR2
-- Chinese Large Transducer
-- ERes2Net
-- Speech/Diarization Benchmark 产品化
-
-这些历史候选描述已被以下冻结文件覆盖：
-
-- `docs/STAGE_13A_QA5_FINAL_DECISIONS.md`
-- `docs/STAGE_13A_FROZEN_ROADMAP_NOTE.md`
-- `docs/STAGE_16_STREAMING_CONTRACT_V2.md`
-- 本文件
-
-Stage 13B 不得恢复已移出冻结矩阵的候选项，除非形成新的明确变更决策并重新做受影响的真机回归。
-
-## 11. 真机验收
-
-最终用户确认：
+用户于 2026-10-05 对 QA6 v48 明确确认：
 
 **“测试通过”**
 
-验收包含 Stage 13A QA5 与 Fix 1 收口后的核心功能回归。CI success 仅作为自动化证据，不替代本次用户真机验收。
+最终真机验收包含 QA6 内容生命周期、录音库搜索修复、播放器 / 波形 / 录音信息 UI 收口及相关回归。CI success 仅作为自动化证据，不替代本次真机验收。
 
-## 12. 下一阶段
+## 10. 下一阶段
 
-下一阶段：
+Stage 13A Final Freeze 完成后，下一阶段解锁为：
 
 **Stage 13B — 稳定性、后台与真实长录音专项**
 
-Stage 13B 必须以本 Stage 13A 冻结模型矩阵与默认参数为基线，重点覆盖：
-
-- 真实 30 分钟 / 1 小时 / 2 小时录音
-- ASR / diarization RTF、RAM/PSS、CPU、thermal、storage、battery（可测时）
-- BLE soak
-- Foreground Service
-- 后台 / 锁屏文件下载
-- cancellation / interruption / process recovery
-- 低存储与临时文件恢复
-- playback / seek / timeline / revision / search / AI Summary 长文本回归
+Stage 13B 开始前仍必须以合并后的 GitHub `main` 当前真实状态为唯一事实来源重新核验。

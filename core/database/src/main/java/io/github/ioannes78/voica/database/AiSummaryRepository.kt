@@ -226,10 +226,16 @@ class AiSummaryRepository(
             }
         if (completed) {
             try {
-                SearchIndexRebuilder(database).reindexAiSummary(summaryId)
+                val summary = dao.findSummary(summaryId)
+                if (summary != null) {
+                    Stage12CContentRepository(database).onAiSummaryCompleted(
+                        recordingId = summary.recordingId,
+                        summaryId = summaryId,
+                    )
+                }
             } catch (_: CancellationException) {
-                // Completion is already committed atomically. Search indexing is rebuildable and
-                // must not turn a completed summary back into a cancellation race.
+                // Completion is already committed atomically. Current-selection/search maintenance
+                // is rebuildable and must not turn a completed summary back into a cancellation race.
             }
         }
         return completed

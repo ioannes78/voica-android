@@ -44,6 +44,15 @@ interface SearchDao {
     @Query("SELECT documentId FROM search_documents WHERE tagId = :tagId")
     suspend fun findDocumentIdsForTag(tagId: String): List<String>
 
+    @Query("SELECT DISTINCT transcriptionId FROM search_documents WHERE documentType = 'TRANSCRIPT_UNIT' AND transcriptionId IS NOT NULL")
+    suspend fun findIndexedTranscriptionIds(): List<String>
+
+    @Query("SELECT DISTINCT aiSummaryId FROM search_documents WHERE aiSummaryId IS NOT NULL")
+    suspend fun findIndexedAiSummaryIds(): List<String>
+
+    @Query("SELECT COUNT(*) FROM search_documents WHERE documentType NOT IN ('RECORDING', 'TRANSCRIPT_UNIT', 'SUMMARY_TITLE_OVERVIEW', 'SUMMARY_ITEM')")
+    suspend fun countLegacyProductSearchRows(): Int
+
     @Query("DELETE FROM search_documents_fts")
     suspend fun clearFts(): Int
 
