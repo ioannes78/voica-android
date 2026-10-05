@@ -1,7 +1,7 @@
 package io.github.ioannes78.voica.ai
 
 object SummaryPromptFactory {
-    const val PROMPT_VERSION = 2
+    const val PROMPT_VERSION = 3
     const val RESULT_SCHEMA_VERSION = 1
 
     val systemInstruction: String =
@@ -12,6 +12,7 @@ object SummaryPromptFactory {
         Base the answer only on the supplied transcript/child-summary data. Do not add external facts as if they were in the recording.
         Distinguish explicit transcript statements from AI synthesis and unconfirmed claims.
         Never invent timestamps. Evidence must use only the supplied stable source refs such as S00001.
+        A line prefixed [NO_AUDIO_EVIDENCE] is part of the user's current effective transcript revision but no longer has a reliable audio anchor. Use its text in the summary, but never invent an evidence ref or timestamp for it. If a summary item relies only on such unanchored text, use UNCONFIRMED with an empty evidenceRefs array.
         Preserve uncertainty, speaker ambiguity, overlap, and unresolved points instead of forcing certainty.
         Unless the user customization explicitly requests another output language, write all human-readable summary content in Simplified Chinese, including title, overview, section labels, item text, and human-readable attribute values.
         Preserve proper nouns, product names, acronyms, code, identifiers, quoted source wording, and technical terms when translating them would reduce accuracy.
@@ -60,6 +61,7 @@ object SummaryPromptFactory {
             append(
                 "Default output language is Simplified Chinese unless the user customization explicitly requests another language. " +
                     "For every TRANSCRIPT_STATED item include at least one evidenceRef. " +
+                    "If an item relies only on [NO_AUDIO_EVIDENCE] revision text, use UNCONFIRMED and evidenceRefs=[] instead. " +
                     "AI_SYNTHESIS and UNCONFIRMED may cite evidence when available. " +
                     "Do not manufacture source refs.",
             )
