@@ -35,6 +35,11 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 data class AiSummaryProviderPreview(
     val providerProfileId: String,
@@ -77,6 +82,12 @@ class AiSummaryViewModel(
     private val mutableSelected = MutableStateFlow<AiSummaryDocument?>(null)
     val selected: StateFlow<AiSummaryDocument?> = mutableSelected.asStateFlow()
 
+    private val mutableCandidateId = MutableStateFlow<String?>(null)
+    val candidateId: StateFlow<String?> = mutableCandidateId.asStateFlow()
+
+    private val mutableStale = MutableStateFlow(false)
+    val stale: StateFlow<Boolean> = mutableStale.asStateFlow()
+
     private val mutableProvider = MutableStateFlow<AiSummaryProviderPreview?>(null)
     val provider: StateFlow<AiSummaryProviderPreview?> = mutableProvider.asStateFlow()
 
@@ -99,7 +110,9 @@ class AiSummaryViewModel(
     val notice: StateFlow<String?> = mutableNotice.asStateFlow()
 
     private var boundTranscriptionId: String? = null
+    private var boundRecordingId: String? = null
     private var historyJob: Job? = null
+    private var revisionJob: Job? = null
     private var generationModelsProfileId: String? = null
 
     init {
@@ -112,18 +125,23 @@ class AiSummaryViewModel(
             coordinator.state.collectLatest { state ->
                 when (state) {
                     is AiSummaryRunState.Completed -> {
-                        if (state.transcriptionId == boundTranscriptionId) {
-                            selectSummary(state.summaryId)
+                        if (state.recordingId == boundRecordingId) {
+                            mutableCandidateId.value =
+                                contentRepository.resolveAiSummaryCandidateId(state.recordingId)
+                            if (mutableCandidateId.value == state.summaryId) {
+                                mutableNotice.value = "新的总结结果已生成。"
+                            }
+                            refreshCurrentSelection()
                         }
                     }
                     is AiSummaryRunState.Failed -> {
-                        if (state.transcriptionId == boundTranscriptionId) {
+                        if (state.recordingId == boundRecordingId) {
                             mutableNotice.value = state.message
                         }
                     }
                     is AiSummaryRunState.Cancelled -> {
                         if (state.transcriptionId == boundTranscriptionId) {
-                            mutableNotice.value = "AI 总结已取消。"
+                            mutableNotice.value = "总结已取消。"
                         }
                     }
                     AiSummaryRunState.Idle,
@@ -138,38 +156,37 @@ class AiSummaryViewModel(
         refreshProvider()
         if (boundTranscriptionId == transcriptionId) return
         boundTranscriptionId = transcriptionId
+        boundRecordingId = null
         historyJob?.cancel()
+        revisionJob?.cancel()
         mutableHistory.value = emptyList()
         mutableSelected.value = null
+        mutableCandidateId.value = null
+        mutableStale.value = false
         if (transcriptionId == null) return
 
-        historyJob =
-            viewModelScope.launch {
-                repository.observeForTranscription(transcriptionId)
-                    .collectLatest { summaries ->
-                        mutableHistory.value = summaries
-                        val completed =
-                            summaries.filter { it.status == AiSummaryStateValue.COMPLETED }
-                        val currentId = mutableSelected.value?.entity?.id
-                        val recordingId = summaries.firstOrNull()?.recordingId
-                        val persistedId =
-                            recordingId?.let {
-                                contentRepository.resolveCurrentAiSummaryId(it)
-                            }
-                        val target =
-                            completed.firstOrNull { it.id == currentId }
-                                ?: completed.firstOrNull { it.id == persistedId }
-                                ?: completed.firstOrNull()
-                                ?: summaries.firstOrNull {
-                                    it.status == AiSummaryStateValue.INTERRUPTED
-                                }
-                        if (target == null) {
-                            mutableSelected.value = null
-                        } else {
-                            loadDocument(target)
+        viewModelScope.launch {
+            val recordingId = repository.recordingIdForTranscription(transcriptionId) ?: return@launch
+            if (boundTranscriptionId != transcriptionId) return@launch
+            boundRecordingId = recordingId
+            historyJob =
+                viewModelScope.launch {
+                    repository.observeForRecording(recordingId)
+                        .collectLatest { summaries ->
+                            mutableHistory.value = summaries
+                            mutableCandidateId.value =
+                                contentRepository.resolveAiSummaryCandidateId(recordingId)
+                            refreshCurrentSelection()
                         }
-                    }
-            }
+                }
+            revisionJob =
+                viewModelScope.launch {
+                    contentRepository.observeTranscriptionMetadata(transcriptionId)
+                        .collectLatest {
+                            refreshStale()
+                        }
+                }
+        }
     }
 
     fun refreshProvider() {
@@ -235,9 +252,7 @@ class AiSummaryViewModel(
             providerProfileId = providerProfileId,
             modelOverride = model,
         ).also { started ->
-            if (!started) {
-                mutableNotice.value = "已有 AI 总结任务正在运行。"
-            }
+            if (!started) mutableNotice.value = "已有总结任务正在运行。"
         }
     }
 
@@ -247,9 +262,7 @@ class AiSummaryViewModel(
         model: String? = null,
     ): Boolean {
         val transcriptionId = boundTranscriptionId ?: return false
-        val template =
-            SummaryTemplateCatalog.find(presetId)
-                ?: return false
+        val template = SummaryTemplateCatalog.find(presetId) ?: return false
         mutableNotice.value = null
         return coordinator.start(
             transcriptionId = transcriptionId,
@@ -258,9 +271,7 @@ class AiSummaryViewModel(
             providerProfileId = providerProfileId,
             modelOverride = model,
         ).also { started ->
-            if (!started) {
-                mutableNotice.value = "已有 AI 总结任务正在运行。"
-            }
+            if (!started) mutableNotice.value = "已有总结任务正在运行。"
         }
     }
 
@@ -270,9 +281,7 @@ class AiSummaryViewModel(
         model: String? = null,
     ): Boolean {
         val transcriptionId = boundTranscriptionId ?: return false
-        val entity =
-            mutableCustomTemplates.value.firstOrNull { it.id == templateId }
-                ?: return false
+        val entity = mutableCustomTemplates.value.firstOrNull { it.id == templateId } ?: return false
         val template =
             runCatching { SummaryTemplateSnapshotCodec.decode(entity.sectionsConfigJson) }
                 .getOrElse {
@@ -287,9 +296,7 @@ class AiSummaryViewModel(
             providerProfileId = providerProfileId,
             modelOverride = model,
         ).also { started ->
-            if (!started) {
-                mutableNotice.value = "已有 AI 总结任务正在运行。"
-            }
+            if (!started) mutableNotice.value = "已有总结任务正在运行。"
         }
     }
 
@@ -339,12 +346,8 @@ class AiSummaryViewModel(
     fun deleteCustomTemplate(templateId: String) {
         viewModelScope.launch {
             runCatching { repository.deleteCustomTemplate(templateId) }
-                .onSuccess {
-                    mutableNotice.value = "自定义模板已删除。"
-                }
-                .onFailure {
-                    mutableNotice.value = "删除自定义模板失败。"
-                }
+                .onSuccess { mutableNotice.value = "自定义模板已删除。" }
+                .onFailure { mutableNotice.value = "删除自定义模板失败。" }
         }
     }
 
@@ -352,19 +355,28 @@ class AiSummaryViewModel(
         coordinator.cancel()
     }
 
+    /** Preview only. Product current selection is changed only by [adoptSummaryResult]. */
     fun selectSummary(summaryId: String) {
         viewModelScope.launch {
             val entity =
                 mutableHistory.value.firstOrNull { it.id == summaryId }
                     ?: repository.find(summaryId)
                     ?: return@launch
-            if (entity.status == AiSummaryStateValue.COMPLETED) {
-                contentRepository.setCurrentAiSummaryVersion(
-                    recordingId = entity.recordingId,
-                    summaryId = entity.id,
-                )
-            }
             loadDocument(entity)
+            refreshStale()
+        }
+    }
+
+    /** Explicit product action: "使用新结果". */
+    fun adoptSummaryResult(summaryId: String) {
+        viewModelScope.launch {
+            val entity = repository.find(summaryId) ?: return@launch
+            if (entity.status != AiSummaryStateValue.COMPLETED) return@launch
+            contentRepository.setCurrentAiSummaryVersion(entity.recordingId, entity.id)
+            mutableCandidateId.value = contentRepository.resolveAiSummaryCandidateId(entity.recordingId)
+            loadDocument(entity)
+            refreshStale()
+            mutableNotice.value = "已使用新的总结结果。"
         }
     }
 
@@ -373,15 +385,13 @@ class AiSummaryViewModel(
         if (entity.status != AiSummaryStateValue.INTERRUPTED) return false
         mutableNotice.value = null
         return coordinator.resumeInterrupted(entity.id).also { started ->
-            if (!started) {
-                mutableNotice.value = "已有 AI 总结任务正在运行。"
-            }
+            if (!started) mutableNotice.value = "已有总结任务正在运行。"
         }
     }
 
     fun regenerateSelected(): Boolean {
         val entity = mutableSelected.value?.entity ?: return false
-        val transcriptionId = entity.transcriptionId ?: return false
+        val transcriptionId = boundTranscriptionId ?: entity.transcriptionId ?: return false
         val mode =
             when (entity.mode) {
                 AiSummaryModeValue.PRESET -> AiSummaryMode.PRESET
@@ -401,15 +411,60 @@ class AiSummaryViewModel(
             providerProfileId = entity.providerProfileId,
             modelOverride = entity.model,
         ).also { started ->
-            if (!started) {
-                mutableNotice.value = "已有 AI 总结任务正在运行。"
-            }
+            if (!started) mutableNotice.value = "已有总结任务正在运行。"
         }
     }
 
     fun clearNotice() {
         mutableNotice.value = null
     }
+
+    private suspend fun refreshCurrentSelection() {
+        val recordingId = boundRecordingId ?: return
+        val summaries = mutableHistory.value
+        val currentId = contentRepository.resolveCurrentAiSummaryId(recordingId)
+        val target =
+            summaries.firstOrNull {
+                it.id == currentId && it.status == AiSummaryStateValue.COMPLETED
+            } ?: summaries.firstOrNull { it.status == AiSummaryStateValue.INTERRUPTED }
+        if (target == null) {
+            mutableSelected.value = null
+            mutableStale.value = false
+        } else if (mutableSelected.value?.entity?.id != target.id) {
+            loadDocument(target)
+            refreshStale()
+        } else {
+            refreshStale()
+        }
+    }
+
+    private suspend fun refreshStale() {
+        val recordingId = boundRecordingId ?: return
+        val summary = mutableSelected.value?.entity
+        if (summary == null || summary.status != AiSummaryStateValue.COMPLETED) {
+            mutableStale.value = false
+            return
+        }
+        val effective = contentRepository.resolveEffectiveTranscription(recordingId)
+        val lineage = parseSummaryLineage(summary.sourceLineageSnapshot)
+        mutableStale.value =
+            effective == null ||
+                lineage.transcriptionId != effective.transcriptionId ||
+                lineage.revisionId != effective.revisionId
+    }
+
+    private fun parseSummaryLineage(raw: String): SummaryLineageRef =
+        runCatching {
+            val root = Json.parseToJsonElement(raw).jsonObject
+            SummaryLineageRef(
+                transcriptionId = root["transcriptionId"]?.jsonPrimitive?.contentOrNull,
+                revisionId =
+                    root["transcriptionRevisionId"]
+                        ?.takeUnless { it is JsonNull }
+                        ?.jsonPrimitive
+                        ?.contentOrNull,
+            )
+        }.getOrDefault(SummaryLineageRef(null, null))
 
     private suspend fun loadDocument(entity: AiSummaryEntity) {
         val evidence = repository.loadEvidence(entity.id)
@@ -418,8 +473,7 @@ class AiSummaryViewModel(
                 runCatching {
                     SummaryResultCodec.decode(
                         raw = raw,
-                        allowedEvidenceRefs =
-                            evidence.mapTo(LinkedHashSet()) { it.sourceRef },
+                        allowedEvidenceRefs = evidence.mapTo(LinkedHashSet()) { it.sourceRef },
                     )
                 }.getOrNull()
             }
@@ -436,10 +490,7 @@ class AiSummaryViewModel(
             providerProfileId = providerProfileId,
             displayName = displayName,
             model = defaultModel,
-            host =
-                runCatching { URI(baseUrl).host }
-                    .getOrNull()
-                    .orEmpty(),
+            host = runCatching { URI(baseUrl).host }.getOrNull().orEmpty(),
             structuredCompatibilityLabel =
                 capabilityOverrides?.let { capabilities ->
                     when {
@@ -449,6 +500,11 @@ class AiSummaryViewModel(
                     }
                 },
         )
+
+    private data class SummaryLineageRef(
+        val transcriptionId: String?,
+        val revisionId: String?,
+    )
 
     class Factory(
         private val coordinator: AiSummaryCoordinator,
