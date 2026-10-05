@@ -293,7 +293,16 @@ class DiarizationCoordinatorTest {
             source: PcmSource,
             progressListener: ProgressListener?,
         ): List<SpeechSegment> {
-            if (block) awaitCancellation()
+            if (block) {
+                progressListener?.onProgress(
+                    TranscriptionProgress(
+                        phase = TranscriptionPhase.VAD,
+                        processedUnits = 0L,
+                        totalUnits = source.totalSampleCount,
+                    ),
+                )
+                awaitCancellation()
+            }
             val buffer = ShortArray(4_096)
             while (source.read(buffer) != null) {
                 Unit
