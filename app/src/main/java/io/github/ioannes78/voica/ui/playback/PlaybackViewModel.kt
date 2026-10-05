@@ -7,28 +7,17 @@ import io.github.ioannes78.voica.LocalRecordingDeleteCoordinator
 import io.github.ioannes78.voica.audio.PlaybackController
 import io.github.ioannes78.voica.audio.PlaybackState
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 class PlaybackViewModel(
     private val controller: PlaybackController,
     private val deleteCoordinator: LocalRecordingDeleteCoordinator,
-    private val waveformRepository: WaveformOverviewRepository,
 ) : ViewModel() {
     val snapshot = controller.snapshot
     private val transcriptPlaybackCoordinator = TranscriptPlaybackCoordinator(controller)
     private var transcriptPlaybackJob: Job? = null
-    private var waveformJob: Job? = null
-    private var waveformRecordingId: String? = null
-
-    private val mutableWaveform =
-        MutableStateFlow<WaveformOverviewResult>(WaveformOverviewResult.Unavailable)
-    val waveform: StateFlow<WaveformOverviewResult> = mutableWaveform.asStateFlow()
 
     fun loadAndPlay(recordingId: String) {
-        loadWaveform(recordingId)
         viewModelScope.launch {
             val current = controller.snapshot.value
             if (
@@ -39,22 +28,6 @@ class PlaybackViewModel(
             }
             controller.play()
         }
-    }
-
-    fun loadWaveform(recordingId: String) {
-        if (recordingId == waveformRecordingId && mutableWaveform.value is WaveformOverviewResult.Ready) {
-            return
-        }
-        waveformRecordingId = recordingId
-        waveformJob?.cancel()
-        mutableWaveform.value = WaveformOverviewResult.Unavailable
-        waveformJob =
-            viewModelScope.launch {
-                val result = waveformRepository.load(recordingId)
-                if (waveformRecordingId == recordingId) {
-                    mutableWaveform.value = result
-                }
-            }
     }
 
     fun retryCurrent() {
@@ -83,7 +56,6 @@ class PlaybackViewModel(
         recordingId: String,
         sampleIndex: Long,
     ) {
-        loadWaveform(recordingId)
         transcriptPlaybackJob?.cancel()
         transcriptPlaybackJob =
             viewModelScope.launch {
@@ -107,14 +79,9 @@ class PlaybackViewModel(
     class Factory(
         private val controller: PlaybackController,
         private val deleteCoordinator: LocalRecordingDeleteCoordinator,
-        private val waveformRepository: WaveformOverviewRepository,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            PlaybackViewModel(
-                controller,
-                deleteCoordinator,
-                waveformRepository,
-            ) as T
+            PlaybackViewModel(controller, deleteCoordinator) as T
     }
 }
