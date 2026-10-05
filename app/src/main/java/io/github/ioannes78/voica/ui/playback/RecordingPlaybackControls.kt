@@ -23,15 +23,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.R
+import io.github.ioannes78.voica.VoicaApplication
 import io.github.ioannes78.voica.audio.PlaybackState
+import java.io.File
 
 @Composable
 fun RecordingPlaybackCard(
@@ -42,10 +48,26 @@ fun RecordingPlaybackCard(
     playbackViewModel: PlaybackViewModel,
 ) {
     val snapshot by playbackViewModel.snapshot.collectAsState()
-    val waveform by playbackViewModel.waveform.collectAsState()
+    val context = LocalContext.current
+    val application = context.applicationContext as? VoicaApplication
+    val waveformRepository =
+        remember(application) {
+            application?.let { app ->
+                WaveformOverviewRepository(
+                    sourceResolver = app.container.audioSourceResolver,
+                    cacheRoot = File(app.cacheDir, "waveforms"),
+                )
+            }
+        }
+    var waveform by remember(recordingId) {
+        mutableStateOf<WaveformOverviewResult>(WaveformOverviewResult.Unavailable)
+    }
 
-    LaunchedEffect(recordingId, canonicalReady) {
-        if (canonicalReady) playbackViewModel.loadWaveform(recordingId)
+    LaunchedEffect(recordingId, canonicalReady, waveformRepository) {
+        waveform = WaveformOverviewResult.Unavailable
+        if (canonicalReady && waveformRepository != null) {
+            waveform = waveformRepository.load(recordingId)
+        }
     }
 
     if (deviceRecordingActive) {
@@ -196,7 +218,7 @@ private fun MiniProgress(progress: Float) {
     ) {
         val y = size.height / 2f
         val x = size.width * progress.coerceIn(0f, 1f)
-        drawLine(inactive, Offset.Zero.copy(y = y), Offset(size.width, y), 3f, StrokeCap.Round)
-        drawLine(active, Offset.Zero.copy(y = y), Offset(x, y), 3f, StrokeCap.Round)
+        drawLine(inactive, Offset(0f, y), Offset(size.width, y), 3f, StrokeCap.Round)
+        drawLine(active, Offset(0f, y), Offset(x, y), 3f, StrokeCap.Round)
     }
 }
