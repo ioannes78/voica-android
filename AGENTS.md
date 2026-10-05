@@ -4,15 +4,24 @@
 
 当前 `ioannes78/voica-android` 仓库是 Voica 项目实现状态的唯一事实来源。
 
-当前已冻结基线：**Stage 12C**
+当前已冻结基线：**Stage 13A**
 
-Stage 12C Freeze/Handoff：
+Stage 13A Final Freeze/Handoff：
 
-- `docs/STAGE_12C_FREEZE.md`
-- `docs/STAGE_12C_HANDOFF.md`
-- `docs/STAGE_12C_TEST.md`
+- `docs/STAGE_13A_FREEZE.md`
+- `docs/STAGE_13A_HANDOFF.md`
+- `docs/STAGE_13A_QA5_FINAL_DECISIONS.md`
+- `docs/STAGE_13A_FROZEN_ROADMAP_NOTE.md`
 
-下一阶段：**Stage 13A — 本地 ASR / Diarization 引擎增强与参数调优**
+当前开发阶段：**Stage 13B — 稳定性、后台与真实长录音专项**。
+
+Stage 13B 当前仍在独立开发分支/PR 中推进；任何接管都必须重新读取 GitHub 当前 `main`、open PR、HEAD、CI 与 Stage 13B 最新文档，不能把本文记录的某个历史 SHA 当成当前状态。
+
+从 **Stage 13C** 开始的后续权威增量规划：
+
+- `docs/ROADMAP_STAGE_13C_PLUS.md`
+
+该增量路线图不修改 Stage 13B 既有范围；如它与旧 `docs/ROADMAP.md` 的 Stage 13C 以后编号/边界发生冲突，从 Stage 13C 起以该增量路线图和后续实际 Freeze/Handoff 为准。
 
 协议与行为参考：
 
@@ -53,7 +62,7 @@ Stage 12C Freeze/Handoff：
 每个 Stage 开始前必须：
 
 1. 阅读本文件。
-2. 阅读当前 ROADMAP、ARCHITECTURE、协议说明和上一阶段 Freeze/Handoff。
+2. 阅读当前 ROADMAP、适用的增量 ROADMAP、ARCHITECTURE、协议说明和上一阶段 Freeze/Handoff。
 3. 检查 GitHub 当前真实代码，不依赖聊天记忆。
 4. 输出该 Stage 的“修订需求”。
 5. 等待用户明确确认。
@@ -71,7 +80,7 @@ Stage 12C Freeze/Handoff：
 
 ## 五、Android 技术基线
 
-当前技术基线：
+当前 `main`（Stage 13A Final Freeze/merge）技术基线：
 
 - Kotlin：2.4.20
 - Android Gradle Plugin：9.4.0
@@ -83,12 +92,14 @@ Stage 12C Freeze/Handoff：
 - Compose BOM：2026.09.00
 - Application ID：`io.github.ioannes78.voica`
 - QA Application ID：`io.github.ioannes78.voica.qa`
-- versionCode：40
-- versionName：`0.12.4-stage12c-qa1`
+- versionCode：48
+- versionName：`0.13.0-stage13a-qa6`
 - sherpa-onnx：1.13.8
-- Room schema：6
+- Room schema：7
 - ABI：arm64-v8a
 - 默认产品语言：简体中文
+
+Stage 13B 开发分支可能已提升 versionCode/versionName，但不得据此覆盖 `main` 冻结事实；接管 Stage 13B 时必须重新读取当前分支真实配置。
 
 当前物理模块：
 
@@ -124,7 +135,7 @@ app
 
 后续 Stage 不得无明确需求和迁移设计改变：
 
-- Room schema 已由 Stage 12C 从 v5 additive migration 到 v6；后续必须保持 1..6 migration lineage
+- Room schema 已由 Stage 12C 从 v5 additive migration 到 v6；Stage 13A 后已继续演进到 v7，后续必须保持完整 migration lineage
 - Recording metadata 搜索/排序/筛选、收藏、逻辑文件夹、标签均复用现有 Recording Library，不建立第二套录音库
 - LOCAL_IMPORT + IMPORTED_ORIGINAL 保存导入 provenance；外部 content URI 不作为长期唯一音频事实
 - 手机导入支持 WAV / MP3 / M4A-AAC / ADTS AAC / FLAC / Ogg Opus；QS668 raw framed Opus 继续走专用链
@@ -136,13 +147,13 @@ app
 - AI Summary 历史版本显示实际 Provider/Model lineage
 - 每次 AI Summary 可临时选择 Provider/Model，不能修改全局默认
 - Structured Output Reliability 使用 strict schema 优先 + 有界 fallback/repair；不得降低 evidence validation
-- Stage 12C 已冻结：人工编辑不得直接覆盖原始 ASR / AI Summary 模型结果
+- Stage 12C/13A 已冻结：人工编辑不得直接覆盖原始 ASR / AI Summary 模型结果
 
 ## 六-A、Stage 12C 已冻结内容管理与搜索事实
 
 后续 Stage 不得无明确需求和 migration 设计改变：
 
-- Room schema = 6，v5→v6 为 additive migration；CI 固定校验 schema 1..6。
+- Stage 12C 原始冻结 Room schema = 6，v5→v6 为 additive migration；Stage 13A 已继续演进到 Room v7，后续不得破坏 1..7 migration lineage。
 - 原始 ASR Transcription / Segment / Token / speaker/alignment / absolute canonical sample timeline 保持不可变。
 - 人工转写编辑保存为独立 TranscriptionRevision 全量快照；支持段落合并/拆分/整理、历史切换、删除与恢复模型原文。
 - 人工修改文本不得伪造 token timestamp；没有可靠 token 边界时只保留来源 sample range。
@@ -158,20 +169,93 @@ app
 - 搜索索引在 v6 migration 后标记 REBUILD_REQUIRED，由 SearchIndexRebuilder 启动重建，并在内容生命周期变化时增量刷新。
 - 搜索命中可定向打开 Recording / Transcription version / Summary version；Folder / Tag 命中回到录音库筛选。
 - Stage 12C 不包含 PDF/DOCX 验收、semantic/vector search、Audio LLM、云同步、后台 BLE/FGS 或 speaker voiceprint。
-- QA versionCode 40 / versionName `0.12.4-stage12c-qa1` 已真机验收通过。
+- QA versionCode 40 / versionName `0.12.4-stage12c-qa1` 已真机验收通过；当前主线冻结事实已由 Stage 13A 的 v48 / Room v7 继续覆盖。
 
-## 六-B、Stage 13A/13B 路线门禁
+## 六-B、Stage 13A/13B/13C 路线门禁
 
-Stage 13 已正式拆为 Stage 13A → Stage 13B：
+Stage 13 当前顺序为：
 
-- Stage 13A：本地 ASR / Diarization 模型增强、统一 capability、性能档位、高级参数、每次运行 config snapshot、Speech Benchmark。
-- Stage 13B：以前述冻结模型/默认参数为基线，执行真实 30min/1h/2h、RAM/CPU/thermal、BLE soak、Foreground Service、后台/锁屏可靠下载与进程恢复。
-- Stage 13A 必须先 Freeze/Handoff，才允许进入 Stage 13B。
-- Stage 16 streaming ASR 必须遵循 `docs/STAGE_16_STREAMING_CONTRACT_V2.md`；当前 Stage 13A 只冻结 contract，不提前实现实时 stabilizer/UI。
-- Stage 13B 完成后才允许进入 Stage 14 V1.0 Release Freeze。
-- Stage 14 不再进行大规模 ASR / diarization 模型选型；如核心模型/runtime发生重大变化，应退回 13A/13B 重新验证。
-- Stage 15 仍只负责实时 BLE Audio → Opus → PCM。
-- Stage 16 本地实时转写必须复用 Stage 13A 已冻结的 streaming-capable engine/capability；不支持真正 streaming 的 HQ 模型只能用于录音结束后的 second-pass/re-transcription。
+`Stage 13A → Stage 13B → Stage 13C → Stage 14`
+
+- Stage 13A：已完成并 Final Freeze/Handoff；本地 ASR / Diarization 模型矩阵、统一 capability、参数、内容生命周期已冻结。
+- Stage 13B：当前开发中；继续按既有规划完成真实 30min/1h/2h、RAM/CPU/thermal、BLE soak、Foreground Service、后台/锁屏可靠下载与进程恢复。本次 Stage 13C+ 路线修订**不得修改 Stage 13B 当前开发范围**。
+- Stage 13C：Stage 13B 完成并 Freeze/Handoff 后执行，专门解决说话人分离处理时间过长问题，核心 KPI 是 total time / RTF / RAM/PSS / CPU / thermal / battery；准确率只作为不得明显退化的约束，不以重新选模提准确率为本阶段目标。
+- Stage 13C baseline 固定读取 Stage 13A 已冻结链：`Silero VAD → Pyannote Segmentation 3.0 INT8 → CAM++ → clustering/stitching → transcript alignment`。
+- Stage 13C 必须先做逐阶段 profiling，再做 VAD 复用、embedding cache、CAM++ bounded batching、overlap 去重、短 segment 策略、线程 benchmark、1-speaker fast path、ASR 完成与 diarization 完成解耦。
+- 只有上述优化后仍不满足性能目标，才允许 benchmark 跳过 Pyannote 的 Fast Diarization 实验链；未经 A/B benchmark 和用户确认不得替换正式链。
+- 若 Stage 13C 更换核心 diarization model/runtime/segmentation/embedding 路径，必须重新执行受影响的 Stage 13B 30/60/120min 稳定性验证。
+- Stage 13C 真机通过并 Freeze/Handoff 后才允许进入 Stage 14 V1.0 Release Freeze。
+- Stage 14 不再进行新的大规模模型选型。
+
+Stage 13C+ 详细规划统一读取：`docs/ROADMAP_STAGE_13C_PLUS.md`。
+
+## 六-C、Stage 13A 最终模型优先级与 Stage 16–20 路线
+
+### Stage 13A 当前正式产品模型事实
+
+从 Stage 13A Final Freeze 起，下列事实优先于 Stage 8/9 历史冻结文档中的旧模型选择：
+
+文件离线 ASR：
+
+- SenseVoice INT8：快速 / 默认
+- Qwen3-ASR 0.6B INT8：高质量
+- FireRedASR2：不进入产品矩阵
+
+未来 true streaming ASR：
+
+- Small Bilingual Zipformer INT8：轻量 / 默认
+- Chinese Large CTC INT8：高质量
+- Chinese Large Transducer：不进入产品矩阵
+- 不提供 AUTO 产品路由
+
+说话人：
+
+- Pyannote Segmentation 3.0 INT8 + CAM++
+- CAM++ 为当前产品 embedding 模型
+- ERes2Net 不再是当前产品 embedding 选择
+
+其它：
+
+- Silero VAD
+- CT-Transformer zh-en punctuation
+
+### Stage 15–20 顺序
+
+- Stage 15：只负责 BLE realtime Audio → Opus → PCM 与实时媒体时间链。
+- Stage 16A：本地 true streaming ASR，必须遵循 `docs/STAGE_16_STREAMING_CONTRACT_V2.md`。
+- Stage 16B：本地文件 ASR V2，重点 benchmark SenseVoice INT8 / Fun-ASR-Nano INT8 / Qwen3-ASR 0.6B INT8；最终保留模型数量由真机 benchmark 决定，不为模型数量而堆叠。
+- Stage 17：云端文件 ASR / 音频上传转写，多 Provider。
+- Stage 18：云端实时 ASR，多 Provider。
+- Stage 19A：离线 AI 总结，保留 Gemma 4 E2B + E4B；E4B 默认高质量，E2B 轻量 fallback；Thinking Budget 作为高级设置，开发时重新核验 runtime 直接配置能力。
+- Stage 19B：离线 Audio LLM，Gemma 4 E2B 默认、E4B 高质量；Audio LLM 不替代专业 ASR。
+- Stage 19C：云端 Audio LLM + 高级 AI / semantic search / cross-recording understanding。
+- Stage 19D：全部主要核心功能完成后的全 App UI/UX 最终精修，不新增大规模核心功能。
+- Stage 20：Voica V2，包括云同步、账号、多设备、Speaker Voiceprint、跨录音 Speaker、Web/PC、团队协作。
+
+### Provider capability 规则
+
+从 Stage 17 起，同一 Provider Profile 可以共享 credential / region / base metadata，但能力适配必须拆分：
+
+- Text LLM
+- File ASR
+- Realtime ASR
+- Audio LLM
+
+模型列表、连接测试、协议、参数和 capability availability 必须分别处理；不得把不同能力伪装成同一个接口。
+
+API Key 继续使用 Android Keystore + encrypted app-private credential store，不进入 Room 内容 lineage。
+
+### Gemma 4 / Thinking 规则
+
+Stage 19A/19B 当前规划保留两个本地模型：Gemma 4 E2B 与 E4B。
+
+若当时 LiteRT-LM 仍支持 `ThinkingConfig(enableThinking, thinkingTokenBudget)`，高级设置可提供：自动 / 关闭 / 256 / 512 / 1024 / 2048 / 4096 / 自定义安全范围；建议 benchmark 起点为 E2B=512、E4B=1024。
+
+thinking budget 必须与 max output token 联动，必须为最终 Summary 预留足够输出 token。
+
+Stage 19A 开发时必须重新核验 Thinking + constrained JSON/JSON Schema 的兼容性；若仍不稳定，使用 Thinking ON 的分析阶段 + Thinking OFF 的严格结构化阶段，不得降低 Stage 11 evidence/schema validation。
+
+Stage 11 对部分云 Provider structured summary 默认关闭 thinking/reasoning 的历史规则，只针对当时云端兼容性，不得机械套用为 Gemma 4 离线模型的永久禁用规则。
 
 ## 六、Stage 2 已冻结 BLE 事实
 
@@ -313,7 +397,7 @@ Stage 13 已正式拆为 Stage 13A → Stage 13B：
 - Room schema 已从 version 1 显式迁移到 version 2；转写、segment、token 使用独立表并保留历史版本。
 - 本地转写统一使用 Stage 7 canonical PCM：16 kHz / mono / PCM16_LE / absolute canonical sample index。
 - Silero VAD int8 为 APK 内置基线，sourceType 为 BUILTIN_WITH_OVERRIDE；远程 override 失败时仍可回退到内置基线。
-- Stage 8 first-pass 基线使用 Small Bilingual Zipformer zh-en 2023-02-16；Stage 13A 将重新评估正式 FAST/Streaming 模型矩阵，Stage 16 必须复用 Stage 13A 冻结的 streaming-capable engine，不得继续把该模型写死为未来唯一选择。
+- Stage 8 first-pass 基线使用 Small Bilingual Zipformer zh-en 2023-02-16；Stage 13A 已重新评估并冻结当前正式 ASR 矩阵，当前产品选择以本文件“六-C”与 Stage 13A Final Freeze/Handoff 为准。
 - punctuation 使用 CT-Transformer zh-en int8 2024-04-12。
 - High Quality second-pass 使用 SenseVoice zh-en-ja-ko-yue int8 2024-07-17。
 - Fast pipeline：VAD → Small Bilingual → CT-Transformer → atomic persistence。
@@ -324,39 +408,38 @@ Stage 13 已正式拆为 Stage 13A → Stage 13B：
 - 大模型下载支持 .part 保留与 HTTP Range 断点续传；用户主动取消会确定性删除 .part。
 - package SHA、TAR.BZ2/ZIP 解包、installed-file SHA、native smoke 均不得阻塞 Compose 主线程。
 - 正式/普通 App 固定读取 production model manifest；Debug/QA candidate override 仅用于未合并候选验收。
-- production manifest 当前包含 Silero、Small Bilingual、CT-Transformer、SenseVoice 四模型。
+- Stage 8 production manifest 的历史四模型事实不能覆盖 Stage 13A 以后新的产品模型决策；任何当前 manifest 状态必须重新从 production model channel 核验。
 - QA APK 使用固定测试签名与 `io.github.ioannes78.voica.qa`，仅用于真机验收，不得用于生产发布。
-- 真实 30min/1h/2h 长录音压力仍作为 Stage 13 测试债务；Stage 8 已有 virtual 30/60/120min bounded-read 自动化覆盖。
+- 真实 30min/1h/2h 长录音压力在 Stage 13B 正式处理；Stage 8 已有 virtual 30/60/120min bounded-read 自动化覆盖。
 
 
 ## 九-D、Stage 9 已冻结说话人分离事实
 
-后续 Stage 不得无新证据改变：
+以下记录保留 Stage 9 当时的历史实现事实；**从 Stage 13A Final Freeze 起，当前产品 speaker embedding 选择以 CAM++ 为准，ERes2Net 不再是当前产品模型。**
 
 - sherpa-onnx Android runtime 继续固定 1.13.8；Stage 9 未引入第二套推理 runtime。
 - Room schema 已从 v2 显式迁移到 v3；Stage 8 转写历史完整保留。
-- Stage 9 speaker pipeline 使用：Silero VAD → Pyannote Segmentation 3.0 INT8 → ERes2Net Base zh-CN 16 kHz → sherpa FastClustering。
-- production model manifest 已正式包含：
+- Stage 9 历史 speaker pipeline 使用：Silero VAD → Pyannote Segmentation 3.0 INT8 → ERes2Net Base zh-CN 16 kHz → sherpa FastClustering。
+- Stage 9 当时 production model manifest 曾包含：
   - `pyannote-segmentation-3-int8` / role=`DIARIZATION_SEGMENTATION`
   - `3dspeaker-eres2net-base-zh-cn-16k` / role=`EMBEDDING`
-- 正常运行固定使用 production manifest；Stage 9 candidate URL 只属于未合并候选 QA，Stage 9 Freeze 后不再是运行依赖。
+- 上述 manifest 条目只能描述 Stage 9 历史状态；当前 production manifest 必须重新核验，不能据历史文档猜测。
 - Debug/QA 如果过去保存了 candidate override，可在设置中“恢复 production”后完全退出并重启。
-- Pyannote 单模型 Kotlin API 不提供完整 standalone native session，因此其最终 native gate 是 Pyannote + ERes2Net bundle smoke；bundle smoke 必须在创建 DiarizationRun 前成功。
-- ERes2Net 单模型激活必须真实创建 SpeakerEmbeddingExtractor 并得到 finite/non-zero embedding。
+- Pyannote 单模型 Kotlin API 不提供完整 standalone native session，因此其最终 native gate 是 segmentation + embedding bundle smoke；Stage 13A 当前 embedding 已切换为 CAM++ 后，应按当前实现重新核验 smoke 契约。
 - 所有 speaker 时间继续使用 16 kHz canonical PCM absolute sample index；不得建立拼接 VAD 伪时间轴。
-- 长录音按 bounded windows 处理；初始策略 60s chunk + 10s overlap，窗口读取保持顺序式，不要求 PcmSource random seek。
-- cross-chunk speaker identity 使用 ERes2Net anchor embedding + overlap/temporal evidence；chunk-local speaker label 不得直接持久化为全局 label。
+- 长录音按 bounded windows 处理；窗口读取保持顺序式，不要求 PcmSource random seek。
+- cross-chunk speaker identity 必须使用当前冻结 embedding + overlap/temporal evidence；chunk-local speaker label 不得直接持久化为全局 label。
 - Stage 9 不持久化 embedding vector / voiceprint / 跨录音全局人物身份；这些仍属于 Stage 20。
 - Room v3 新增 diarization run / speaker / turn / transcript alignment / speaker span 数据，不向 Stage 8 TranscriptSegment 直接塞单一 speaker 字段。
 - transcript speaker alignment 优先 timed SECOND_PASS token，fallback timed FIRST_PASS；跨 speaker 边界必须拆 span。
 - overlap/ambiguous token 不得复制给多个 speaker；无法可靠归属时显式保存 unresolved / overlap ambiguous。
-- 同一 completed diarization run 可复用给同一 canonical lineage 的多个 FAST/HIGH_QUALITY transcription version。
-- **直接 FAST/HQ 转写完成后默认自动继续说话人分离并完成 Speaker 文本对齐；用户无需预先手动点击说话人分离。**
-- 若同一 canonical lineage 已存在 completed diarization run，则直接复用，只做新的 transcript/speaker alignment。
+- 同一 completed diarization run 可复用给同一 canonical lineage 的多个 transcription version。
+- **直接转写完成后默认可继续说话人分离并完成 Speaker 文本对齐；Stage 13C 将进一步把“正文已完成”和“speaker 后处理完成”在产品生命周期上解耦，避免 speaker 慢阻塞正文可用性。**
+- 若同一 canonical lineage 已存在可复用 completed diarization run，则优先复用，只做必要 transcript/speaker alignment。
 - “单独说话人分离”保留给补做、重跑和模型专项测试；查看旧历史转写本身不得强制新跑重型 diarization。
 - 每次 diarization 重跑创建新的 run，不覆盖旧 run；Speaker 1/2/… 按本 run 首次全局出现顺序编号，局部重命名不跨 run 传播。
 - active diarization/alignment 在进程启动 reconciliation 时转 INTERRUPTED；取消/失败不得留下假 COMPLETED。
-- Stage 9 真机功能验收已通过；真实 30min/1h/2h 长录音、定量 RTF/PSS/thermal soak 仍属于 Stage 13 测试债务，不得写成 Stage 9 已完成。
+- Stage 9 真机功能验收已通过；真实 30min/1h/2h 长录音、定量 RTF/PSS/thermal soak 由 Stage 13B/13C 继续完成，不得写成 Stage 9 已完成。
 
 
 ## 九-E、Stage 10 已冻结转写时间轴与播放同步事实
@@ -384,7 +467,7 @@ Stage 13 已正式拆为 Stage 13A → Stage 13B：
 - Timeline 内容按版本一次性构建；播放高频 tick 只更新 active row/cue/follow state，不执行 Room IO、全文重建或 O(N) 扫描。
 - 顺序播放使用前向 cursor；随机/反向 seek 使用二分定位。
 - Room schema 保持 v3；Stage 10 仅增加按 transcriptionId 批量读取 token，不引入 migration。
-- Stage 10 已通过 30/60/120 分钟 virtual timeline 自动化；这不等于真实 30min/1h/2h 真机 soak，后者继续属于 Stage 13。
+- Stage 10 已通过 30/60/120 分钟 virtual timeline 自动化；这不等于真实 30min/1h/2h 真机 soak，后者继续属于 Stage 13B。
 - Stage 10 真机功能验收已通过；不得把本次验收扩张为未执行的长录音 PSS/CPU/thermal 定量结论。
 
 ## 九-F、Stage 11 已冻结 AI Summary / Provider 事实
@@ -396,12 +479,12 @@ Stage 13 已正式拆为 Stage 13A → Stage 13B：
 - AI 生成内容不得反写成 ASR timing 事实；evidenceRef 必须可回链到真实 transcript/speaker source range。
 - Room schema 已从 v3 additive migration 到 v4；AI Summary/template/evidence/checkpoint 持久化进入 Room，API Key 不进入 Room。
 - API Key 使用 Android Keystore + AES-GCM；Provider Profile 支持多配置和默认 Provider。
-- Text LLM Provider 与 ASR Provider 分离；Audio LLM 只冻结能力契约，完整直接音频理解仍属于 Stage 19。
+- Text LLM Provider 与 ASR Provider 分离；Audio LLM 当时只冻结能力契约，后续完整本地直接音频理解规划到 Stage 19B，云端 Audio LLM 规划到 Stage 19C。
 - Provider presets/contract 包括 OpenAI、Google Gemini/AI Studio、Google Vertex contract、xAI/Grok、DeepSeek、阿里云百炼、火山引擎/豆包、硅基流动、智谱 GLM、Kimi、OpenRouter、Custom OpenAI-compatible。
 - Provider 支持时可自动获取模型；始终保留手动模型 ID fallback；大模型目录使用 searchable picker。
 - 连接测试使用 synthetic content，不上传真实 transcript；已选模型时必须实际 probe 所选模型。
 - native json_schema 可用时优先使用；json_object fallback 也必须把完整 Summary schema 明确提供给模型，再执行本地严格 schema/evidence validation。
-- SiliconFlow/Volcengine structured summary 默认关闭 thinking/reasoning，避免推理过程耗尽最终 JSON 输出预算。
+- SiliconFlow/Volcengine structured summary 默认关闭 thinking/reasoning，避免推理过程耗尽最终 JSON 输出预算；该规则不等于未来所有本地 reasoning 模型永久禁用 Thinking。
 - 单层 ```json code fence 仅作为兼容包装剥离，不得因此放宽 schema/evidence 安全规则。
 - Prompt version 2；除非用户明确要求其他语言，人类可读 AI Summary 默认输出简体中文。
 - 同一 Transcription 可生成多个 Summary version，不覆盖旧结果。
