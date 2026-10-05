@@ -45,6 +45,7 @@ class SummaryPipelineTest {
     fun oversizedUnitSplitsWithoutInventingChildTimestampsOrRefs() {
         val input = transcriptInput(longText = "甲".repeat(200))
         val unit = input.units.single()
+        val sourceEvidence = checkNotNull(unit.evidence)
         val chunks =
             SummaryChunkPlanner(CharacterEstimator()).plan(
                 input = input,
@@ -55,8 +56,9 @@ class SummaryPipelineTest {
         assertTrue(chunks.all { it.evidenceRefs == setOf("S00001") })
         assertTrue(
             chunks.flatMap { it.units }.all {
-                it.evidence.startSampleIndex == unit.evidence.startSampleIndex &&
-                    it.evidence.endSampleIndexExclusive == unit.evidence.endSampleIndexExclusive
+                val childEvidence = checkNotNull(it.evidence)
+                childEvidence.startSampleIndex == sourceEvidence.startSampleIndex &&
+                    childEvidence.endSampleIndexExclusive == sourceEvidence.endSampleIndexExclusive
             },
         )
     }
