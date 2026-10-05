@@ -32,10 +32,11 @@ The current application does not have one durable long-task execution boundary. 
 
 The persisted business truth is already stronger than the execution layer for canonical conversion, transcription, diarization, and AI summary. Stage 13B must therefore **add durable execution ownership around existing business state**, not create a second competing task-state database.
 
-Two current lifecycle gaps are P0:
+Three current lifecycle gaps are P0:
 
 - BLE download/reconnect/polling is intentionally stopped or cancelled when the Activity leaves the foreground.
 - Manual model install/activation is launched from a Compose-owned coroutine scope, so the screen lifecycle can own a minutes-long download/extract/validation operation.
+- Playback is intentionally paused when the app process leaves the foreground, which is incompatible with the confirmed Stage 13B requirement for continuous background/lock-screen playback.
 
 Large import/export operations are also ViewModel-owned today and require Stage 13B long-task treatment.
 
@@ -46,7 +47,7 @@ Large import/export operations are also ViewModel-owned today and require Stage 
 | QS668/CB08 recording control | `DeviceViewModel` command → `DeviceRepository` / `AndroidDeviceSession` | device is the recording authority; app state is process-local | leaving foreground stops recording polling and reconnect work; no phone-microphone capture path was found | preserve device-side recording protocol; harden background connection/status reconciliation and real-device recording continuity |
 | BLE recording-file download | `DefaultDeviceRepository` + `FileTransferSession` | final downloaded asset is persisted/registered; active transfer state is in memory | `setForeground(false)` requests `BACKGROUND` cancellation; transfer ownership is process-local | durable connected-device execution, idempotent task ownership, truthful notification, interruption recovery |
 | BLE long connection / reconnect | `DefaultDeviceRepository` process-local jobs | remembered address only; connection state is volatile | reconnect job is cancelled on background | Stage 13B.2 must define when an active recording/download/device session warrants background connected-device execution |
-| Local playback | application-owned `AndroidPlaybackController` + `StreamingPlaybackController` | source asset is durable; playback session is volatile | current product policy pauses and abandons audio focus when app goes to background | retain current product behavior unless explicitly changed; validate 30/60/120 min playback, seek, speed, focus, route changes and resource release |
+| Local playback | application-owned `AndroidPlaybackController` + `StreamingPlaybackController` | source asset is durable; playback session is volatile | current code pauses and abandons audio focus when app goes to background | move playback execution ownership to a `mediaPlayback` foreground service; preserve current sample-accurate AudioTrack engine; support Home/lock-screen/background continuity plus MediaSession/system controls |
 | Waveform overview | screen request → `WaveformOverviewRepository` | small cache file | bounded sampled overview; not a long full-file scan | retain design; stress-test long recordings, no redesign required |
 | Canonical PCM/WAV generation | `CanonicalAudioCoordinator` on application scope | Room derivation state + canonical asset registration | can survive screen exit while process lives; process death reconciles interrupted derivations on startup | treat as local media-processing workload for long recordings; preserve Room truth and reconciliation |
 | Local audio import | `RecordingLibraryViewModel.viewModelScope` → `LocalAudioImportCoordinator` | only committed imported asset is durable | long copy/validation is ViewModel-owned; cancellation deletes staging | include long-file background/lifecycle assessment; staging/final commit semantics must remain safe |
@@ -111,7 +112,27 @@ Existing automated tests cover synthetic 30/60/120 minute seek addressing and bo
 
 Waveform overview is already bounded by design: it samples short windows at a fixed number of positions rather than loading or rescanning the whole recording. Stage 13B should stress-test this implementation instead of replacing it.
 
-Current product policy intentionally pauses playback when the process goes to background. Stage 13B will validate that behavior and resource cleanup. Continuous lock-screen/background playback is a separate product decision and is not silently introduced by this stability stage.
+The confirmed Stage 13B product requirement is now:
+
+- pressing Home must **not** pause playback;
+- locking the device must **not** pause playback;
+- switching to another app must **not** pause playback;
+- playback must expose a persistent media notification while active;
+- lock screen / notification controls must support at least play/pause and seek-position presentation, with previous/next omitted unless the product later defines playlist semantics;
+- audio focus, Bluetooth/headset route changes and `AUDIO_BECOMING_NOISY` behavior must remain correct;
+- returning to the app must attach to the existing playback session rather than creating a second player;
+- playback must stop/release deterministically when the user stops it, the source disappears, or a terminal playback error occurs.
+
+Implementation direction for Stage 13B.2:
+
+- retain `StreamingPlaybackController` and its canonical sample-index timing as the playback engine;
+- move ownership of the active playback session out of Activity/process-foreground policy and into a dedicated playback service;
+- use Android `mediaPlayback` foreground-service semantics;
+- expose the existing engine through a MediaSession-compatible control boundary so system UI/lock-screen controls and in-app controls observe one session;
+- remove the current `setAppForeground(false) -> pause()` product behavior once the service path is in place;
+- do **not** replace canonical sample timing with MediaPlayer/ExoPlayer milliseconds merely to obtain background playback.
+
+Because the app targets API 37, Stage 13B.2 must also validate the current Android 17 background-audio requirements and ensure the playback foreground service is started from a user-initiated/visible-app path before the app goes to background.
 
 ## 7. Canonical conversion finding
 
@@ -214,7 +235,7 @@ Heavy discretionary work must not destabilize recording. Stage 13B.2 must theref
 - playback;
 - BLE file download.
 
-The policy may pause, defer, reject or reduce competing work where needed, but must be evidence-driven and must not silently change Stage 13A model behavior.
+Background playback is a user-visible active media task and must remain responsive, but if resource contention is proven on real devices, active device recording wins over discretionary CPU-heavy processing. The policy may pause, defer, reject or reduce competing work where needed, but must be evidence-driven and must not silently change Stage 13A model behavior.
 
 ## 13. P0 gaps to solve after this audit
 
@@ -241,6 +262,12 @@ Their Room truth/reconciliation is usable, but the active executor does not surv
 
 Large user-selected audio can make these operations long enough that a screen/ViewModel scope is an insufficient owner.
 
+### P0-E — playback foreground state is tied to app foreground state
+
+`ProcessLifecycleOwner.onStop()` calls `playbackController.setAppForeground(false)`, and the current controller pauses playback and abandons audio focus. This is incompatible with the confirmed Stage 13B background/lock-screen playback requirement.
+
+Stage 13B.2 must move active playback ownership to a user-started `mediaPlayback` foreground service and keep one shared playback session for in-app, notification and lock-screen controls.
+
 ## 14. Stage 13B.2 design inputs
 
 Stage 13B.2 must decide the exact boundary among Foreground Service, WorkManager, process coroutine and isolated process using current Android platform rules.
@@ -257,10 +284,11 @@ The design must satisfy all of the following:
 8. terminal state cannot be revived by stale callbacks;
 9. model activation remains atomic after runtime validation;
 10. device recording continuity has priority over heavy background work;
-11. playback remains bounded and retains current foreground-only product policy unless explicitly changed;
-12. Stage 16 streaming contract remains frozen.
+11. active playback continues through Home/lock-screen/app switching under a `mediaPlayback` foreground service, while preserving the existing canonical AudioTrack/sample-index engine and Audio Focus/noisy-route semantics;
+12. in-app controls, notification controls and lock-screen controls must address one playback session and one authoritative position;
+13. Stage 16 streaming contract remains frozen.
 
-Before Stage 13B.2 code is written, Android foreground-service/service-type/WorkManager rules must be rechecked against the app's current `targetSdk` and official Android documentation.
+Before Stage 13B.2 code is written, Android foreground-service/service-type/WorkManager/background-audio rules must be rechecked against the app's current `targetSdk` and official Android documentation.
 
 ## 15. Room gate
 
@@ -272,8 +300,8 @@ If Stage 13B.2 later proves that a durable state cannot be represented safely by
 
 ## 16. Stage 13B.1 gate result
 
-**PASS — architecture audit complete.**
+**PASS — architecture audit complete, including confirmed background/lock-screen playback scope.**
 
 No runtime behavior was changed in Stage 13B.1.
 
-Next stage after review: **Stage 13B.2 — durable execution boundary / Foreground Service / WorkManager design**, including recording/playback compatibility and future Stage 16 realtime reservation.
+Next stage after review: **Stage 13B.2 — durable execution boundary / Foreground Service / WorkManager design**, including device recording continuity, background/lock-screen playback, and future Stage 16 realtime reservation.
