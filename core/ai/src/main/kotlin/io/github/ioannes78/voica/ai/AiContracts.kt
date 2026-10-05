@@ -88,7 +88,7 @@ data class EvidenceSourceRef(
 }
 
 data class StructuredTranscriptUnit(
-    val evidence: EvidenceSourceRef,
+    val evidence: EvidenceSourceRef?,
     val text: String,
     val detectedLanguage: String?,
 ) {
@@ -100,6 +100,8 @@ data class StructuredTranscriptUnit(
 data class StructuredTranscriptInput(
     val recordingId: String,
     val transcriptionId: String,
+    val transcriptionRevisionId: String? = null,
+    val inputContentDigest: String,
     val transcriptionMode: String,
     val canonicalAssetId: String,
     val canonicalSha256: String,
@@ -113,52 +115,25 @@ data class StructuredTranscriptInput(
     init {
         require(recordingId.isNotBlank())
         require(transcriptionId.isNotBlank())
+        require(inputContentDigest.matches(Regex("^[0-9a-f]{64}$")))
         require(canonicalAssetId.isNotBlank())
         require(canonicalSha256.isNotBlank())
         require(canonicalProfileId.isNotBlank())
         require(totalSampleCount >= 0L)
         require(inputMode == AiInputMode.TRANSCRIPT_TEXT)
         require(units.isNotEmpty()) { "completed transcript must contain text for AI summary" }
-        require(units.map { it.evidence.ref }.toSet().size == units.size) { "duplicate evidence ref" }
-        units.forEach { unit ->
-            require(unit.evidence.endSampleIndexExclusive <= totalSampleCount)
+        val anchored = units.mapNotNull { it.evidence }
+        require(anchored.map { it.ref }.toSet().size == anchored.size) { "duplicate evidence ref" }
+        anchored.forEach { evidence ->
+            require(evidence.endSampleIndexExclusive <= totalSampleCount)
         }
         require(
-            units.zipWithNext().all { (left, right) ->
-                left.evidence.startSampleIndex <= right.evidence.startSampleIndex
+            anchored.zipWithNext().all { (left, right) ->
+                left.startSampleIndex <= right.startSampleIndex
             },
         )
     }
 
     val finalText: String
         get() = units.joinToString(separator = "\n") { it.text }
-}
-
-data class AiSummaryItem(
-    val id: String,
-    val text: String,
-    val evidenceRefs: List<String>,
-    val epistemicStatus: AiEpistemicStatus,
-    val attributes: Map<String, String> = emptyMap(),
-)
-
-data class AiSummarySection(
-    val id: String,
-    val type: AiSummarySectionType,
-    val label: String,
-    val items: List<AiSummaryItem>,
-)
-
-data class AiSummaryResult(
-    val schemaVersion: Int,
-    val contentType: AiContentType,
-    val classificationConfidence: Double?,
-    val title: String,
-    val overview: String,
-    val sections: List<AiSummarySection>,
-) {
-    init {
-        require(schemaVersion >= 1)
-        require(classificationConfidence == null || classificationConfidence in 0.0..1.0)
-    }
 }
