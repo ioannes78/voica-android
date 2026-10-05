@@ -1,10 +1,10 @@
 # Stage 16 Streaming ASR Contract V2
 
-Status: **frozen by Stage 13A; Stage 16 implementation must consume this contract without creating an incompatible parallel API.**
+Status: **Stage 13A QA5 contract candidate / not yet frozen. It becomes the Stage 16 frozen contract only after QA5 real-device acceptance and the formal Stage 13A Freeze/Handoff.**
 
 ## 1. Scope
 
-This document freezes the local streaming-ASR boundary that Stage 16 will use. It does **not** implement Stage 16 live microphone/BLE audio capture, live stabilizer, UI rendering, or live punctuation.
+This document freezes the intended local streaming-ASR boundary that Stage 16 will use after Stage 13A acceptance. It does **not** implement Stage 16 live microphone/BLE audio capture, live stabilizer, UI rendering, or live punctuation.
 
 The contract remains based on:
 
@@ -15,7 +15,7 @@ The contract remains based on:
 - `RelativeTimedToken`;
 - `AsrHypothesisStability`.
 
-Offline-only models such as SenseVoice, FireRedASR2 CTC and Qwen3-ASR must not be presented as true-streaming engines.
+Offline-only models such as SenseVoice and Qwen3-ASR must not be presented as true-streaming engines. FireRedASR2 was evaluated during Stage 13A and was removed from the final QA5 product matrix.
 
 ## 2. Session lifecycle
 
@@ -62,7 +62,7 @@ For Stage 16 live display:
 - timing must never be fabricated when the model does not provide trustworthy token timing;
 - milliseconds/wall-clock are presentation values only, never the primary transcript timeline truth.
 
-## 5. Capability contract
+## 5. Capability contract and final Stage 13A QA5 realtime matrix
 
 A model is eligible for the Stage 16 true-streaming path only when its descriptor/runtime combination truthfully declares and proves:
 
@@ -72,13 +72,14 @@ A model is eligible for the Stage 16 true-streaming path only when its descripto
 
 `supportsTokenTiming`, language forcing, hotwords, punctuation and other controls remain capability-driven. UI must not expose a control that is not supported by the selected model/runtime.
 
-Stage 13A retained real-time candidates:
+Stage 13A QA5 product matrix contains exactly:
 
-- Small Bilingual Zipformer zh-en;
-- Chinese Large Transducer INT8;
-- Chinese Large CTC INT8.
+- Small Bilingual Zipformer zh-en INT8 — light/default;
+- Chinese Large CTC INT8 — high-quality Chinese realtime option.
 
-The eventual Stage 16 default must follow Stage 13A real-device benchmark/acceptance results rather than model-name hardcoding.
+Chinese Large Transducer was evaluated during Stage 13A and removed from the QA5 product matrix. Stage 16 must not silently restore it or an AUTO model-routing choice. Adding a future realtime model requires an explicit product decision plus runtime/capability/real-device validation.
+
+The recording-file offline matrix is separate and contains SenseVoice (fast/default) and Qwen3-ASR 0.6B INT8 (high quality). Offline-model selection must not alter the Stage 16 realtime model selection.
 
 ## 6. Punctuation contract
 
@@ -96,15 +97,16 @@ A discontinuity that invalidates the current utterance boundary must result in a
 
 Cancellation must close native resources and must not persist a fake FINAL result.
 
-## 8. Frozen compatibility rules
+## 8. Compatibility rules
 
 Stage 16 must not:
 
 - introduce a second incompatible streaming-ASR session API;
-- call offline Qwen/FireRed/SenseVoice “streaming” merely by chunking audio;
+- call offline Qwen/SenseVoice “streaming” merely by chunking audio;
+- restore FireRedASR2 or Chinese Large Transducer as product choices without a new explicit validation decision;
 - replace canonical sample timing with wall clock;
 - fabricate token timing;
 - persist PARTIAL/STABLE text as if it were FINAL;
 - bypass Model Manager capability/lineage rules.
 
-Any future contract change requires an explicit versioned successor to this document and regression tests.
+After Stage 13A Freeze, any future contract change requires an explicit versioned successor to this document and regression tests.

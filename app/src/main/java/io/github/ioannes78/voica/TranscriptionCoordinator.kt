@@ -66,6 +66,7 @@ sealed interface TranscriptionRunState {
         val recordingId: String,
         val transcriptionId: String?,
         val mode: TranscriptionMode,
+        val modelId: String?,
         val progress: TranscriptionProgress,
     ) : TranscriptionRunState
 
@@ -273,6 +274,8 @@ class TranscriptionCoordinator(
 
     val state: StateFlow<TranscriptionRunState> = mutableState.asStateFlow()
 
+    fun selectedOfflineModelId(): String = localSpeechSettings().selectedOfflineModelId()
+
     fun start(
         recordingId: String,
         mode: TranscriptionMode,
@@ -322,6 +325,12 @@ class TranscriptionCoordinator(
     ) {
         var transcriptionId: String? = null
         var leases: List<ModelLease> = emptyList()
+        val settings = localSpeechSettings()
+        val requestedModelId =
+            when (mode) {
+                TranscriptionMode.FAST -> settings.selectedRealtimeModelId()
+                TranscriptionMode.HIGH_QUALITY -> settings.selectedOfflineModelId()
+            }
 
         try {
             if (!isRecordingActive(recordingId)) return
@@ -331,6 +340,7 @@ class TranscriptionCoordinator(
                     recordingId = recordingId,
                     transcriptionId = null,
                     mode = mode,
+                    modelId = requestedModelId,
                     progress = TranscriptionProgress(TranscriptionPhase.PREPARING),
                 )
 
@@ -345,7 +355,7 @@ class TranscriptionCoordinator(
                     source.totalSampleCount
                 } ?: error("canonical PCM source is unavailable")
 
-            val models = resolveActiveModels(mode)
+            val models = resolveActiveModels(mode, settings)
             leases =
                 models.all.map { active ->
                     modelUseRegistry.acquire(
@@ -377,6 +387,7 @@ class TranscriptionCoordinator(
                             recordingId = recordingId,
                             transcriptionId = createdTranscriptionId,
                             mode = mode,
+                            modelId = models.primaryAsrModelId,
                             progress = progress,
                         )
                 }
@@ -417,7 +428,7 @@ class TranscriptionCoordinator(
                     TranscriptionMode.HIGH_QUALITY -> {
                         val secondPass =
                             models.secondPass
-                                ?: error("high-quality mode is missing second-pass ASR")
+                                ?: error("offline mode is missing offline ASR")
                         val result =
                             HighQualityTranscriptionPipeline(
                                 pcmSourceResolver = pcmSourceResolver,
@@ -527,36 +538,27 @@ class TranscriptionCoordinator(
         }
     }
 
-    private suspend fun resolveActiveModels(mode: TranscriptionMode): ActiveModels {
-        val settings = localSpeechSettings()
+    private suspend fun resolveActiveModels(
+        mode: TranscriptionMode,
+        settings: LocalSpeechSettings,
+    ): ActiveModels {
         val performance = settings.resolvePerformance()
-
         val vad = modelManager.activeModel(Stage8ModelIds.VAD)
         val punctuation = modelManager.activeModel(Stage8ModelIds.PUNCTUATION)
 
-        var firstPassSelection: ResolvedRealtimeAsr? = null
+        var firstPassSelection: ActiveModel? = null
         var secondPassSelection: ActiveModel? = null
         var timelineAlignment: ActiveModel? = null
 
         val realtimeCandidates = settings.realtimeAsrModel.preferredModelIds()
         if (mode == TranscriptionMode.FAST) {
-            val realtimeMatches =
-                realtimeCandidates.mapIndexedNotNull { index, modelId ->
-                    modelManager.activeModel(modelId)?.let { active ->
-                        index to active
-                    }
-                }
             firstPassSelection =
-                realtimeMatches.firstOrNull()?.let { (index, model) ->
+                realtimeCandidates.firstNotNullOfOrNull { modelId ->
+                    modelManager.activeModel(modelId)
+                }?.also { model ->
                     require(model.descriptor.kind == ModelKind.ASR_STREAMING) {
                         "selected realtime ASR is not ASR_STREAMING: ${model.descriptor.modelId}"
                     }
-                    ResolvedRealtimeAsr(
-                        model = model,
-                        fallbackUsed =
-                            settings.realtimeAsrModel == RealtimeAsrModelChoice.AUTO &&
-                                index > 0,
-                    )
                 }
         }
 
@@ -593,7 +595,6 @@ class TranscriptionCoordinator(
             when (secondPassSelection?.descriptor?.modelId) {
                 Stage13AOfflineModelIds.SENSEVOICE ->
                     !settings.senseVoice.useInverseTextNormalization
-                Stage13AOfflineModelIds.FIRERED_ASR2 -> true
                 Stage13AOfflineModelIds.QWEN3_ASR -> false
                 else -> false
             }
@@ -603,15 +604,7 @@ class TranscriptionCoordinator(
                 if (vad == null) add(Stage8ModelIds.VAD)
                 when (mode) {
                     TranscriptionMode.FAST -> {
-                        if (firstPassSelection == null) {
-                            addAll(
-                                if (settings.realtimeAsrModel == RealtimeAsrModelChoice.AUTO) {
-                                    Stage13ARealtimeModelIds.ALL
-                                } else {
-                                    realtimeCandidates
-                                },
-                            )
-                        }
+                        if (firstPassSelection == null) addAll(realtimeCandidates)
                         if (punctuation == null) add(Stage8ModelIds.PUNCTUATION)
                     }
 
@@ -630,7 +623,7 @@ class TranscriptionCoordinator(
 
         return ActiveModels(
             vad = checkNotNull(vad),
-            firstPass = firstPassSelection?.model,
+            firstPass = firstPassSelection,
             punctuation =
                 when {
                     mode == TranscriptionMode.FAST -> checkNotNull(punctuation)
@@ -640,7 +633,6 @@ class TranscriptionCoordinator(
             secondPass = secondPassSelection,
             timelineAlignment = timelineAlignment,
             realtimeAsrChoice = settings.realtimeAsrModel,
-            realtimeAsrFallbackUsed = firstPassSelection?.fallbackUsed ?: false,
             offlineAsrQualityChoice = settings.offlineAsrQuality,
             realtimeSettings = settings.realtime,
             performance = performance,
@@ -755,7 +747,6 @@ class TranscriptionCoordinator(
         val secondPass: ActiveModel?,
         val timelineAlignment: ActiveModel?,
         val realtimeAsrChoice: RealtimeAsrModelChoice,
-        val realtimeAsrFallbackUsed: Boolean,
         val offlineAsrQualityChoice: OfflineAsrQualityChoice,
         val realtimeSettings: LocalRealtimeAsrSettings,
         val performance: ResolvedSpeechPerformance,
@@ -763,6 +754,9 @@ class TranscriptionCoordinator(
         val qwenSettings: LocalQwenAsrSettings,
         val vadSettings: LocalVadSettings,
     ) {
+        val primaryAsrModelId: String?
+            get() = secondPass?.descriptor?.modelId ?: firstPass?.descriptor?.modelId
+
         val all: List<ActiveModel>
             get() =
                 listOfNotNull(vad, firstPass, punctuation, secondPass, timelineAlignment)
@@ -774,11 +768,6 @@ class TranscriptionCoordinator(
                         )
                     }
     }
-
-    private data class ResolvedRealtimeAsr(
-        val model: ActiveModel,
-        val fallbackUsed: Boolean,
-    )
 
     private data class CompletedPipeline(
         val segments: List<TranscriptSegment>,
@@ -816,17 +805,14 @@ class TranscriptionCoordinator(
             if (requestedThreads == null) append("null") else append(requestedThreads)
             if (
                 mode == TranscriptionMode.HIGH_QUALITY &&
-                (
-                    models.offlineAsrQualityChoice == OfflineAsrQualityChoice.AUTO ||
-                        models.offlineAsrQualityChoice == OfflineAsrQualityChoice.BALANCED
-                )
+                models.offlineAsrQualityChoice == OfflineAsrQualityChoice.BALANCED
             ) {
                 append(",\"senseVoice\":")
                 appendSenseVoiceSnapshot(models.senseVoiceSettings)
             }
             if (
                 mode == TranscriptionMode.HIGH_QUALITY &&
-                models.offlineAsrQualityChoice == OfflineAsrQualityChoice.ULTRA
+                models.offlineAsrQualityChoice == OfflineAsrQualityChoice.HIGH_QUALITY
             ) {
                 append(",\"qwen\":")
                 appendQwenSnapshot(models.qwenSettings)
@@ -860,8 +846,7 @@ class TranscriptionCoordinator(
             } else {
                 appendJsonString(realtimeModel.descriptor.modelId)
             }
-            append(",\"realtimeAsrFallbackUsed\":")
-            append(models.realtimeAsrFallbackUsed)
+            append(",\"realtimeAsrFallbackUsed\":false")
             append(",\"realtimeDecoder\":")
             if (realtimeModel == null) {
                 append("null")

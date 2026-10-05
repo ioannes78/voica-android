@@ -36,12 +36,12 @@ import io.github.ioannes78.voica.Stage13AOfflineModelIds
 import io.github.ioannes78.voica.Stage13ARealtimeModelIds
 import io.github.ioannes78.voica.TranscriptionRunState
 import io.github.ioannes78.voica.transcript.TextProjectionQuality
-import io.github.ioannes78.voica.transcript.TranscriptionMode
 import io.github.ioannes78.voica.transcript.TranscriptionPhase
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.math.roundToInt
 
 @Composable
 fun TranscriptionStatusCard(
@@ -74,8 +74,20 @@ fun TranscriptionStatusCard(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            "离线转写 · " + phaseLabel(state.progress.phase),
+                            "离线转写 · " + runningModelLabel(state.modelId),
                             style = MaterialTheme.typography.labelLarge,
+                        )
+                        Text(
+                            buildString {
+                                append(phaseLabel(state.progress.phase))
+                                state.progress.fraction?.let { fraction ->
+                                    append(' ')
+                                    append((fraction * 100.0).roundToInt().coerceIn(0, 100))
+                                    append('%')
+                                }
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         recordingName?.let {
                             Text(
@@ -440,6 +452,15 @@ fun TranscriptSegmentCard(
     }
 }
 
+private fun runningModelLabel(modelId: String?): String =
+    when (modelId) {
+        Stage13AOfflineModelIds.SENSEVOICE -> "SenseVoice"
+        Stage13AOfflineModelIds.QWEN3_ASR -> "Qwen3-ASR"
+        Stage13ARealtimeModelIds.SMALL_BILINGUAL -> "Small Bilingual"
+        Stage13ARealtimeModelIds.CHINESE_LARGE_CTC -> "Large CTC"
+        else -> "本地模型"
+    }
+
 private fun sourceModelLabel(modelId: String?): String =
     when (modelId) {
         Stage13AOfflineModelIds.SENSEVOICE -> "SenseVoice · 快速"
@@ -449,13 +470,6 @@ private fun sourceModelLabel(modelId: String?): String =
         else -> "离线转写"
     }
 
-@Composable
-private fun modeLabel(mode: TranscriptionMode): String = "离线转写"
-
-@Composable
-private fun modeLabel(mode: String): String = "离线转写"
-
-@Composable
 private fun phaseLabel(phase: TranscriptionPhase): String =
     when (phase) {
         TranscriptionPhase.PREPARING -> "正在准备…"
