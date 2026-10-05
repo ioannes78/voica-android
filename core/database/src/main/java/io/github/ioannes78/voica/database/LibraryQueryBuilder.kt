@@ -40,20 +40,20 @@ internal object LibraryQueryBuilder {
             where +=
                 """
                 (
-                    LOWER(r.displayName) LIKE ? ESCAPE '\\' OR
-                    LOWER(r.originalFilename) LIKE ? ESCAPE '\\' OR
-                    LOWER(COALESCE(r.sourceRemoteIdentity, '')) LIKE ? ESCAPE '\\' OR
-                    LOWER(COALESCE(r.sourceDeviceAddress, '')) LIKE ? ESCAPE '\\' OR
-                    LOWER(COALESCE(f.name, '')) LIKE ? ESCAPE '\\' OR
-                    LOWER(COALESCE(ip.originalDisplayName, '')) LIKE ? ESCAPE '\\' OR
-                    LOWER(COALESCE(ip.sourceMimeType, '')) LIKE ? ESCAPE '\\' OR
-                    LOWER(COALESCE(ip.providerAuthority, '')) LIKE ? ESCAPE '\\' OR
+                    LOWER(r.displayName) LIKE ? ESCAPE CHAR(92) OR
+                    LOWER(r.originalFilename) LIKE ? ESCAPE CHAR(92) OR
+                    LOWER(COALESCE(r.sourceRemoteIdentity, '')) LIKE ? ESCAPE CHAR(92) OR
+                    LOWER(COALESCE(r.sourceDeviceAddress, '')) LIKE ? ESCAPE CHAR(92) OR
+                    LOWER(COALESCE(f.name, '')) LIKE ? ESCAPE CHAR(92) OR
+                    LOWER(COALESCE(ip.originalDisplayName, '')) LIKE ? ESCAPE CHAR(92) OR
+                    LOWER(COALESCE(ip.sourceMimeType, '')) LIKE ? ESCAPE CHAR(92) OR
+                    LOWER(COALESCE(ip.providerAuthority, '')) LIKE ? ESCAPE CHAR(92) OR
                     EXISTS (
                         SELECT 1
                         FROM recording_tag_cross_refs search_rt
                         JOIN recording_tags search_t ON search_t.tagId = search_rt.tagId
                         WHERE search_rt.recordingId = r.id
-                          AND LOWER(search_t.name) LIKE ? ESCAPE '\\'
+                          AND LOWER(search_t.name) LIKE ? ESCAPE CHAR(92)
                     )
                     $effectiveContentClause
                 )
