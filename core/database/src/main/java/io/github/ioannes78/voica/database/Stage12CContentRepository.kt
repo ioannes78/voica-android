@@ -28,6 +28,22 @@ data class EffectiveTranscriptParagraph(
     val isUserModified: Boolean,
 )
 
+data class EffectiveTranscriptionRef(
+    val transcriptionId: String,
+    val revisionId: String?,
+)
+
+data class EffectiveAiSummaryRef(
+    val summaryId: String,
+    val revisionId: String?,
+)
+
+data class ContentCompletionDecision(
+    val currentId: String?,
+    val candidateId: String?,
+    val adopted: Boolean,
+)
+
 sealed interface ContentVersionDeleteResult {
     data object NotFound : ContentVersionDeleteResult
     data object ActiveTask : ContentVersionDeleteResult
@@ -89,7 +105,7 @@ class Stage12CContentRepository(
                 updatedAtMs = nowMs(),
             ),
         )
-        searchIndexRebuilder.reindexTranscription(transcriptionId)
+        searchIndexRebuilder.reindexEffectiveRecording(transcription.recordingId)
     }
 
     suspend fun createTranscriptionRevision(
@@ -143,29 +159,26 @@ class Stage12CContentRepository(
                 ),
             )
         }
-        searchIndexRebuilder.reindexTranscription(transcriptionId)
+        searchIndexRebuilder.reindexEffectiveRecording(transcription.recordingId)
         return revisionId
     }
 
     suspend fun loadEffectiveTranscriptParagraphs(transcriptionId: String): List<EffectiveTranscriptParagraph> {
         val transcription = transcriptionDao.findTranscription(transcriptionId) ?: return emptyList()
-        val currentRevisionId = dao.findTranscriptionMetadata(transcriptionId)?.currentRevisionId
+        val currentRevisionId = validCurrentTranscriptionRevisionId(transcriptionId)
         if (currentRevisionId != null) {
-            val revision = dao.findTranscriptionRevision(currentRevisionId)
-            if (revision != null && revision.transcriptionId == transcriptionId) {
-                return dao.loadTranscriptionRevisionParagraphs(currentRevisionId).map { paragraph ->
-                    EffectiveTranscriptParagraph(
-                        stableId = paragraph.id,
-                        text = paragraph.text,
-                        sourceAnchorRefsJson = paragraph.sourceAnchorRefsJson,
-                        anchorStartSampleIndex = paragraph.anchorStartSampleIndex,
-                        anchorEndSampleIndexExclusive = paragraph.anchorEndSampleIndexExclusive,
-                        speakerId = paragraph.speakerId,
-                        speakerDisplayMode = paragraph.speakerDisplayMode,
-                        timingQuality = paragraph.timingQuality,
-                        isUserModified = paragraph.isUserModified,
-                    )
-                }
+            return dao.loadTranscriptionRevisionParagraphs(currentRevisionId).map { paragraph ->
+                EffectiveTranscriptParagraph(
+                    stableId = paragraph.id,
+                    text = paragraph.text,
+                    sourceAnchorRefsJson = paragraph.sourceAnchorRefsJson,
+                    anchorStartSampleIndex = paragraph.anchorStartSampleIndex,
+                    anchorEndSampleIndexExclusive = paragraph.anchorEndSampleIndexExclusive,
+                    speakerId = paragraph.speakerId,
+                    speakerDisplayMode = paragraph.speakerDisplayMode,
+                    timingQuality = paragraph.timingQuality,
+                    isUserModified = paragraph.isUserModified,
+                )
             }
         }
         return transcriptionDao.loadSegments(transcription.id).map { segment ->
@@ -198,11 +211,12 @@ class Stage12CContentRepository(
                 updatedAtMs = nowMs(),
             ),
         )
-        searchIndexRebuilder.reindexTranscription(transcriptionId)
+        searchIndexRebuilder.reindexEffectiveRecording(transcription.recordingId)
     }
 
     suspend fun deleteTranscriptionRevision(revisionId: String): Boolean {
         val revision = dao.findTranscriptionRevision(revisionId) ?: return false
+        val transcription = transcriptionDao.findTranscription(revision.transcriptionId)
         val deleted = database.withTransaction {
             val metadata = dao.findTranscriptionMetadata(revision.transcriptionId)
             val wasCurrent = metadata?.currentRevisionId == revisionId
@@ -220,8 +234,8 @@ class Stage12CContentRepository(
             }
             deleted
         }
-        if (deleted) {
-            searchIndexRebuilder.reindexTranscription(revision.transcriptionId)
+        if (deleted && transcription != null) {
+            searchIndexRebuilder.reindexEffectiveRecording(transcription.recordingId)
         }
         return deleted
     }
@@ -263,12 +277,12 @@ class Stage12CContentRepository(
                 ),
             )
         }
-        searchIndexRebuilder.reindexAiSummary(summaryId)
+        searchIndexRebuilder.reindexEffectiveRecording(summary.recordingId)
         return revisionId
     }
 
     suspend fun setCurrentAiSummaryRevision(summaryId: String, revisionId: String?) {
-        aiSummaryDao.findSummary(summaryId) ?: error("AI summary not found")
+        val summary = aiSummaryDao.findSummary(summaryId) ?: error("AI summary not found")
         val revision = revisionId?.let { dao.findAiSummaryRevision(it) }
         require(revisionId == null || revision?.aiSummaryId == summaryId) {
             "revision does not belong to AI summary"
@@ -280,11 +294,12 @@ class Stage12CContentRepository(
                 updatedAtMs = nowMs(),
             ),
         )
-        searchIndexRebuilder.reindexAiSummary(summaryId)
+        searchIndexRebuilder.reindexEffectiveRecording(summary.recordingId)
     }
 
     suspend fun deleteAiSummaryRevision(revisionId: String): Boolean {
         val revision = dao.findAiSummaryRevision(revisionId) ?: return false
+        val summary = aiSummaryDao.findSummary(revision.aiSummaryId)
         val deleted = database.withTransaction {
             val metadata = dao.findAiSummaryMetadata(revision.aiSummaryId)
             val wasCurrent = metadata?.currentRevisionId == revisionId
@@ -301,8 +316,8 @@ class Stage12CContentRepository(
             }
             deleted
         }
-        if (deleted) {
-            searchIndexRebuilder.reindexAiSummary(revision.aiSummaryId)
+        if (deleted && summary != null) {
+            searchIndexRebuilder.reindexEffectiveRecording(summary.recordingId)
         }
         return deleted
     }
@@ -316,6 +331,14 @@ class Stage12CContentRepository(
         return transcriptionDao.findLatestCompleted(recordingId)?.id
     }
 
+    suspend fun resolveEffectiveTranscription(recordingId: String): EffectiveTranscriptionRef? {
+        val transcriptionId = resolveCurrentTranscriptionId(recordingId) ?: return null
+        return EffectiveTranscriptionRef(
+            transcriptionId = transcriptionId,
+            revisionId = validCurrentTranscriptionRevisionId(transcriptionId),
+        )
+    }
+
     suspend fun resolveCurrentAiSummaryId(recordingId: String): String? {
         val selectedId = dao.findContentSelection(recordingId)?.currentAiSummaryId
         val selected = selectedId?.let { aiSummaryDao.findSummary(it) }
@@ -323,6 +346,126 @@ class Stage12CContentRepository(
             return selected.id
         }
         return aiSummaryDao.findLatestCompleted(recordingId)?.id
+    }
+
+    suspend fun resolveEffectiveAiSummary(recordingId: String): EffectiveAiSummaryRef? {
+        val summaryId = resolveCurrentAiSummaryId(recordingId) ?: return null
+        return EffectiveAiSummaryRef(
+            summaryId = summaryId,
+            revisionId = validCurrentAiSummaryRevisionId(summaryId),
+        )
+    }
+
+    suspend fun resolveTranscriptionCandidateId(recordingId: String): String? {
+        val currentId = resolveCurrentTranscriptionId(recordingId) ?: return null
+        val current = transcriptionDao.findTranscription(currentId) ?: return null
+        val candidate = transcriptionDao.findLatestCompletedExcluding(recordingId, currentId) ?: return null
+        return candidate.id.takeIf {
+            isNewer(
+                candidate.completedAtMs,
+                candidate.createdAtMs,
+                current.completedAtMs,
+                current.createdAtMs,
+            )
+        }
+    }
+
+    suspend fun resolveAiSummaryCandidateId(recordingId: String): String? {
+        val currentId = resolveCurrentAiSummaryId(recordingId) ?: return null
+        val current = aiSummaryDao.findSummary(currentId) ?: return null
+        val candidate = aiSummaryDao.findLatestCompletedExcluding(recordingId, currentId) ?: return null
+        return candidate.id.takeIf {
+            isNewer(
+                candidate.completedAtMs,
+                candidate.createdAtMs,
+                current.completedAtMs,
+                current.createdAtMs,
+            )
+        }
+    }
+
+    suspend fun onTranscriptionCompleted(
+        recordingId: String,
+        transcriptionId: String,
+    ): ContentCompletionDecision {
+        val completed = transcriptionDao.findTranscription(transcriptionId) ?: error("transcription not found")
+        require(completed.recordingId == recordingId && completed.state == TranscriptionStateValue.COMPLETED)
+
+        val decision = database.withTransaction {
+            val selection = dao.findContentSelection(recordingId)
+            val persisted = selection?.currentTranscriptionId?.let { transcriptionDao.findTranscription(it) }
+            val validPersisted =
+                persisted?.takeIf {
+                    it.recordingId == recordingId && it.state == TranscriptionStateValue.COMPLETED
+                }
+            val currentId =
+                when {
+                    validPersisted != null -> validPersisted.id
+                    else ->
+                        transcriptionDao.findLatestCompletedExcluding(recordingId, transcriptionId)?.id
+                            ?: transcriptionId
+                }
+            val row =
+                (selection ?: RecordingContentSelectionEntity(
+                    recordingId = recordingId,
+                    currentTranscriptionId = null,
+                    currentAiSummaryId = null,
+                    updatedAtMs = nowMs(),
+                )).copy(
+                    currentTranscriptionId = currentId,
+                    updatedAtMs = nowMs(),
+                )
+            dao.upsertContentSelection(row)
+            ContentCompletionDecision(
+                currentId = currentId,
+                candidateId = transcriptionId.takeIf { it != currentId },
+                adopted = currentId == transcriptionId,
+            )
+        }
+        searchIndexRebuilder.reindexEffectiveRecording(recordingId)
+        return decision
+    }
+
+    suspend fun onAiSummaryCompleted(
+        recordingId: String,
+        summaryId: String,
+    ): ContentCompletionDecision {
+        val completed = aiSummaryDao.findSummary(summaryId) ?: error("AI summary not found")
+        require(completed.recordingId == recordingId && completed.status == AiSummaryStateValue.COMPLETED)
+
+        val decision = database.withTransaction {
+            val selection = dao.findContentSelection(recordingId)
+            val persisted = selection?.currentAiSummaryId?.let { aiSummaryDao.findSummary(it) }
+            val validPersisted =
+                persisted?.takeIf {
+                    it.recordingId == recordingId && it.status == AiSummaryStateValue.COMPLETED
+                }
+            val currentId =
+                when {
+                    validPersisted != null -> validPersisted.id
+                    else ->
+                        aiSummaryDao.findLatestCompletedExcluding(recordingId, summaryId)?.id
+                            ?: summaryId
+                }
+            val row =
+                (selection ?: RecordingContentSelectionEntity(
+                    recordingId = recordingId,
+                    currentTranscriptionId = null,
+                    currentAiSummaryId = null,
+                    updatedAtMs = nowMs(),
+                )).copy(
+                    currentAiSummaryId = currentId,
+                    updatedAtMs = nowMs(),
+                )
+            dao.upsertContentSelection(row)
+            ContentCompletionDecision(
+                currentId = currentId,
+                candidateId = summaryId.takeIf { it != currentId },
+                adopted = currentId == summaryId,
+            )
+        }
+        searchIndexRebuilder.reindexEffectiveRecording(recordingId)
+        return decision
     }
 
     suspend fun setCurrentTranscriptionVersion(recordingId: String, transcriptionId: String?) {
@@ -340,6 +483,7 @@ class Stage12CContentRepository(
                 updatedAtMs = nowMs(),
             ),
         )
+        searchIndexRebuilder.reindexEffectiveRecording(recordingId)
     }
 
     suspend fun setCurrentAiSummaryVersion(recordingId: String, summaryId: String?) {
@@ -357,6 +501,7 @@ class Stage12CContentRepository(
                 updatedAtMs = nowMs(),
             ),
         )
+        searchIndexRebuilder.reindexEffectiveRecording(recordingId)
     }
 
     suspend fun deleteTranscriptionVersion(transcriptionId: String): ContentVersionDeleteResult {
@@ -386,7 +531,7 @@ class Stage12CContentRepository(
             ContentVersionDeleteResult.Deleted(fallback)
         }
         if (outcome is ContentVersionDeleteResult.Deleted) {
-            searchIndexRebuilder.removeTranscription(transcriptionId)
+            searchIndexRebuilder.reindexEffectiveRecording(transcription.recordingId)
         }
         return outcome
     }
@@ -412,9 +557,35 @@ class Stage12CContentRepository(
             ContentVersionDeleteResult.Deleted(fallback)
         }
         if (outcome is ContentVersionDeleteResult.Deleted) {
-            searchIndexRebuilder.removeAiSummary(summaryId)
+            searchIndexRebuilder.reindexEffectiveRecording(summary.recordingId)
         }
         return outcome
+    }
+
+    private suspend fun validCurrentTranscriptionRevisionId(transcriptionId: String): String? {
+        val revisionId = dao.findTranscriptionMetadata(transcriptionId)?.currentRevisionId ?: return null
+        return dao.findTranscriptionRevision(revisionId)
+            ?.takeIf { it.transcriptionId == transcriptionId }
+            ?.id
+    }
+
+    private suspend fun validCurrentAiSummaryRevisionId(summaryId: String): String? {
+        val revisionId = dao.findAiSummaryMetadata(summaryId)?.currentRevisionId ?: return null
+        return dao.findAiSummaryRevision(revisionId)
+            ?.takeIf { it.aiSummaryId == summaryId }
+            ?.id
+    }
+
+    private fun isNewer(
+        candidateCompletedAtMs: Long?,
+        candidateCreatedAtMs: Long,
+        currentCompletedAtMs: Long?,
+        currentCreatedAtMs: Long,
+    ): Boolean {
+        val candidateTime = candidateCompletedAtMs ?: candidateCreatedAtMs
+        val currentTime = currentCompletedAtMs ?: currentCreatedAtMs
+        return candidateTime > currentTime ||
+            (candidateTime == currentTime && candidateCreatedAtMs > currentCreatedAtMs)
     }
 
     private fun validateParagraphs(
