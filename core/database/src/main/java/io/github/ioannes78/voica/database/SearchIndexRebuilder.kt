@@ -60,14 +60,10 @@ class SearchIndexRebuilder(
     }
 
     suspend fun reindexFolder(folderId: String) {
-        // QA6 ordinary search intentionally contains only Recording + current/effective
-        // Transcription + current/effective Summary. Remove any legacy folder row.
         searchRepository.deleteForFolder(folderId)
     }
 
     suspend fun reindexTag(tagId: String) {
-        // QA6 ordinary search intentionally contains only Recording + current/effective
-        // Transcription + current/effective Summary. Remove any legacy tag row.
         searchRepository.deleteForTag(tagId)
     }
 
@@ -106,6 +102,7 @@ class SearchIndexRebuilder(
     }
 
     private suspend fun isEffectiveOnlyIndex(): Boolean {
+        if (searchDao.countLegacyProductSearchRows() != 0) return false
         val activeRecordings = recordingDao.allRecordings().filter { it.state == RecordingState.ACTIVE }
         val expectedTranscriptions =
             activeRecordings.mapNotNull { resolveCurrentTranscription(it.id)?.id }.toSet()
