@@ -110,7 +110,7 @@ class AiCoreTest {
                 partial = false,
             )
 
-        assertEquals(2, SummaryPromptFactory.PROMPT_VERSION)
+        assertEquals(3, SummaryPromptFactory.PROMPT_VERSION)
         assertTrue(
             SummaryPromptFactory.systemInstruction.contains(
                 "write all human-readable summary content in Simplified Chinese",
@@ -121,6 +121,8 @@ class AiCoreTest {
             SummaryPromptFactory.repairInstruction()
                 .contains("human-readable summary content in Simplified Chinese"),
         )
+        assertTrue(SummaryPromptFactory.systemInstruction.contains("[NO_AUDIO_EVIDENCE]"))
+        assertTrue(prompt.contains("evidenceRefs=[]"))
     }
 
     @Test
