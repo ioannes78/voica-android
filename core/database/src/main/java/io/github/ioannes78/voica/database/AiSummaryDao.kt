@@ -51,6 +51,21 @@ interface AiSummaryDao {
     )
     suspend fun findLatestCompleted(recordingId: String): AiSummaryEntity?
 
+    @Query(
+        """
+        SELECT * FROM ai_summaries
+        WHERE recordingId = :recordingId
+          AND status = 'COMPLETED'
+          AND id != :excludedId
+        ORDER BY completedAtMs DESC, createdAtMs DESC
+        LIMIT 1
+        """,
+    )
+    suspend fun findLatestCompletedExcluding(
+        recordingId: String,
+        excludedId: String,
+    ): AiSummaryEntity?
+
     @Query("SELECT COUNT(*) FROM ai_summaries WHERE transcriptionId = :transcriptionId")
     suspend fun countForTranscription(transcriptionId: String): Int
 
