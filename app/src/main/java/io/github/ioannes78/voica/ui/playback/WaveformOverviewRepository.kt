@@ -19,9 +19,9 @@ sealed interface WaveformOverviewResult {
 }
 
 /**
- * Lightweight product waveform. It deliberately samples short PCM windows at evenly spaced
- * positions instead of rescanning the whole recording, so long recordings remain cheap.
- * Playback never depends on this repository: any failure simply produces Unavailable.
+ * Lightweight product waveform. It samples short PCM windows at evenly spaced positions instead
+ * of rescanning the whole recording. Playback never depends on this repository: failures simply
+ * produce [WaveformOverviewResult.Unavailable].
  */
 class WaveformOverviewRepository(
     private val sourceResolver: AudioSourceResolver,
@@ -37,8 +37,8 @@ class WaveformOverviewRepository(
                 require(bucketCount in 32..256)
                 val source = sourceResolver.resolvePlaybackSource(recordingId)
                     ?: return@runCatching WaveformOverviewResult.Unavailable
-                source.use { playbackSource ->
-                    val descriptor = playbackSource.descriptor
+                source.handle.use { handle ->
+                    val descriptor = source.descriptor
                     val totalSamples = descriptor.totalSampleCount
                         ?: return@runCatching WaveformOverviewResult.Unavailable
                     val dataOffset = descriptor.pcmDataOffsetBytes
@@ -73,7 +73,7 @@ class WaveformOverviewRepository(
                         val byteOffset = dataOffset + centeredStart * bytesPerFrame
                         val wantedBytes = sampleCount * bytesPerFrame
                         val read =
-                            playbackSource.handle.readAt(
+                            handle.readAt(
                                 offset = byteOffset,
                                 target = buffer,
                                 targetOffset = 0,
