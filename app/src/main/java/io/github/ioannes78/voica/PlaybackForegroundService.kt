@@ -33,7 +33,7 @@ import kotlinx.coroutines.launch
  */
 class PlaybackForegroundService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private lateinit var controller: io.github.ioannes78.voica.playback.AndroidPlaybackController
+    private lateinit var playbackController: io.github.ioannes78.voica.playback.AndroidPlaybackController
     private lateinit var mediaSession: MediaSession
     private lateinit var notificationManager: NotificationManager
     private var observing = false
@@ -42,7 +42,7 @@ class PlaybackForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
         val application = application as VoicaApplication
-        controller = application.container.playbackRuntime
+        playbackController = application.container.playbackRuntime
         notificationManager = getSystemService(NotificationManager::class.java)
         createChannel()
         mediaSession =
@@ -50,17 +50,17 @@ class PlaybackForegroundService : Service() {
                 setCallback(
                     object : MediaSession.Callback() {
                         override fun onPlay() {
-                            promote(controller.snapshot.value)
-                            serviceScope.launch { controller.play() }
+                            promote(playbackController.snapshot.value)
+                            serviceScope.launch { playbackController.play() }
                         }
 
                         override fun onPause() {
-                            serviceScope.launch { controller.pause() }
+                            serviceScope.launch { playbackController.pause() }
                         }
 
                         override fun onStop() {
                             serviceScope.launch {
-                                controller.unload()
+                                playbackController.unload()
                                 stopForeground(STOP_FOREGROUND_REMOVE)
                                 stopSelf()
                             }
@@ -71,7 +71,7 @@ class PlaybackForegroundService : Service() {
                                 pos.coerceAtLeast(0L) *
                                     CanonicalPcmProfile.SAMPLE_RATE_HZ /
                                     1_000L
-                            serviceScope.launch { controller.seekToSample(sample) }
+                            serviceScope.launch { playbackController.seekToSample(sample) }
                         }
 
                         override fun onRewind() {
@@ -88,18 +88,18 @@ class PlaybackForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val snapshot = controller.snapshot.value
+        val snapshot = playbackController.snapshot.value
         promote(snapshot)
         startObserving()
 
         when (intent?.action) {
-            ACTION_PLAY -> serviceScope.launch { controller.play() }
-            ACTION_PAUSE -> serviceScope.launch { controller.pause() }
+            ACTION_PLAY -> serviceScope.launch { playbackController.play() }
+            ACTION_PAUSE -> serviceScope.launch { playbackController.pause() }
             ACTION_REWIND -> seekRelative(-SEEK_SECONDS)
             ACTION_FORWARD -> seekRelative(SEEK_SECONDS)
             ACTION_STOP ->
                 serviceScope.launch {
-                    controller.unload()
+                    playbackController.unload()
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
                 }
@@ -123,7 +123,7 @@ class PlaybackForegroundService : Service() {
         if (observing) return
         observing = true
         serviceScope.launch {
-            controller.snapshot
+            playbackController.snapshot
                 .distinctUntilChangedBy { snapshot ->
                     NotificationKey(
                         recordingId = snapshot.recordingId,
@@ -294,7 +294,7 @@ class PlaybackForegroundService : Service() {
         requestCode: Int,
     ): Notification.Action {
         val pending =
-            PendingIntent.getService(
+            PendingIntent.getForegroundService(
                 this,
                 requestCode,
                 Intent(this, PlaybackForegroundService::class.java).setAction(action),
@@ -304,12 +304,12 @@ class PlaybackForegroundService : Service() {
     }
 
     private fun seekRelative(seconds: Long) {
-        val snapshot = controller.snapshot.value
+        val snapshot = playbackController.snapshot.value
         val delta = seconds * CanonicalPcmProfile.SAMPLE_RATE_HZ
         val target =
             (snapshot.positionSampleIndex + delta)
                 .coerceIn(0L, snapshot.durationSampleCount.coerceAtLeast(0L))
-        serviceScope.launch { controller.seekToSample(target) }
+        serviceScope.launch { playbackController.seekToSample(target) }
     }
 
     private fun formatProgress(snapshot: PlaybackSnapshot): String {
