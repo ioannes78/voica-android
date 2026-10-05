@@ -6,12 +6,14 @@ import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
 import java.net.URL
 import java.net.UnknownHostException
+import java.util.concurrent.CancellationException
 import java.util.concurrent.ConcurrentHashMap
 import javax.net.ssl.SSLException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 
 data class LlmHttpRequest(
@@ -78,94 +80,136 @@ class UrlConnectionLlmHttpTransport(
     ): LlmHttpResponse =
         withContext(ioDispatcher) {
             require(requestId.isNotBlank())
-            cancelled.remove(requestId)
-            val url =
-                try {
-                    URL(request.url)
-                } catch (error: Exception) {
-                    throw LlmTransportException(TransportFailureKind.INVALID_URL, error)
-                }
-            if (!url.protocol.equals("https", ignoreCase = true)) {
-                throw LlmTransportException(TransportFailureKind.INVALID_URL)
-            }
-
-            val connection =
-                try {
-                    url.openConnection() as HttpURLConnection
-                } catch (error: Exception) {
-                    throw mapTransportError(error, requestId)
-                }
-            active[requestId] = connection
-            try {
-                connection.instanceFollowRedirects = false
-                connection.connectTimeout = request.connectTimeoutMs
-                connection.readTimeout = request.readTimeoutMs
-                connection.requestMethod = request.method
-                connection.doInput = true
-                request.headers.forEach(connection::setRequestProperty)
-
-                request.body?.let { body ->
-                    connection.doOutput = true
-                    val bytes = body.toByteArray(Charsets.UTF_8)
-                    connection.setFixedLengthStreamingMode(bytes.size)
-                    connection.outputStream.use { it.write(bytes) }
-                }
-
-                currentCoroutineContext().ensureActive()
-                val status = connection.responseCode
-                val stream =
-                    if (status in 200..299) {
-                        connection.inputStream
-                    } else {
-                        connection.errorStream
-                    }
-                val responseBody =
-                    stream?.use { input ->
-                        val length = connection.contentLengthLong
-                        if (length > request.maxResponseBytes) {
-                            throw LlmTransportException(TransportFailureKind.RESPONSE_TOO_LARGE)
-                        }
-                        val output =
-                            ByteArrayOutputStream(
-                                if (length in 1..request.maxResponseBytes.toLong()) {
-                                    length.toInt()
-                                } else {
-                                    16 * 1024
-                                },
+            currentCoroutineContext().ensureActive()
+            suspendCancellableCoroutine { continuation ->
+                cancelled.remove(requestId)
+                val url =
+                    try {
+                        URL(request.url)
+                    } catch (error: Exception) {
+                        if (continuation.isActive) {
+                            continuation.resumeWith(
+                                Result.failure(
+                                    LlmTransportException(TransportFailureKind.INVALID_URL, error),
+                                ),
                             )
-                        val buffer = ByteArray(16 * 1024)
-                        while (true) {
-                            currentCoroutineContext().ensureActive()
-                            val read = input.read(buffer)
-                            if (read < 0) break
-                            if (read == 0) continue
-                            if (output.size() + read > request.maxResponseBytes) {
+                        }
+                        return@suspendCancellableCoroutine
+                    }
+                if (!url.protocol.equals("https", ignoreCase = true)) {
+                    if (continuation.isActive) {
+                        continuation.resumeWith(
+                            Result.failure(
+                                LlmTransportException(TransportFailureKind.INVALID_URL),
+                            ),
+                        )
+                    }
+                    return@suspendCancellableCoroutine
+                }
+
+                val connection =
+                    try {
+                        url.openConnection() as HttpURLConnection
+                    } catch (error: Exception) {
+                        if (continuation.isActive) {
+                            continuation.resumeWith(
+                                Result.failure(mapTransportError(error, requestId)),
+                            )
+                        }
+                        return@suspendCancellableCoroutine
+                    }
+                active[requestId] = connection
+                continuation.invokeOnCancellation {
+                    cancelled += requestId
+                    active[requestId]?.disconnect()
+                }
+
+                try {
+                    connection.instanceFollowRedirects = false
+                    connection.connectTimeout = request.connectTimeoutMs
+                    connection.readTimeout = request.readTimeoutMs
+                    connection.requestMethod = request.method
+                    connection.doInput = true
+                    request.headers.forEach(connection::setRequestProperty)
+
+                    request.body?.let { body ->
+                        connection.doOutput = true
+                        val bytes = body.toByteArray(Charsets.UTF_8)
+                        connection.setFixedLengthStreamingMode(bytes.size)
+                        connection.outputStream.use { it.write(bytes) }
+                    }
+
+                    val status = connection.responseCode
+                    val stream =
+                        if (status in 200..299) {
+                            connection.inputStream
+                        } else {
+                            connection.errorStream
+                        }
+                    val responseBody =
+                        stream?.use { input ->
+                            val length = connection.contentLengthLong
+                            if (length > request.maxResponseBytes) {
                                 throw LlmTransportException(TransportFailureKind.RESPONSE_TOO_LARGE)
                             }
-                            output.write(buffer, 0, read)
-                        }
-                        output.toByteArray().toString(Charsets.UTF_8)
-                    }.orEmpty()
+                            val output =
+                                ByteArrayOutputStream(
+                                    if (length in 1..request.maxResponseBytes.toLong()) {
+                                        length.toInt()
+                                    } else {
+                                        16 * 1024
+                                    },
+                                )
+                            val buffer = ByteArray(16 * 1024)
+                            while (true) {
+                                if (!continuation.isActive) {
+                                    throw CancellationException("LLM request cancelled")
+                                }
+                                val read = input.read(buffer)
+                                if (read < 0) break
+                                if (read == 0) continue
+                                if (output.size() + read > request.maxResponseBytes) {
+                                    throw LlmTransportException(TransportFailureKind.RESPONSE_TOO_LARGE)
+                                }
+                                output.write(buffer, 0, read)
+                            }
+                            output.toByteArray().toString(Charsets.UTF_8)
+                        }.orEmpty()
 
-                if (cancelled.contains(requestId)) {
-                    throw LlmTransportException(TransportFailureKind.CANCELLED)
+                    if (cancelled.contains(requestId) || !continuation.isActive) {
+                        throw CancellationException("LLM request cancelled")
+                    }
+                    continuation.resumeWith(
+                        Result.success(
+                            LlmHttpResponse(
+                                statusCode = status,
+                                body = responseBody,
+                                headers =
+                                    connection.headerFields
+                                        .filterKeys { it != null }
+                                        .mapKeys { it.key!! },
+                            ),
+                        ),
+                    )
+                } catch (error: CancellationException) {
+                    if (continuation.isActive) {
+                        continuation.resumeWith(Result.failure(error))
+                    }
+                } catch (error: LlmTransportException) {
+                    if (continuation.isActive) {
+                        continuation.resumeWith(Result.failure(error))
+                    }
+                } catch (error: Exception) {
+                    if (continuation.isActive) {
+                        continuation.resumeWith(
+                            Result.failure(mapTransportError(error, requestId)),
+                        )
+                    }
+                } finally {
+                    active.remove(requestId, connection)
+                    cancelled.remove(requestId)
+                    connection.disconnect()
                 }
-                LlmHttpResponse(
-                    statusCode = status,
-                    body = responseBody,
-                    headers =
-                        connection.headerFields
-                            .filterKeys { it != null }
-                            .mapKeys { it.key!! },
-                )
-            } catch (error: LlmTransportException) {
-                throw error
-            } catch (error: Exception) {
-                throw mapTransportError(error, requestId)
-            } finally {
-                active.remove(requestId, connection)
-                cancelled.remove(requestId)
-                connection.disconnect()
             }
         }
 

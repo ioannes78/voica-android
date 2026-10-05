@@ -97,6 +97,7 @@ class HighQualityTranscriptionPipeline(
                         recordingId = recordingId,
                         expectedTotalSampleCount = totalSampleCount,
                         speechSegments = speechSegments,
+                        progressListener = progressListener,
                     )
                 } catch (cancelled: CancellationException) {
                     throw cancelled

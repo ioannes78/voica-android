@@ -25,8 +25,19 @@ internal class TimelineReferenceRunner(
         recordingId: String,
         expectedTotalSampleCount: Long,
         speechSegments: List<SpeechSegment>,
+        progressListener: ProgressListener? = null,
     ): List<TimelineReferenceSegment> {
         if (speechSegments.isEmpty()) return emptyList()
+
+        val totalUnits = speechSegments.size.toLong()
+        progressListener?.onProgress(
+            TranscriptionProgress(
+                phase = TranscriptionPhase.SECOND_PASS,
+                processedUnits = 0L,
+                totalUnits = totalUnits,
+                activity = TranscriptionProgressActivity.TIMELINE_ALIGNMENT,
+            ),
+        )
 
         val source =
             pcmSourceResolver.resolvePcmSource(recordingId)
@@ -66,6 +77,7 @@ internal class TimelineReferenceRunner(
                     segmentIndex < speechSegments.size &&
                     speechSegments[segmentIndex].startSampleIndex < readEnd
                 ) {
+                    currentCoroutineContext().ensureActive()
                     val segment = speechSegments[segmentIndex]
                     val overlapStart = max(segment.startSampleIndex, read.startSampleIndex)
                     val overlapEnd = min(segment.endSampleIndexExclusive, readEnd)
@@ -101,6 +113,14 @@ internal class TimelineReferenceRunner(
                                     ),
                             )
                         segmentIndex += 1
+                        progressListener?.onProgress(
+                            TranscriptionProgress(
+                                phase = TranscriptionPhase.SECOND_PASS,
+                                processedUnits = segmentIndex.toLong(),
+                                totalUnits = totalUnits,
+                                activity = TranscriptionProgressActivity.TIMELINE_ALIGNMENT,
+                            ),
+                        )
                     } else {
                         break
                     }
@@ -250,8 +270,6 @@ private fun referenceTimingUnits(
 
     if (output.isNotEmpty()) return output
 
-    // Defensive fallback for unusual tokenizer output: align against recognizer text,
-    // but without invented timestamps this branch cannot produce precise timing.
     return referenceText.mapNotNull(::normalizeAlignmentChar)
         .map { ReferenceTimingUnit(it, null) }
 }

@@ -47,6 +47,10 @@ enum class TranscriptionPhase {
     PERSISTING,
 }
 
+enum class TranscriptionProgressActivity {
+    TIMELINE_ALIGNMENT,
+}
+
 data class SpeechSegment(
     val startSampleIndex: Long,
     val endSampleIndexExclusive: Long,
@@ -147,6 +151,7 @@ data class TranscriptionProgress(
     val phase: TranscriptionPhase,
     val processedUnits: Long? = null,
     val totalUnits: Long? = null,
+    val activity: TranscriptionProgressActivity? = null,
 ) {
     init {
         require(processedUnits == null || processedUnits >= 0L)

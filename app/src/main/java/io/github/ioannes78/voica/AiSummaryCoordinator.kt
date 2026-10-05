@@ -27,10 +27,14 @@ import java.util.concurrent.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -127,9 +131,8 @@ class AiSummaryCoordinator(
         )
 
     fun cancel() {
-        synchronized(activeLock) {
-            activeJob?.cancel(CancellationException("user cancelled AI summary"))
-        }
+        val job = synchronized(activeLock) { activeJob }
+        job?.cancel(CancellationException("user cancelled AI summary"))
     }
 
     suspend fun cancelAndAwait(recordingId: String) {
@@ -209,29 +212,32 @@ class AiSummaryCoordinator(
                 throw CancellationException("recording is being deleted")
             }
             summaryId =
-                repository.create(
-                    NewAiSummaryRequest(
-                        recordingId = input.recordingId,
-                        transcriptionId = input.transcriptionId,
-                        mode = mode.databaseValue(),
-                        templateId = template.id,
-                        templateSnapshot = SummaryTemplateSnapshotCodec.encode(template),
-                        providerProfileId = profile.providerProfileId,
-                        providerNameSnapshot = profile.displayName,
-                        baseUrlSnapshot = profile.baseUrl,
-                        model = profile.defaultModel,
-                        promptVersion = SummaryPromptFactory.PROMPT_VERSION,
-                        resultSchemaVersion = SummaryPromptFactory.RESULT_SCHEMA_VERSION,
-                        requestConfigSnapshot =
-                            buildJsonObject {
-                                put("inputMode", "TRANSCRIPT_TEXT")
-                                put("mode", mode.name)
-                                template.id?.let { put("templateId", it) }
-                            }.toString(),
-                        alignmentIdSnapshot = input.alignmentId,
-                        sourceLineageSnapshot = lineageSnapshot(input),
-                    ),
-                )
+                withContext(NonCancellable) {
+                    repository.create(
+                        NewAiSummaryRequest(
+                            recordingId = input.recordingId,
+                            transcriptionId = input.transcriptionId,
+                            mode = mode.databaseValue(),
+                            templateId = template.id,
+                            templateSnapshot = SummaryTemplateSnapshotCodec.encode(template),
+                            providerProfileId = profile.providerProfileId,
+                            providerNameSnapshot = profile.displayName,
+                            baseUrlSnapshot = profile.baseUrl,
+                            model = profile.defaultModel,
+                            promptVersion = SummaryPromptFactory.PROMPT_VERSION,
+                            resultSchemaVersion = SummaryPromptFactory.RESULT_SCHEMA_VERSION,
+                            requestConfigSnapshot =
+                                buildJsonObject {
+                                    put("inputMode", "TRANSCRIPT_TEXT")
+                                    put("mode", mode.name)
+                                    template.id?.let { put("templateId", it) }
+                                }.toString(),
+                            alignmentIdSnapshot = input.alignmentId,
+                            sourceLineageSnapshot = lineageSnapshot(input),
+                        ),
+                    )
+                }
+            currentCoroutineContext().ensureActive()
             runGeneration(
                 summaryId = summaryId,
                 inputTranscriptionId = transcriptionId,
@@ -240,21 +246,23 @@ class AiSummaryCoordinator(
                 template = template,
             )
         } catch (cancelled: CancellationException) {
-            summaryId?.let { id ->
-                runCatching {
-                    repository.transition(
-                        summaryId = id,
-                        status = AiSummaryStateValue.CANCELLED,
-                        errorCode = "USER_CANCELLED",
-                        sanitizedErrorMessage = "AI summary generation cancelled by user",
-                    )
+            withContext(NonCancellable) {
+                summaryId?.let { id ->
+                    runCatching {
+                        repository.transition(
+                            summaryId = id,
+                            status = AiSummaryStateValue.CANCELLED,
+                            errorCode = "USER_CANCELLED",
+                            sanitizedErrorMessage = "AI summary generation cancelled by user",
+                        )
+                    }
                 }
+                mutableState.value =
+                    AiSummaryRunState.Cancelled(
+                        summaryId = summaryId,
+                        transcriptionId = transcriptionId,
+                    )
             }
-            mutableState.value =
-                AiSummaryRunState.Cancelled(
-                    summaryId = summaryId,
-                    transcriptionId = transcriptionId,
-                )
             throw cancelled
         } catch (error: Throwable) {
             fail(summaryId, transcriptionId, error)
@@ -294,9 +302,14 @@ class AiSummaryCoordinator(
             if (!isRecordingActive(summary.recordingId)) {
                 throw CancellationException("recording is being deleted")
             }
-            check(repository.resumeInterrupted(summaryId)) {
+            val resumed =
+                withContext(NonCancellable) {
+                    repository.resumeInterrupted(summaryId)
+                }
+            check(resumed) {
                 "AI summary resume state changed"
             }
+            currentCoroutineContext().ensureActive()
             runGeneration(
                 summaryId = summaryId,
                 inputTranscriptionId = transcriptionId,
@@ -305,19 +318,21 @@ class AiSummaryCoordinator(
                 template = template,
             )
         } catch (cancelled: CancellationException) {
-            runCatching {
-                repository.transition(
-                    summaryId = summaryId,
-                    status = AiSummaryStateValue.CANCELLED,
-                    errorCode = "USER_CANCELLED",
-                    sanitizedErrorMessage = "AI summary generation cancelled by user",
-                )
+            withContext(NonCancellable) {
+                runCatching {
+                    repository.transition(
+                        summaryId = summaryId,
+                        status = AiSummaryStateValue.CANCELLED,
+                        errorCode = "USER_CANCELLED",
+                        sanitizedErrorMessage = "AI summary generation cancelled by user",
+                    )
+                }
+                mutableState.value =
+                    AiSummaryRunState.Cancelled(
+                        summaryId = summaryId,
+                        transcriptionId = transcriptionId,
+                    )
             }
-            mutableState.value =
-                AiSummaryRunState.Cancelled(
-                    summaryId = summaryId,
-                    transcriptionId = transcriptionId,
-                )
             throw cancelled
         } catch (error: Throwable) {
             fail(summaryId, transcriptionId, error)
@@ -357,6 +372,7 @@ class AiSummaryCoordinator(
                 )
             }
 
+        currentCoroutineContext().ensureActive()
         val sources = input.units.associateBy { it.evidence.ref }
         val evidence =
             output.result.sections.flatMap { section ->
@@ -378,24 +394,29 @@ class AiSummaryCoordinator(
                     }
                 }
             }
-        repository.persistCompleted(
-            summaryId = summaryId,
-            contentType = output.result.contentType.name,
-            classificationConfidence = output.result.classificationConfidence,
-            structuredPayloadJson = output.structuredPayloadJson,
-            displayText = SummaryDisplayFormatter.format(output.result),
-            usageSnapshot =
-                output.usage?.let { usage ->
-                    buildJsonObject {
-                        usage.inputTokens?.let { put("inputTokens", it) }
-                        usage.outputTokens?.let { put("outputTokens", it) }
-                        usage.totalTokens?.let { put("totalTokens", it) }
-                        put("providerCallCount", output.providerCallCount)
-                        put("mapChunkCount", output.mapChunkCount)
-                    }.toString()
-                },
-            evidence = evidence,
-        )
+        currentCoroutineContext().ensureActive()
+        val completed =
+            repository.persistCompleted(
+                summaryId = summaryId,
+                contentType = output.result.contentType.name,
+                classificationConfidence = output.result.classificationConfidence,
+                structuredPayloadJson = output.structuredPayloadJson,
+                displayText = SummaryDisplayFormatter.format(output.result),
+                usageSnapshot =
+                    output.usage?.let { usage ->
+                        buildJsonObject {
+                            usage.inputTokens?.let { put("inputTokens", it) }
+                            usage.outputTokens?.let { put("outputTokens", it) }
+                            usage.totalTokens?.let { put("totalTokens", it) }
+                            put("providerCallCount", output.providerCallCount)
+                            put("mapChunkCount", output.mapChunkCount)
+                        }.toString()
+                    },
+                evidence = evidence,
+            )
+        if (!completed) {
+            throw CancellationException("AI summary is no longer active")
+        }
         mutableState.value =
             AiSummaryRunState.Completed(
                 summaryId = summaryId,
@@ -410,6 +431,7 @@ class AiSummaryCoordinator(
         inputTranscriptionId: String,
         progress: AiSummaryEngineProgress,
     ) {
+        currentCoroutineContext().ensureActive()
         val status =
             when (progress.phase) {
                 AiSummaryEnginePhase.PREPARING -> AiSummaryStateValue.PREPARING
@@ -418,7 +440,11 @@ class AiSummaryCoordinator(
                 AiSummaryEnginePhase.REDUCING -> AiSummaryStateValue.REDUCING
                 AiSummaryEnginePhase.VALIDATING -> AiSummaryStateValue.VALIDATING
             }
-        repository.transition(summaryId, status)
+        val transitioned = repository.transition(summaryId, status)
+        if (!transitioned) {
+            throw CancellationException("AI summary is no longer active")
+        }
+        currentCoroutineContext().ensureActive()
         mutableState.value =
             AiSummaryRunState.Running(
                 summaryId = summaryId,
@@ -472,16 +498,18 @@ class AiSummaryCoordinator(
         error: Throwable,
     ) {
         val failure = sanitizeFailure(error)
-        summaryId?.let { id ->
-            runCatching {
-                repository.transition(
-                    summaryId = id,
-                    status = AiSummaryStateValue.FAILED,
-                    errorCode = failure.first,
-                    sanitizedErrorMessage = failure.second,
-                )
-            }
-        }
+        val transitioned =
+            summaryId?.let { id ->
+                runCatching {
+                    repository.transition(
+                        summaryId = id,
+                        status = AiSummaryStateValue.FAILED,
+                        errorCode = failure.first,
+                        sanitizedErrorMessage = failure.second,
+                    )
+                }.getOrDefault(false)
+            } ?: true
+        if (!transitioned) return
         val recordingId =
             runCatching {
                 summaryId?.let { repository.find(it)?.recordingId }

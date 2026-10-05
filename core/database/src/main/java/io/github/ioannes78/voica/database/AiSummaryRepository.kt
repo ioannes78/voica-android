@@ -2,6 +2,7 @@ package io.github.ioannes78.voica.database
 
 import androidx.room.withTransaction
 import java.util.UUID
+import java.util.concurrent.CancellationException
 import kotlinx.coroutines.flow.Flow
 
 data class NewAiSummaryRequest(
@@ -153,27 +154,24 @@ class AiSummaryRepository(
         status: String,
         errorCode: String? = null,
         sanitizedErrorMessage: String? = null,
-    ) {
+    ): Boolean {
         require(status in ALL_STATES)
         val current = dao.findSummary(summaryId) ?: error("AI summary not found")
-        if (current.status == status) return
-        require(current.status in AiSummaryStateValue.ACTIVE) {
-            "terminal AI summary cannot transition"
-        }
+        if (current.status == status) return true
+        if (current.status !in AiSummaryStateValue.ACTIVE) return false
 
         val now = nowMs()
         val terminal = status in TERMINAL_STATES
-        check(
-            dao.updateState(
-                summaryId = summaryId,
-                status = status,
-                startedAtMs = current.startedAtMs ?: now,
-                updatedAtMs = now,
-                completedAtMs = if (terminal) now else null,
-                errorCode = errorCode,
-                sanitizedErrorMessage = sanitizedErrorMessage,
-            ) == 1,
-        )
+        return dao.updateState(
+            summaryId = summaryId,
+            status = status,
+            startedAtMs = current.startedAtMs ?: now,
+            updatedAtMs = now,
+            completedAtMs = if (terminal) now else null,
+            errorCode = errorCode,
+            sanitizedErrorMessage = sanitizedErrorMessage,
+            activeStates = AiSummaryStateValue.ACTIVE,
+        ) == 1
     }
 
     suspend fun persistCompleted(
@@ -184,49 +182,57 @@ class AiSummaryRepository(
         displayText: String,
         usageSnapshot: String?,
         evidence: List<AiSummaryEvidenceWrite>,
-    ) {
+    ): Boolean {
         require(contentType.isNotBlank())
         require(classificationConfidence == null || classificationConfidence in 0.0..1.0)
         require(structuredPayloadJson.isNotBlank())
         require(displayText.isNotBlank())
-
-        val summary = dao.findSummary(summaryId) ?: error("AI summary not found")
-        require(summary.status in AiSummaryStateValue.ACTIVE)
         validateEvidence(evidence)
 
         val now = nowMs()
-        database.withTransaction {
-            if (evidence.isNotEmpty()) {
-                dao.insertEvidence(
-                    evidence.map { item ->
-                        AiSummaryEvidenceEntity(
-                            id = newId(),
-                            aiSummaryId = summaryId,
-                            summaryItemId = item.summaryItemId,
-                            sourceRef = item.sourceRef,
-                            sourceKind = item.sourceKind,
-                            sourceId = item.sourceId,
-                            startSampleIndex = item.startSampleIndex,
-                            endSampleIndexExclusive = item.endSampleIndexExclusive,
-                            speakerId = item.speakerId,
-                            assignmentQuality = item.assignmentQuality,
-                        )
-                    },
-                )
+        val completed =
+            database.withTransaction {
+                val updated =
+                    dao.complete(
+                        summaryId = summaryId,
+                        contentType = contentType,
+                        classificationConfidence = classificationConfidence,
+                        structuredPayloadJson = structuredPayloadJson,
+                        displayText = displayText,
+                        usageSnapshot = usageSnapshot,
+                        completedAtMs = now,
+                        activeStates = AiSummaryStateValue.ACTIVE,
+                    )
+                if (updated != 1) return@withTransaction false
+                if (evidence.isNotEmpty()) {
+                    dao.insertEvidence(
+                        evidence.map { item ->
+                            AiSummaryEvidenceEntity(
+                                id = newId(),
+                                aiSummaryId = summaryId,
+                                summaryItemId = item.summaryItemId,
+                                sourceRef = item.sourceRef,
+                                sourceKind = item.sourceKind,
+                                sourceId = item.sourceId,
+                                startSampleIndex = item.startSampleIndex,
+                                endSampleIndexExclusive = item.endSampleIndexExclusive,
+                                speakerId = item.speakerId,
+                                assignmentQuality = item.assignmentQuality,
+                            )
+                        },
+                    )
+                }
+                true
             }
-            check(
-                dao.complete(
-                    summaryId = summaryId,
-                    contentType = contentType,
-                    classificationConfidence = classificationConfidence,
-                    structuredPayloadJson = structuredPayloadJson,
-                    displayText = displayText,
-                    usageSnapshot = usageSnapshot,
-                    completedAtMs = now,
-                ) == 1,
-            )
+        if (completed) {
+            try {
+                SearchIndexRebuilder(database).reindexAiSummary(summaryId)
+            } catch (_: CancellationException) {
+                // Completion is already committed atomically. Search indexing is rebuildable and
+                // must not turn a completed summary back into a cancellation race.
+            }
         }
-        SearchIndexRebuilder(database).reindexAiSummary(summaryId)
+        return completed
     }
 
     suspend fun loadEvidence(summaryId: String): List<AiSummaryEvidenceEntity> =

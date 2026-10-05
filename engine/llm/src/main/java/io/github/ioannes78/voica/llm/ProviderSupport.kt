@@ -7,6 +7,7 @@ import io.github.ioannes78.voica.ai.ProviderFailureCarrier
 import io.github.ioannes78.voica.ai.ProviderPresetCatalog
 import io.github.ioannes78.voica.ai.ProviderProfile
 import java.net.URI
+import java.util.concurrent.CancellationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -68,8 +69,9 @@ internal fun joinUrl(
     path: String,
 ): String = baseUrl.trimEnd('/') + "/" + path.trimStart('/')
 
-internal fun mapTransportFailure(error: Throwable): ProviderFailure =
-    when (error) {
+internal fun mapTransportFailure(error: Throwable): ProviderFailure {
+    if (error is CancellationException) throw error
+    return when (error) {
         is LlmTransportException ->
             when (error.kind) {
                 TransportFailureKind.INVALID_URL ->
@@ -83,13 +85,14 @@ internal fun mapTransportFailure(error: Throwable): ProviderFailure =
                 TransportFailureKind.NETWORK ->
                     ProviderFailure(ProviderErrorCode.NETWORK_UNAVAILABLE, "provider network request failed", retryable = true)
                 TransportFailureKind.CANCELLED ->
-                    ProviderFailure(ProviderErrorCode.CANCELLED, "provider request cancelled")
+                    throw CancellationException("provider request cancelled").also { it.initCause(error) }
                 TransportFailureKind.RESPONSE_TOO_LARGE ->
                     ProviderFailure(ProviderErrorCode.MALFORMED_RESPONSE, "provider response exceeded size limit")
             }
         else ->
             ProviderFailure(ProviderErrorCode.NETWORK_UNAVAILABLE, "provider request failed", retryable = true)
     }
+}
 
 internal fun classifyHttpFailure(
     response: LlmHttpResponse,

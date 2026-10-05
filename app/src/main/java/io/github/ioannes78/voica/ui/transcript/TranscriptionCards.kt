@@ -37,6 +37,8 @@ import io.github.ioannes78.voica.Stage13ARealtimeModelIds
 import io.github.ioannes78.voica.TranscriptionRunState
 import io.github.ioannes78.voica.transcript.TextProjectionQuality
 import io.github.ioannes78.voica.transcript.TranscriptionPhase
+import io.github.ioannes78.voica.transcript.TranscriptionProgress
+import io.github.ioannes78.voica.transcript.TranscriptionProgressActivity
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -79,7 +81,7 @@ fun TranscriptionStatusCard(
                         )
                         Text(
                             buildString {
-                                append(phaseLabel(state.progress.phase))
+                                append(phaseLabel(state.progress))
                                 state.progress.fraction?.let { fraction ->
                                     append(' ')
                                     append((fraction * 100.0).roundToInt().coerceIn(0, 100))
@@ -470,14 +472,18 @@ private fun sourceModelLabel(modelId: String?): String =
         else -> "离线转写"
     }
 
-private fun phaseLabel(phase: TranscriptionPhase): String =
-    when (phase) {
-        TranscriptionPhase.PREPARING -> "正在准备…"
-        TranscriptionPhase.VAD -> "正在分析语音…"
-        TranscriptionPhase.FIRST_PASS -> "正在生成时间轴…"
-        TranscriptionPhase.SECOND_PASS -> "正在识别…"
-        TranscriptionPhase.PUNCTUATION -> "正在处理标点…"
-        TranscriptionPhase.PERSISTING -> "正在保存转写结果…"
+private fun phaseLabel(progress: TranscriptionProgress): String =
+    if (progress.activity == TranscriptionProgressActivity.TIMELINE_ALIGNMENT) {
+        "正在生成时间轴…"
+    } else {
+        when (progress.phase) {
+            TranscriptionPhase.PREPARING -> "正在准备…"
+            TranscriptionPhase.VAD -> "正在分析语音…"
+            TranscriptionPhase.FIRST_PASS -> "正在识别…"
+            TranscriptionPhase.SECOND_PASS -> "正在识别…"
+            TranscriptionPhase.PUNCTUATION -> "正在处理标点…"
+            TranscriptionPhase.PERSISTING -> "正在保存转写结果…"
+        }
     }
 
 private fun formatCompletedAt(epochMs: Long): String =
