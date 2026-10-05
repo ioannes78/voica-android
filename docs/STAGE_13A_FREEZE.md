@@ -1,6 +1,12 @@
 # Voica Stage 13A Freeze
 
-状态：**FROZEN / 用户真机验收通过**
+> **SUPERSEDED / PREMATURE CLOSURE**
+>
+> 本文件记录 QA5 后曾发生的 Stage 13A 过早 Freeze，作为历史证据保留，不删除、不回滚。
+> 自 2026-10-05 QA6 开发重新打开后，当前治理状态以 `docs/STAGE_13A_QA6_DEVELOPMENT.md` 为准：Stage 13A = IN PROGRESS，QA5 = ACCEPTED，QA6 = IN DEVELOPMENT，Stage 13B = BLOCKED。
+> QA6 经用户真机明确“测试通过”前，本文件不得解释为 Stage 13A Final Freeze。
+
+状态：**历史记录 / 已被 QA6 reopening supersede**
 
 日期：2026-10-05
 
@@ -190,17 +196,8 @@ Stage 13B 不得恢复已移出冻结矩阵的候选项，除非形成新的明�
 
 ## 12. 下一阶段
 
-下一阶段：
+原记录中的下一阶段为：
 
 **Stage 13B — 稳定性、后台与真实长录音专项**
 
-Stage 13B 必须以本 Stage 13A 冻结模型矩阵与默认参数为基线，重点覆盖：
-
-- 真实 30 分钟 / 1 小时 / 2 小时录音
-- ASR / diarization RTF、RAM/PSS、CPU、thermal、storage、battery（可测时）
-- BLE soak
-- Foreground Service
-- 后台 / 锁屏文件下载
-- cancellation / interruption / process recovery
-- 低存储与临时文件恢复
-- playback / seek / timeline / revision / search / AI Summary 长文本回归
+该结论已被 QA6 reopening 暂时阻断。当前必须先完成 QA6 与新的 Stage 13A Final Freeze/Handoff。
