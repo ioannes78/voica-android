@@ -92,6 +92,9 @@ class TranscriptionViewModel(
     private val mutableVersionsRecordingId = MutableStateFlow<String?>(null)
     val versionsRecordingId: StateFlow<String?> = mutableVersionsRecordingId.asStateFlow()
 
+    private val mutableCandidateId = MutableStateFlow<String?>(null)
+    val candidateId: StateFlow<String?> = mutableCandidateId.asStateFlow()
+
     private val mutableNotice = MutableStateFlow<String?>(null)
     val notice: StateFlow<String?> = mutableNotice.asStateFlow()
 
@@ -103,14 +106,21 @@ class TranscriptionViewModel(
             coordinator.state.collectLatest { state ->
                 when (state) {
                     is TranscriptionRunState.Completed -> {
-                        contentRepository.setCurrentTranscriptionVersion(
-                            state.recordingId,
-                            state.transcriptionId,
-                        )
-                        requestDocumentLoad(
-                            transcriptionId = state.transcriptionId,
-                            clearCurrent = true,
-                        )
+                        // TranscriptionRepository already applied the QA6 completion policy:
+                        // first result becomes current; later results remain candidates.
+                        val currentId =
+                            contentRepository.resolveCurrentTranscriptionId(state.recordingId)
+                        mutableCandidateId.value =
+                            contentRepository.resolveTranscriptionCandidateId(state.recordingId)
+                        currentId?.let { id ->
+                            requestDocumentLoad(
+                                transcriptionId = id,
+                                clearCurrent = mutableDocument.value?.transcriptionId != id,
+                            )
+                        }
+                        if (mutableCandidateId.value == state.transcriptionId) {
+                            mutableNotice.value = "新的转写结果已生成。"
+                        }
                         if (mutableVersionsRecordingId.value == state.recordingId) {
                             loadVersions(state.recordingId)
                         }
@@ -205,6 +215,11 @@ class TranscriptionViewModel(
         }
     }
 
+    /** Explicit product action: "使用新结果". */
+    fun adoptCandidate(transcriptionId: String) {
+        selectVersion(transcriptionId)
+    }
+
     fun selectVersion(transcriptionId: String) {
         viewModelScope.launch {
             val recordingId =
@@ -217,10 +232,13 @@ class TranscriptionViewModel(
                 recordingId = recordingId,
                 transcriptionId = transcriptionId,
             )
+            mutableCandidateId.value =
+                contentRepository.resolveTranscriptionCandidateId(recordingId)
             requestDocumentLoad(
                 transcriptionId = transcriptionId,
                 clearCurrent = true,
             )
+            mutableNotice.value = "已使用新的转写结果。"
         }
     }
 
@@ -286,7 +304,7 @@ class TranscriptionViewModel(
         val transcription = repository.find(transcriptionId)
         if (!isCurrentDocumentLoad(generation)) return
         if (transcription == null || transcription.state != TranscriptionStateValue.COMPLETED) {
-            mutableNotice.value = "转写版本不存在或尚未完成"
+            mutableNotice.value = "转写结果不存在或尚未完成"
             return
         }
 
@@ -344,7 +362,6 @@ class TranscriptionViewModel(
 
         if (compatibleRun == null) {
             mutableDocument.value = baseDocument
-            mutableNotice.value = null
             return
         }
 
@@ -366,12 +383,9 @@ class TranscriptionViewModel(
                     transcriptionId = transcription.id,
                     diarizationRunId = compatibleRun.id,
                 )
-            mutableNotice.value =
-                if (started) {
-                    "正在把说话人分离结果应用到当前转写版本…"
-                } else {
-                    "已有说话人分离或对齐任务正在运行"
-                }
+            if (started) {
+                mutableNotice.value = "正在把说话人分离结果应用到当前转写…"
+            }
             return
         }
 
@@ -407,7 +421,6 @@ class TranscriptionViewModel(
                     },
                 timeline = alignedTimeline,
             )
-        mutableNotice.value = null
     }
 
     private suspend fun loadVersions(recordingId: String) {
@@ -420,6 +433,7 @@ class TranscriptionViewModel(
         if (completed.isEmpty()) {
             mutableVersionsRecordingId.value = recordingId
             mutableVersions.value = emptyList()
+            mutableCandidateId.value = null
             mutableNotice.value = "这条录音还没有已完成的转写结果"
             return
         }
@@ -436,6 +450,7 @@ class TranscriptionViewModel(
                     latest = index == 0,
                 )
             }
+        mutableCandidateId.value = contentRepository.resolveTranscriptionCandidateId(recordingId)
         val preferredId =
             contentRepository.resolveCurrentTranscriptionId(recordingId)
                 ?.takeIf { id -> completed.any { it.id == id } }
@@ -450,7 +465,6 @@ class TranscriptionViewModel(
                 clearCurrent = true,
             )
         }
-        mutableNotice.value = null
     }
 
     private fun start(
@@ -458,7 +472,8 @@ class TranscriptionViewModel(
         mode: TranscriptionMode,
     ) {
         mutableNotice.value = null
-        cancelDocumentLoad(clearCurrent = true)
+        // Existing effective content remains visible while a replacement result is generated.
+        cancelDocumentLoad(clearCurrent = false)
         if (!coordinator.start(recordingId, mode)) {
             mutableNotice.value = "已有转写任务正在运行，请先完成或取消当前任务"
         }
