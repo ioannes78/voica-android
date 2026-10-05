@@ -6,13 +6,13 @@
 
 - 分支：`stage13a-local-speech-engine-v2`
 - PR：#15（Draft / `[APK]`）
-- HEAD：`3b13e96d8b8a65d2c85e7454c43053b1efb93650`
+- HEAD：以 PR #15 当前 HEAD 为准
 - versionCode：45
 - versionName：`0.13.0-stage13a-qa5`
 - Room schema：7
 - ABI：arm64-v8a
 - sherpa-onnx：1.13.8
-- Android PR CI：#681 success
+- Android PR CI：以当前 HEAD 的最新成功 `Android PR CI` 为准
 - QA Application ID：`io.github.ioannes78.voica.qa`
 - production model channel：保持不变
 
