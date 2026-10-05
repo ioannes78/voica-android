@@ -3,17 +3,24 @@ package io.github.ioannes78.voica.ui.playback
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -32,6 +39,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.R
@@ -71,12 +79,19 @@ fun RecordingPlaybackCard(
     }
 
     if (deviceRecordingActive) {
-        Card(modifier = Modifier.fillMaxWidth()) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            colors =
+                CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                ),
+        ) {
             Text(
                 "设备正在录音，播放已暂停。",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(14.dp),
+                modifier = Modifier.padding(18.dp),
             )
         }
     } else if (snapshot.recordingId == recordingId) {
@@ -91,22 +106,54 @@ fun RecordingPlaybackCard(
             waveform = waveform,
         )
     } else {
-        Card(modifier = Modifier.fillMaxWidth()) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            colors =
+                CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                ),
+        ) {
             Column(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(
-                    stringResource(R.string.playback_title),
-                    style = MaterialTheme.typography.titleLarge,
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.GraphicEq,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp),
+                    )
+                    Text(
+                        stringResource(R.string.playback_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
                 Button(
                     onClick = { playbackViewModel.loadAndPlay(recordingId) },
                     enabled = canonicalReady,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.size(86.dp),
+                    shape = CircleShape,
+                    contentPadding = PaddingValues(0.dp),
                 ) {
-                    Text(stringResource(R.string.playback_play))
+                    Icon(
+                        imageVector = Icons.Outlined.PlayArrow,
+                        contentDescription = stringResource(R.string.playback_play),
+                        modifier = Modifier.size(40.dp),
+                    )
                 }
+                Text(
+                    stringResource(R.string.playback_play),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
                 if (!canonicalReady) {
                     Text(
                         stringResource(R.string.detail_canonical_required),
@@ -129,6 +176,7 @@ fun MiniPlaybackBar(
     playbackViewModel: PlaybackViewModel,
     onOpenFullPlayer: () -> Unit,
 ) {
+    @Suppress("UNUSED_VARIABLE") val ignoredDurationMs = durationMs
     if (!canonicalReady || deviceRecordingActive) return
 
     val snapshot by playbackViewModel.snapshot.collectAsState()
