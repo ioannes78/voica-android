@@ -1003,15 +1003,7 @@ private fun LocalFilesScreen(
 
 internal fun shouldShowGlobalPlayback(snapshot: PlaybackSnapshot): Boolean =
     snapshot.recordingId != null &&
-        snapshot.state in
-            setOf(
-                PlaybackState.PREPARING,
-                PlaybackState.READY,
-                PlaybackState.PLAYING,
-                PlaybackState.PAUSED,
-                PlaybackState.SEEKING,
-                PlaybackState.ERROR,
-            )
+        snapshot.state in setOf(PlaybackState.PLAYING, PlaybackState.PAUSED)
 
 internal fun buildGlobalTaskItems(
     transcription: TranscriptionRunState,
@@ -1143,7 +1135,7 @@ internal fun buildGlobalTaskItems(
                             key = "summary-running-" + aiSummary.transcriptionId,
                             recordingId = recordingId,
                             recordingName = recordingName(recordingId),
-                            label = "AI 总结",
+                            label = "总结",
                             progress = progress,
                             destination = RecordingDetailDestination.SUMMARY,
                             terminal = false,
@@ -1157,7 +1149,7 @@ internal fun buildGlobalTaskItems(
                         key = "summary-completed-" + aiSummary.summaryId,
                         recordingId = aiSummary.recordingId,
                         recordingName = recordingName(aiSummary.recordingId),
-                        label = "AI 总结完成",
+                        label = "总结完成",
                         progress = "完成",
                         destination = RecordingDetailDestination.SUMMARY,
                         terminal = true,
@@ -1173,7 +1165,7 @@ internal fun buildGlobalTaskItems(
                                     (aiSummary.summaryId ?: aiSummary.transcriptionId),
                             recordingId = recordingId,
                             recordingName = recordingName(recordingId),
-                            label = "AI 总结失败",
+                            label = "总结失败",
                             progress = "查看",
                             destination = RecordingDetailDestination.SUMMARY,
                             terminal = true,
