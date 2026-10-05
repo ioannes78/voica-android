@@ -448,9 +448,11 @@ class AiSummaryViewModel(
         val effective = contentRepository.resolveEffectiveTranscription(recordingId)
         val lineage = parseSummaryLineage(summary.sourceLineageSnapshot)
         mutableStale.value =
-            effective == null ||
-                lineage.transcriptionId != effective.transcriptionId ||
-                lineage.revisionId != effective.revisionId
+            isSummaryStale(
+                lineageTranscriptionId = lineage.transcriptionId,
+                lineageRevisionId = lineage.revisionId,
+                effective = effective,
+            )
     }
 
     private fun parseSummaryLineage(raw: String): SummaryLineageRef =
