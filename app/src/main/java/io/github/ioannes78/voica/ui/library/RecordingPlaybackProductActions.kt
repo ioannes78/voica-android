@@ -1,13 +1,29 @@
 package io.github.ioannes78.voica.ui.library
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.FileUpload
+import androidx.compose.material.icons.outlined.MicNone
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -15,7 +31,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.database.AudioAssetRole
 import io.github.ioannes78.voica.database.RecordingLibraryItem
@@ -60,30 +79,76 @@ fun RecordingPlaybackProductActions(
             RecordingSourceType.DEVICE_DOWNLOAD -> "录音卡"
             else -> recording.sourceType
         }
-    val format = original?.container?.takeIf { it.isNotBlank() } ?: "--"
+    val format =
+        original?.container
+            ?.takeIf { it.isNotBlank() }
+            ?.uppercase(Locale.ROOT)
+            ?: "--"
     val size = original?.sizeBytes?.let(::formatInfoBytes) ?: "--"
 
-    Column(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            ),
     ) {
-        HorizontalDivider()
-        Text("录音信息", style = MaterialTheme.typography.titleMedium)
-        ProductInfoLine("录制时间", recordedAt)
-        ProductInfoLine("文件大小", size)
-        ProductInfoLine("来源 / 格式", "$source · $format")
-        HorizontalDivider()
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
+        Column(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            TextButton(onClick = onRename) { Text("重命名") }
-            TextButton(onClick = { sharePickerOpen = true }) { Text("分享") }
-            TextButton(onClick = { exportPickerOpen = true }) { Text("导出") }
-            TextButton(onClick = onDelete) { Text("删除") }
+            Text(
+                "录音信息",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+            ProductInfoLine(
+                icon = Icons.Outlined.CalendarMonth,
+                label = "录制时间",
+                value = recordedAt,
+            )
+            ProductInfoLine(
+                icon = Icons.Outlined.Description,
+                label = "文件大小",
+                value = size,
+            )
+            ProductInfoLine(
+                icon = Icons.Outlined.MicNone,
+                label = "来源 / 格式",
+                value = "$source · $format",
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ProductActionTile(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Outlined.Edit,
+                    label = "重命名",
+                    onClick = onRename,
+                )
+                ProductActionTile(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Outlined.Share,
+                    label = "分享",
+                    onClick = { sharePickerOpen = true },
+                )
+                ProductActionTile(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Outlined.FileUpload,
+                    label = "导出",
+                    onClick = { exportPickerOpen = true },
+                )
+                ProductActionTile(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Outlined.DeleteOutline,
+                    label = "删除",
+                    destructive = true,
+                    onClick = onDelete,
+                )
+            }
         }
     }
 
@@ -125,15 +190,79 @@ fun RecordingPlaybackProductActions(
 }
 
 @Composable
-private fun ProductInfoLine(label: String, value: String) {
-    Row(modifier = Modifier.fillMaxWidth()) {
+private fun ProductInfoLine(
+    icon: ImageVector,
+    label: String,
+    value: String,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(22.dp),
+        )
         Text(
             text = label,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.width(86.dp),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Text(text = value, style = MaterialTheme.typography.bodyMedium)
+        Text(
+            text = value,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
+
+@Composable
+private fun ProductActionTile(
+    modifier: Modifier,
+    icon: ImageVector,
+    label: String,
+    destructive: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val contentColor =
+        if (destructive) {
+            MaterialTheme.colorScheme.error
+        } else {
+            MaterialTheme.colorScheme.onSurface
+        }
+    val containerColor =
+        if (destructive) {
+            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.55f)
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHighest
+        }
+    Surface(
+        modifier = modifier.clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        color = containerColor,
+        contentColor = contentColor,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                modifier = Modifier.size(27.dp),
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                color = contentColor,
+            )
+        }
     }
 }
 
