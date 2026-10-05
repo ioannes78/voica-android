@@ -12,7 +12,6 @@ on:
       - "build.gradle.kts"
       - ".github/workflows/android-ci.yml"
       - "ci/**"
-      - "docs/STAGE_*.md"
   workflow_dispatch:
 
 permissions:
