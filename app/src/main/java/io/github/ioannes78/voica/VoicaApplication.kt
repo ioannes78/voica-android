@@ -4,9 +4,6 @@ import android.app.ActivityManager
 import android.app.Application
 import android.os.Build
 import android.os.Process
-import androidx.lifecycle.DefaultLifecycleObserver
-import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.ProcessLifecycleOwner
 import io.github.ioannes78.voica.ai.AiSummaryEngine
 import io.github.ioannes78.voica.audio.AudioSourceResolver
 import io.github.ioannes78.voica.audio.PcmSourceResolver
@@ -15,10 +12,10 @@ import io.github.ioannes78.voica.ble.DeviceRepository
 import io.github.ioannes78.voica.database.AiSummaryRepository
 import io.github.ioannes78.voica.database.DiarizationRepository
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
+import io.github.ioannes78.voica.database.SearchIndexRebuilder
 import io.github.ioannes78.voica.database.Stage12CContentRepository
 import io.github.ioannes78.voica.database.StructuredTranscriptInputBuilder
 import io.github.ioannes78.voica.database.TranscriptionRepository
-import io.github.ioannes78.voica.database.SearchIndexRebuilder
 import io.github.ioannes78.voica.database.UnifiedSearchRepository
 import io.github.ioannes78.voica.database.VoicaDatabase
 import io.github.ioannes78.voica.llm.AndroidKeystoreCredentialStore
@@ -26,9 +23,9 @@ import io.github.ioannes78.voica.llm.AppPrivateProviderProfileStore
 import io.github.ioannes78.voica.llm.ProviderAdapterRegistry
 import io.github.ioannes78.voica.llm.ProviderConfigurationRepository
 import io.github.ioannes78.voica.llm.UrlConnectionLlmHttpTransport
+import io.github.ioannes78.voica.model.ModelUseRegistry
 import io.github.ioannes78.voica.playback.AndroidPlaybackController
 import io.github.ioannes78.voica.ui.theme.SharedPreferencesThemeSettingsStore
-import io.github.ioannes78.voica.model.ModelUseRegistry
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -238,11 +235,17 @@ class AppContainer(
             localSpeechSettings = { localSpeechSettingsStore.settings.value },
         )
 
-    val playbackController =
+    internal val playbackRuntime =
         AndroidPlaybackController(
             context = application,
             sourceResolver = audioSourceResolver,
             scope = applicationScope,
+        )
+
+    val playbackController =
+        ServiceBackedPlaybackController(
+            context = application,
+            delegate = playbackRuntime,
         )
 
     val localRecordingDeleteCoordinator =
@@ -269,21 +272,6 @@ class AppContainer(
             playbackController = playbackController,
         )
 
-    private val processLifecycleObserver =
-        object : DefaultLifecycleObserver {
-            override fun onStart(owner: LifecycleOwner) {
-                applicationScope.launch {
-                    playbackController.setAppForeground(true)
-                }
-            }
-
-            override fun onStop(owner: LifecycleOwner) {
-                applicationScope.launch {
-                    playbackController.setAppForeground(false)
-                }
-            }
-        }
-
     private val deviceAudioAssetValidator =
         DeviceAudioAssetValidator(
             repository = recordingLibraryRepository,
@@ -306,8 +294,6 @@ class AppContainer(
         )
 
     init {
-        ProcessLifecycleOwner.get().lifecycle.addObserver(processLifecycleObserver)
-
         applicationScope.launch {
             combine(
                 deviceRepository.recordingState,
