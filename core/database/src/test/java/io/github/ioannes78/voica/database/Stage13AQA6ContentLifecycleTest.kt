@@ -152,6 +152,39 @@ class Stage13AQA6ContentLifecycleTest {
     }
 
     @Test
+    fun candidateArgumentCannotBypassCurrentEffectiveRevisionForAiInput() = runBlocking {
+        insertRecording()
+        insertCompletedTranscription(T1, createdAtMs = 10L, completedAtMs = 20L)
+        insertSegment(T1, SEGMENT_1, "模型当前正文")
+        contentRepository.onTranscriptionCompleted(RECORDING_ID, T1)
+        val revisionId =
+            contentRepository.createTranscriptionRevision(
+                transcriptionId = T1,
+                paragraphs =
+                    listOf(
+                        TranscriptionRevisionParagraphDraft(
+                            text = "人工权威正文",
+                            sourceAnchorRefsJson = "[\"SEGMENT:$SEGMENT_1\"]",
+                            anchorStartSampleIndex = 0L,
+                            anchorEndSampleIndexExclusive = 8_000L,
+                            timingQuality = TranscriptRevisionTimingQualityValue.EXACT,
+                            isUserModified = true,
+                        ),
+                    ),
+            )
+        insertCompletedTranscription(T2, createdAtMs = 30L, completedAtMs = 40L)
+        insertSegment(T2, SEGMENT_2, "候选正文不得进入总结")
+        contentRepository.onTranscriptionCompleted(RECORDING_ID, T2)
+
+        val input = StructuredTranscriptInputBuilder(database).buildEffective(T2)
+
+        assertEquals(T1, input.transcriptionId)
+        assertEquals(revisionId, input.transcriptionRevisionId)
+        assertEquals("人工权威正文", input.finalText)
+        assertFalse(input.finalText.contains("候选正文"))
+    }
+
+    @Test
     fun ordinarySearchIndexesOnlyEffectiveTranscriptionAndSummary() = runBlocking {
         insertRecording()
         insertCompletedTranscription(T1, createdAtMs = 10L, completedAtMs = 20L)
