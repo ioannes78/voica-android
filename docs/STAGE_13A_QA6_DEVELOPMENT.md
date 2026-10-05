@@ -1,90 +1,82 @@
 # Voica Stage 13A QA6 Development
 
-状态：**IN DEVELOPMENT**
+状态：**ACCEPTED / CLOSED**
 
 日期：2026-10-05
 
 ## 1. 治理状态
 
-- Stage 13A：**IN PROGRESS**
+- Stage 13A：**FINAL ACCEPTED**
 - QA5：**ACCEPTED**
-- QA6：**IN DEVELOPMENT**
-- Stage 13A Final Freeze：**NOT DONE**
-- Stage 13B：**NOT STARTED / BLOCKED**
+- QA6：**ACCEPTED**
+- Stage 13A Final Freeze：**DONE**
+- Stage 13A Final Handoff：**DONE**
+- Stage 13B：**UNBLOCKED after PR #16 merge + main verification**
 
-本文件重新打开 Stage 13A，用于完成 QA6「录音详情 / 转写 / AI 总结内容生命周期产品化收口」。
+本文件最初用于重新打开 Stage 13A，完成 QA6「录音详情 / 转写 / AI 总结内容生命周期产品化收口」。
 
-此前 `docs/STAGE_13A_FREEZE.md` 与 `docs/STAGE_13A_HANDOFF.md` 是 QA5 后的过早关闭记录，保留作为历史证据，但不再代表当前阶段最终状态。QA6 真机验收通过前不得创建新的最终 Freeze/Handoff，也不得解锁 Stage 13B。
+用户于 2026-10-05 对 QA6 v48 明确确认：
 
-## 2. 开发基线
+**“测试通过”**
+
+因此 QA6 development 状态正式关闭，后续 Stage 13A 权威状态以 `docs/STAGE_13A_FREEZE.md` 与 `docs/STAGE_13A_HANDOFF.md` 为准。
+
+## 2. 最终 QA6 基线
 
 开发分支：`stage13a-qa6-productization`
 
-起点：
+原始起点：
 
 `7b624bc0ca5c2723655798314dacc7bb77960a7e`
 
-核验结果：
+最终功能 / 真机 QA 基线：
 
-- versionCode：46
-- versionName：`0.13.0-stage13a-qa5-fix1`
+`e008e90939b13cf273b14a6e323fa1307b960b24`
+
+最终候选：
+
+- versionCode：48
+- versionName：`0.13.0-stage13a-qa6`
 - Room schema：7
 - sherpa-onnx：1.13.8
-- QA5 CI：#693 / run `37264265999` — success
-- PR #15 closing CI：#694 / run `37266118140` — success
-- production model-channel：`ioannes78/voica-model-channel@e4e64d29b8c92b97de4298ec6e292c33273f3ba4`
-- QA6 对 production model-channel 保持只读
+- Android PR CI：#712 / run `37290584023` — success
+- Artifact ID：`11336208987`
+- Artifact digest：`sha256:a279eda54678717ef78dbb31262dc42cd7f9b1f692dc39619c3c611914ab01d0`
+- Accepted APK SHA-256：`87e5920fea6eb48f31aa4d4170d0e4735e926bc92363ab04aa361cf79ca2799f`
+- production model-channel：QA6 全程只读，未执行 promotion
 
-## 3. QA6 产品契约
-
-QA6 不重新做模型选型。核心契约：
+## 3. QA6 最终产品契约
 
 1. Recording 只有一个 Current Effective Transcription 与一个 Current Effective Summary。
-2. 第一个 completed 结果可自动成为 current；已有 current 后，新 completed 结果只能成为「新结果」，不得自动抢占 current。
-3. 人工编辑继续保存为 Revision；恢复模型/AI 原始结果只清除对应 currentRevisionId。
-4. AI Summary 输入必须冻结当前 Effective Transcription，包括人工 Revision；任务运行期间不得随 UI 切换而改变。
-5. Summary lineage V2 继续复用 `sourceLineageSnapshot`，记录 transcriptionId、transcriptionRevisionId、input digest 与 canonical/alignment lineage。
-6. Summary 是否 stale 只比较生成时的 transcriptionId/revisionId 与当前 Effective Transcription。
-7. 无 audio anchor 的人工文本可以进入 LLM 输入，但不得制造虚假 Audio Evidence。
-8. 普通搜索只索引 Recording + Current Effective Transcription + Current Effective Summary；历史底层结果不进入普通搜索。
-9. Room 保持 v7，除非实现证明现有 schema 无法满足一致性；当前未发现需要 v8 的理由。
+2. 第一个 completed 可自动成为 current；已有 current 后，新 completed 只能成为“新结果”，不得自动抢占 current。
+3. 用户明确“使用新结果”后才切换 current。
+4. 人工编辑保存为 Revision；原始模型 / AI 结果保持不可变事实。
+5. AI Summary 输入冻结任务开始时的 Effective Transcription，包括当前人工 Revision。
+6. Summary stale 同时比较 transcriptionId 与 transcriptionRevisionId。
+7. 无 audio anchor 的人工文本允许进入总结，但不得伪造 evidence / timestamp。
+8. 普通搜索只暴露 Recording + Current Effective Transcription + Current Effective Summary。
+9. 录音库搜索已接通 Current Effective 转写 / 总结 FTS；candidate / 历史内容不得命中。
+10. Room 保持 v7。
 
-## 4. UI / UX 收口
+## 4. UI / UX 最终状态
 
 录音详情一级 Tab：`录音 / 转写 / 总结`。
 
-录音：带 waveform overview 的播放器、圆形进度点、±10s、固定分段速度 `0.5× / 0.75× / 1.0× / 1.5× / 2.0×`、录音信息与重命名/分享/导出/删除。
+录音页完成：真实全宽 waveform、圆形 seek point、±10s 图标、大圆形播放 / 暂停、固定五档速度、图标化录音信息卡、重命名 / 分享 / 导出 / 删除操作。
 
-转写：默认连续全文阅读；正文为一个连续可选择区域，支持跨段选择复制。时间轴用于听原音 + 校对。普通 UI 不再暴露 Version/Revision/Candidate 等工程概念。
+转写页默认连续全文阅读，正文为连续可选择区域，允许跨段选择复制；时间轴继续用于原音校对。
 
-总结：显示当前有效 Summary；旧 lineage 时显示「当前总结基于较早的转写内容」并提供重新生成入口；新完成结果显示为「新结果」，仅用户明确“使用新结果”后切换 current。
+总结页显示当前有效 Summary；stale 时提示基于较早转写并提供重新生成；新结果必须明确采用。
 
-Mini Player：PLAYING/PAUSED 显示；STOPPED/COMPLETED 且无 active session 时消失。
+Mini Player 只在 PLAYING / PAUSED 显示。
 
-## 5. 实现顺序
+## 5. 最终门禁状态
 
-QA6.0 governance reopen
-→ QA6.1 Effective Content lifecycle
-→ QA6.2 Transcription candidate/adopt
-→ QA6.3 Summary candidate/adopt
-→ QA6.4 Effective Revision → AI input
-→ QA6.5 Summary lineage + stale
-→ QA6.6 Search effective-only
-→ QA6.7 Recording Detail + waveform + segmented speed
-→ QA6.8 Transcript continuous reading + timeline
-→ QA6.9 Summary UI
-→ QA6.10 Mini Player / global UI consistency
-→ QA6.11 Unit Test / regression
-→ candidate → PR CI → QA APK
+QA6 已完成代码、测试、Build、PR CI、QA APK 与用户真机验收。
 
-## 6. 门禁
+允许执行：
 
-QA6 完成代码、测试、Build、PR CI 后只提供 QA APK 与真机测试清单，**不得 merge main**。
-
-只有用户明确“测试通过”后才允许：
-
-1. 创建真正的 Stage 13A Final Freeze；
-2. 创建真正的 Stage 13A Final Handoff；
-3. merge QA6 PR；
-4. 核验新的 main HEAD；
-5. 解锁 Stage 13B。
+1. Final Freeze / Handoff；
+2. merge PR #16；
+3. 核验新的 main HEAD 与 post-merge CI；
+4. 完成后解锁 Stage 13B。
