@@ -48,6 +48,9 @@ class ServiceBackedDeviceRepository(
     @Volatile
     private var serviceHeld = false
 
+    @Volatile
+    private var userDisconnectedThisProcess = false
+
     override val scanState: StateFlow<BleScanState> = delegate.scanState
     override val connectionState: StateFlow<DeviceConnectionState> = delegate.connectionState
     override val deviceInfo: StateFlow<DeviceInfo> = delegate.deviceInfo
@@ -71,7 +74,9 @@ class ServiceBackedDeviceRepository(
                 delegate.fileOperationState,
             ) { connection, recording, operation ->
                 DeviceSessionForegroundDecision(
-                    keep = shouldKeepDeviceSession(connection),
+                    keep =
+                        !userDisconnectedThisProcess &&
+                            shouldKeepDeviceSession(connection),
                     label = deviceSessionLabel(connection, recording, operation),
                 )
             }.collect(::applyDecision)
@@ -93,6 +98,7 @@ class ServiceBackedDeviceRepository(
     }
 
     override fun connect(address: String) {
+        userDisconnectedThisProcess = false
         // Start the explicit Android execution owner while the initiating Activity is still visible.
         holdService("正在连接录音卡")
         delegate.setForeground(true)
@@ -100,6 +106,9 @@ class ServiceBackedDeviceRepository(
     }
 
     override fun disconnect() {
+        // Latch before asking the delegate to disconnect so its transient Disconnecting state cannot
+        // reacquire the foreground service after an explicit user disconnect.
+        userDisconnectedThisProcess = true
         delegate.disconnect()
         releaseService()
         if (!appForeground) delegate.setForeground(false)
@@ -164,9 +173,11 @@ class ServiceBackedDeviceRepository(
     private fun applyDecision(decision: DeviceSessionForegroundDecision) {
         if (decision.keep) {
             holdService(decision.label)
-            // A session can become Ready after the Activity has already stopped. Keep the delegate
-            // in its active execution mode once Android has an explicit connectedDevice FGS reason.
-            delegate.setForeground(true)
+            if (serviceHeld) {
+                // A session can become Ready after the Activity has already stopped. Keep the
+                // delegate active only after Android has an explicit connectedDevice FGS reason.
+                delegate.setForeground(true)
+            }
         } else {
             releaseService()
             if (!appForeground) delegate.setForeground(false)
@@ -174,7 +185,9 @@ class ServiceBackedDeviceRepository(
     }
 
     private fun holdService(label: String) {
+        if (userDisconnectedThisProcess || delegate.missingPermissions().isNotEmpty()) return
         synchronized(lock) {
+            if (userDisconnectedThisProcess || delegate.missingPermissions().isNotEmpty()) return
             serviceHeld = true
             DeviceSessionForegroundService.acquire(appContext, label)
         }
