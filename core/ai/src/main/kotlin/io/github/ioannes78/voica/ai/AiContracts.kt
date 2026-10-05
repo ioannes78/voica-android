@@ -101,7 +101,7 @@ data class StructuredTranscriptInput(
     val recordingId: String,
     val transcriptionId: String,
     val transcriptionRevisionId: String? = null,
-    val inputContentDigest: String,
+    val inputContentDigest: String = "0000000000000000000000000000000000000000000000000000000000000000",
     val transcriptionMode: String,
     val canonicalAssetId: String,
     val canonicalSha256: String,
