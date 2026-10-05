@@ -16,27 +16,52 @@ internal object LibraryQueryBuilder {
         val search = criteria.query.trim()
         if (search.isNotEmpty()) {
             val like = "%${escapeLike(search.lowercase())}%"
+            val matchQuery = CjkSearchTokenizer.toMatchQuery(search)
+            val effectiveContentClause =
+                if (matchQuery.isNotBlank()) {
+                    """
+                    OR EXISTS (
+                        SELECT 1
+                        FROM search_documents search_d
+                        JOIN search_documents_fts
+                          ON search_documents_fts.documentId = search_d.documentId
+                        WHERE search_d.recordingId = r.id
+                          AND search_d.documentType IN (
+                              'TRANSCRIPT_UNIT',
+                              'SUMMARY_TITLE_OVERVIEW',
+                              'SUMMARY_ITEM'
+                          )
+                          AND search_documents_fts MATCH ?
+                    )
+                    """.trimIndent()
+                } else {
+                    ""
+                }
             where +=
                 """
                 (
-                    LOWER(r.displayName) LIKE ? ESCAPE '\' OR
-                    LOWER(r.originalFilename) LIKE ? ESCAPE '\' OR
-                    LOWER(COALESCE(r.sourceRemoteIdentity, '')) LIKE ? ESCAPE '\' OR
-                    LOWER(COALESCE(r.sourceDeviceAddress, '')) LIKE ? ESCAPE '\' OR
-                    LOWER(COALESCE(f.name, '')) LIKE ? ESCAPE '\' OR
-                    LOWER(COALESCE(ip.originalDisplayName, '')) LIKE ? ESCAPE '\' OR
-                    LOWER(COALESCE(ip.sourceMimeType, '')) LIKE ? ESCAPE '\' OR
-                    LOWER(COALESCE(ip.providerAuthority, '')) LIKE ? ESCAPE '\' OR
+                    LOWER(r.displayName) LIKE ? ESCAPE '\\' OR
+                    LOWER(r.originalFilename) LIKE ? ESCAPE '\\' OR
+                    LOWER(COALESCE(r.sourceRemoteIdentity, '')) LIKE ? ESCAPE '\\' OR
+                    LOWER(COALESCE(r.sourceDeviceAddress, '')) LIKE ? ESCAPE '\\' OR
+                    LOWER(COALESCE(f.name, '')) LIKE ? ESCAPE '\\' OR
+                    LOWER(COALESCE(ip.originalDisplayName, '')) LIKE ? ESCAPE '\\' OR
+                    LOWER(COALESCE(ip.sourceMimeType, '')) LIKE ? ESCAPE '\\' OR
+                    LOWER(COALESCE(ip.providerAuthority, '')) LIKE ? ESCAPE '\\' OR
                     EXISTS (
                         SELECT 1
                         FROM recording_tag_cross_refs search_rt
                         JOIN recording_tags search_t ON search_t.tagId = search_rt.tagId
                         WHERE search_rt.recordingId = r.id
-                          AND LOWER(search_t.name) LIKE ? ESCAPE '\'
+                          AND LOWER(search_t.name) LIKE ? ESCAPE '\\'
                     )
+                    $effectiveContentClause
                 )
                 """.trimIndent()
             repeat(9) { args += like }
+            if (matchQuery.isNotBlank()) {
+                args += matchQuery
+            }
         }
 
         if (criteria.favoriteOnly) {
