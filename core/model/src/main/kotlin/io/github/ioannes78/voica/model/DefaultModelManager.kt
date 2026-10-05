@@ -1,6 +1,7 @@
 package io.github.ioannes78.voica.model
 
 import java.io.File
+import java.nio.file.Files
 import java.util.concurrent.CancellationException
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineDispatcher
@@ -16,6 +17,52 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
+internal const val MIN_MODEL_INSTALL_SPACE_RESERVE_BYTES = 128L * 1024L * 1024L
+private const val MEBIBYTE_BYTES = 1024L * 1024L
+
+internal data class ModelInstallSpaceRequirements(
+    val packageVolumeBytes: Long,
+    val storageVolumeBytes: Long,
+    val sharedVolumeBytes: Long?,
+)
+
+internal fun calculateModelInstallSpaceRequirements(
+    downloadSizeBytes: Long,
+    installedSizeBytes: Long,
+    existingPartBytes: Long,
+    sameVolume: Boolean,
+    reserveBytes: Long = MIN_MODEL_INSTALL_SPACE_RESERVE_BYTES,
+): ModelInstallSpaceRequirements {
+    require(downloadSizeBytes >= 0L)
+    require(installedSizeBytes >= 0L)
+    require(existingPartBytes >= 0L)
+    require(reserveBytes >= 0L)
+    val retained = existingPartBytes.coerceAtMost(downloadSizeBytes)
+    val remainingDownloadBytes = downloadSizeBytes - retained
+
+    fun addExact(vararg values: Long): Long =
+        values.fold(0L) { total, value -> Math.addExact(total, value) }
+
+    return if (sameVolume) {
+        ModelInstallSpaceRequirements(
+            packageVolumeBytes = 0L,
+            storageVolumeBytes = 0L,
+            sharedVolumeBytes =
+                addExact(
+                    remainingDownloadBytes,
+                    installedSizeBytes,
+                    reserveBytes,
+                ),
+        )
+    } else {
+        ModelInstallSpaceRequirements(
+            packageVolumeBytes = addExact(remainingDownloadBytes, reserveBytes),
+            storageVolumeBytes = addExact(installedSizeBytes, reserveBytes),
+            sharedVolumeBytes = null,
+        )
+    }
+}
+
 class DefaultModelManager(
     private val bundledCatalog: ModelCatalog,
     private val remoteCatalogProvider: ModelCatalogProvider?,
@@ -27,6 +74,12 @@ class DefaultModelManager(
     private val useRegistry: ModelUseRegistry = ModelUseRegistry(),
     private val candidateValidator: ModelCandidateValidator,
     private val blockingDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val usableSpaceBytes: (File) -> Long = { directory -> directory.usableSpace },
+    private val sameStorageVolume: (File, File) -> Boolean = { first, second ->
+        runCatching {
+            Files.getFileStore(first.toPath()) == Files.getFileStore(second.toPath())
+        }.getOrDefault(false)
+    },
 ) : ModelManager {
     private val packages = packageDirectory.canonicalFile
     private val catalogMutex = Mutex()
@@ -200,6 +253,13 @@ class DefaultModelManager(
             var installCompleted = false
 
             try {
+                withContext(blockingDispatcher) {
+                    ensureInstallSpace(
+                        descriptor = descriptor,
+                        packagePart = packagePart,
+                    )
+                }
+
                 updateOperation(
                     modelId,
                     ModelOperationStatus(
@@ -285,6 +345,83 @@ class DefaultModelManager(
         }
     }
 
+    private fun ensureInstallSpace(
+        descriptor: ModelDescriptor,
+        packagePart: File,
+    ) {
+        val downloadSizeBytes =
+            descriptor.downloadSizeBytes
+                ?: error("model package size is required for storage preflight")
+        val installedSizeBytes = descriptor.installedSizeBytes
+        val existingPartBytes =
+            packagePart.takeIf(File::isFile)
+                ?.length()
+                ?.coerceAtLeast(0L)
+                ?: 0L
+        val storageRoot = storage.storageRootDirectory()
+        val sharedVolume = sameStorageVolume(packages, storageRoot)
+        val reserveBytes =
+            maxOf(
+                MIN_MODEL_INSTALL_SPACE_RESERVE_BYTES,
+                installedSizeBytes / 10L,
+            )
+        val requirements =
+            calculateModelInstallSpaceRequirements(
+                downloadSizeBytes = downloadSizeBytes,
+                installedSizeBytes = installedSizeBytes,
+                existingPartBytes = existingPartBytes,
+                sameVolume = sharedVolume,
+                reserveBytes = reserveBytes,
+            )
+
+        if (sharedVolume) {
+            val required = checkNotNull(requirements.sharedVolumeBytes)
+            val available =
+                minOf(
+                    usableSpaceBytes(packages),
+                    usableSpaceBytes(storageRoot),
+                )
+            check(available >= required) {
+                storageErrorMessage(required = required, available = available)
+            }
+        } else {
+            val packageAvailable = usableSpaceBytes(packages)
+            check(packageAvailable >= requirements.packageVolumeBytes) {
+                storageErrorMessage(
+                    required = requirements.packageVolumeBytes,
+                    available = packageAvailable,
+                )
+            }
+            val storageAvailable = usableSpaceBytes(storageRoot)
+            check(storageAvailable >= requirements.storageVolumeBytes) {
+                storageErrorMessage(
+                    required = requirements.storageVolumeBytes,
+                    available = storageAvailable,
+                )
+            }
+        }
+    }
+
+    private fun storageErrorMessage(
+        required: Long,
+        available: Long,
+    ): String =
+        "存储空间不足：模型安装至少还需要 " +
+            formatSpaceMiB(required) +
+            "，当前可用 " +
+            formatSpaceMiB(available)
+
+    private fun formatSpaceMiB(bytes: Long): String {
+        val safeBytes = bytes.coerceAtLeast(0L)
+        val mebibytes =
+            if (safeBytes == 0L) {
+                0L
+            } else {
+                (safeBytes + MEBIBYTE_BYTES - 1L) / MEBIBYTE_BYTES
+            }
+        return mebibytes.toString() + " MiB"
+    }
+
     override suspend fun cancelInstall(modelId: String) {
         val job = installJobs[modelId] ?: return
         val packagePart = installPartFiles[modelId]
@@ -307,11 +444,11 @@ class DefaultModelManager(
     ) {
         val mutex = modelMutexes.computeIfAbsent(modelId) { Mutex() }
         mutex.withLock {
-            val snapshot =
-                withContext(blockingDispatcher) {
-                    storage.installedSnapshot(modelId, version, revision)
-                } ?: error("model candidate metadata is missing or failed integrity verification")
-            val descriptor = snapshot.descriptor
+            val sourceCatalog = catalog()
+            val descriptor =
+                sourceCatalog.model(modelId)
+                    ?.takeIf { it.version == version && it.revision == revision }
+                    ?: error("model version is not present in the active catalog")
             require(descriptor.compatibilityWith(environment).compatible) {
                 "model is incompatible with this device/app/runtime"
             }
@@ -325,6 +462,12 @@ class DefaultModelManager(
             )
             try {
                 withContext(blockingDispatcher) {
+                    // QA4: refresh legacy V1 metadata from the currently trusted manifest
+                    // before the isolated validator process reads the installed snapshot.
+                    storage.refreshDescriptorSnapshot(
+                        descriptor = descriptor,
+                        manifestDigest = sourceCatalog.manifestDigest,
+                    )
                     candidateValidator.validate(
                         descriptor = descriptor,
                         installedDirectory = installed.directory,

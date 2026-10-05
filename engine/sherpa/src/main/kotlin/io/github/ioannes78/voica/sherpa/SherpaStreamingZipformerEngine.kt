@@ -70,12 +70,19 @@ data class StreamingZipformerSettings(
     val decodingMethod: String = "greedy_search",
     val maxActivePaths: Int = 4,
     val debug: Boolean = false,
+    val nativeModelType: String = "zipformer",
 ) {
     init {
         require(numThreads > 0)
         require(decodingMethod.isNotBlank())
         require(maxActivePaths > 0)
     }
+}
+
+object SherpaStreamingAsrModelType {
+    const val ZIPFORMER_TRANSDUCER = "zipformer-transducer"
+    const val ZIPFORMER2_TRANSDUCER = "zipformer2-transducer"
+    const val ZIPFORMER2_CTC = "zipformer2-ctc"
 }
 
 class SherpaStreamingZipformerEngine internal constructor(
@@ -137,7 +144,7 @@ class SherpaStreamingZipformerEngine internal constructor(
     }
 }
 
-private class SherpaStreamingZipformerSession(
+internal class SherpaStreamingZipformerSession(
     private val native: NativeStreamingAsrSession,
 ) : StreamingAsrSession {
     private var acceptedSampleCount = 0L
@@ -166,6 +173,7 @@ private class SherpaStreamingZipformerSession(
 
     override suspend fun decode(): AsrHypothesis {
         check(!closed) { "ASR session is closed" }
+        check(!inputFinished) { "ASR input is already finished; reset before decoding again" }
         return native.decodeReady().toHypothesis(
             acceptedSampleCount = acceptedSampleCount,
             isFinal = false,
@@ -253,7 +261,7 @@ private object SherpaNativeStreamingRecognizerFactory : NativeStreamingRecognize
                         numThreads = settings.numThreads,
                         debug = settings.debug,
                         provider = SherpaRuntime.PROVIDER_CPU,
-                        modelType = "zipformer",
+                        modelType = settings.nativeModelType,
                     ),
                 enableEndpoint = false,
                 decodingMethod = settings.decodingMethod,
@@ -269,7 +277,7 @@ private object SherpaNativeStreamingRecognizerFactory : NativeStreamingRecognize
     }
 }
 
-private class SherpaNativeStreamingRecognizer(
+internal class SherpaNativeStreamingRecognizer(
     private val delegate: OnlineRecognizer,
 ) : NativeStreamingRecognizer {
     private var closed = false

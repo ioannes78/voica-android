@@ -714,12 +714,19 @@ Stage 13 正式拆分为 **Stage 13A → Stage 13B**。
 
 保留 Stage 8 已冻结模型作为兼容基线，同时重新评估并增加更高精度/更适合 Android 的本地 ASR。
 
-当前候选方向：
+已确认的实时 ASR 产品矩阵固定保留 3 个真正 streaming 模型：
 
-- Streaming / FAST：现有 Small Bilingual Zipformer 作为兼容基线，并重新评估更优流式模型。
-- Lightweight HQ：SenseVoice INT8。
-- High Quality 候选：FireRedASR2 CTC INT8。
-- Ultra / Highest Quality 候选：Qwen3-ASR 0.6B INT8。
+- 极速 / 省资源：Small Bilingual Zipformer zh-en 2023-02-16（兼容基线 / fallback）。
+- 中文默认候选：Chinese Large Zipformer Transducer INT8 2025-06-30。
+- 中文高质量实时候选：Chinese Large Zipformer CTC INT8 2025-06-30。
+
+Stage 13A Benchmark 只决定上述 3 个模型的默认角色、推荐设备档位和参数，不以 Benchmark 为由删除其中任一实时模型。
+
+离线 / Final Pass 继续评估：
+
+- Balanced：SenseVoice INT8。
+- High Quality：FireRedASR2 CTC INT8。
+- Ultra / Highest Quality：Qwen3-ASR 0.6B INT8；若 Android RAM/RTF/thermal 或精度收益不达标，允许明确不进入 production。
 
 以上新增模型是 **Stage 13A 技术候选，不等于已冻结正式模型**。开始开发前必须重新核验：
 
@@ -735,7 +742,7 @@ Stage 13 正式拆分为 **Stage 13A → Stage 13B**。
 - streaming 能力
 - license / redistribution 条件
 
-最终可以保留 2–4 个本地 ASR 档位，但不得为了“模型数量”牺牲包体、RAM、维护成本和用户理解成本。
+实时 ASR 固定保留上述 3 个模型；离线 ASR 最终保留数量由 Benchmark 决定。不得为了增加离线模型数量牺牲 RAM、维护成本和用户理解成本。
 
 #### 13A.2 统一 ASR Engine / Capability
 

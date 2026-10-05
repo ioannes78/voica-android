@@ -38,6 +38,11 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <service
+            android:name=".IsolatedModelValidationService"
+            android:exported="false"
+            android:process=":model_validator" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true">

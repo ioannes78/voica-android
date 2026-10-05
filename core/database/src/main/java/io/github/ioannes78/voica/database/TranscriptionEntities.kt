@@ -1,5 +1,6 @@
 package io.github.ioannes78.voica.database
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -83,6 +84,18 @@ data class TranscriptionEntity(
     val completedAtMs: Long?,
     val errorCode: String?,
     val errorMessage: String?,
+    @ColumnInfo(defaultValue = "1")
+    val vadModelRevision: Long = 1L,
+    @ColumnInfo(defaultValue = "1")
+    val firstPassAsrModelRevision: Long = 1L,
+    val secondPassAsrModelRevision: Long? = secondPassAsrModelId?.let { 1L },
+    val punctuationModelRevision: Long? = punctuationModelId?.let { 1L },
+    @ColumnInfo(defaultValue = "1")
+    val configSnapshotSchemaVersion: Int = 1,
+    @ColumnInfo(defaultValue = "'{}'")
+    val requestedConfigSnapshot: String = configSnapshot,
+    @ColumnInfo(defaultValue = "'{}'")
+    val effectiveConfigSnapshot: String = configSnapshot,
 )
 
 @Entity(

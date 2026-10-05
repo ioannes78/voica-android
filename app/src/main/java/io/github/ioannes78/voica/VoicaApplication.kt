@@ -1,6 +1,9 @@
 package io.github.ioannes78.voica
 
+import android.app.ActivityManager
 import android.app.Application
+import android.os.Build
+import android.os.Process
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -40,7 +43,22 @@ class VoicaApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        if (isModelValidatorProcess()) return
         container = AppContainer(this)
+    }
+
+    private fun isModelValidatorProcess(): Boolean {
+        val processName =
+            if (Build.VERSION.SDK_INT >= 28) {
+                Application.getProcessName()
+            } else {
+                val manager = getSystemService(ACTIVITY_SERVICE) as ActivityManager
+                val pid = Process.myPid()
+                manager.runningAppProcesses
+                    ?.firstOrNull { it.pid == pid }
+                    ?.processName
+            }
+        return processName == packageName + MODEL_VALIDATOR_PROCESS_SUFFIX
     }
 }
 
@@ -102,6 +120,16 @@ class AppContainer(
         SharedPreferencesModelUpdateSettingsStore(application)
     val themeSettingsStore =
         SharedPreferencesThemeSettingsStore(application)
+    val localSpeechSettingsStore =
+        SharedPreferencesLocalSpeechSettingsStore(application)
+    private val stage8TranscriptionEngineProvider =
+        SherpaStage8TranscriptionEngineProvider(
+            assetManager = application.assets,
+        )
+    private val stage9DiarizationEngineProvider =
+        SherpaStage9DiarizationEngineProvider(
+            assetManager = application.assets,
+        )
     val modelUpdateController =
         ModelUpdateController(
             modelManager = modelManager,
@@ -160,11 +188,29 @@ class AppContainer(
             loadCanonicalLineage = recordingLibraryRepository::loadCanonicalTranscriptionLineage,
             modelManager = modelManager,
             modelUseRegistry = modelUseRegistry,
-            engineProvider =
-                SherpaStage8TranscriptionEngineProvider(
-                    assetManager = application.assets,
-                ),
+            engineProvider = stage8TranscriptionEngineProvider,
+            localSpeechSettings = { localSpeechSettingsStore.settings.value },
             isRecordingActive = recordingLibraryRepository::isRecordingActive,
+        )
+
+    val speechBenchmarkRunner =
+        SpeechBenchmarkRunner(
+            application = application,
+            pcmSourceResolver = pcmSourceResolver,
+            modelManager = modelManager,
+            modelUseRegistry = modelUseRegistry,
+            engineProvider = stage8TranscriptionEngineProvider,
+            localSpeechSettings = { localSpeechSettingsStore.settings.value },
+        )
+
+    val diarizationBenchmarkRunner =
+        DiarizationBenchmarkRunner(
+            application = application,
+            pcmSourceResolver = pcmSourceResolver,
+            modelManager = modelManager,
+            modelUseRegistry = modelUseRegistry,
+            engineProvider = stage9DiarizationEngineProvider,
+            localSpeechSettings = { localSpeechSettingsStore.settings.value },
         )
 
     val diarizationCoordinator =
@@ -176,11 +222,20 @@ class AppContainer(
             loadCanonicalLineage = recordingLibraryRepository::loadCanonicalTranscriptionLineage,
             modelManager = modelManager,
             modelUseRegistry = modelUseRegistry,
-            engineProvider =
-                SherpaStage9DiarizationEngineProvider(
-                    assetManager = application.assets,
-                ),
+            engineProvider = stage9DiarizationEngineProvider,
+            localSpeechSettings = { localSpeechSettingsStore.settings.value },
             isRecordingActive = recordingLibraryRepository::isRecordingActive,
+        )
+
+    val autoDiarizationPostProcessor =
+        AutoDiarizationPostProcessor(
+            application = application,
+            scope = applicationScope,
+            transcriptionCoordinator = transcriptionCoordinator,
+            transcriptionRepository = transcriptionRepository,
+            diarizationCoordinator = diarizationCoordinator,
+            diarizationRepository = diarizationRepository,
+            localSpeechSettings = { localSpeechSettingsStore.settings.value },
         )
 
     val playbackController =
@@ -288,6 +343,7 @@ class AppContainer(
             canonicalAudioCoordinator.reconcileOnStartup()
             transcriptionCoordinator.reconcileOnStartup()
             diarizationCoordinator.reconcileOnStartup()
+            autoDiarizationPostProcessor.recoverPendingOnStartup()
             aiSummaryRepository.reconcileInterruptedOnStartup()
             searchIndexRebuilder.rebuildIfRequired()
         }

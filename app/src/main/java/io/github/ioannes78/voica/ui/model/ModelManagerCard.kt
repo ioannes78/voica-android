@@ -109,13 +109,28 @@ fun ModelManagerCard(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     Text(
-                        "Stage 8/9 候选模型验收（Debug）",
+                        "Stage 8/9/13A 候选模型验收（Debug）",
                         style = MaterialTheme.typography.titleSmall,
                     )
                     Text(
                         "仅用于未合并候选清单的真机验收。正式版始终固定 production；修改后需完全退出并重新打开 App 才会生效。",
                         style = MaterialTheme.typography.bodySmall,
                     )
+                    OutlinedButton(
+                        onClick = {
+                            VoicaModelChannel.setDebugManifestUrl(
+                                application = application,
+                                manifestUrl =
+                                    VoicaModelChannel.STAGE13A_ALL_CANDIDATE_MANIFEST_URL,
+                            )
+                            debugManifestUrl =
+                                VoicaModelChannel.STAGE13A_ALL_CANDIDATE_MANIFEST_URL
+                            message =
+                                "Stage 13A 候选模型清单已保存；完全退出并重新打开 App 后生效"
+                        },
+                    ) {
+                        Text("使用 Stage 13A 全量候选")
+                    }
                     OutlinedTextField(
                         value = debugManifestUrl,
                         onValueChange = { debugManifestUrl = it },
@@ -454,6 +469,19 @@ private fun ModelAvailabilityRow(
                 "APK 内置基线 · 已是最新版本；暂无远程更新",
                 style = MaterialTheme.typography.bodySmall,
             )
+        }
+
+        if (
+            operation?.state == ModelState.LOAD_FAILED ||
+            operation?.state == ModelState.CORRUPTED
+        ) {
+            operation.errorMessage?.takeIf { it.isNotBlank() }?.let { error ->
+                Text(
+                    "验证错误：" + error,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
         }
 
         if (downloadedCandidateReady) {

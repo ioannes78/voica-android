@@ -72,6 +72,45 @@ class TranscriptSpeakerAlignmentTest {
     }
 
     @Test
+    fun punctuationOnlyTimedTokenStaysAttachedToPreviousSpeakerText() {
+        val segment =
+            TranscriptSegment(
+                segmentIndex = 0,
+                startSampleIndex = 0L,
+                endSampleIndexExclusive = 16_000L,
+                firstPassRawText = "",
+                secondPassRawText = "活动。",
+                finalText = "活动。",
+                tokens =
+                    listOf(
+                        TranscriptToken(
+                            text = "活动",
+                            startSampleIndex = 0L,
+                            endSampleIndexExclusive = 15_000L,
+                            source = TokenSource.SECOND_PASS,
+                        ),
+                        TranscriptToken(
+                            text = "。",
+                            startSampleIndex = 15_000L,
+                            endSampleIndexExclusive = 16_000L,
+                            source = TokenSource.SECOND_PASS,
+                        ),
+                    ),
+            )
+
+        val result =
+            alignTranscriptSegmentsToSpeakers(
+                segments = listOf(segment),
+                speakerTurns = listOf(globalTurn(0, 0L, 15_000L)),
+            )
+
+        assertEquals(1, result.spans.size)
+        assertEquals(0, result.spans.single().speakerIndex)
+        assertEquals("活动。", text(segment, result.spans.single()))
+        assertEquals(segment.finalText, reconstructAlignedFinalText(segment, result.spans))
+    }
+
+    @Test
     fun overlappingSpeakersProduceAmbiguousTokenInsteadOfDuplicatedText() {
         val segment =
             TranscriptSegment(

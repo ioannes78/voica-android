@@ -96,7 +96,7 @@ interface AiSummaryDao {
             completedAtMs = :completedAtMs,
             errorCode = :errorCode,
             sanitizedErrorMessage = :sanitizedErrorMessage
-        WHERE id = :summaryId
+        WHERE id = :summaryId AND status IN (:activeStates)
         """,
     )
     suspend fun updateState(
@@ -107,6 +107,7 @@ interface AiSummaryDao {
         completedAtMs: Long?,
         errorCode: String?,
         sanitizedErrorMessage: String?,
+        activeStates: List<String>,
     ): Int
 
     @Query(
@@ -122,7 +123,7 @@ interface AiSummaryDao {
             completedAtMs = :completedAtMs,
             errorCode = NULL,
             sanitizedErrorMessage = NULL
-        WHERE id = :summaryId
+        WHERE id = :summaryId AND status IN (:activeStates)
         """,
     )
     suspend fun complete(
@@ -133,6 +134,7 @@ interface AiSummaryDao {
         displayText: String,
         usageSnapshot: String?,
         completedAtMs: Long,
+        activeStates: List<String>,
     ): Int
 
     @Query(

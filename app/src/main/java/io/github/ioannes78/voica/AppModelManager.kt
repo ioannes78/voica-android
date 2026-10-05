@@ -8,12 +8,12 @@ import io.github.ioannes78.voica.model.DecodingModelCatalogProvider
 import io.github.ioannes78.voica.model.DefaultModelManager
 import io.github.ioannes78.voica.model.HttpsModelCatalogTextSource
 import io.github.ioannes78.voica.model.ModelCatalogCodec
+import io.github.ioannes78.voica.model.ModelCatalogProvider
 import io.github.ioannes78.voica.model.ModelEnvironment
 import io.github.ioannes78.voica.model.ModelManager
 import io.github.ioannes78.voica.model.ModelStorage
 import io.github.ioannes78.voica.model.ModelUseRegistry
 import io.github.ioannes78.voica.sherpa.SherpaRuntime
-import io.github.ioannes78.voica.sherpa.SherpaModelCandidateValidator
 import java.io.File
 import java.net.URL
 
@@ -21,6 +21,10 @@ object VoicaModelChannel {
     const val BOOTSTRAP_CATALOG_ASSET = "model-catalog-v1.json"
     const val PRODUCTION_MANIFEST_URL =
         "https://raw.githubusercontent.com/ioannes78/voica-model-channel/main/manifests/production.json"
+    const val STAGE13A_STREAMING_CANDIDATE_MANIFEST_URL =
+        "https://github.com/ioannes78/voica-model-channel/releases/download/candidate-stage13a-streaming-asr-r1/production.json"
+    const val STAGE13A_ALL_CANDIDATE_MANIFEST_URL =
+        "https://github.com/ioannes78/voica-model-channel/releases/download/candidate-stage13a-all-r1/production.json"
 
     private const val PREFERENCES_NAME = "voica-model-channel"
     private const val KEY_DEBUG_MANIFEST_URL = "debug-manifest-url"
@@ -78,6 +82,18 @@ object VoicaModelChannel {
         }.getOrDefault(false)
 }
 
+private val STAGE13A_QA5_PRODUCT_MODEL_IDS =
+    setOf(
+        Stage8ModelIds.VAD,
+        Stage8ModelIds.PUNCTUATION,
+        Stage13AOfflineModelIds.SENSEVOICE,
+        Stage13AOfflineModelIds.QWEN3_ASR,
+        Stage13ARealtimeModelIds.SMALL_BILINGUAL,
+        Stage13ARealtimeModelIds.CHINESE_LARGE_CTC,
+        Stage9ModelIds.SEGMENTATION,
+        Stage13ASpeakerEmbeddingModelIds.CAMP_PLUS,
+    )
+
 fun createVoicaModelManager(
     application: Application,
     useRegistry: ModelUseRegistry,
@@ -96,14 +112,26 @@ fun createVoicaModelManager(
     val appVersionCode =
         PackageInfoCompat.getLongVersionCode(packageInfo).toInt()
 
+    val decodedRemoteCatalogProvider =
+        DecodingModelCatalogProvider(
+            HttpsModelCatalogTextSource(
+                VoicaModelChannel.resolveManifestUrl(application),
+            ),
+        )
+    val productCatalogProvider =
+        ModelCatalogProvider { force ->
+            val catalog = decodedRemoteCatalogProvider.load(force)
+            catalog.copy(
+                models =
+                    catalog.models.filter { descriptor ->
+                        descriptor.modelId in STAGE13A_QA5_PRODUCT_MODEL_IDS
+                    },
+            )
+        }
+
     return DefaultModelManager(
         bundledCatalog = bundledCatalog,
-        remoteCatalogProvider =
-            DecodingModelCatalogProvider(
-                HttpsModelCatalogTextSource(
-                    VoicaModelChannel.resolveManifestUrl(application),
-                ),
-            ),
+        remoteCatalogProvider = productCatalogProvider,
         environment =
             ModelEnvironment(
                 runtimeId = SherpaRuntime.RUNTIME_ID,
@@ -115,6 +143,6 @@ fun createVoicaModelManager(
         storage = ModelStorage(File(application.noBackupFilesDir, "models")),
         packageDirectory = File(application.cacheDir, "model-packages"),
         useRegistry = useRegistry,
-        candidateValidator = SherpaModelCandidateValidator(),
+        candidateValidator = AndroidIsolatedModelCandidateValidator(application),
     )
 }

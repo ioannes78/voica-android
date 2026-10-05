@@ -57,16 +57,19 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.ioannes78.voica.AiSummaryCoordinator
 import io.github.ioannes78.voica.AiSummaryRunState
 import io.github.ioannes78.voica.CanonicalAudioCoordinator
+import io.github.ioannes78.voica.DiarizationBenchmarkRunner
 import io.github.ioannes78.voica.DiarizationCoordinator
 import io.github.ioannes78.voica.DiarizationRunState
 import io.github.ioannes78.voica.ModelUpdateController
 import io.github.ioannes78.voica.LocalAudioImportCoordinator
 import io.github.ioannes78.voica.LocalAudioExportCoordinator
 import io.github.ioannes78.voica.LocalAudioShareOutcome
+import io.github.ioannes78.voica.LocalSpeechSettingsStore
 import io.github.ioannes78.voica.AudioExportVariant
 import io.github.ioannes78.voica.LocalRecordingDeleteCoordinator
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.StorageManagementCoordinator
+import io.github.ioannes78.voica.SpeechBenchmarkRunner
 import io.github.ioannes78.voica.TranscriptionCoordinator
 import io.github.ioannes78.voica.TranscriptionRunState
 import io.github.ioannes78.voica.audio.PlaybackController
@@ -192,6 +195,9 @@ fun VoicaApp(
     providerConfigurationRepository: ProviderConfigurationRepository,
     providerAdapterRegistry: ProviderAdapterRegistry,
     themeSettingsStore: ThemeSettingsStore,
+    localSpeechSettingsStore: LocalSpeechSettingsStore,
+    speechBenchmarkRunner: SpeechBenchmarkRunner?,
+    diarizationBenchmarkRunner: DiarizationBenchmarkRunner?,
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var secondaryPageActive by rememberSaveable { mutableStateOf(false) }
@@ -524,6 +530,8 @@ fun VoicaApp(
                 aiSummaryViewModel,
                 aiSummaryContentViewModel,
                 unifiedSearchViewModel,
+                speechBenchmarkRunner = speechBenchmarkRunner,
+                diarizationBenchmarkRunner = diarizationBenchmarkRunner,
                 openRequest = libraryOpenRequest,
                 onOpenRequestConsumed = { request ->
                     if (libraryOpenRequest?.token == request.token) {
@@ -552,6 +560,7 @@ fun VoicaApp(
                 storageManagementCoordinator = storageManagementCoordinator,
                 providerSettingsViewModel = providerSettingsViewModel,
                 themeSettingsStore = themeSettingsStore,
+                localSpeechSettingsStore = localSpeechSettingsStore,
                 onSecondaryPageChanged = { secondaryPageActive = it },
             )
         }
@@ -744,6 +753,8 @@ private fun LocalFilesScreen(
     aiSummaryViewModel: AiSummaryViewModel,
     aiSummaryContentViewModel: AiSummaryContentViewModel,
     unifiedSearchViewModel: UnifiedSearchViewModel,
+    speechBenchmarkRunner: SpeechBenchmarkRunner?,
+    diarizationBenchmarkRunner: DiarizationBenchmarkRunner?,
     openRequest: GlobalRecordingOpenRequest?,
     onOpenRequestConsumed: (GlobalRecordingOpenRequest) -> Unit,
     onOpenSettings: () -> Unit,
@@ -954,6 +965,8 @@ private fun LocalFilesScreen(
             transcriptPlaybackSyncViewModel = transcriptPlaybackSyncViewModel,
             aiSummaryViewModel = aiSummaryViewModel,
             aiSummaryContentViewModel = aiSummaryContentViewModel,
+            speechBenchmarkRunner = speechBenchmarkRunner,
+            diarizationBenchmarkRunner = diarizationBenchmarkRunner,
             initialSearchTarget = pendingSearchTarget,
             onBack = {
                 selectedRecordingId = null

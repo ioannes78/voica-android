@@ -95,16 +95,41 @@ fun stitchDiarizationChunks(
         localGroups.forEach { (localSpeakerIndex, localTurns) ->
             val anchor = anchors[localSpeakerIndex]
             val normalizedAnchor = anchor?.embedding?.let(::normalizedCopy)
+            val requestedSpeakerCount = config.expectedSpeakerCount
+            val maximumGlobalSpeakerCount = config.maximumGlobalSpeakerCount
             val match =
-                findBestGlobalMatch(
-                    localTurns = localTurns,
-                    normalizedAnchor = normalizedAnchor,
-                    states = states,
-                    excludedGlobalIndices = usedGlobalIndices,
-                    config = config,
-                )
+                if (maximumGlobalSpeakerCount == 1) {
+                    states.firstOrNull()
+                } else {
+                    findBestGlobalMatch(
+                        localTurns = localTurns,
+                        normalizedAnchor = normalizedAnchor,
+                        states = states,
+                        excludedGlobalIndices = usedGlobalIndices,
+                        config = config,
+                    )
+                }
             val state =
-                match ?: GlobalSpeakerState(globalSpeakerIndex = states.size).also(states::add)
+                when {
+                    match != null -> match
+
+                    maximumGlobalSpeakerCount == null ||
+                        states.size < maximumGlobalSpeakerCount ->
+                        GlobalSpeakerState(globalSpeakerIndex = states.size).also(states::add)
+
+                    else ->
+                        forceBestGlobalMatch(
+                            localTurns = localTurns,
+                            normalizedAnchor = normalizedAnchor,
+                            states = states,
+                            excludedGlobalIndices = usedGlobalIndices,
+                        ) ?: forceBestGlobalMatch(
+                            localTurns = localTurns,
+                            normalizedAnchor = normalizedAnchor,
+                            states = states,
+                            excludedGlobalIndices = emptySet(),
+                        ) ?: error("speaker-count constrained stitching has no global state")
+                }
 
             usedGlobalIndices += state.globalSpeakerIndex
             mappings +=
@@ -134,6 +159,27 @@ fun stitchDiarizationChunks(
                     maxOf(state.lastEndSampleIndex, turn.endSampleIndexExclusive)
             }
         }
+    }
+
+    val minimumGlobalSpeakerCount = config.minimumGlobalSpeakerCount
+    if (minimumGlobalSpeakerCount != null && states.size < minimumGlobalSpeakerCount) {
+        error(
+            "speaker-count constraint requires at least " +
+                minimumGlobalSpeakerCount +
+                " global speakers, but only " +
+                states.size +
+                " were resolved",
+        )
+    }
+    val maximumGlobalSpeakerCount = config.maximumGlobalSpeakerCount
+    if (maximumGlobalSpeakerCount != null && states.size > maximumGlobalSpeakerCount) {
+        error(
+            "speaker-count constraint allows at most " +
+                maximumGlobalSpeakerCount +
+                " global speakers, but " +
+                states.size +
+                " were resolved",
+        )
     }
 
     val normalizedTurns =
@@ -216,6 +262,42 @@ private fun findBestGlobalMatch(
         .firstOrNull()
         ?.state
 }
+
+private fun forceBestGlobalMatch(
+    localTurns: List<DiarizationSpeakerTurn>,
+    normalizedAnchor: FloatArray?,
+    states: List<GlobalSpeakerState>,
+    excludedGlobalIndices: Set<Int>,
+): GlobalSpeakerState? =
+    states
+        .asSequence()
+        .filter { it.globalSpeakerIndex !in excludedGlobalIndices }
+        .map { state ->
+            val similarity =
+                if (normalizedAnchor != null && state.centroid != null) {
+                    cosineSimilarityNormalized(normalizedAnchor, state.centroid!!)
+                } else {
+                    null
+                }
+            GlobalMatchCandidate(
+                state = state,
+                similarity = similarity,
+                overlapSamples =
+                    totalOverlapSamples(
+                        localTurns = localTurns,
+                        globalTurns = state.turns,
+                    ),
+            )
+        }
+        .sortedWith(
+            compareByDescending<GlobalMatchCandidate> { it.similarity != null }
+                .thenByDescending { it.similarity ?: -1F }
+                .thenByDescending { it.overlapSamples }
+                .thenByDescending { it.state.lastEndSampleIndex }
+                .thenBy { it.state.globalSpeakerIndex },
+        )
+        .firstOrNull()
+        ?.state
 
 private data class GlobalMatchCandidate(
     val state: GlobalSpeakerState,

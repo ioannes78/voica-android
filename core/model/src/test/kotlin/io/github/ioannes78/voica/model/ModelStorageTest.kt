@@ -82,6 +82,75 @@ class ModelStorageTest {
     }
 
     @Test
+    fun snapshotV2PreservesAllStage13ARuntimeModelTypes() {
+        val runtimeTypes =
+            listOf(
+                "zipformer2-ctc",
+                "zipformer2-transducer",
+                "fire-red-asr2-ctc",
+                "qwen3-asr",
+            )
+
+        runtimeTypes.forEachIndexed { index, runtimeModelType ->
+            val descriptor =
+                descriptor(version = "v1", revision = 1L)
+                    .copy(
+                        modelId = "model-$index",
+                        runtimeModelType = runtimeModelType,
+                    )
+            val snapshot =
+                ModelDescriptorSnapshot(
+                    descriptor = descriptor,
+                    manifestDigest = "d".repeat(64),
+                )
+
+            val decoded =
+                ModelDescriptorSnapshotCodec.decode(
+                    ModelDescriptorSnapshotCodec.encode(snapshot),
+                )
+
+            assertEquals(runtimeModelType, decoded.descriptor.runtimeModelType)
+            assertEquals(descriptor.capabilities, decoded.descriptor.capabilities)
+            assertEquals(descriptor.quantization, decoded.descriptor.quantization)
+        }
+    }
+
+    @Test
+    fun refreshDescriptorSnapshotUpgradesMetadataWithoutRedownload() {
+        val storage = ModelStorage(root)
+        val current = descriptor(version = "v1", revision = 1)
+        val legacy =
+            current.copy(
+                capabilities =
+                    ModelCapabilities(
+                        supportsStreaming = true,
+                        supportsPartial = true,
+                        supportsTokenTiming = true,
+                    ),
+                quantization = null,
+                recommendedDeviceTier = null,
+                estimatedPeakRamBytes = null,
+                recommendedProfile = null,
+                runtimeModelType = null,
+            )
+        storage.promoteVerifiedStaging(
+            descriptor = legacy,
+            stagingDirectory = prepareStaging(storage, legacy, "one"),
+            manifestDigest = "c".repeat(64),
+        )
+
+        val refreshed =
+            storage.refreshDescriptorSnapshot(
+                descriptor = current,
+                manifestDigest = "d".repeat(64),
+            )
+
+        assertEquals(current, refreshed.descriptor)
+        assertEquals("d".repeat(64), refreshed.manifestDigest)
+        assertEquals("zipformer2-ctc", refreshed.descriptor.runtimeModelType)
+    }
+
+    @Test
     fun clearActivationLeavesInstalledCandidateButNoActiveOverride() {
         val storage = ModelStorage(root)
         val descriptor = descriptor(version = "v1", revision = 1)
@@ -177,7 +246,17 @@ class ModelStorageTest {
             runtimeVersionMin = "1.13.8",
             runtimeVersionMax = null,
             languages = setOf("zh", "en"),
-            capabilities = ModelCapabilities(supportsStreaming = true),
+            capabilities =
+                ModelCapabilities(
+                    supportsStreaming = true,
+                    supportsPartial = true,
+                    supportsTokenTiming = true,
+                    executionMode = AsrExecutionMode.TRUE_STREAMING,
+                    timestampCapability = TimestampCapability.TOKEN,
+                    supportsLanguageForcing = true,
+                    punctuationMode = ModelPunctuationMode.EXTERNAL,
+                    supportedParameters = setOf("numThreads", "decodingMethod"),
+                ),
             sourceType = ModelSourceType.MANAGED_DOWNLOAD,
             builtinAssetPath = null,
             packageFormat = ModelPackageFormat.ZIP,
@@ -205,6 +284,11 @@ class ModelStorageTest {
             redistributionPolicy = RedistributionPolicy.VOICA_MIRROR_ALLOWED,
             releaseChannel = "production",
             autoUpdateEligible = false,
+            quantization = "INT8",
+            recommendedDeviceTier = "balanced",
+            estimatedPeakRamBytes = 128L * 1024L * 1024L,
+            recommendedProfile = "balanced",
+            runtimeModelType = "zipformer2-ctc",
         )
     }
 }

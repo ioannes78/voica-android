@@ -40,7 +40,7 @@ class SherpaSenseVoiceEngineTest {
         assertTrue(result.isFinal)
         assertEquals("你好，world。", result.text)
         assertEquals("zh", result.detectedLanguage)
-        assertEquals(PunctuationCapability.PARTIAL, result.punctuationCapability)
+        assertEquals(PunctuationCapability.NONE, result.punctuationCapability)
         assertEquals(1_600L, result.tokens[0].startSampleOffset)
         assertEquals(8_000L, result.tokens[2].startSampleOffset)
         assertEquals(16_000, native.lastSamples.size)
@@ -48,6 +48,30 @@ class SherpaSenseVoiceEngineTest {
 
         engine.close()
         assertTrue(native.closed)
+    }
+
+    @Test
+    fun itnEnabledDeclaresNativePunctuationReliable() = runBlocking {
+        val engine =
+            SherpaSenseVoiceEngine(
+                model = descriptor(),
+                native =
+                    FakeRecognizer(
+                        NativeSenseVoiceResult(
+                            text = "你好。",
+                            tokens = listOf("你", "好"),
+                            timestampsSeconds = listOf(0.1F, 0.2F),
+                            language = "zh",
+                        ),
+                    ),
+                useInverseTextNormalization = true,
+            )
+
+        val result = engine.transcribe(ShortArray(16_000), 16_000)
+
+        assertEquals(PunctuationCapability.RELIABLE, engine.capabilities.punctuationCapability)
+        assertEquals(PunctuationCapability.RELIABLE, result.punctuationCapability)
+        engine.close()
     }
 
     @Test

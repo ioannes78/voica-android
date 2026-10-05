@@ -161,7 +161,7 @@ class TranscriptionRepositoryTest {
         val highQualityId =
             repository.create(request(mode = TranscriptionModeValue.HIGH_QUALITY))
         repository.transition(highQualityId, TranscriptionStateValue.VAD_ANALYZING)
-        repository.transition(highQualityId, TranscriptionStateValue.FIRST_PASS_TRANSCRIBING)
+        // QA3 pipeline v2 runs the selected offline ASR directly after VAD.
         repository.transition(highQualityId, TranscriptionStateValue.SECOND_PASS_TRANSCRIBING)
         repository.transition(highQualityId, TranscriptionStateValue.PUNCTUATING)
         repository.persistCompleted(

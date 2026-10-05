@@ -1,6 +1,7 @@
 package io.github.ioannes78.voica.ui.library
 
 import io.github.ioannes78.voica.DiarizationRunState
+import io.github.ioannes78.voica.Stage13AOfflineModelIds
 import io.github.ioannes78.voica.TranscriptionRunState
 import io.github.ioannes78.voica.transcript.DiarizationPhase
 import io.github.ioannes78.voica.transcript.DiarizationProgress
@@ -18,20 +19,21 @@ class RecordingTaskVisibilityTest {
             TranscriptionRunState.Running(
                 recordingId = "recording-a",
                 transcriptionId = null,
-                mode = TranscriptionMode.FAST,
+                mode = TranscriptionMode.HIGH_QUALITY,
+                modelId = Stage13AOfflineModelIds.SENSEVOICE,
                 progress = TranscriptionProgress(TranscriptionPhase.PREPARING),
             )
         val failed =
             TranscriptionRunState.Failed(
                 recordingId = "recording-a",
-                mode = TranscriptionMode.FAST,
+                mode = TranscriptionMode.HIGH_QUALITY,
                 message = "failed",
             )
         val completed =
             TranscriptionRunState.Completed(
                 recordingId = "recording-a",
                 transcriptionId = "tx-a",
-                mode = TranscriptionMode.FAST,
+                mode = TranscriptionMode.HIGH_QUALITY,
                 segments = emptyList(),
             )
 
@@ -44,7 +46,7 @@ class RecordingTaskVisibilityTest {
             shouldShowTranscriptionStatus(
                 TranscriptionRunState.Cancelled(
                     recordingId = "recording-a",
-                    mode = TranscriptionMode.FAST,
+                    mode = TranscriptionMode.HIGH_QUALITY,
                 ),
                 "recording-a",
             ),

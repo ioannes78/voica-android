@@ -13,16 +13,19 @@ import io.github.ioannes78.voica.model.RedistributionPolicy
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HighQualityTranscriptionPipelineTest {
     @Test
-    fun secondPassUsesOnlySpeechAndKeepsSecondPassTokenProvenance() = runBlocking {
+    fun offlineAsrRunsDirectlyAfterVadAndKeepsNativeTiming() = runBlocking {
         val resolver = FakeResolver(ShortArray(12) { (it + 1).toShort() })
         val punctuationOpened = booleanArrayOf(false)
-        val second = FakeSecondPassEngine(fail = false)
+        val offline =
+            FakeOfflineEngine(
+                punctuationCapability = PunctuationCapability.RELIABLE,
+                addTerminalPunctuation = true,
+            )
 
         val pipeline =
             HighQualityTranscriptionPipeline(
@@ -36,8 +39,7 @@ class HighQualityTranscriptionPipelineTest {
                             ),
                         )
                     },
-                asrEngineFactory = StreamingAsrEngineFactory { FakeFirstPassEngine() },
-                secondPassAsrEngineFactory = SecondPassAsrEngineFactory { second },
+                secondPassAsrEngineFactory = SecondPassAsrEngineFactory { offline },
                 punctuationEngineFactory =
                     PunctuationEngineFactory {
                         punctuationOpened[0] = true
@@ -50,69 +52,59 @@ class HighQualityTranscriptionPipelineTest {
 
         assertTrue(result.secondPassApplied)
         assertEquals(null, result.secondPassFallbackError)
-        assertEquals(3, resolver.openCount)
+        assertEquals(2, resolver.openCount)
         assertTrue(resolver.openedSources.all { it.closed })
-        assertEquals(listOf(3, 2), second.acceptedCounts)
+        assertEquals(listOf(3, 2), offline.acceptedCounts)
         assertEquals(
             listOf(
                 listOf<Short>(3, 4, 5),
                 listOf<Short>(9, 10),
             ),
-            second.acceptedSamples.map { samples -> samples.map { it } },
+            offline.acceptedSamples.map { samples -> samples.map { it } },
         )
         assertFalse(punctuationOpened[0])
 
         val first = result.transcriptSegments[0]
-        assertEquals("first-1", first.firstPassRawText)
-        assertEquals("second-1。", first.secondPassRawText)
-        assertEquals("second-1。", first.finalText)
+        assertEquals("", first.firstPassRawText)
+        assertEquals("offline-1。", first.secondPassRawText)
+        assertEquals("offline-1。", first.finalText)
         assertEquals(TokenSource.SECOND_PASS, first.tokens.single().source)
         assertEquals(2L, first.tokens.single().startSampleIndex)
         assertEquals("zh", first.detectedLanguage)
     }
 
     @Test
-    fun secondPassLoadFailureFallsBackToFirstPassAndPunctuation() = runBlocking {
+    fun offlineAsrFailureDoesNotFallBackToUnrelatedRealtimeModel() = runBlocking {
         val resolver = FakeResolver(ShortArray(12) { (it + 1).toShort() })
-        val punctuation = FakePunctuationEngine()
 
-        val pipeline =
-            HighQualityTranscriptionPipeline(
-                pcmSourceResolver = resolver,
-                vadEngineFactory =
-                    VadEngineFactory {
-                        FakeVadEngine(listOf(SpeechSegment(2, 5)))
-                    },
-                asrEngineFactory = StreamingAsrEngineFactory { FakeFirstPassEngine() },
-                secondPassAsrEngineFactory =
-                    SecondPassAsrEngineFactory {
-                        error("second-pass unavailable")
-                    },
-                punctuationEngineFactory = PunctuationEngineFactory { punctuation },
-                readChunkSamples = 4,
-            )
+        val failure =
+            runCatching {
+                HighQualityTranscriptionPipeline(
+                    pcmSourceResolver = resolver,
+                    vadEngineFactory =
+                        VadEngineFactory {
+                            FakeVadEngine(listOf(SpeechSegment(2, 5)))
+                        },
+                    secondPassAsrEngineFactory =
+                        SecondPassAsrEngineFactory {
+                            error("offline model unavailable")
+                        },
+                    punctuationEngineFactory =
+                        PunctuationEngineFactory { FakePunctuationEngine() },
+                    readChunkSamples = 4,
+                ).transcribe("recording-1")
+            }.exceptionOrNull()
 
-        val result = pipeline.transcribe("recording-1")
-
-        assertFalse(result.secondPassApplied)
-        assertNotNull(result.secondPassFallbackError)
-        assertTrue(result.secondPassFallbackError!!.contains("second-pass unavailable"))
-        assertEquals("first-1。", result.transcriptSegments.single().finalText)
-        assertEquals(null, result.transcriptSegments.single().secondPassRawText)
-        assertEquals(TokenSource.FIRST_PASS, result.transcriptSegments.single().tokens.single().source)
-        assertTrue(punctuation.closed)
+        assertTrue(failure is IllegalStateException)
+        assertTrue(failure?.message.orEmpty().contains("offline model unavailable"))
         assertTrue(resolver.openedSources.all { it.closed })
     }
 
     @Test
-    fun partialSecondPassWithoutTerminalPunctuationUsesFallbackPunctuation() = runBlocking {
+    fun externalPunctuationIsAppliedWhenOfflineModelDeclaresNone() = runBlocking {
         val resolver = FakeResolver(ShortArray(8) { (it + 1).toShort() })
-        val second =
-            FakeSecondPassEngine(
-                fail = false,
-                addTerminalPunctuation = false,
-            )
         val punctuation = FakePunctuationEngine()
+        val phases = mutableListOf<TranscriptionPhase>()
 
         val pipeline =
             HighQualityTranscriptionPipeline(
@@ -121,23 +113,71 @@ class HighQualityTranscriptionPipelineTest {
                     VadEngineFactory {
                         FakeVadEngine(listOf(SpeechSegment(0, 4)))
                     },
-                asrEngineFactory = StreamingAsrEngineFactory { FakeFirstPassEngine() },
-                secondPassAsrEngineFactory = SecondPassAsrEngineFactory { second },
+                secondPassAsrEngineFactory =
+                    SecondPassAsrEngineFactory {
+                        FakeOfflineEngine(
+                            punctuationCapability = PunctuationCapability.NONE,
+                            addTerminalPunctuation = false,
+                        )
+                    },
                 punctuationEngineFactory = PunctuationEngineFactory { punctuation },
                 readChunkSamples = 4,
             )
 
-        val result = pipeline.transcribe("recording-1")
+        val result =
+            pipeline.transcribe(
+                "recording-1",
+                ProgressListener { progress -> phases += progress.phase },
+            )
 
-        assertTrue(result.secondPassApplied)
-        assertEquals("second-1。", result.transcriptSegments.single().finalText)
+        assertEquals("offline-1。", result.transcriptSegments.single().finalText)
         assertTrue(punctuation.closed)
+        assertTrue(TranscriptionPhase.PUNCTUATION in phases)
     }
 
     @Test
-    fun punctuationCapabilityRulesAreDeterministic() {
+    fun nativePunctuationNeverRunsExternalPunctuationAgain() = runBlocking {
+        val resolver = FakeResolver(ShortArray(8) { (it + 1).toShort() })
+        val punctuationOpened = booleanArrayOf(false)
+        val phases = mutableListOf<TranscriptionPhase>()
+
+        val pipeline =
+            HighQualityTranscriptionPipeline(
+                pcmSourceResolver = resolver,
+                vadEngineFactory =
+                    VadEngineFactory {
+                        FakeVadEngine(listOf(SpeechSegment(0, 4)))
+                    },
+                secondPassAsrEngineFactory =
+                    SecondPassAsrEngineFactory {
+                        FakeOfflineEngine(
+                            punctuationCapability = PunctuationCapability.RELIABLE,
+                            addTerminalPunctuation = true,
+                        )
+                    },
+                punctuationEngineFactory =
+                    PunctuationEngineFactory {
+                        punctuationOpened[0] = true
+                        FakePunctuationEngine()
+                    },
+                readChunkSamples = 4,
+            )
+
+        val result =
+            pipeline.transcribe(
+                "recording-1",
+                ProgressListener { progress -> phases += progress.phase },
+            )
+
+        assertEquals("offline-1。", result.transcriptSegments.single().finalText)
+        assertFalse(punctuationOpened[0])
+        assertFalse(TranscriptionPhase.PUNCTUATION in phases)
+    }
+
+    @Test
+    fun punctuationCapabilityRulesAreCapabilityDriven() {
         assertTrue(needsPunctuationFallback("没有标点", PunctuationCapability.NONE))
-        assertFalse(needsPunctuationFallback("已有标点。", PunctuationCapability.PARTIAL))
+        assertTrue(needsPunctuationFallback("已有标点。", PunctuationCapability.PARTIAL))
         assertTrue(needsPunctuationFallback("只有逗号，继续", PunctuationCapability.PARTIAL))
         assertFalse(needsPunctuationFallback("model output", PunctuationCapability.RELIABLE))
         assertFalse(needsPunctuationFallback("", PunctuationCapability.NONE))
@@ -198,7 +238,7 @@ class HighQualityTranscriptionPipelineTest {
         ): List<SpeechSegment> {
             val buffer = ShortArray(4)
             while (source.read(buffer) != null) {
-                // Consume the canonical source like the production VAD.
+                // Consume canonical PCM like production VAD.
             }
             return segments
         }
@@ -206,63 +246,11 @@ class HighQualityTranscriptionPipelineTest {
         override fun close() = Unit
     }
 
-    private class FakeFirstPassEngine : StreamingAsrEngine {
-        override val model = descriptor(ModelKind.ASR_STREAMING, "first")
-        override val capabilities =
-            AsrCapabilities(
-                supportsStreaming = true,
-                supportsPartial = true,
-                supportsTokenTiming = true,
-                supportsLanguageDetection = false,
-                supportsConfidence = false,
-                supportsInverseTextNormalization = false,
-                punctuationCapability = PunctuationCapability.NONE,
-                supportsSecondPass = false,
-            )
-        private var sessionIndex = 0
-
-        override suspend fun openSession(): StreamingAsrSession {
-            sessionIndex += 1
-            return FakeFirstPassSession(sessionIndex)
-        }
-
-        override fun close() = Unit
-    }
-
-    private class FakeFirstPassSession(
-        private val index: Int,
-    ) : StreamingAsrSession {
-        override suspend fun acceptSamples(
-            samples: ShortArray,
-            offset: Int,
-            count: Int,
-        ) = Unit
-
-        override suspend fun decode() =
-            AsrHypothesis(
-                text = "",
-                punctuationCapability = PunctuationCapability.NONE,
-                isFinal = false,
-            )
-
-        override suspend fun finishInput() =
-            AsrHypothesis(
-                text = "first-$index",
-                tokens = listOf(RelativeTimedToken("f", 0L)),
-                punctuationCapability = PunctuationCapability.NONE,
-                isFinal = true,
-            )
-
-        override suspend fun reset() = Unit
-
-        override fun close() = Unit
-    }
-
-    private class FakeSecondPassEngine(
-        private val fail: Boolean,
-        private val addTerminalPunctuation: Boolean = true,
+    private class FakeOfflineEngine(
+        private val punctuationCapability: PunctuationCapability,
+        private val addTerminalPunctuation: Boolean,
     ) : SecondPassAsrEngine {
-        override val model = descriptor(ModelKind.ASR_SECOND_PASS, "second")
+        override val model = descriptor(ModelKind.ASR_SECOND_PASS, "offline")
         override val capabilities =
             AsrCapabilities(
                 supportsStreaming = false,
@@ -271,7 +259,7 @@ class HighQualityTranscriptionPipelineTest {
                 supportsLanguageDetection = true,
                 supportsConfidence = false,
                 supportsInverseTextNormalization = true,
-                punctuationCapability = PunctuationCapability.PARTIAL,
+                punctuationCapability = punctuationCapability,
                 supportsSecondPass = true,
             )
         val acceptedCounts = mutableListOf<Int>()
@@ -282,16 +270,15 @@ class HighQualityTranscriptionPipelineTest {
             samples: ShortArray,
             sampleRateHz: Int,
         ): AsrHypothesis {
-            if (fail) error("second-pass inference failed")
             callIndex += 1
             acceptedCounts += samples.size
             acceptedSamples += samples.copyOf()
             val suffix = if (addTerminalPunctuation) "。" else ""
             return AsrHypothesis(
-                text = "second-$callIndex$suffix",
-                tokens = listOf(RelativeTimedToken("s", 0L)),
+                text = "offline-$callIndex$suffix",
+                tokens = listOf(RelativeTimedToken("o", 0L)),
                 detectedLanguage = "zh",
-                punctuationCapability = PunctuationCapability.PARTIAL,
+                punctuationCapability = punctuationCapability,
                 isFinal = true,
             )
         }

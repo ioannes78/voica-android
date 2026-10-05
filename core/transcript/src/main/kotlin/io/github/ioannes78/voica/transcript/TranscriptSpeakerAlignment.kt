@@ -258,11 +258,17 @@ private fun selectPreferredTokens(
 ): List<IndexedTranscriptToken> {
     val secondPass =
         tokens
-            .filter { it.source == TokenSource.SECOND_PASS }
+            .filter {
+                it.source == TokenSource.SECOND_PASS &&
+                    !isPunctuationOnlyToken(it.text)
+            }
             .mapIndexed(::IndexedTranscriptToken)
     val firstPass =
         tokens
-            .filter { it.source == TokenSource.FIRST_PASS }
+            .filter {
+                it.source == TokenSource.FIRST_PASS &&
+                    !isPunctuationOnlyToken(it.text)
+            }
             .mapIndexed(::IndexedTranscriptToken)
 
     return when {

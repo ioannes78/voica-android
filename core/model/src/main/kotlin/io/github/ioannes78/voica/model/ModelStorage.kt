@@ -59,6 +59,8 @@ class ModelStorage(
         require(stateRoot.mkdirs() || stateRoot.isDirectory)
     }
 
+    internal fun storageRootDirectory(): File = root
+
     fun createStagingDirectory(descriptor: ModelDescriptor): File {
         val directory =
             File(
@@ -248,6 +250,36 @@ class ModelStorage(
             return null
         }
         return snapshot
+    }
+
+    fun refreshDescriptorSnapshot(
+        descriptor: ModelDescriptor,
+        manifestDigest: String,
+    ): ModelDescriptorSnapshot {
+        require(SHA256_REGEX.matches(manifestDigest.lowercase()))
+        val directory =
+            versionDirectory(
+                descriptor.modelId,
+                descriptor.version,
+                descriptor.revision,
+            )
+        check(verifyDirectory(descriptor, directory) == ModelVerificationResult.Valid) {
+            "cannot refresh metadata for an invalid model installation"
+        }
+        writeDescriptorSnapshot(
+            directory = directory,
+            descriptor = descriptor,
+            manifestDigest = manifestDigest,
+        )
+        return checkNotNull(
+            installedSnapshot(
+                modelId = descriptor.modelId,
+                version = descriptor.version,
+                revision = descriptor.revision,
+            ),
+        ) {
+            "refreshed model descriptor snapshot could not be read back"
+        }
     }
 
     fun installedVersion(descriptor: ModelDescriptor): InstalledModelVersion? {

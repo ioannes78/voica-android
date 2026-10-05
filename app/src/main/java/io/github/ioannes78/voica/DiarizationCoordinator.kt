@@ -21,6 +21,7 @@ import io.github.ioannes78.voica.model.ModelManager
 import io.github.ioannes78.voica.model.ModelUseRegistry
 import io.github.ioannes78.voica.model.SpeakerModelRole
 import io.github.ioannes78.voica.sherpa.SherpaDiarizationBundleValidator
+import io.github.ioannes78.voica.sherpa.SherpaDiarizationSettings
 import io.github.ioannes78.voica.sherpa.SherpaOfflineDiarizationEngine
 import io.github.ioannes78.voica.sherpa.SherpaRuntime
 import io.github.ioannes78.voica.sherpa.SherpaSpeakerEmbeddingEngine
@@ -32,7 +33,6 @@ import io.github.ioannes78.voica.transcript.DiarizationProgress
 import io.github.ioannes78.voica.transcript.GlobalSpeakerTurn
 import io.github.ioannes78.voica.transcript.ProgressListener
 import io.github.ioannes78.voica.transcript.SpeakerAlignedTextSpan
-import io.github.ioannes78.voica.transcript.SpeakerAnchorEmbedding
 import io.github.ioannes78.voica.transcript.SpeakerAssignmentQuality
 import io.github.ioannes78.voica.transcript.SpeakerEmbeddingEngine
 import io.github.ioannes78.voica.transcript.TokenSource
@@ -126,7 +126,11 @@ class MissingDiarizationModelsException(
 )
 
 interface Stage9DiarizationEngineProvider {
-    fun vadFactory(model: ActiveModel): VadEngineFactory
+    fun vadFactory(
+        model: ActiveModel,
+        numThreads: Int,
+        vadSettings: LocalVadSettings,
+    ): VadEngineFactory
 
     suspend fun validateBundle(
         segmentation: ActiveModel,
@@ -136,9 +140,13 @@ interface Stage9DiarizationEngineProvider {
     fun diarizationEngine(
         segmentation: ActiveModel,
         embedding: ActiveModel,
+        numThreads: Int,
     ): DiarizationEngine
 
-    fun embeddingEngine(model: ActiveModel): SpeakerEmbeddingEngine
+    fun embeddingEngine(
+        model: ActiveModel,
+        numThreads: Int,
+    ): SpeakerEmbeddingEngine
 }
 
 class SherpaStage9DiarizationEngineProvider(
@@ -148,8 +156,16 @@ class SherpaStage9DiarizationEngineProvider(
     private val bundleValidator = SherpaDiarizationBundleValidator()
     private val validatedBundles = ConcurrentHashMap.newKeySet<String>()
 
-    override fun vadFactory(model: ActiveModel): VadEngineFactory =
-        stage8Provider.vadFactory(model)
+    override fun vadFactory(
+        model: ActiveModel,
+        numThreads: Int,
+        vadSettings: LocalVadSettings,
+    ): VadEngineFactory =
+        stage8Provider.vadFactory(
+            model = model,
+            numThreads = numThreads,
+            vadSettings = vadSettings,
+        )
 
     override suspend fun validateBundle(
         segmentation: ActiveModel,
@@ -184,6 +200,7 @@ class SherpaStage9DiarizationEngineProvider(
     override fun diarizationEngine(
         segmentation: ActiveModel,
         embedding: ActiveModel,
+        numThreads: Int,
     ): DiarizationEngine {
         val segmentationDirectory =
             segmentation.installedDirectory
@@ -196,16 +213,21 @@ class SherpaStage9DiarizationEngineProvider(
             segmentationModelDirectory = segmentationDirectory,
             embeddingModel = embedding.descriptor,
             embeddingModelDirectory = embeddingDirectory,
+            settings = SherpaDiarizationSettings(numThreads = numThreads),
         )
     }
 
-    override fun embeddingEngine(model: ActiveModel): SpeakerEmbeddingEngine {
+    override fun embeddingEngine(
+        model: ActiveModel,
+        numThreads: Int,
+    ): SpeakerEmbeddingEngine {
         val directory =
             model.installedDirectory
                 ?: error("speaker embedding must be a managed installed model")
         return SherpaSpeakerEmbeddingEngine(
             model = model.descriptor,
             modelDirectory = directory,
+            numThreads = numThreads,
         )
     }
 }
@@ -220,6 +242,7 @@ class DiarizationCoordinator(
     private val modelManager: ModelManager,
     private val modelUseRegistry: ModelUseRegistry,
     private val engineProvider: Stage9DiarizationEngineProvider,
+    private val localSpeechSettings: () -> LocalSpeechSettings = { LocalSpeechSettings() },
     private val isRecordingActive: suspend (String) -> Boolean = { true },
 ) {
     private val lock = Any()
@@ -245,14 +268,26 @@ class DiarizationCoordinator(
 
     fun start(
         recordingId: String,
-        config: DiarizationConfig = DiarizationConfig(),
+        config: DiarizationConfig? = null,
     ): Boolean {
         require(recordingId.isNotBlank())
         synchronized(lock) {
             if (currentJob?.isActive == true) return false
+            val speechSettings = localSpeechSettings()
+            val requestedSpeakerCount =
+                if (config == null) speechSettings.speakerCount else null
+            val effectiveConfig =
+                config ?: speechSettings.speakerCount.toDiarizationConfig(
+                    speechSettings.diarization,
+                )
             val job =
                 scope.launch {
-                    runDiarization(recordingId, config)
+                    runDiarization(
+                        recordingId = recordingId,
+                        config = effectiveConfig,
+                        speechSettings = speechSettings,
+                        requestedSpeakerCount = requestedSpeakerCount,
+                    )
                 }
             installCurrentJob(job, OperationTarget.Recording(recordingId))
             return true
@@ -349,6 +384,8 @@ class DiarizationCoordinator(
     private suspend fun runDiarization(
         recordingId: String,
         config: DiarizationConfig,
+        speechSettings: LocalSpeechSettings,
+        requestedSpeakerCount: SpeakerCountChoice?,
     ) {
         var runId: String? = null
         var leases: List<ModelLease> = emptyList()
@@ -376,7 +413,11 @@ class DiarizationCoordinator(
                     source.totalSampleCount
                 } ?: error("canonical PCM source is unavailable")
 
-            val models = resolveActiveModels()
+            val models =
+                resolveActiveModels(
+                    speakerEmbeddingModel = speechSettings.speakerEmbeddingModel,
+                )
+            val performance = speechSettings.resolvePerformance()
             leases =
                 models.all.map { active ->
                     modelUseRegistry.acquire(
@@ -416,7 +457,16 @@ class DiarizationCoordinator(
                         embeddingModelVersion = models.embedding.descriptor.version,
                         embeddingModelRevision = models.embedding.descriptor.revision,
                         modelManifestDigest = lineageDigest(models.all),
-                        configSnapshot = configSnapshot(config, models.all),
+                        configSnapshot =
+                            configSnapshot(
+                                config = config,
+                                models = models.all,
+                                vadSettings = speechSettings.vad,
+                                performance = performance,
+                                requestedSpeakerCount = requestedSpeakerCount,
+                                requestedEmbeddingModel =
+                                    speechSettings.speakerEmbeddingModel,
+                            ),
                     ),
                 )
             runId = createdRunId
@@ -426,6 +476,8 @@ class DiarizationCoordinator(
                     recordingId = recordingId,
                     runId = createdRunId,
                     model = models.vad,
+                    numThreads = performance.effectiveThreads,
+                    vadSettings = speechSettings.vad,
                 )
 
             val ranges =
@@ -470,6 +522,7 @@ class DiarizationCoordinator(
                     totalSampleCount = totalSampleCount,
                     models = models,
                     config = config,
+                    numThreads = performance.effectiveThreads,
                 )
 
             currentCoroutineContext().ensureActive()
@@ -561,8 +614,14 @@ class DiarizationCoordinator(
         recordingId: String,
         runId: String,
         model: ActiveModel,
+        numThreads: Int,
+        vadSettings: LocalVadSettings,
     ) =
-        engineProvider.vadFactory(model).open().use { vad ->
+        engineProvider.vadFactory(
+            model = model,
+            numThreads = numThreads,
+            vadSettings = vadSettings,
+        ).open().use { vad ->
             diarizationRepository.transitionRun(
                 runId,
                 DiarizationStateValue.VAD_ANALYZING,
@@ -599,6 +658,7 @@ class DiarizationCoordinator(
         totalSampleCount: Long,
         models: ActiveDiarizationModels,
         config: DiarizationConfig,
+        numThreads: Int,
     ): List<DiarizationChunkStitchInput> {
         val totalWindowSamples =
             ranges.fold(0L) { total, range ->
@@ -618,9 +678,13 @@ class DiarizationCoordinator(
             engineProvider.diarizationEngine(
                 segmentation = models.segmentation,
                 embedding = models.embedding,
+                numThreads = numThreads,
             )
         val embeddingEngine =
-            engineProvider.embeddingEngine(models.embedding)
+            engineProvider.embeddingEngine(
+                model = models.embedding,
+                numThreads = numThreads,
+            )
 
         try {
             source.use {
@@ -635,7 +699,7 @@ class DiarizationCoordinator(
                             config = config,
                         )
                     val anchors =
-                        buildSpeakerAnchors(
+                        buildSpeakerAnchorEmbeddings(
                             windowStartSampleIndex = window.startSampleIndex,
                             windowSamples = window.samples,
                             turns = result.turns,
@@ -671,63 +735,6 @@ class DiarizationCoordinator(
             runCatching { diarizationEngine.close() }
         }
         return chunks
-    }
-
-    private suspend fun buildSpeakerAnchors(
-        windowStartSampleIndex: Long,
-        windowSamples: ShortArray,
-        turns: List<io.github.ioannes78.voica.transcript.DiarizationSpeakerTurn>,
-        embeddingEngine: SpeakerEmbeddingEngine,
-        config: DiarizationConfig,
-    ): List<SpeakerAnchorEmbedding> {
-        val windowEndSampleIndex =
-            Math.addExact(windowStartSampleIndex, windowSamples.size.toLong())
-
-        return turns
-            .filter { !it.overlap }
-            .groupBy { it.speakerIndex }
-            .entries
-            .sortedBy { it.key }
-            .mapNotNull { entry ->
-                val best =
-                    entry.value
-                        .mapNotNull { turn ->
-                            val start =
-                                maxOf(turn.startSampleIndex, windowStartSampleIndex)
-                            val end =
-                                minOf(turn.endSampleIndexExclusive, windowEndSampleIndex)
-                            if (end > start) {
-                                AnchorRange(
-                                    speakerIndex = entry.key,
-                                    startSampleIndex = start,
-                                    endSampleIndexExclusive = end,
-                                )
-                            } else {
-                                null
-                            }
-                        }
-                        .maxByOrNull { it.sampleCount }
-                        ?: return@mapNotNull null
-
-                if (best.sampleCount < config.stitchingMinimumAnchorSamples) {
-                    return@mapNotNull null
-                }
-
-                val startOffset =
-                    Math.toIntExact(best.startSampleIndex - windowStartSampleIndex)
-                val endOffset =
-                    Math.toIntExact(best.endSampleIndexExclusive - windowStartSampleIndex)
-                val embedding =
-                    embeddingEngine.embed(
-                        samples = windowSamples.copyOfRange(startOffset, endOffset),
-                        sampleRateHz = config.sampleRateHz,
-                    )
-                SpeakerAnchorEmbedding(
-                    localSpeakerIndex = best.speakerIndex,
-                    embedding = embedding,
-                    anchorSampleCount = best.sampleCount,
-                )
-            }
     }
 
     private suspend fun runAlignment(
@@ -893,12 +900,15 @@ class DiarizationCoordinator(
             }
     }
 
-    private suspend fun resolveActiveModels(): ActiveDiarizationModels {
+    private suspend fun resolveActiveModels(
+        speakerEmbeddingModel: SpeakerEmbeddingModelChoice,
+    ): ActiveDiarizationModels {
+        val embeddingModelId = speakerEmbeddingModel.modelId()
         val requiredIds =
             listOf(
                 Stage8ModelIds.VAD,
                 Stage9ModelIds.SEGMENTATION,
-                Stage9ModelIds.EMBEDDING,
+                embeddingModelId,
             )
         val active =
             requiredIds.associateWith { modelId ->
@@ -915,7 +925,7 @@ class DiarizationCoordinator(
 
         val vad = checkNotNull(active[Stage8ModelIds.VAD])
         val segmentation = checkNotNull(active[Stage9ModelIds.SEGMENTATION])
-        val embedding = checkNotNull(active[Stage9ModelIds.EMBEDDING])
+        val embedding = checkNotNull(active[embeddingModelId])
 
         require(vad.descriptor.kind == ModelKind.VAD)
         require(segmentation.descriptor.kind == ModelKind.SPEAKER)
@@ -981,14 +991,32 @@ class DiarizationCoordinator(
     private fun configSnapshot(
         config: DiarizationConfig,
         models: List<ActiveModel>,
+        vadSettings: LocalVadSettings,
+        performance: ResolvedSpeechPerformance,
+        requestedSpeakerCount: SpeakerCountChoice?,
+        requestedEmbeddingModel: SpeakerEmbeddingModelChoice,
     ): String =
         buildString {
-            append("{\"sampleRateHz\":").append(config.sampleRateHz)
+            append("{\"schemaVersion\":2")
+            append(",\"pipelineVersion\":").append(DIARIZATION_PIPELINE_VERSION)
+            append(",\"stitchingAlgorithmVersion\":").append(STITCHING_ALGORITHM_VERSION)
+            append(",\"anchorStrategy\":\"").append(ANCHOR_STRATEGY).append("\"")
+            append(",\"sampleRateHz\":").append(config.sampleRateHz)
             append(",\"chunkSizeSamples\":").append(config.chunkSizeSamples)
             append(",\"chunkOverlapSamples\":").append(config.chunkOverlapSamples)
             append(",\"vadContextPaddingSamples\":").append(config.vadContextPaddingSamples)
+            append(",\"speakerCountPreset\":\"")
+                .append(requestedSpeakerCount?.name ?: "CUSTOM")
+                .append("\"")
+            append(",\"speakerEmbeddingModelPreset\":\"")
+                .append(requestedEmbeddingModel.name)
+                .append("\"")
             append(",\"expectedSpeakerCount\":")
                 .append(config.expectedSpeakerCount?.toString() ?: "null")
+            append(",\"minimumGlobalSpeakerCount\":")
+                .append(config.minimumGlobalSpeakerCount?.toString() ?: "null")
+            append(",\"maximumGlobalSpeakerCount\":")
+                .append(config.maximumGlobalSpeakerCount?.toString() ?: "null")
             append(",\"clusteringThreshold\":")
                 .append(config.clusteringThreshold?.toString() ?: "null")
             append(",\"stitchingCosineThreshold\":").append(config.stitchingCosineThreshold)
@@ -996,6 +1024,25 @@ class DiarizationCoordinator(
                 .append(config.stitchingMinimumOverlapSamples)
             append(",\"stitchingMinimumAnchorSamples\":")
                 .append(config.stitchingMinimumAnchorSamples)
+            append(",\"stitchingMaxAnchorsPerSpeaker\":")
+                .append(config.stitchingMaxAnchorsPerSpeaker)
+            append(",\"performanceProfile\":\"").append(performance.profile.name).append("\"")
+            append(",\"requestedThreads\":")
+                .append(performance.requestedThreads?.toString() ?: "null")
+            append(",\"effectiveThreads\":").append(performance.effectiveThreads)
+            append(",\"vad\":{")
+            append("\"threshold\":").append(vadSettings.threshold)
+            append(",\"minSilenceDurationSeconds\":").append(vadSettings.minSilenceDurationSeconds)
+            append(",\"minSpeechDurationSeconds\":").append(vadSettings.minSpeechDurationSeconds)
+            append(",\"maxSpeechDurationSeconds\":").append(vadSettings.maxSpeechDurationSeconds)
+            append(",\"windowSizeSamples\":512}")
+            append(",\"sherpaDefaults\":{")
+            append("\"numThreads\":").append(performance.effectiveThreads)
+            append(",\"pyannoteWindowShiftRatio\":0.1")
+            append(",\"minDurationOnSeconds\":0.2")
+            append(",\"minDurationOffSeconds\":0.5")
+            append(",\"defaultClusteringThreshold\":0.5")
+            append(",\"computeConfidence\":true}")
             append(",\"models\":[")
             models.forEachIndexed { index, model ->
                 if (index > 0) append(',')
@@ -1046,17 +1093,10 @@ class DiarizationCoordinator(
             get() = listOf(vad, segmentation, embedding)
     }
 
-    private data class AnchorRange(
-        val speakerIndex: Int,
-        val startSampleIndex: Long,
-        val endSampleIndexExclusive: Long,
-    ) {
-        val sampleCount: Long
-            get() = endSampleIndexExclusive - startSampleIndex
-    }
-
     private companion object {
-        const val DIARIZATION_PIPELINE_VERSION = 1
+        const val DIARIZATION_PIPELINE_VERSION = 2
         const val ALIGNMENT_VERSION = 1
+        const val STITCHING_ALGORITHM_VERSION = 2
+        const val ANCHOR_STRATEGY = "multi-clean-weighted-v2"
     }
 }

@@ -16,6 +16,25 @@ enum class SpeakerModelRole {
     EMBEDDING,
 }
 
+enum class AsrExecutionMode {
+    OFFLINE,
+    TRUE_STREAMING,
+    SECOND_PASS,
+}
+
+enum class TimestampCapability {
+    NONE,
+    SEGMENT,
+    TOKEN,
+    EXTERNAL_ALIGNER_REQUIRED,
+}
+
+enum class ModelPunctuationMode {
+    NONE,
+    EXTERNAL,
+    NATIVE,
+}
+
 enum class ModelSourceType {
     BUILTIN,
     MANAGED_DOWNLOAD,
@@ -73,6 +92,11 @@ data class ModelCapabilities(
     val supportsInverseTextNormalization: Boolean = false,
     val supportsSecondPass: Boolean = false,
     val supportsHotwords: Boolean = false,
+    val executionMode: AsrExecutionMode = AsrExecutionMode.OFFLINE,
+    val timestampCapability: TimestampCapability = TimestampCapability.NONE,
+    val supportsLanguageForcing: Boolean = false,
+    val punctuationMode: ModelPunctuationMode = ModelPunctuationMode.NONE,
+    val supportedParameters: Set<String> = emptySet(),
 )
 
 data class ModelDescriptor(
@@ -110,6 +134,11 @@ data class ModelDescriptor(
     val deprecated: Boolean = false,
     val criticalUpdate: Boolean = false,
     val speakerRole: SpeakerModelRole? = null,
+    val quantization: String? = null,
+    val recommendedDeviceTier: String? = null,
+    val estimatedPeakRamBytes: Long? = null,
+    val recommendedProfile: String? = null,
+    val runtimeModelType: String? = null,
 ) {
     init {
         require(SAFE_PATH_SEGMENT_REGEX.matches(modelId))
@@ -123,7 +152,9 @@ data class ModelDescriptor(
         require(licenseId.isNotBlank())
         require(sourceUrl.isNotBlank())
         require(releaseChannel.isNotBlank())
+        require(runtimeModelType == null || runtimeModelType.isNotBlank())
         require(files.isNotEmpty())
+        require(estimatedPeakRamBytes == null || estimatedPeakRamBytes >= 0L)
         require(speakerRole == null || kind == ModelKind.SPEAKER) {
             "speakerRole is only valid for SPEAKER models"
         }

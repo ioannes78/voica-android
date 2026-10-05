@@ -28,9 +28,12 @@ import java.net.URI
 import java.util.UUID
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class AiSummaryProviderPreview(
@@ -60,7 +63,16 @@ class AiSummaryViewModel(
     val runState: StateFlow<AiSummaryRunState> = coordinator.state
 
     private val mutableHistory = MutableStateFlow<List<AiSummaryEntity>>(emptyList())
-    val history: StateFlow<List<AiSummaryEntity>> = mutableHistory.asStateFlow()
+    val history: StateFlow<List<AiSummaryEntity>> =
+        mutableHistory
+            .map { summaries ->
+                summaries.filter { it.status == AiSummaryStateValue.COMPLETED }
+            }
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.Eagerly,
+                initialValue = emptyList(),
+            )
 
     private val mutableSelected = MutableStateFlow<AiSummaryDocument?>(null)
     val selected: StateFlow<AiSummaryDocument?> = mutableSelected.asStateFlow()
@@ -136,6 +148,8 @@ class AiSummaryViewModel(
                 repository.observeForTranscription(transcriptionId)
                     .collectLatest { summaries ->
                         mutableHistory.value = summaries
+                        val completed =
+                            summaries.filter { it.status == AiSummaryStateValue.COMPLETED }
                         val currentId = mutableSelected.value?.entity?.id
                         val recordingId = summaries.firstOrNull()?.recordingId
                         val persistedId =
@@ -143,9 +157,12 @@ class AiSummaryViewModel(
                                 contentRepository.resolveCurrentAiSummaryId(it)
                             }
                         val target =
-                            summaries.firstOrNull { it.id == currentId }
-                                ?: summaries.firstOrNull { it.id == persistedId }
-                                ?: summaries.firstOrNull()
+                            completed.firstOrNull { it.id == currentId }
+                                ?: completed.firstOrNull { it.id == persistedId }
+                                ?: completed.firstOrNull()
+                                ?: summaries.firstOrNull {
+                                    it.status == AiSummaryStateValue.INTERRUPTED
+                                }
                         if (target == null) {
                             mutableSelected.value = null
                         } else {

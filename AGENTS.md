@@ -167,6 +167,7 @@ Stage 13 已正式拆为 Stage 13A → Stage 13B：
 - Stage 13A：本地 ASR / Diarization 模型增强、统一 capability、性能档位、高级参数、每次运行 config snapshot、Speech Benchmark。
 - Stage 13B：以前述冻结模型/默认参数为基线，执行真实 30min/1h/2h、RAM/CPU/thermal、BLE soak、Foreground Service、后台/锁屏可靠下载与进程恢复。
 - Stage 13A 必须先 Freeze/Handoff，才允许进入 Stage 13B。
+- Stage 16 streaming ASR 必须遵循 `docs/STAGE_16_STREAMING_CONTRACT_V2.md`；当前 Stage 13A 只冻结 contract，不提前实现实时 stabilizer/UI。
 - Stage 13B 完成后才允许进入 Stage 14 V1.0 Release Freeze。
 - Stage 14 不再进行大规模 ASR / diarization 模型选型；如核心模型/runtime发生重大变化，应退回 13A/13B 重新验证。
 - Stage 15 仍只负责实时 BLE Audio → Opus → PCM。

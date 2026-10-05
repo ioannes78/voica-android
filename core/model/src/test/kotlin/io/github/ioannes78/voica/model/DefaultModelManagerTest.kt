@@ -463,6 +463,54 @@ class DefaultModelManagerTest {
     }
 
     @Test
+    fun installFailsBeforeDownloaderStartsWhenSharedStorageIsInsufficient() = runBlocking {
+        val bytes = "model".toByteArray()
+        val base = descriptor("v1", 1, bytes)
+        val large =
+            base.copy(
+                downloadSizeBytes = 900L * 1024L * 1024L,
+                installedSizeBytes = 950L * 1024L * 1024L,
+            )
+        val downloader =
+            FakeDownloader(
+                mapOf("https://example.invalid/v1.bin" to bytes),
+            )
+        val manager =
+            manager(
+                bundled = catalog(large),
+                remoteProvider = null,
+                downloader = downloader,
+                usableSpaceBytes = { 512L * 1024L * 1024L },
+                sameStorageVolume = { _, _ -> true },
+            )
+
+        val failure =
+            runCatching {
+                manager.install("asr", "v1", 1)
+            }.exceptionOrNull()
+
+        assertTrue(failure is IllegalStateException)
+        assertTrue(failure?.message.orEmpty().contains("存储空间不足"))
+        assertEquals(0, downloader.calls)
+    }
+
+    @Test
+    fun installSpaceRequirementSubtractsRetainedPartialDownloadBytes() {
+        val requirement =
+            calculateModelInstallSpaceRequirements(
+                downloadSizeBytes = 1_000L,
+                installedSizeBytes = 2_000L,
+                existingPartBytes = 400L,
+                sameVolume = true,
+                reserveBytes = 100L,
+            )
+
+        assertEquals(2_700L, requirement.sharedVolumeBytes)
+        assertEquals(0L, requirement.packageVolumeBytes)
+        assertEquals(0L, requirement.storageVolumeBytes)
+    }
+
+    @Test
     fun remoteCatalogCannotRegressBundledModelRevision() = runBlocking {
         val bundled = catalog(descriptor("v2", 2, "two".toByteArray()))
         val remote = catalog(descriptor("v1", 1, "one".toByteArray()))
@@ -487,6 +535,8 @@ class DefaultModelManagerTest {
         downloader: ModelPackageDownloader,
         validator: ModelCandidateValidator = ModelCandidateValidator { _, _ -> },
         registry: ModelUseRegistry = ModelUseRegistry(),
+        usableSpaceBytes: (File) -> Long = { Long.MAX_VALUE / 4L },
+        sameStorageVolume: (File, File) -> Boolean = { _, _ -> true },
     ) =
         DefaultModelManager(
             bundledCatalog = bundled,
@@ -504,6 +554,8 @@ class DefaultModelManagerTest {
             downloader = downloader,
             useRegistry = registry,
             candidateValidator = validator,
+            usableSpaceBytes = usableSpaceBytes,
+            sameStorageVolume = sameStorageVolume,
         )
 
     private fun catalog(descriptor: ModelDescriptor) =
@@ -582,12 +634,16 @@ class DefaultModelManagerTest {
     private class FakeDownloader(
         private val bytesByUrl: Map<String, ByteArray>,
     ) : ModelPackageDownloader {
+        var calls: Int = 0
+            private set
+
         override suspend fun download(
             url: String,
             destinationPart: File,
             expectedBytes: Long?,
             progressListener: ModelDownloadProgressListener?,
         ) {
+            calls += 1
             val bytes = bytesByUrl[url] ?: error("missing fixture for " + url)
             destinationPart.parentFile?.mkdirs()
             destinationPart.writeBytes(bytes)

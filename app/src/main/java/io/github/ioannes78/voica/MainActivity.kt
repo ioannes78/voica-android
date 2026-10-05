@@ -56,6 +56,15 @@ class MainActivity : ComponentActivity() {
                         appContainer.providerConfigurationRepository,
                     providerAdapterRegistry = appContainer.providerAdapterRegistry,
                     themeSettingsStore = appContainer.themeSettingsStore,
+                    localSpeechSettingsStore = appContainer.localSpeechSettingsStore,
+                    speechBenchmarkRunner =
+                        appContainer.speechBenchmarkRunner.takeIf {
+                            VoicaModelChannel.isDebuggable(application)
+                        },
+                    diarizationBenchmarkRunner =
+                        appContainer.diarizationBenchmarkRunner.takeIf {
+                            VoicaModelChannel.isDebuggable(application)
+                        },
                 )
             }
         }

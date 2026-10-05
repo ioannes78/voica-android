@@ -9,6 +9,20 @@ import io.github.ioannes78.voica.model.ModelDescriptor
 import io.github.ioannes78.voica.model.ModelKind
 import io.github.ioannes78.voica.model.SpeakerModelRole
 import java.io.File
+import java.util.concurrent.CancellationException
+
+enum class SherpaModelValidationStage {
+    NATIVE_INIT,
+    NATIVE_INFERENCE,
+}
+
+class SherpaModelValidationException(
+    val stage: SherpaModelValidationStage,
+    cause: Throwable,
+) : IllegalStateException(
+    stage.name + ": " + (cause.message ?: cause::class.java.simpleName),
+    cause,
+)
 
 class SherpaModelCandidateValidator : ModelCandidateValidator {
     override suspend fun validate(
@@ -30,7 +44,7 @@ class SherpaModelCandidateValidator : ModelCandidateValidator {
             ModelKind.SPEAKER ->
                 validateSpeaker(descriptor, installedDirectory)
             ModelKind.ASR_LARGE ->
-                error("no smoke validator for model kind " + descriptor.kind)
+                validateLargeOfflineAsr(descriptor, installedDirectory)
         }
     }
 
@@ -67,31 +81,35 @@ class SherpaModelCandidateValidator : ModelCandidateValidator {
     ) {
         val modelFile = requireSingleOnnx(descriptor, directory)
         val extractor =
-            SpeakerEmbeddingExtractor(
-                assetManager = null,
-                config =
-                    SpeakerEmbeddingExtractorConfig(
-                        model = modelFile.absolutePath,
-                        numThreads = SherpaRuntime.DEFAULT_NUM_THREADS,
-                        debug = false,
-                        provider = SherpaRuntime.PROVIDER_CPU,
-                    ),
-            )
+            validationInit {
+                SpeakerEmbeddingExtractor(
+                    assetManager = null,
+                    config =
+                        SpeakerEmbeddingExtractorConfig(
+                            model = modelFile.absolutePath,
+                            numThreads = SherpaRuntime.DEFAULT_NUM_THREADS,
+                            debug = false,
+                            provider = SherpaRuntime.PROVIDER_CPU,
+                        ),
+                )
+            }
         try {
             check(extractor.dim() > 0) {
                 "speaker embedding dimension must be positive"
             }
             val stream = extractor.createStream()
             try {
-                stream.acceptWaveform(
-                    SMOKE_SPEAKER_FLOAT_SAMPLES,
-                    16_000,
-                )
-                stream.inputFinished()
-                check(extractor.isReady(stream)) {
-                    "speaker embedding model is not ready for smoke audio"
+                validationInference {
+                    stream.acceptWaveform(
+                        SMOKE_SPEAKER_FLOAT_SAMPLES,
+                        16_000,
+                    )
+                    stream.inputFinished()
+                    check(extractor.isReady(stream)) {
+                        "speaker embedding model is not ready for smoke audio"
+                    }
                 }
-                val embedding = extractor.compute(stream)
+                val embedding = validationInference { extractor.compute(stream) }
                 check(embedding.size == extractor.dim()) {
                     "speaker embedding output dimension mismatch"
                 }
@@ -140,16 +158,18 @@ class SherpaModelCandidateValidator : ModelCandidateValidator {
                 ?: error("Silero candidate must contain one ONNX model file")
 
         val engine =
-            SherpaSileroVadEngine(
-                model = descriptor,
-                modelLocation =
-                    SherpaVadModelLocation.File(
-                        modelFile.canonicalPath,
-                    ),
-            )
+            validationInit {
+                SherpaSileroVadEngine(
+                    model = descriptor,
+                    modelLocation =
+                        SherpaVadModelLocation.File(
+                            modelFile.canonicalPath,
+                        ),
+                )
+            }
         try {
             SmokePcmSource(SMOKE_PCM_SAMPLES).use { source ->
-                engine.analyze(source)
+                validationInferenceSuspend { engine.analyze(source) }
             }
         } finally {
             engine.close()
@@ -161,20 +181,24 @@ class SherpaModelCandidateValidator : ModelCandidateValidator {
         directory: File,
     ) {
         val engine =
-            SherpaStreamingZipformerEngine(
-                model = descriptor,
-                modelDirectory = directory,
-            )
-        try {
-            val session = engine.openSession()
-            try {
-                session.acceptSamples(
-                    samples = SMOKE_PCM_SAMPLES,
-                    offset = 0,
-                    count = SMOKE_PCM_SAMPLES.size,
+            validationInit {
+                createSherpaStreamingAsrEngine(
+                    model = descriptor,
+                    modelDirectory = directory,
                 )
-                session.decode()
-                val final = session.finishInput()
+            }
+        try {
+            val session = validationInitSuspend { engine.openSession() }
+            try {
+                validationInferenceSuspend {
+                    session.acceptSamples(
+                        samples = SMOKE_PCM_SAMPLES,
+                        offset = 0,
+                        count = SMOKE_PCM_SAMPLES.size,
+                    )
+                    session.decode()
+                }
+                val final = validationInferenceSuspend { session.finishInput() }
                 check(final.isFinal) {
                     "streaming ASR smoke test did not produce a final result"
                 }
@@ -186,21 +210,52 @@ class SherpaModelCandidateValidator : ModelCandidateValidator {
         }
     }
 
+    private suspend fun validateLargeOfflineAsr(
+        descriptor: ModelDescriptor,
+        directory: File,
+    ) {
+        val engine =
+            validationInit {
+                createSherpaLargeOfflineAsrEngine(
+                    model = descriptor,
+                    modelDirectory = directory,
+                )
+            }
+        try {
+            val result =
+                validationInferenceSuspend {
+                    engine.transcribe(
+                        samples = SMOKE_PCM_SAMPLES,
+                        sampleRateHz = 16_000,
+                    )
+                }
+            check(result.isFinal) {
+                "large offline ASR smoke test did not produce a final result"
+            }
+        } finally {
+            engine.close()
+        }
+    }
+
     private suspend fun validateSecondPassAsr(
         descriptor: ModelDescriptor,
         directory: File,
     ) {
         val engine =
-            SherpaSenseVoiceEngine(
-                model = descriptor,
-                modelDirectory = directory,
-            )
+            validationInit {
+                SherpaSenseVoiceEngine(
+                    model = descriptor,
+                    modelDirectory = directory,
+                )
+            }
         try {
             val result =
-                engine.transcribe(
-                    samples = SMOKE_PCM_SAMPLES,
-                    sampleRateHz = 16_000,
-                )
+                validationInferenceSuspend {
+                    engine.transcribe(
+                        samples = SMOKE_PCM_SAMPLES,
+                        sampleRateHz = 16_000,
+                    )
+                }
             check(result.isFinal) {
                 "second-pass ASR smoke test did not produce a final result"
             }
@@ -214,16 +269,66 @@ class SherpaModelCandidateValidator : ModelCandidateValidator {
         directory: File,
     ) {
         val engine =
-            SherpaCtTransformerPunctuationEngine(
-                model = descriptor,
-                modelDirectory = directory,
-            )
+            validationInit {
+                SherpaCtTransformerPunctuationEngine(
+                    model = descriptor,
+                    modelDirectory = directory,
+                )
+            }
         try {
-            engine.addPunctuation("今天我们开会")
+            validationInferenceSuspend { engine.addPunctuation("今天我们开会") }
         } finally {
             engine.close()
         }
     }
+
+    private inline fun <T> validationInit(block: () -> T): T =
+        validationStage(SherpaModelValidationStage.NATIVE_INIT, block)
+
+    private inline fun <T> validationInference(block: () -> T): T =
+        validationStage(SherpaModelValidationStage.NATIVE_INFERENCE, block)
+
+    private suspend inline fun <T> validationInitSuspend(
+        crossinline block: suspend () -> T,
+    ): T =
+        validationStageSuspend(SherpaModelValidationStage.NATIVE_INIT, block)
+
+    private suspend inline fun <T> validationInferenceSuspend(
+        crossinline block: suspend () -> T,
+    ): T =
+        validationStageSuspend(SherpaModelValidationStage.NATIVE_INFERENCE, block)
+
+    private inline fun <T> validationStage(
+        stage: SherpaModelValidationStage,
+        block: () -> T,
+    ): T =
+        try {
+            block()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (oom: OutOfMemoryError) {
+            throw oom
+        } catch (error: SherpaModelValidationException) {
+            throw error
+        } catch (error: Throwable) {
+            throw SherpaModelValidationException(stage, error)
+        }
+
+    private suspend inline fun <T> validationStageSuspend(
+        stage: SherpaModelValidationStage,
+        crossinline block: suspend () -> T,
+    ): T =
+        try {
+            block()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (oom: OutOfMemoryError) {
+            throw oom
+        } catch (error: SherpaModelValidationException) {
+            throw error
+        } catch (error: Throwable) {
+            throw SherpaModelValidationException(stage, error)
+        }
 
     private class SmokePcmSource(
         private val samples: ShortArray,
@@ -258,7 +363,12 @@ class SherpaModelCandidateValidator : ModelCandidateValidator {
     }
 
     private companion object {
-        val SMOKE_PCM_SAMPLES = ShortArray(16_000)
+        val SMOKE_PCM_SAMPLES =
+            ShortArray(32_000) { index ->
+                val period = 160
+                val phase = index % period
+                if (phase < period / 2) 1_024 else -1_024
+            }
         val SMOKE_SPEAKER_FLOAT_SAMPLES =
             FloatArray(48_000) { index ->
                 if ((index / 80) % 2 == 0) 0.02F else -0.02F

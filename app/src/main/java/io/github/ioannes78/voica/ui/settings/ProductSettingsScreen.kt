@@ -39,6 +39,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.ioannes78.voica.BuildConfig
+import io.github.ioannes78.voica.LocalSpeechSettingsStore
 import io.github.ioannes78.voica.ModelUpdateController
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.StorageManagementCoordinator
@@ -57,6 +58,7 @@ private enum class SettingsPage {
     HOME,
     AI,
     MODELS,
+    SPEECH,
     STORAGE,
     THEME,
     ADVANCED,
@@ -71,6 +73,7 @@ fun ProductSettingsScreen(
     storageManagementCoordinator: StorageManagementCoordinator,
     providerSettingsViewModel: ProviderSettingsViewModel,
     themeSettingsStore: ThemeSettingsStore,
+    localSpeechSettingsStore: LocalSpeechSettingsStore,
     onSecondaryPageChanged: (Boolean) -> Unit,
 ) {
     var page by rememberSaveable { mutableStateOf(SettingsPage.HOME) }
@@ -118,6 +121,20 @@ fun ProductSettingsScreen(
                     ModelManagerCard(
                         modelManager = modelManager,
                         modelUpdateController = modelUpdateController,
+                    )
+                }
+            }
+
+        SettingsPage.SPEECH ->
+            SettingsSubpage(
+                padding = padding,
+                title = "本地语音识别",
+                onBack = { page = SettingsPage.HOME },
+            ) {
+                item {
+                    LocalSpeechSettingsCard(
+                        store = localSpeechSettingsStore,
+                        modelManager = modelManager,
                     )
                 }
             }
@@ -209,9 +226,16 @@ private fun SettingsHome(
                     HorizontalDivider()
                     SettingsRow(
                         title = "本地模型",
-                        subtitle = "ASR、VAD、标点、说话人模型",
+                        subtitle = "下载、更新、激活与回滚模型",
                         icon = { Icon(Icons.Outlined.Psychology, contentDescription = null) },
                         onClick = { onOpen(SettingsPage.MODELS) },
+                    )
+                    HorizontalDivider()
+                    SettingsRow(
+                        title = "本地语音识别",
+                        subtitle = "离线转写、实时转写与说话人分离",
+                        icon = { Icon(Icons.Outlined.Tune, contentDescription = null) },
+                        onClick = { onOpen(SettingsPage.SPEECH) },
                     )
                     HorizontalDivider()
                     SettingsRow(
