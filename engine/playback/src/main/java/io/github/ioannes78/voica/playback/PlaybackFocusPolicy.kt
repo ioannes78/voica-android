@@ -11,8 +11,8 @@ internal class PlaybackFocusPolicy {
         resumeEligible = false
     }
 
-    fun consumeResumeOnGain(appForeground: Boolean): Boolean {
-        val shouldResume = resumeEligible && appForeground
+    fun consumeResumeOnGain(): Boolean {
+        val shouldResume = resumeEligible
         resumeEligible = false
         return shouldResume
     }
