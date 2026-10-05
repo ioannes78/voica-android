@@ -209,9 +209,36 @@ class TranscriptionViewModel(
     }
 
     fun viewVersions(recordingId: String) {
-        cancelDocumentLoad(clearCurrent = true)
+        cancelDocumentLoad(clearCurrent = false)
         viewModelScope.launch {
             loadVersions(recordingId)
+        }
+    }
+
+    /** Preview a generated result without changing the persisted current selection. */
+    fun previewCandidate(transcriptionId: String) {
+        viewModelScope.launch {
+            val candidate = repository.find(transcriptionId) ?: return@launch
+            if (candidate.state != TranscriptionStateValue.COMPLETED) return@launch
+            if (contentRepository.resolveTranscriptionCandidateId(candidate.recordingId) != transcriptionId) {
+                return@launch
+            }
+            requestDocumentLoad(
+                transcriptionId = transcriptionId,
+                clearCurrent = true,
+            )
+            mutableNotice.value = "正在查看新结果；当前转写尚未切换。"
+        }
+    }
+
+    fun showCurrent(recordingId: String) {
+        viewModelScope.launch {
+            val currentId = contentRepository.resolveCurrentTranscriptionId(recordingId) ?: return@launch
+            requestDocumentLoad(
+                transcriptionId = currentId,
+                clearCurrent = true,
+            )
+            mutableNotice.value = null
         }
     }
 
