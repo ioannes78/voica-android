@@ -133,29 +133,21 @@ class AppContainer(
             settingsStore = modelUpdateSettingsStore,
         )
 
-    val transcriptionRepository =
-        TranscriptionRepository(recordingDatabase)
-    val stage12CContentRepository =
-        Stage12CContentRepository(recordingDatabase)
-    val unifiedSearchRepository =
-        UnifiedSearchRepository(recordingDatabase)
+    val transcriptionRepository = TranscriptionRepository(recordingDatabase)
+    val stage12CContentRepository = Stage12CContentRepository(recordingDatabase)
+    val unifiedSearchRepository = UnifiedSearchRepository(recordingDatabase)
     val searchIndexRebuilder =
         SearchIndexRebuilder(
             database = recordingDatabase,
             searchRepository = unifiedSearchRepository,
         )
 
-    val diarizationRepository =
-        DiarizationRepository(recordingDatabase)
+    val diarizationRepository = DiarizationRepository(recordingDatabase)
 
-    val aiSummaryRepository =
-        AiSummaryRepository(recordingDatabase)
-    val structuredTranscriptInputBuilder =
-        StructuredTranscriptInputBuilder(recordingDatabase)
-    val providerCredentialStore =
-        AndroidKeystoreCredentialStore(application)
-    val providerProfileStore =
-        AppPrivateProviderProfileStore(application)
+    val aiSummaryRepository = AiSummaryRepository(recordingDatabase)
+    val structuredTranscriptInputBuilder = StructuredTranscriptInputBuilder(recordingDatabase)
+    val providerCredentialStore = AndroidKeystoreCredentialStore(application)
+    val providerProfileStore = AppPrivateProviderProfileStore(application)
     val providerConfigurationRepository =
         ProviderConfigurationRepository(
             profileStore = providerProfileStore,
@@ -286,11 +278,18 @@ class AppContainer(
             onRegistered = canonicalAudioCoordinator::requestAutomatic,
         )
 
-    val deviceRepository: DeviceRepository =
+    private val deviceRuntime: DeviceRepository =
         DefaultDeviceRepository(
             context = application,
             parentScope = applicationScope,
             downloadedAssetRegistry = downloadedAssetRegistry,
+        )
+
+    val deviceRepository: DeviceRepository =
+        ServiceBackedDeviceRepository(
+            context = application,
+            delegate = deviceRuntime,
+            scope = applicationScope,
         )
 
     init {
