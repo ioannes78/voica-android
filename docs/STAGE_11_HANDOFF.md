@@ -12,6 +12,7 @@ GitHub 合并后的 `main` 是唯一事实来源。
 
 - `AGENTS.md`
 - `docs/ROADMAP.md`
+- Stage 13C 起还必须读取 `docs/ROADMAP_STAGE_13C_PLUS.md`
 - `docs/ARCHITECTURE.md`
 - `docs/STAGE_11_TEST.md`
 - `docs/STAGE_11_FREEZE.md`
@@ -115,6 +116,8 @@ API Key 使用 app-private credential store + Android Keystore AES-GCM。
 
 OpenRouter HTTP 429 代表 Provider rate-limit/quota 类状态；不要在 Stage 12 把它改成“连接成功”。
 
+后续从 Stage 17 起，Provider Profile 可扩展为共享 credential/region/base metadata + 独立 capability adapter：Text LLM / File ASR / Realtime ASR / Audio LLM。不同 capability 的模型列表、连接测试、协议与参数必须独立，不能因为属于同一厂商就合并成一个模糊接口。
+
 ## 7. Structured Output
 
 native json_schema 可用时优先使用。
@@ -126,6 +129,8 @@ Fallback Provider 即便只支持 json_object，也必须：
 - 严格 evidence validation
 
 SiliconFlow/Volcengine structured summary 默认禁用 thinking/reasoning。
+
+该历史规则只针对当时云 Provider 的 structured-output 兼容性；未来 Stage 19A 的本地 Gemma 4 Thinking 必须按当时 LiteRT-LM 能力重新验证，不能机械沿用为全局禁用规则。
 
 ## 8. 默认中文
 
@@ -167,11 +172,19 @@ Stage 12 可使用：
 
 ## 11. 已知后续项
 
-- 完整 Audio LLM 直接音频理解：Stage 19
-- 云端文件 ASR：Stage 17
+Stage 13C 以后以 `docs/ROADMAP_STAGE_13C_PLUS.md` 为准。
+
+- 云端文件 ASR / 音频上传转写：Stage 17
 - 云端实时 ASR：Stage 18
-- 长时稳定性/后台下载：Stage 13
+- 离线 AI 总结：Stage 19A，Gemma 4 E2B / E4B；E4B 默认高质量，E2B 轻量 fallback；Thinking Budget 作为高级设置，开发时重新核验 runtime 能力
+- 离线 Audio LLM：Stage 19B，Gemma 4 E2B 默认、E4B 高质量；Audio LLM 不替代专业 ASR
+- 云端 Audio LLM + 高级 AI / 语义能力：Stage 19C
+- 全 App UI / UX 最终精修：Stage 19D
+- 长时稳定性/后台下载：Stage 13B
+- 说话人分离性能专项：Stage 13C
 - UI/内容管理/本地全文搜索：Stage 12
+
+普通 AI Summary 的默认隐私边界保持：**基于转写文本生成，不因为 Text LLM 失败而自动上传原始音频。**
 
 ## 12. Stage 12 接管顺序
 

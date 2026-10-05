@@ -122,13 +122,15 @@ Stage 13B 若改动索引重建、进程恢复或长文本路径，必须回归�
 
 Qwen 正文不可被 Small Bilingual reference text 替换。Small Bilingual 仅做可选时间轴辅助；缺失或失败时 Qwen 正文仍必须完成。
 
-## 8. Stage 16 streaming contract
+## 8. Stage 16A streaming contract
 
-Stage 16 必须复用：
+原 Stage 16 的 true streaming 工作在后续路线中记为 **Stage 16A**，必须复用：
 
 `docs/STAGE_16_STREAMING_CONTRACT_V2.md`
 
 真正实时模型只冻结 Small Bilingual 与 Chinese Large CTC。SenseVoice / Qwen3-ASR 不得通过分块离线识别伪装成 true streaming。
+
+文件型 ASR 新增模型评估另行放入 Stage 16B，不得污染 Stage 16A streaming contract。
 
 ## 9. Diarization 约束
 
@@ -137,6 +139,8 @@ Stage 16 必须复用：
 `Silero VAD → Pyannote Segmentation 3.0 INT8 → CAM++ → clustering / stitching`
 
 Stage 13B 可以做长录音稳定性与参数验证，但不得无新决策重新做 speaker embedding 大规模选型。
+
+后续 Stage 13C 将在此冻结链上单独处理 diarization **性能过慢**问题；Stage 13C 默认优化 total time / RTF / RAM/PSS / CPU / thermal，不以重新提升准确率或重新选模为首要目标。
 
 ## 10. AI Summary cancellation 约束
 
@@ -193,3 +197,25 @@ PR #16 合并后还必须：
 2. 核验 post-merge CI；
 3. 确认 Room 仍为 v7、model channel 未被提升；
 4. 然后才开始 Stage 13B 编码。
+
+## 15. Stage 13B 之后的新增路线门禁
+
+Stage 13B 当前范围保持不变。本次规划只改变 Stage 13B 完成后的后续顺序：
+
+`Stage 13B → Stage 13C → Stage 14`
+
+Stage 13C：**说话人分离性能专项**。
+
+Stage 13C 必须在 Stage 13B Final Freeze/Handoff 后开始，详细范围统一读取：
+
+`docs/ROADMAP_STAGE_13C_PLUS.md`
+
+核心约束：
+
+- 先分阶段 profiling，再优化；
+- 优先做 VAD 复用、embedding cache、CAM++ bounded batching、overlap 去重、短 segment 策略、线程 benchmark、1-speaker fast path；
+- ASR 正文完成后应立即可用，diarization 后台继续，不让 speaker 后处理阻塞已完成正文；
+- 若更换核心 diarization model/runtime/segmentation/embedding 路径，必须重新执行受影响的 Stage 13B 30/60/120min 稳定性验证；
+- Stage 13C 真机验收并 Freeze/Handoff 后，才允许 Stage 14 V1.0 Release Freeze。
+
+从 Stage 13C 起，如旧 `docs/ROADMAP.md` 与 `docs/ROADMAP_STAGE_13C_PLUS.md` 的后续编号冲突，以后者及后续实际 Freeze/Handoff 为准。
