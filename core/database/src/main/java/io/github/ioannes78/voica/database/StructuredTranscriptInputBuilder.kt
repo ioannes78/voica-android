@@ -11,20 +11,38 @@ import java.security.MessageDigest
 class StructuredTranscriptInputBuilder(
     private val database: VoicaDatabase,
 ) {
-    /** Builds and freezes the transcription/revision that is effective at this call boundary. */
+    /**
+     * Builds and freezes the recording's Current Effective Transcription at this call boundary.
+     * The supplied transcription id is only used to identify the recording. If that id is a
+     * candidate/history result, it must not bypass RecordingContentSelection.
+     */
     suspend fun build(transcriptionId: String): StructuredTranscriptInput =
         buildEffective(transcriptionId)
 
     suspend fun buildEffective(transcriptionId: String): StructuredTranscriptInput {
+        require(transcriptionId.isNotBlank())
+        val transcriptionDao = database.transcriptionDao()
         val contentDao = database.stage12cContentDao()
+        val requested =
+            transcriptionDao.findTranscription(transcriptionId)
+                ?: error("transcription not found")
+        val selectedId = contentDao.findContentSelection(requested.recordingId)?.currentTranscriptionId
+        val selected = selectedId?.let { transcriptionDao.findTranscription(it) }
+        val effective =
+            selected?.takeIf {
+                it.recordingId == requested.recordingId &&
+                    it.state == TranscriptionStateValue.COMPLETED
+            } ?: transcriptionDao.findLatestCompleted(requested.recordingId)
+            ?: requested.takeIf { it.state == TranscriptionStateValue.COMPLETED }
+            ?: error("recording has no completed transcription")
         val currentRevisionId =
-            contentDao.findTranscriptionMetadata(transcriptionId)?.currentRevisionId
+            contentDao.findTranscriptionMetadata(effective.id)?.currentRevisionId
                 ?.let { revisionId ->
                     contentDao.findTranscriptionRevision(revisionId)
-                        ?.takeIf { it.transcriptionId == transcriptionId }
+                        ?.takeIf { it.transcriptionId == effective.id }
                         ?.id
                 }
-        return buildSnapshot(transcriptionId, currentRevisionId)
+        return buildSnapshot(effective.id, currentRevisionId)
     }
 
     /**
