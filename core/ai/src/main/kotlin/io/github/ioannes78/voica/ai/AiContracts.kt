@@ -137,3 +137,32 @@ data class StructuredTranscriptInput(
     val finalText: String
         get() = units.joinToString(separator = "\n") { it.text }
 }
+
+data class AiSummaryItem(
+    val id: String,
+    val text: String,
+    val evidenceRefs: List<String>,
+    val epistemicStatus: AiEpistemicStatus,
+    val attributes: Map<String, String> = emptyMap(),
+)
+
+data class AiSummarySection(
+    val id: String,
+    val type: AiSummarySectionType,
+    val label: String,
+    val items: List<AiSummaryItem>,
+)
+
+data class AiSummaryResult(
+    val schemaVersion: Int,
+    val contentType: AiContentType,
+    val classificationConfidence: Double?,
+    val title: String,
+    val overview: String,
+    val sections: List<AiSummarySection>,
+) {
+    init {
+        require(schemaVersion >= 1)
+        require(classificationConfidence == null || classificationConfidence in 0.0..1.0)
+    }
+}
