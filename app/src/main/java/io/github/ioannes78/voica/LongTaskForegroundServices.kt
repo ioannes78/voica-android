@@ -160,7 +160,6 @@ class DeviceSessionForegroundService : Service() {
             }
 
             else -> {
-                // START_NOT_STICKY should not recreate this service without an explicit lease.
                 stopSelf(startId)
             }
         }
@@ -253,14 +252,21 @@ class DeviceSessionForegroundService : Service() {
     }
 }
 
+private data class MediaProcessingTaskDisplay(
+    val title: String,
+    val label: String,
+    val progressPercent: Int?,
+    val cancelAction: String?,
+)
+
 /**
  * Foreground execution host for long local media work such as canonical conversion, offline ASR and
- * diarization. It intentionally stores only process-local execution leases; Room business entities
- * remain the durable source of truth and reconcile interrupted work after process death.
+ * diarization. Room/coordinator business state remains authoritative; this service only owns Android
+ * execution lifetime and the user-visible system notification.
  */
 class MediaProcessingForegroundService : Service() {
     private lateinit var notificationManager: NotificationManager
-    private val activeTasks = linkedMapOf<String, String>()
+    private val activeTasks = linkedMapOf<String, MediaProcessingTaskDisplay>()
 
     override fun onCreate() {
         super.onCreate()
@@ -271,13 +277,17 @@ class MediaProcessingForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val taskId = intent?.getStringExtra(EXTRA_TASK_ID)?.takeIf { it.isNotBlank() }
         when (intent?.action) {
-            ACTION_ACQUIRE -> {
+            ACTION_ACQUIRE,
+            ACTION_UPDATE,
+            -> {
                 if (taskId != null) {
-                    activeTasks[taskId] =
-                        intent.getStringExtra(EXTRA_LABEL).orEmpty().ifBlank { "处理录音" }
+                    activeTasks[taskId] = taskFrom(intent)
+                    publish()
+                } else if (activeTasks.isEmpty()) {
+                    stopSelf(startId)
                 }
-                publish()
             }
+
             ACTION_RELEASE -> {
                 if (taskId != null) activeTasks.remove(taskId)
                 if (activeTasks.isEmpty()) {
@@ -287,12 +297,9 @@ class MediaProcessingForegroundService : Service() {
                     publish()
                 }
             }
+
             else -> {
-                if (activeTasks.isEmpty()) {
-                    stopSelf()
-                } else {
-                    publish()
-                }
+                if (activeTasks.isEmpty()) stopSelf(startId) else publish()
             }
         }
         return START_NOT_STICKY
@@ -301,33 +308,51 @@ class MediaProcessingForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onTimeout(startId: Int, fgsType: Int) {
-        // Android 15+ gives mediaProcessing a shared six-hour budget. Business state is deliberately
-        // not rewritten here; the owning coordinator/repository performs terminal or interrupted
-        // reconciliation. Stage 13B integrations must cancel work before releasing this host.
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf(startId)
     }
 
+    private fun taskFrom(intent: Intent): MediaProcessingTaskDisplay =
+        MediaProcessingTaskDisplay(
+            title = intent.getStringExtra(EXTRA_TITLE).orEmpty().ifBlank { "录音" },
+            label = intent.getStringExtra(EXTRA_LABEL).orEmpty().ifBlank { "正在处理录音" },
+            progressPercent =
+                intent.getIntExtra(EXTRA_PROGRESS_PERCENT, NO_PROGRESS)
+                    .takeIf { it in 0..100 },
+            cancelAction = intent.getStringExtra(EXTRA_CANCEL_ACTION)?.takeIf { it.isNotBlank() },
+        )
+
     private fun publish() {
-        val primary = activeTasks.values.firstOrNull() ?: "处理录音"
+        val primaryEntry = activeTasks.entries.firstOrNull() ?: return
+        val taskId = primaryEntry.key
+        val task = primaryEntry.value
         val text =
             if (activeTasks.size <= 1) {
-                primary
+                task.label
             } else {
-                "$primary · 另有 ${activeTasks.size - 1} 个任务"
+                "${task.label} · 另有 ${activeTasks.size - 1} 个任务"
             }
-        ServiceCompat.startForeground(
-            this,
-            NOTIFICATION_ID,
+        val builder =
             Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_sys_download)
-                .setContentTitle("Voica 正在处理录音")
+                .setContentTitle(task.title)
                 .setContentText(text)
                 .setContentIntent(mainActivityPendingIntent(this, REQUEST_CONTENT))
                 .setOnlyAlertOnce(true)
                 .setOngoing(true)
                 .setCategory(Notification.CATEGORY_SERVICE)
-                .build(),
+                .setProgress(100, task.progressPercent ?: 0, task.progressPercent == null)
+        task.cancelAction?.let { action ->
+            builder.addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                "取消",
+                taskCancelPendingIntent(this, action, taskId),
+            )
+        }
+        ServiceCompat.startForeground(
+            this,
+            NOTIFICATION_ID,
+            builder.build(),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING,
         )
     }
@@ -350,19 +375,60 @@ class MediaProcessingForegroundService : Service() {
         private const val NOTIFICATION_ID = 13041
         private const val REQUEST_CONTENT = 13041
         private const val ACTION_ACQUIRE = "io.github.ioannes78.voica.media.ACQUIRE"
+        private const val ACTION_UPDATE = "io.github.ioannes78.voica.media.UPDATE"
         private const val ACTION_RELEASE = "io.github.ioannes78.voica.media.RELEASE"
         private const val EXTRA_TASK_ID = "taskId"
+        private const val EXTRA_TITLE = "title"
         private const val EXTRA_LABEL = "label"
+        private const val EXTRA_PROGRESS_PERCENT = "progressPercent"
+        private const val EXTRA_CANCEL_ACTION = "cancelAction"
+        private const val NO_PROGRESS = -1
 
-        fun acquire(context: Context, taskId: String, label: String) {
+        fun acquire(
+            context: Context,
+            taskId: String,
+            title: String,
+            label: String,
+            progressPercent: Int?,
+            cancelAction: String?,
+        ) {
             require(taskId.isNotBlank())
             ContextCompat.startForegroundService(
                 context,
-                Intent(context, MediaProcessingForegroundService::class.java)
-                    .setAction(ACTION_ACQUIRE)
-                    .putExtra(EXTRA_TASK_ID, taskId)
-                    .putExtra(EXTRA_LABEL, label),
+                taskIntent(
+                    context = context,
+                    action = ACTION_ACQUIRE,
+                    taskId = taskId,
+                    title = title,
+                    label = label,
+                    progressPercent = progressPercent,
+                    cancelAction = cancelAction,
+                ),
             )
+        }
+
+        fun update(
+            context: Context,
+            taskId: String,
+            title: String,
+            label: String,
+            progressPercent: Int?,
+            cancelAction: String?,
+        ) {
+            require(taskId.isNotBlank())
+            runCatching {
+                context.startService(
+                    taskIntent(
+                        context = context,
+                        action = ACTION_UPDATE,
+                        taskId = taskId,
+                        title = title,
+                        label = label,
+                        progressPercent = progressPercent,
+                        cancelAction = cancelAction,
+                    ),
+                )
+            }
         }
 
         fun release(context: Context, taskId: String) {
@@ -375,10 +441,39 @@ class MediaProcessingForegroundService : Service() {
                 )
             }
         }
+
+        private fun taskIntent(
+            context: Context,
+            action: String,
+            taskId: String,
+            title: String,
+            label: String,
+            progressPercent: Int?,
+            cancelAction: String?,
+        ): Intent =
+            Intent(context, MediaProcessingForegroundService::class.java)
+                .setAction(action)
+                .putExtra(EXTRA_TASK_ID, taskId)
+                .putExtra(EXTRA_TITLE, title)
+                .putExtra(EXTRA_LABEL, label)
+                .putExtra(EXTRA_PROGRESS_PERCENT, progressPercent ?: NO_PROGRESS)
+                .putExtra(EXTRA_CANCEL_ACTION, cancelAction)
     }
 }
 
-private fun mainActivityPendingIntent(context: Context, requestCode: Int): PendingIntent =
+private fun taskCancelPendingIntent(
+    context: Context,
+    action: String,
+    taskId: String,
+): PendingIntent =
+    PendingIntent.getBroadcast(
+        context,
+        taskId.hashCode(),
+        Intent(context, TaskNotificationActionReceiver::class.java).setAction(action),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+
+internal fun mainActivityPendingIntent(context: Context, requestCode: Int): PendingIntent =
     PendingIntent.getActivity(
         context,
         requestCode,
