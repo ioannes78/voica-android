@@ -33,12 +33,19 @@ object VoicaModelChannel {
 
     fun configuredDebugManifestUrl(application: Application): String? {
         if (!isDebuggable(application)) return null
-        return application
-            .getSharedPreferences(PREFERENCES_NAME, Application.MODE_PRIVATE)
-            .getString(KEY_DEBUG_MANIFEST_URL, null)
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() }
-            ?.takeIf(::isAllowedDebugManifestUrl)
+        val preferences =
+            application.getSharedPreferences(PREFERENCES_NAME, Application.MODE_PRIVATE)
+        val configured =
+            preferences
+                .getString(KEY_DEBUG_MANIFEST_URL, null)
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?: return null
+        if (isPromotedStage13aDebugManifestUrl(configured)) {
+            preferences.edit().remove(KEY_DEBUG_MANIFEST_URL).apply()
+            return null
+        }
+        return configured.takeIf(::isAllowedDebugManifestUrl)
     }
 
     fun resolveManifestUrl(application: Application): String =
@@ -78,6 +85,22 @@ object VoicaModelChannel {
                 url.path.endsWith("/production.json")
         }.getOrDefault(false)
 }
+
+internal fun isPromotedStage13aDebugManifestUrl(value: String): Boolean =
+    runCatching {
+        val url = URL(value)
+        url.protocol.equals("https", ignoreCase = true) &&
+            url.host.equals("github.com", ignoreCase = true) &&
+            url.query.isNullOrEmpty() &&
+            url.ref.isNullOrEmpty() &&
+            url.path in PROMOTED_STAGE13A_CANDIDATE_PATHS
+    }.getOrDefault(false)
+
+private val PROMOTED_STAGE13A_CANDIDATE_PATHS =
+    setOf(
+        "/ioannes78/voica-model-channel/releases/download/candidate-stage13a-all-r1/production.json",
+        "/ioannes78/voica-model-channel/releases/download/candidate-stage13a-streaming-asr-r1/production.json",
+    )
 
 private val PRODUCT_MODEL_IDS =
     setOf(
