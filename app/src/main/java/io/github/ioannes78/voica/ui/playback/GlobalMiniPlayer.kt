@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
@@ -94,12 +93,6 @@ fun GlobalMiniPlaybackBar(
                     )
                 }
 
-                IconButton(onClick = onOpen) {
-                    Icon(
-                        Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-                        contentDescription = "打开完整播放器",
-                    )
-                }
                 IconButton(onClick = onStop) {
                     Icon(Icons.Outlined.Close, contentDescription = "停止播放")
                 }
