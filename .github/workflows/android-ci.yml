@@ -55,6 +55,9 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "9.6.0"
+          # Same-repository PRs and manual runs may populate the Gradle cache.
+          # External fork PRs stay read-only so untrusted contributors cannot write shared cache state.
+          cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
 
       - name: Unit test and debug build
         run: >
