@@ -139,22 +139,20 @@ class ModelInstallOrchestrator(
         reconciled.await()
         val cancelledGeneration =
             mutex.withLock {
-                val current = journalStore.read(operationId) ?: return
+                val current = journalStore.read(operationId) ?: return@withLock null
                 if (current.phase == ModelInstallPhase.READY ||
                     current.phase == ModelInstallPhase.CANCELLED
                 ) {
-                    return
+                    return@withLock null
                 }
-                val next =
-                    persist(
-                        current.copy(
-                            cancelRequested = true,
-                            executorGeneration = current.executorGeneration + 1L,
-                            executorKind = ModelInstallExecutorKind.NONE,
-                        ),
-                    )
-                next.executorGeneration
-            }
+                persist(
+                    current.copy(
+                        cancelRequested = true,
+                        executorGeneration = current.executorGeneration + 1L,
+                        executorKind = ModelInstallExecutorKind.NONE,
+                    ),
+                ).executorGeneration
+            } ?: return
 
         scheduler.cancel(operationId)
         val current = journalStore.read(operationId) ?: return
@@ -197,9 +195,10 @@ class ModelInstallOrchestrator(
                 snapshot = start.snapshot,
                 progressListener =
                     ModelDownloadProgressListener { progress ->
+                        val totalBytes = progress.totalBytes
                         val complete =
-                            progress.totalBytes != null &&
-                                progress.downloadedBytes >= progress.totalBytes
+                            totalBytes != null &&
+                                progress.downloadedBytes >= totalBytes
                         if (complete ||
                             progress.downloadedBytes - lastPersistedBytes >= PROGRESS_PERSIST_STEP_BYTES
                         ) {
@@ -333,14 +332,14 @@ class ModelInstallOrchestrator(
                     ModelInstallPhase.CANCELLED,
                     ModelInstallPhase.FAILED_INTEGRITY,
                     ModelInstallPhase.FAILED_CONFIGURATION,
-                    ModelInstallPhase.FAILED_RUNTIME,
-                    -> return ModelInstallExecutionOutcome.SUCCESS
+                    ModelInstallPhase.FAILED_RUNTIME ->
+                        return ModelInstallExecutionOutcome.SUCCESS
 
                     ModelInstallPhase.INTERRUPTED,
                     ModelInstallPhase.FAILED_RECOVERABLE,
                     ModelInstallPhase.REQUESTED,
-                    ModelInstallPhase.DOWNLOAD,
-                    -> return ModelInstallExecutionOutcome.FAILURE
+                    ModelInstallPhase.DOWNLOAD ->
+                        return ModelInstallExecutionOutcome.FAILURE
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -379,8 +378,7 @@ class ModelInstallOrchestrator(
             ModelInstallPhase.RUNTIME_VALIDATE,
             ModelInstallPhase.ATOMIC_ACTIVATE,
             ModelInstallPhase.READY,
-            ModelInstallPhase.FAILED_RUNTIME,
-            -> return
+            ModelInstallPhase.FAILED_RUNTIME -> return
 
             else -> throw record.asFailure()
         }
@@ -424,6 +422,16 @@ class ModelInstallOrchestrator(
                 return@withLock
             }
             if (current.cancelRequested) {
+                scheduler.cancel(current.operationId)
+                backend.cleanupUserCancelled(current.snapshot)
+                persist(
+                    current.copy(
+                        phase = ModelInstallPhase.CANCELLED,
+                        cancelRequested = false,
+                        requiresUserResume = false,
+                        executorKind = ModelInstallExecutorKind.NONE,
+                    ),
+                )
                 return@withLock
             }
             if (current.requiresUserResume ||
@@ -493,8 +501,8 @@ class ModelInstallOrchestrator(
                 ModelInstallPhase.EXTRACT,
                 ModelInstallPhase.FILE_VERIFY,
                 ModelInstallPhase.RUNTIME_VALIDATE,
-                ModelInstallPhase.ATOMIC_ACTIVATE,
-                -> ModelInstallExecutorKind.WORK_MANAGER_FINALIZE
+                ModelInstallPhase.ATOMIC_ACTIVATE ->
+                    ModelInstallExecutorKind.WORK_MANAGER_FINALIZE
 
                 else -> ModelInstallExecutorKind.NONE
             }

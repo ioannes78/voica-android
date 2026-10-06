@@ -6,8 +6,8 @@ import io.github.ioannes78.voica.model.ModelOperationStatus
 import io.github.ioannes78.voica.model.ModelState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SharingStarted
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
@@ -155,26 +155,22 @@ class DurableAwareModelManager(
         val state =
             when (phase) {
                 ModelInstallPhase.REQUESTED,
-                ModelInstallPhase.DOWNLOAD,
-                -> ModelState.DOWNLOADING
+                ModelInstallPhase.DOWNLOAD -> ModelState.DOWNLOADING
 
                 ModelInstallPhase.VERIFY,
                 ModelInstallPhase.EXTRACT,
                 ModelInstallPhase.FILE_VERIFY,
                 ModelInstallPhase.RUNTIME_VALIDATE,
-                ModelInstallPhase.ATOMIC_ACTIVATE,
-                -> ModelState.VERIFYING
+                ModelInstallPhase.ATOMIC_ACTIVATE -> ModelState.VERIFYING
 
                 ModelInstallPhase.FAILED_INTEGRITY -> ModelState.CORRUPTED
                 ModelInstallPhase.INTERRUPTED,
                 ModelInstallPhase.FAILED_RECOVERABLE,
                 ModelInstallPhase.FAILED_RUNTIME,
-                ModelInstallPhase.FAILED_CONFIGURATION,
-                -> ModelState.LOAD_FAILED
+                ModelInstallPhase.FAILED_CONFIGURATION -> ModelState.LOAD_FAILED
 
                 ModelInstallPhase.READY,
-                ModelInstallPhase.CANCELLED,
-                -> return null
+                ModelInstallPhase.CANCELLED -> return null
             }
         return ModelOperationStatus(
             state = state,
