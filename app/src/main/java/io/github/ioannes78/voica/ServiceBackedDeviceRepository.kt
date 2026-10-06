@@ -144,12 +144,17 @@ class ServiceBackedDeviceRepository(
                 ?.name
                 ?.trim()
                 ?.takeIf { it.isNotEmpty() }
+
+        // An explicit row tap owns the transition from scanning to connecting. Stop the scanner
+        // before requesting foreground ownership so no lifecycle foreground callback can trigger a
+        // remembered-device auto-connect in parallel with this explicit connection.
+        delegate.stopScan()
+
         // A foreground-service failure must never prevent a user-visible foreground connection.
         holdService(
             deviceName = resolvedDeviceName(),
             label = "正在连接",
         )
-        delegate.setForeground(true)
         delegate.connect(address)
     }
 
@@ -167,7 +172,12 @@ class ServiceBackedDeviceRepository(
     override fun setForeground(foreground: Boolean) {
         appForeground = foreground
         if (foreground) {
-            delegate.setForeground(true)
+            // Never let an Activity foreground transition initiate remembered-device auto-connect
+            // while an explicit scan is active. The scan result tap will stop scanning and connect
+            // exactly once through connect(address).
+            if (!delegate.scanState.value.isScanning) {
+                delegate.setForeground(true)
+            }
         } else if (!serviceHeld) {
             delegate.setForeground(false)
         }
