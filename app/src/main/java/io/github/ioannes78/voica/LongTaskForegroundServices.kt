@@ -205,7 +205,7 @@ class DeviceSessionForegroundService : Service() {
         private const val EXTRA_GENERATION = "generation"
         private const val FALLBACK_DEVICE_NAME = "录音卡"
 
-        fun acquire(
+        internal fun acquire(
             context: Context,
             deviceName: String,
             label: String,
