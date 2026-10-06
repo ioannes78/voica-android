@@ -52,12 +52,9 @@ jobs:
             "cmake;3.22.1"
 
       - name: Setup Gradle 9.6
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@v5.0.2
         with:
           gradle-version: "9.6.0"
-          # Keep the v6 migration on the open-source GitHub Actions cache provider;
-          # evaluate Enhanced Caching separately instead of changing providers implicitly.
-          cache-provider: basic
           # Same-repository PRs and manual runs may populate the Gradle cache.
           # External fork PRs stay read-only so untrusted contributors cannot write shared cache state.
           cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
