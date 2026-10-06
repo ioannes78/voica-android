@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -126,8 +127,8 @@ fun PlaybackCard(
             ),
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -158,24 +159,23 @@ fun PlaybackCard(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    formatPlaybackTime(displaySample),
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    "/ " + formatPlaybackTime(totalSamples),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 3.dp),
-                )
+                Spacer(modifier = Modifier.weight(1f))
+                Row(
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        formatPlaybackTime(displaySample),
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "/ " + formatPlaybackTime(totalSamples),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 3.dp),
+                    )
+                }
             }
 
             val amplitudes = (waveform as? WaveformOverviewResult.Ready)?.amplitudes.orEmpty()
@@ -199,7 +199,7 @@ fun PlaybackCard(
                     modifier =
                         Modifier
                             .fillMaxWidth()
-                            .height(92.dp),
+                            .height(72.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
@@ -223,26 +223,11 @@ fun PlaybackCard(
                     )
                 },
             )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    formatPlaybackTime(displaySample),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    formatPlaybackTime(totalSamples),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 SeekControl(
                     modifier = Modifier.weight(1f),
@@ -283,12 +268,12 @@ fun PlaybackCard(
                 Column(
                     modifier = Modifier.weight(1f),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     Button(
                         onClick = transportClick,
                         enabled = transportEnabled,
-                        modifier = Modifier.size(86.dp),
+                        modifier = Modifier.size(78.dp),
                         shape = CircleShape,
                         contentPadding = PaddingValues(0.dp),
                     ) {
@@ -316,16 +301,23 @@ fun PlaybackCard(
                 )
             }
 
-            Text(
-                "播放速度",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-            )
-            SegmentedSpeedControl(
-                selectedSpeed = snapshot.speed,
-                enabled = controlsEnabled,
-                onSpeed = onSpeed,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    "播放速度",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                SegmentedSpeedControl(
+                    modifier = Modifier.weight(1f),
+                    selectedSpeed = snapshot.speed,
+                    enabled = controlsEnabled,
+                    onSpeed = onSpeed,
+                )
+            }
 
             snapshot.error?.let { error ->
                 Text(
@@ -349,12 +341,12 @@ private fun SeekControl(
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         Surface(
             modifier =
                 Modifier
-                    .size(66.dp)
+                    .size(60.dp)
                     .clickable(enabled = enabled, onClick = onClick),
             shape = CircleShape,
             color = MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -369,7 +361,7 @@ private fun SeekControl(
                 Icon(
                     imageVector = icon,
                     contentDescription = label,
-                    modifier = Modifier.size(32.dp),
+                    modifier = Modifier.size(30.dp),
                 )
             }
         }
@@ -396,7 +388,7 @@ private fun WaveformSeekOverview(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .height(92.dp)
+                .height(72.dp)
                 .pointerInput(enabled) {
                     if (!enabled) return@pointerInput
                     detectTapGestures { offset ->
@@ -450,7 +442,7 @@ private fun RoundProgressTrack(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .height(26.dp)
+                .height(24.dp)
                 .pointerInput(enabled) {
                     if (!enabled) return@pointerInput
                     detectTapGestures { offset ->
@@ -475,26 +467,27 @@ private fun RoundProgressTrack(
         val x = progress.coerceIn(0f, 1f) * size.width
         drawLine(inactive, Offset(0f, y), Offset(size.width, y), strokeWidth = 6f, cap = StrokeCap.Round)
         drawLine(active, Offset(0f, y), Offset(x, y), strokeWidth = 6f, cap = StrokeCap.Round)
-        drawCircle(color = thumbRing, radius = 12f, center = Offset(x, y))
-        drawCircle(color = active, radius = 8f, center = Offset(x, y))
+        drawCircle(color = thumbRing, radius = 10f, center = Offset(x, y))
+        drawCircle(color = active, radius = 7f, center = Offset(x, y))
     }
 }
 
 @Composable
 private fun SegmentedSpeedControl(
+    modifier: Modifier = Modifier,
     selectedSpeed: Float,
     enabled: Boolean,
     onSpeed: (Float) -> Unit,
 ) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
+        modifier = modifier,
+        shape = RoundedCornerShape(20.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         color = MaterialTheme.colorScheme.surface,
     ) {
         Row(
-            modifier = Modifier.padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            modifier = Modifier.padding(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(1.dp),
         ) {
             SUPPORTED_SPEEDS.forEach { speed ->
                 val selected = kotlin.math.abs(selectedSpeed - speed) < 0.01f
@@ -503,7 +496,7 @@ private fun SegmentedSpeedControl(
                         Modifier
                             .weight(1f)
                             .clickable(enabled = enabled) { onSpeed(speed) },
-                    shape = RoundedCornerShape(18.dp),
+                    shape = RoundedCornerShape(16.dp),
                     color =
                         if (selected) {
                             MaterialTheme.colorScheme.primary
@@ -519,7 +512,7 @@ private fun SegmentedSpeedControl(
                 ) {
                     Text(
                         text = formatSpeed(speed),
-                        modifier = Modifier.padding(vertical = 10.dp),
+                        modifier = Modifier.padding(vertical = 7.dp),
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                         textAlign = TextAlign.Center,
