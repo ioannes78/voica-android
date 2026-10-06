@@ -59,6 +59,7 @@ fun AiSummaryProductCard(
     contentViewModel: AiSummaryContentViewModel,
     onOpenSettings: () -> Unit,
     onSeekEvidence: (Long) -> Unit,
+    showTransientHeader: Boolean = true,
 ) {
     val runState by viewModel.runState.collectAsState()
     val selected by viewModel.selected.collectAsState()
@@ -199,27 +200,29 @@ fun AiSummaryProductCard(
             }
         }
 
-        candidateId?.let { newSummaryId ->
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.medium,
-                tonalElevation = 1.dp,
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+        if (showTransientHeader) {
+            candidateId?.let { newSummaryId ->
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.medium,
+                    tonalElevation = 1.dp,
                 ) {
-                    Text(
-                        "新的总结结果已生成",
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    TextButton(onClick = { viewModel.selectSummary(newSummaryId) }) {
-                        Text("查看")
-                    }
-                    Button(onClick = { viewModel.adoptSummaryResult(newSummaryId) }) {
-                        Text("使用新结果")
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(
+                            "新的总结结果已生成",
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        TextButton(onClick = { viewModel.selectSummary(newSummaryId) }) {
+                            Text("查看")
+                        }
+                        Button(onClick = { viewModel.adoptSummaryResult(newSummaryId) }) {
+                            Text("使用新结果")
+                        }
                     }
                 }
             }
@@ -387,7 +390,7 @@ fun AiSummaryProductCard(
             OutlinedButton(onClick = onOpenSettings) { Text("前往 AI 设置") }
         }
 
-        if (running != null) {
+        if (showTransientHeader && running != null) {
             Text(
                 productProgressText(running),
                 style = MaterialTheme.typography.bodySmall,
