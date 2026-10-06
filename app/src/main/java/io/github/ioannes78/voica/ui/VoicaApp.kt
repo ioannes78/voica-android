@@ -124,6 +124,7 @@ import io.github.ioannes78.voica.ui.library.RecordingDetailDestination
 import io.github.ioannes78.voica.ui.library.RecordingDetailScreen
 import io.github.ioannes78.voica.ui.library.RecordingLibraryRoute
 import io.github.ioannes78.voica.ui.library.RecordingLibraryViewModel
+import io.github.ioannes78.voica.ui.playback.GlobalMiniPlaybackBar
 import io.github.ioannes78.voica.ui.playback.PlaybackCard
 import io.github.ioannes78.voica.ui.playback.PlaybackViewModel
 import io.github.ioannes78.voica.ui.playback.formatPlaybackTime
@@ -452,62 +453,68 @@ fun VoicaApp(
             }
         },
         bottomBar = {
-            if (!secondaryPageActive) {
-                Column {
-                    if (shouldShowGlobalPlayback(globalPlayback)) {
-                        GlobalPlaybackStatusBar(
-                            snapshot = globalPlayback,
-                            recordingName =
-                                libraryRecordings.firstOrNull {
-                                    it.id == globalPlayback.recordingId
-                                }?.displayName,
-                            onPlay = playbackViewModel::play,
-                            onPause = playbackViewModel::pause,
-                            onOpen = {
-                                globalPlayback.recordingId?.let { id ->
-                                    requestOpenRecording(
-                                        id,
-                                        RecordingDetailDestination.PLAYBACK,
-                                    )
-                                }
-                            },
-                        )
-                    }
+            Column {
+                val suppressForFullPlayer =
+                    activeDetailContext?.let { detail ->
+                        detail.destination == RecordingDetailDestination.PLAYBACK &&
+                            detail.recordingId == globalPlayback.recordingId
+                    } == true
+                if (shouldShowGlobalPlayback(globalPlayback) && !suppressForFullPlayer) {
+                    GlobalMiniPlaybackBar(
+                        snapshot = globalPlayback,
+                        recordingName =
+                            libraryRecordings.firstOrNull {
+                                it.id == globalPlayback.recordingId
+                            }?.displayName,
+                        onPlay = playbackViewModel::play,
+                        onPause = playbackViewModel::pause,
+                        onStop = playbackViewModel::closePlayer,
+                        onOpen = {
+                            globalPlayback.recordingId?.let { id ->
+                                requestOpenRecording(
+                                    id,
+                                    RecordingDetailDestination.PLAYBACK,
+                                )
+                            }
+                        },
+                    )
+                }
+                if (!secondaryPageActive) {
                     NavigationBar(modifier = Modifier.height(64.dp)) {
-                    NavigationBarItem(
-                        selected = selectedTab == 0,
-                        onClick = {
-                            activeDetailContext = null
-                            secondaryPageActive = false
-                            selectedTab = 0
-                            deviceHomeRequest += 1
-                        },
-                        icon = { Icon(Icons.Outlined.Bluetooth, contentDescription = null) },
-                        label = { Text(stringResource(R.string.tab_device)) },
-                        colors = navigationColors,
-                    )
-                    NavigationBarItem(
-                        selected = selectedTab == 1,
-                        onClick = {
-                            activeDetailContext = null
-                            secondaryPageActive = false
-                            selectedTab = 1
-                        },
-                        icon = { Icon(Icons.Outlined.Folder, contentDescription = null) },
-                        label = { Text(stringResource(R.string.tab_library)) },
-                        colors = navigationColors,
-                    )
-                    NavigationBarItem(
-                        selected = selectedTab == 2,
-                        onClick = {
-                            activeDetailContext = null
-                            secondaryPageActive = false
-                            selectedTab = 2
-                        },
-                        icon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
-                        label = { Text(stringResource(R.string.tab_settings)) },
-                        colors = navigationColors,
-                    )
+                        NavigationBarItem(
+                            selected = selectedTab == 0,
+                            onClick = {
+                                activeDetailContext = null
+                                secondaryPageActive = false
+                                selectedTab = 0
+                                deviceHomeRequest += 1
+                            },
+                            icon = { Icon(Icons.Outlined.Bluetooth, contentDescription = null) },
+                            label = { Text(stringResource(R.string.tab_device)) },
+                            colors = navigationColors,
+                        )
+                        NavigationBarItem(
+                            selected = selectedTab == 1,
+                            onClick = {
+                                activeDetailContext = null
+                                secondaryPageActive = false
+                                selectedTab = 1
+                            },
+                            icon = { Icon(Icons.Outlined.Folder, contentDescription = null) },
+                            label = { Text(stringResource(R.string.tab_library)) },
+                            colors = navigationColors,
+                        )
+                        NavigationBarItem(
+                            selected = selectedTab == 2,
+                            onClick = {
+                                activeDetailContext = null
+                                secondaryPageActive = false
+                                selectedTab = 2
+                            },
+                            icon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
+                            label = { Text(stringResource(R.string.tab_settings)) },
+                            colors = navigationColors,
+                        )
                     }
                 }
             }
