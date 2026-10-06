@@ -9,8 +9,95 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+internal enum class DeviceSessionForegroundPhase {
+    IDLE,
+    STARTING,
+    ACTIVE,
+    FAILED,
+}
+
+internal data class DeviceSessionForegroundSnapshot(
+    val generation: Long = 0L,
+    val phase: DeviceSessionForegroundPhase = DeviceSessionForegroundPhase.IDLE,
+    val deviceName: String? = null,
+    val label: String? = null,
+    val failureClass: String? = null,
+    val failureMessage: String? = null,
+)
+
+internal data class DeviceSessionForegroundAcquireResult(
+    val generation: Long,
+    val requestAccepted: Boolean,
+)
+
+/**
+ * Process-local diagnostics for the Android execution owner only.
+ *
+ * Device/recording truth still belongs to DeviceRepository. This state exists so an OEM/permission
+ * foreground-service failure can be observed and cannot leave the BLE repository pretending it has
+ * a valid background execution lease.
+ */
+internal object DeviceSessionForegroundDiagnostics {
+    private val sequence = AtomicLong(0L)
+    private val mutableState = MutableStateFlow(DeviceSessionForegroundSnapshot())
+    val state: StateFlow<DeviceSessionForegroundSnapshot> = mutableState.asStateFlow()
+
+    @Synchronized
+    fun begin(deviceName: String, label: String): Long {
+        val generation = sequence.incrementAndGet()
+        mutableState.value =
+            DeviceSessionForegroundSnapshot(
+                generation = generation,
+                phase = DeviceSessionForegroundPhase.STARTING,
+                deviceName = deviceName,
+                label = label,
+            )
+        return generation
+    }
+
+    @Synchronized
+    fun markActive(generation: Long, deviceName: String, label: String) {
+        if (mutableState.value.generation != generation) return
+        mutableState.value =
+            DeviceSessionForegroundSnapshot(
+                generation = generation,
+                phase = DeviceSessionForegroundPhase.ACTIVE,
+                deviceName = deviceName,
+                label = label,
+            )
+    }
+
+    @Synchronized
+    fun markFailed(generation: Long, deviceName: String, label: String, error: RuntimeException) {
+        if (mutableState.value.generation != generation) return
+        mutableState.value =
+            DeviceSessionForegroundSnapshot(
+                generation = generation,
+                phase = DeviceSessionForegroundPhase.FAILED,
+                deviceName = deviceName,
+                label = label,
+                failureClass = error.javaClass.name,
+                failureMessage = error.message,
+            )
+    }
+
+    @Synchronized
+    fun markIdle() {
+        mutableState.value =
+            DeviceSessionForegroundSnapshot(
+                generation = sequence.incrementAndGet(),
+                phase = DeviceSessionForegroundPhase.IDLE,
+            )
+    }
+}
 
 /**
  * Foreground ownership boundary for an active QS668/CB08 session that must remain alive while the
@@ -30,21 +117,51 @@ class DeviceSessionForegroundService : Service() {
         when (intent?.action) {
             ACTION_RELEASE -> {
                 stopForeground(STOP_FOREGROUND_REMOVE)
+                DeviceSessionForegroundDiagnostics.markIdle()
                 stopSelf()
                 return START_NOT_STICKY
             }
-            ACTION_ACQUIRE,
-            null,
-            -> {
-                val label = intent?.getStringExtra(EXTRA_LABEL).orEmpty().ifBlank {
-                    "保持录音卡连接"
+
+            ACTION_ACQUIRE -> {
+                val generation = intent.getLongExtra(EXTRA_GENERATION, 0L)
+                val deviceName =
+                    intent.getStringExtra(EXTRA_DEVICE_NAME)
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                        ?: FALLBACK_DEVICE_NAME
+                val label =
+                    intent.getStringExtra(EXTRA_LABEL)
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                        ?: "保持连接"
+                try {
+                    ServiceCompat.startForeground(
+                        this,
+                        NOTIFICATION_ID,
+                        buildNotification(deviceName, label),
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
+                    )
+                    DeviceSessionForegroundDiagnostics.markActive(
+                        generation = generation,
+                        deviceName = deviceName,
+                        label = label,
+                    )
+                } catch (error: RuntimeException) {
+                    Log.e(TAG, "connectedDevice foreground start failed", error)
+                    DeviceSessionForegroundDiagnostics.markFailed(
+                        generation = generation,
+                        deviceName = deviceName,
+                        label = label,
+                        error = error,
+                    )
+                    runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+                    stopSelf(startId)
                 }
-                ServiceCompat.startForeground(
-                    this,
-                    NOTIFICATION_ID,
-                    buildNotification(label),
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
-                )
+            }
+
+            else -> {
+                // START_NOT_STICKY should not recreate this service without an explicit lease.
+                stopSelf(startId)
             }
         }
         return START_NOT_STICKY
@@ -52,10 +169,10 @@ class DeviceSessionForegroundService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun buildNotification(label: String): Notification =
+    private fun buildNotification(deviceName: String, label: String): Notification =
         Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
-            .setContentTitle("Voica 录音卡")
+            .setContentTitle(deviceName)
             .setContentText(label)
             .setContentIntent(mainActivityPendingIntent(this, REQUEST_CONTENT))
             .setOnlyAlertOnce(true)
@@ -70,31 +187,68 @@ class DeviceSessionForegroundService : Service() {
                 "录音卡连接",
                 NotificationManager.IMPORTANCE_LOW,
             ).apply {
-                description = "录音、重连和文件传输期间保持 QS668/CB08 连接"
+                description = "录音、重连和文件传输期间保持录音卡连接"
                 setShowBadge(false)
             },
         )
     }
 
     companion object {
+        private const val TAG = "VoicaDeviceSessionFGS"
         private const val CHANNEL_ID = "voica-device-session"
         private const val NOTIFICATION_ID = 13031
         private const val REQUEST_CONTENT = 13031
         private const val ACTION_ACQUIRE = "io.github.ioannes78.voica.device.ACQUIRE"
         private const val ACTION_RELEASE = "io.github.ioannes78.voica.device.RELEASE"
         private const val EXTRA_LABEL = "label"
+        private const val EXTRA_DEVICE_NAME = "deviceName"
+        private const val EXTRA_GENERATION = "generation"
+        private const val FALLBACK_DEVICE_NAME = "录音卡"
 
-        fun acquire(context: Context, label: String) {
-            ContextCompat.startForegroundService(
-                context,
-                Intent(context, DeviceSessionForegroundService::class.java)
-                    .setAction(ACTION_ACQUIRE)
-                    .putExtra(EXTRA_LABEL, label),
-            )
+        fun acquire(
+            context: Context,
+            deviceName: String,
+            label: String,
+        ): DeviceSessionForegroundAcquireResult {
+            val safeName = deviceName.trim().ifEmpty { FALLBACK_DEVICE_NAME }
+            val safeLabel = label.trim().ifEmpty { "保持连接" }
+            val generation = DeviceSessionForegroundDiagnostics.begin(safeName, safeLabel)
+            return try {
+                ContextCompat.startForegroundService(
+                    context,
+                    Intent(context, DeviceSessionForegroundService::class.java)
+                        .setAction(ACTION_ACQUIRE)
+                        .putExtra(EXTRA_DEVICE_NAME, safeName)
+                        .putExtra(EXTRA_LABEL, safeLabel)
+                        .putExtra(EXTRA_GENERATION, generation),
+                )
+                DeviceSessionForegroundAcquireResult(
+                    generation = generation,
+                    requestAccepted = true,
+                )
+            } catch (error: RuntimeException) {
+                Log.e(TAG, "connectedDevice foreground request failed", error)
+                DeviceSessionForegroundDiagnostics.markFailed(
+                    generation = generation,
+                    deviceName = safeName,
+                    label = safeLabel,
+                    error = error,
+                )
+                DeviceSessionForegroundAcquireResult(
+                    generation = generation,
+                    requestAccepted = false,
+                )
+            }
         }
 
         fun release(context: Context) {
-            context.stopService(Intent(context, DeviceSessionForegroundService::class.java))
+            try {
+                context.stopService(Intent(context, DeviceSessionForegroundService::class.java))
+            } catch (error: RuntimeException) {
+                Log.e(TAG, "connectedDevice foreground release failed", error)
+            } finally {
+                DeviceSessionForegroundDiagnostics.markIdle()
+            }
         }
     }
 }
