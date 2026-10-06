@@ -227,6 +227,16 @@ class AppContainer(
             localSpeechSettings = { localSpeechSettingsStore.settings.value },
         )
 
+    val longTaskNotificationController =
+        LongTaskNotificationController(
+            context = application,
+            scope = applicationScope,
+            recordingRepository = recordingLibraryRepository,
+            transcriptionCoordinator = transcriptionCoordinator,
+            diarizationCoordinator = diarizationCoordinator,
+            aiSummaryCoordinator = aiSummaryCoordinator,
+        )
+
     internal val playbackRuntime =
         AndroidPlaybackController(
             context = application,
