@@ -11,6 +11,7 @@ import io.github.ioannes78.voica.database.RecordingLibraryItem
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.transcript.DiarizationPhase
 import io.github.ioannes78.voica.transcript.TranscriptionPhase
+import io.github.ioannes78.voica.ui.library.RecordingDetailDestination
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.combine
@@ -63,6 +64,8 @@ class LongTaskNotificationController(
                             label = label,
                             progressPercent = progress,
                             cancelAction = TaskNotificationActions.CANCEL_TRANSCRIPTION,
+                            recordingId = running.recordingId,
+                            destination = RecordingDetailDestination.TRANSCRIPT,
                         )
                     } else {
                         transcriptionTaskId?.let {
@@ -75,6 +78,8 @@ class LongTaskNotificationController(
                             label = label,
                             progressPercent = progress,
                             cancelAction = TaskNotificationActions.CANCEL_TRANSCRIPTION,
+                            recordingId = running.recordingId,
+                            destination = RecordingDetailDestination.TRANSCRIPT,
                         )
                         transcriptionTaskId = taskId
                     }
@@ -110,6 +115,8 @@ class LongTaskNotificationController(
                             label = label,
                             progressPercent = progress,
                             cancelAction = TaskNotificationActions.CANCEL_DIARIZATION,
+                            recordingId = running.recordingId,
+                            destination = RecordingDetailDestination.TRANSCRIPT,
                         )
                     } else {
                         diarizationTaskId?.let {
@@ -122,6 +129,8 @@ class LongTaskNotificationController(
                             label = label,
                             progressPercent = progress,
                             cancelAction = TaskNotificationActions.CANCEL_DIARIZATION,
+                            recordingId = running.recordingId,
+                            destination = RecordingDetailDestination.TRANSCRIPT,
                         )
                         diarizationTaskId = taskId
                     }
@@ -145,7 +154,7 @@ class LongTaskNotificationController(
                     val title = recordingName(recordings, recordingId)
                     notificationManager.notify(
                         AI_SUMMARY_NOTIFICATION_ID,
-                        buildAiSummaryNotification(title, running),
+                        buildAiSummaryNotification(title, running, recordingId),
                     )
                 }
         }
@@ -154,6 +163,7 @@ class LongTaskNotificationController(
     private fun buildAiSummaryNotification(
         title: String,
         running: AiSummaryRunState.Running,
+        recordingId: String,
     ): Notification {
         val progress =
             if (running.totalUnits > 0) {
@@ -167,7 +177,14 @@ class LongTaskNotificationController(
             .setSmallIcon(android.R.drawable.stat_sys_upload)
             .setContentTitle(title)
             .setContentText(buildAiSummaryLabel(running))
-            .setContentIntent(mainActivityPendingIntent(context, AI_SUMMARY_REQUEST_CONTENT))
+            .setContentIntent(
+                recordingOpenPendingIntent(
+                    context = context,
+                    requestCode = AI_SUMMARY_REQUEST_CONTENT,
+                    recordingId = recordingId,
+                    destination = RecordingDetailDestination.SUMMARY,
+                ),
+            )
             .setOnlyAlertOnce(true)
             .setOngoing(true)
             .setCategory(Notification.CATEGORY_PROGRESS)
