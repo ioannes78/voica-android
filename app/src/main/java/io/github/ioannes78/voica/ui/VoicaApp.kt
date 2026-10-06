@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.ioannes78.voica.AiSummaryCoordinator
 import io.github.ioannes78.voica.AiSummaryRunState
+import io.github.ioannes78.voica.AppRecordingNavigation
 import io.github.ioannes78.voica.CanonicalAudioCoordinator
 import io.github.ioannes78.voica.DiarizationBenchmarkRunner
 import io.github.ioannes78.voica.DiarizationCoordinator
@@ -334,11 +335,13 @@ fun VoicaApp(
     val globalDiarization by diarizationViewModel.runState.collectAsState()
     val globalAiSummary by aiSummaryViewModel.runState.collectAsState()
     val globalPlayback by playbackViewModel.snapshot.collectAsState()
+    val externalOpenRequest by AppRecordingNavigation.request.collectAsState()
     var openRequestToken by rememberSaveable { mutableIntStateOf(0) }
     var libraryOpenRequest by remember { mutableStateOf<GlobalRecordingOpenRequest?>(null) }
     var activeDetailContext by remember { mutableStateOf<GlobalDetailContext?>(null) }
     var dismissedTaskKeys by remember { mutableStateOf(setOf<String>()) }
     var terminalTaskNotices by remember { mutableStateOf<List<GlobalTaskItem>>(emptyList()) }
+    var lastExternalOpenToken by rememberSaveable { mutableStateOf<Long?>(null) }
 
     val liveGlobalTasks =
         buildGlobalTaskItems(
@@ -410,9 +413,18 @@ fun VoicaApp(
                     recordingId = recordingId,
                     destination = destination,
                 )
-            secondaryPageActive = false
+            activeDetailContext = GlobalDetailContext(recordingId, destination)
+            secondaryPageActive = true
             selectedTab = 1
         }
+
+    LaunchedEffect(externalOpenRequest?.token) {
+        val request = externalOpenRequest ?: return@LaunchedEffect
+        if (lastExternalOpenToken != request.token) {
+            lastExternalOpenToken = request.token
+            requestOpenRecording(request.recordingId, request.destination)
+        }
+    }
 
     val navigationColors =
         NavigationBarItemDefaults.colors(
@@ -776,6 +788,7 @@ private fun LocalFilesScreen(
     var requestedDestination by remember {
         mutableStateOf(RecordingDetailDestination.PLAYBACK)
     }
+    var detailNavigationToken by rememberSaveable { mutableIntStateOf(0) }
     val selectedRecording =
         selectedRecordingId?.let { id ->
             recordings.firstOrNull { it.id == id }
@@ -901,6 +914,8 @@ private fun LocalFilesScreen(
         pendingSearchTarget = null
         unifiedSearchOpen = false
         selectedRecordingId = request.recordingId
+        detailNavigationToken = request.token
+        onSecondaryPageChanged(true)
         onOpenRequestConsumed(request)
     }
 
@@ -918,6 +933,7 @@ private fun LocalFilesScreen(
             onOpenRecording = {
                 pendingSearchTarget = null
                 requestedDestination = RecordingDetailDestination.PLAYBACK
+                detailNavigationToken += 1
                 selectedRecordingId = it
             },
             onOpenUnifiedSearch = {
@@ -957,6 +973,7 @@ private fun LocalFilesScreen(
                                     -> RecordingDetailDestination.SUMMARY
                                     else -> RecordingDetailDestination.PLAYBACK
                                 }
+                            detailNavigationToken += 1
                             unifiedSearchOpen = false
                             selectedRecordingId = recordingId
                         }
@@ -1004,7 +1021,11 @@ private fun LocalFilesScreen(
                 deviceRecording.status == RecordingStatus.Recording ||
                     deviceRecording.status == RecordingStatus.Paused,
             initialDestination = requestedDestination,
+            navigationRequestToken = detailNavigationToken,
             onDestinationChanged = { destination ->
+                if (destination != null) {
+                    requestedDestination = destination
+                }
                 onDetailContextChanged(selectedRecording.id, destination)
             },
         )
