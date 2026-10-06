@@ -19,6 +19,8 @@ import io.github.ioannes78.voica.ble.RecordingDeviceState
 import io.github.ioannes78.voica.ble.RemoteDeleteDiagnostics
 import io.github.ioannes78.voica.ble.RemoteDeviceFile
 import io.github.ioannes78.voica.protocol.RecordingGain
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -35,24 +37,99 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 class ServiceBackedDeviceRepositoryTest {
     @Test
-    fun explicitConnectStopsActiveScanBeforeSingleConnectWithoutForegroundPriming() {
+    fun activeScanStopsThenWaitsForSettlerBeforeSingleConnect() {
         val delegate = FakeDeviceRepository(scanning = true)
+        val settleGate = CompletableDeferred<Unit>()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val repository =
             ServiceBackedDeviceRepository(
                 context = ApplicationProvider.getApplicationContext<Context>(),
                 delegate = delegate,
                 scope = scope,
+                scanToConnectSettler = { settleGate.await() },
             )
         delegate.events.clear()
 
         repository.connect(DEVICE_ADDRESS)
 
+        assertEquals(listOf("stopScan"), delegate.events)
+        assertFalse(delegate.events.contains("setForeground:true"))
+        settleGate.complete(Unit)
         assertEquals(
             listOf("stopScan", "connect:$DEVICE_ADDRESS"),
             delegate.events,
         )
-        assertFalse(delegate.events.contains("setForeground:true"))
+        scope.cancel()
+    }
+
+    @Test
+    fun connectAfterScanEndedSkipsSettlerAndConnectsOnce() {
+        val delegate = FakeDeviceRepository(scanning = false)
+        val settleCalls = AtomicInteger(0)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val repository =
+            ServiceBackedDeviceRepository(
+                context = ApplicationProvider.getApplicationContext<Context>(),
+                delegate = delegate,
+                scope = scope,
+                scanToConnectSettler = { settleCalls.incrementAndGet() },
+            )
+        delegate.events.clear()
+
+        repository.connect(DEVICE_ADDRESS)
+
+        assertEquals(0, settleCalls.get())
+        assertEquals(listOf("connect:$DEVICE_ADDRESS"), delegate.events)
+        scope.cancel()
+    }
+
+    @Test
+    fun secondTapDuringSettleSupersedesFirstAndOnlyLatestConnects() {
+        val delegate = FakeDeviceRepository(scanning = true)
+        val settleGate = CompletableDeferred<Unit>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val repository =
+            ServiceBackedDeviceRepository(
+                context = ApplicationProvider.getApplicationContext<Context>(),
+                delegate = delegate,
+                scope = scope,
+                scanToConnectSettler = { settleGate.await() },
+            )
+        delegate.events.clear()
+
+        repository.connect(DEVICE_ADDRESS)
+        repository.connect(SECOND_DEVICE_ADDRESS)
+
+        assertEquals(listOf("stopScan"), delegate.events)
+        settleGate.complete(Unit)
+        assertEquals(
+            listOf("stopScan", "connect:$SECOND_DEVICE_ADDRESS"),
+            delegate.events,
+        )
+        scope.cancel()
+    }
+
+    @Test
+    fun disconnectDuringSettleCancelsLateConnect() {
+        val delegate = FakeDeviceRepository(scanning = true)
+        val settleGate = CompletableDeferred<Unit>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val repository =
+            ServiceBackedDeviceRepository(
+                context = ApplicationProvider.getApplicationContext<Context>(),
+                delegate = delegate,
+                scope = scope,
+                scanToConnectSettler = { settleGate.await() },
+            )
+        delegate.events.clear()
+
+        repository.connect(DEVICE_ADDRESS)
+        repository.disconnect()
+        settleGate.complete(Unit)
+
+        assertTrue(delegate.events.contains("stopScan"))
+        assertTrue(delegate.events.contains("disconnect"))
+        assertFalse(delegate.events.any { it.startsWith("connect:") })
         scope.cancel()
     }
 
@@ -95,6 +172,14 @@ class ServiceBackedDeviceRepositoryTest {
                                 advertisesAe20 = true,
                                 likelyQs668 = true,
                             ),
+                            BleScanDevice(
+                                address = SECOND_DEVICE_ADDRESS,
+                                name = "CB08-B",
+                                rssi = -65,
+                                lastSeenElapsedMs = 2L,
+                                advertisesAe20 = true,
+                                likelyQs668 = true,
+                            ),
                         ),
                 ),
             )
@@ -125,6 +210,7 @@ class ServiceBackedDeviceRepositoryTest {
 
         override fun startScan() {
             events += "startScan"
+            scan.value = scan.value.copy(isScanning = true)
         }
 
         override fun stopScan() {
@@ -176,5 +262,6 @@ class ServiceBackedDeviceRepositoryTest {
 
     private companion object {
         const val DEVICE_ADDRESS = "D1:A1:C4:00:0A:5E"
+        const val SECOND_DEVICE_ADDRESS = "D1:A1:C4:00:0A:5F"
     }
 }
