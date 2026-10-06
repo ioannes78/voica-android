@@ -48,6 +48,7 @@ fun RecordingDetailScreen(
     onCancelCanonical: (String) -> Unit,
     deviceRecordingActive: Boolean,
     initialDestination: RecordingDetailDestination = RecordingDetailDestination.PLAYBACK,
+    navigationRequestToken: Int = 0,
     onDestinationChanged: (RecordingDetailDestination?) -> Unit = {},
 ) {
     RecordingDetailProductScreen(
@@ -75,6 +76,7 @@ fun RecordingDetailScreen(
         onCancelCanonical = onCancelCanonical,
         deviceRecordingActive = deviceRecordingActive,
         initialDestination = initialDestination,
+        navigationRequestToken = navigationRequestToken,
         onDestinationChanged = onDestinationChanged,
     )
 }
