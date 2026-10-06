@@ -22,6 +22,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PauseCircle
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Bluetooth
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Settings
@@ -29,6 +31,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -1242,23 +1245,29 @@ private fun GlobalPlaybackStatusBar(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .clickable(onClick = onOpen)
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                    .padding(horizontal = 8.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            TextButton(
+            val playing = snapshot.state == PlaybackState.PLAYING
+            IconButton(
                 onClick = {
-                    if (snapshot.state == PlaybackState.PLAYING) {
-                        onPause()
-                    } else {
-                        onPlay()
-                    }
+                    if (playing) onPause() else onPlay()
                 },
             ) {
-                Text(if (snapshot.state == PlaybackState.PLAYING) "暂停" else "播放")
+                Icon(
+                    imageVector = if (playing) Icons.Filled.PauseCircle else Icons.Filled.PlayArrow,
+                    contentDescription = if (playing) "暂停" else "播放",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
             }
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .clickable(onClick = onOpen)
+                        .padding(vertical = 3.dp),
+            ) {
                 Text(
                     recordingName ?: "当前录音",
                     style = MaterialTheme.typography.bodyMedium,
@@ -1272,7 +1281,9 @@ private fun GlobalPlaybackStatusBar(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Text("›", style = MaterialTheme.typography.titleLarge)
+            TextButton(onClick = onOpen) {
+                Text("›", style = MaterialTheme.typography.titleLarge)
+            }
         }
     }
 }
