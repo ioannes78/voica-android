@@ -1,11 +1,11 @@
 package io.github.ioannes78.voica
 
-import android.app.JobService
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.job.JobParameters
+import android.app.job.JobService
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -14,6 +14,7 @@ import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
+import java.util.concurrent.CancellationException
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -115,15 +116,19 @@ class ModelInstallUidtJobService : JobService() {
 
         val job =
             scope.launch {
-                val reschedule =
-                    try {
+                try {
+                    val reschedule =
                         runtime.orchestrator.executeDownload(operationId, generation) ==
                             ModelInstallExecutionOutcome.RETRY
-                    } catch (_: Throwable) {
-                        false
-                    }
-                runningJobs.remove(params.jobId)
-                jobFinished(params, reschedule)
+                    runningJobs.remove(params.jobId)
+                    jobFinished(params, reschedule)
+                } catch (cancelled: CancellationException) {
+                    runningJobs.remove(params.jobId)
+                    throw cancelled
+                } catch (_: Throwable) {
+                    runningJobs.remove(params.jobId)
+                    jobFinished(params, false)
+                }
             }
         runningJobs[params.jobId] = job
         return true

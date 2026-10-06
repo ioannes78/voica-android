@@ -5,6 +5,7 @@ import android.content.pm.ApplicationInfo
 import android.os.Build
 import androidx.core.content.pm.PackageInfoCompat
 import io.github.ioannes78.voica.model.DecodingModelCatalogProvider
+import io.github.ioannes78.voica.model.DefaultModelInstallBackend
 import io.github.ioannes78.voica.model.DefaultModelManager
 import io.github.ioannes78.voica.model.HttpsModelCatalogTextSource
 import io.github.ioannes78.voica.model.ModelCatalogCodec
@@ -129,20 +130,61 @@ fun createVoicaModelManager(
             )
         }
 
-    return DefaultModelManager(
-        bundledCatalog = bundledCatalog,
-        remoteCatalogProvider = productCatalogProvider,
-        environment =
-            ModelEnvironment(
-                runtimeId = SherpaRuntime.RUNTIME_ID,
-                runtimeVersion = SherpaRuntime.RUNTIME_VERSION,
-                abi = Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a",
-                sdkInt = Build.VERSION.SDK_INT,
-                appVersionCode = appVersionCode,
-            ),
-        storage = ModelStorage(File(application.noBackupFilesDir, "models")),
-        packageDirectory = File(application.cacheDir, "model-packages"),
-        useRegistry = useRegistry,
-        candidateValidator = AndroidIsolatedModelCandidateValidator(application),
+    val environment =
+        ModelEnvironment(
+            runtimeId = SherpaRuntime.RUNTIME_ID,
+            runtimeVersion = SherpaRuntime.RUNTIME_VERSION,
+            abi = Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a",
+            sdkInt = Build.VERSION.SDK_INT,
+            appVersionCode = appVersionCode,
+        )
+    val storage = ModelStorage(File(application.noBackupFilesDir, "models"))
+    val packageDirectory = File(application.cacheDir, "model-packages")
+    val candidateValidator = AndroidIsolatedModelCandidateValidator(application)
+
+    val baseManager =
+        DefaultModelManager(
+            bundledCatalog = bundledCatalog,
+            remoteCatalogProvider = productCatalogProvider,
+            environment = environment,
+            storage = storage,
+            packageDirectory = packageDirectory,
+            useRegistry = useRegistry,
+            candidateValidator = candidateValidator,
+        )
+    val installBackend =
+        DefaultModelInstallBackend(
+            modelManager = baseManager,
+            environment = environment,
+            storage = storage,
+            packageDirectory = packageDirectory,
+            useRegistry = useRegistry,
+            candidateValidator = candidateValidator,
+        )
+    val journalStore =
+        ModelInstallJournalStore(
+            File(application.noBackupFilesDir, "model-install-journal"),
+        )
+    val scheduler = AndroidModelInstallScheduler(application)
+    val orchestrator =
+        ModelInstallOrchestrator(
+            backend = installBackend,
+            journalStore = journalStore,
+            scheduler = scheduler,
+        )
+    val durableManager =
+        DurableAwareModelManager(
+            delegate = baseManager,
+            orchestrator = orchestrator,
+            backend = installBackend,
+            journalStore = journalStore,
+            scope = ModelInstallRuntime.processScope,
+        )
+
+    ModelInstallRuntime.register(
+        manager = durableManager,
+        orchestrator = orchestrator,
+        journalStore = journalStore,
     )
+    return durableManager
 }
