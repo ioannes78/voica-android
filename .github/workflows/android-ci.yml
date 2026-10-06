@@ -58,6 +58,8 @@ jobs:
           # Same-repository PRs and manual runs may populate the Gradle cache.
           # External fork PRs stay read-only so untrusted contributors cannot write shared cache state.
           cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+          # Encrypt persisted Configuration Cache state so it can be safely reused across hosted runners.
+          cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
 
       - name: Unit test and debug build
         run: >
