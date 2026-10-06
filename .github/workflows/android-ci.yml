@@ -52,7 +52,7 @@ jobs:
             "cmake;3.22.1"
 
       - name: Setup Gradle 9.6
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5.0.2
         with:
           gradle-version: "9.6.0"
           # Same-repository PRs and manual runs may populate the Gradle cache.
