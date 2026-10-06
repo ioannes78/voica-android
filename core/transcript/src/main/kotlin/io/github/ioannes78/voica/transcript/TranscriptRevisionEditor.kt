@@ -24,17 +24,7 @@ object TranscriptRevisionEditor {
         require(index in 0 until paragraphs.lastIndex) { "no next paragraph to merge" }
         val first = paragraphs[index]
         val second = paragraphs[index + 1]
-        val merged =
-            RevisionParagraphDraft(
-                text = joinForReading(first.text, second.text),
-                sourceAnchorRefs = (first.sourceAnchorRefs + second.sourceAnchorRefs).distinct(),
-                anchorStartSampleIndex = first.anchorStartSampleIndex ?: second.anchorStartSampleIndex,
-                anchorEndSampleIndexExclusive =
-                    second.anchorEndSampleIndexExclusive ?: first.anchorEndSampleIndexExclusive,
-                speakerId = first.speakerId.takeIf { it != null && it == second.speakerId },
-                timingQuality = RevisionTimingQuality.ANCHORED,
-                isUserModified = true,
-            )
+        val merged = mergeParagraphs(first, second)
         return buildList(paragraphs.size - 1) {
             addAll(paragraphs.subList(0, index))
             add(merged)
@@ -110,29 +100,67 @@ object TranscriptRevisionEditor {
         }
     }
 
+    /**
+     * Builds reading paragraphs without rewriting recognition text.
+     *
+     * ASR segments are timing/source anchors, not guaranteed reading paragraphs. This organizer:
+     * - joins adjacent short sentences from the same speaker into readable natural paragraphs;
+     * - still repairs an ASR boundary that cuts through one sentence;
+     * - never automatically crosses a speaker boundary;
+     * - splits an excessively long source paragraph only at textual boundaries when possible;
+     * - never invents token timestamps. A split without a verified token boundary keeps the source
+     *   anchor range and is explicitly marked [RevisionTimingQuality.APPROXIMATE].
+     */
     fun arrangeForReading(
         paragraphs: List<RevisionParagraphDraft>,
-        maxParagraphChars: Int = 220,
+        targetParagraphChars: Int = 220,
+        maxParagraphChars: Int = 320,
     ): List<RevisionParagraphDraft> {
-        require(maxParagraphChars >= 40)
-        if (paragraphs.size < 2) return paragraphs
-        var result = paragraphs
-        var index = 0
-        while (index < result.lastIndex) {
-            val current = result[index]
-            val next = result[index + 1]
-            val sameSpeaker = current.speakerId == next.speakerId
+        require(targetParagraphChars >= 40)
+        require(maxParagraphChars >= targetParagraphChars)
+        if (paragraphs.isEmpty()) return paragraphs
+
+        val expanded =
+            paragraphs.flatMap { paragraph ->
+                splitLongParagraph(paragraph, maxParagraphChars)
+            }
+        if (expanded.isEmpty()) return paragraphs
+
+        val arranged = mutableListOf<RevisionParagraphDraft>()
+        var current: RevisionParagraphDraft? = null
+
+        fun flush() {
+            current?.let(arranged::add)
+            current = null
+        }
+
+        for (next in expanded) {
+            val active = current
+            if (active == null) {
+                current = next
+                continue
+            }
+
+            val sameSpeaker = active.speakerId == next.speakerId
             val combinedLength =
-                current.text.trim().length + next.text.trim().length
-            val sentenceContinues =
-                current.text.trimEnd().lastOrNull() !in TERMINAL_PUNCTUATION
-            if (sameSpeaker && sentenceContinues && combinedLength <= maxParagraphChars) {
-                result = mergeWithNext(result, index)
+                active.text.trim().length + next.text.trim().length
+            val activeSentenceContinues =
+                active.text.trimEnd().lastOrNull() !in PARAGRAPH_BOUNDARY_PUNCTUATION
+            val shouldMerge =
+                sameSpeaker &&
+                    combinedLength <= maxParagraphChars &&
+                    (activeSentenceContinues || active.text.trim().length < targetParagraphChars)
+
+            if (shouldMerge) {
+                current = mergeParagraphs(active, next)
             } else {
-                index += 1
+                flush()
+                current = next
             }
         }
-        return result
+        flush()
+
+        return if (sameParagraphs(paragraphs, arranged)) paragraphs else arranged
     }
 
     fun editText(
@@ -165,6 +193,118 @@ object TranscriptRevisionEditor {
                 )
         }
     }
+
+    private fun mergeParagraphs(
+        first: RevisionParagraphDraft,
+        second: RevisionParagraphDraft,
+    ): RevisionParagraphDraft =
+        RevisionParagraphDraft(
+            text = joinForReading(first.text, second.text),
+            sourceAnchorRefs = (first.sourceAnchorRefs + second.sourceAnchorRefs).distinct(),
+            anchorStartSampleIndex = first.anchorStartSampleIndex ?: second.anchorStartSampleIndex,
+            anchorEndSampleIndexExclusive =
+                second.anchorEndSampleIndexExclusive ?: first.anchorEndSampleIndexExclusive,
+            speakerId = first.speakerId.takeIf { it == second.speakerId },
+            timingQuality =
+                if (
+                    first.timingQuality == RevisionTimingQuality.APPROXIMATE ||
+                    second.timingQuality == RevisionTimingQuality.APPROXIMATE
+                ) {
+                    RevisionTimingQuality.APPROXIMATE
+                } else {
+                    RevisionTimingQuality.ANCHORED
+                },
+            isUserModified = true,
+        )
+
+    private fun splitLongParagraph(
+        paragraph: RevisionParagraphDraft,
+        maxParagraphChars: Int,
+    ): List<RevisionParagraphDraft> {
+        val text = paragraph.text.trim()
+        if (text.length <= maxParagraphChars) {
+            return if (text == paragraph.text) listOf(paragraph) else listOf(paragraph.copy(text = text))
+        }
+
+        val sentenceUnits = splitSentenceUnits(text)
+        val chunks = mutableListOf<String>()
+        var current = ""
+
+        fun flushCurrent() {
+            if (current.isNotBlank()) chunks += current.trim()
+            current = ""
+        }
+
+        for (unit in sentenceUnits) {
+            if (unit.length > maxParagraphChars) {
+                flushCurrent()
+                chunks += hardSplit(unit, maxParagraphChars)
+                continue
+            }
+            if (current.isEmpty()) {
+                current = unit
+            } else if (current.length + unit.length <= maxParagraphChars) {
+                current = joinForReading(current, unit)
+            } else {
+                flushCurrent()
+                current = unit
+            }
+        }
+        flushCurrent()
+
+        if (chunks.size <= 1) return listOf(paragraph)
+        return chunks.map { chunk ->
+            paragraph.copy(
+                text = chunk,
+                timingQuality = RevisionTimingQuality.APPROXIMATE,
+                isUserModified = true,
+            )
+        }
+    }
+
+    private fun splitSentenceUnits(text: String): List<String> {
+        val result = mutableListOf<String>()
+        var start = 0
+        text.forEachIndexed { index, char ->
+            if (char in SENTENCE_SPLIT_PUNCTUATION) {
+                val unit = text.substring(start, index + 1).trim()
+                if (unit.isNotEmpty()) result += unit
+                start = index + 1
+            }
+        }
+        if (start < text.length) {
+            val tail = text.substring(start).trim()
+            if (tail.isNotEmpty()) result += tail
+        }
+        return result.ifEmpty { listOf(text) }
+    }
+
+    private fun hardSplit(
+        text: String,
+        maxParagraphChars: Int,
+    ): List<String> {
+        val result = mutableListOf<String>()
+        var remaining = text.trim()
+        while (remaining.length > maxParagraphChars) {
+            val minimumPreferred = maxParagraphChars / 2
+            val preferred =
+                (maxParagraphChars downTo minimumPreferred)
+                    .firstOrNull { index ->
+                        remaining.getOrNull(index - 1) in SECONDARY_SPLIT_PUNCTUATION
+                    }
+                    ?: maxParagraphChars
+            result += remaining.substring(0, preferred).trim()
+            remaining = remaining.substring(preferred).trim()
+        }
+        if (remaining.isNotEmpty()) result += remaining
+        return result
+    }
+
+    private fun sameParagraphs(
+        left: List<RevisionParagraphDraft>,
+        right: List<RevisionParagraphDraft>,
+    ): Boolean =
+        left.size == right.size && left.indices.all { index -> left[index] == right[index] }
 
     private fun joinForReading(
         left: String,
@@ -200,8 +340,12 @@ object TranscriptRevisionEditor {
             code in 0xF900..0xFAFF
     }
 
-    private val TERMINAL_PUNCTUATION =
-        setOf('。', '！', '？', '.', '!', '?')
+    private val PARAGRAPH_BOUNDARY_PUNCTUATION =
+        setOf('。', '！', '？', '.', '!', '?', '；', ';')
+    private val SENTENCE_SPLIT_PUNCTUATION =
+        setOf('。', '！', '？', '.', '!', '?', '；', ';')
+    private val SECONDARY_SPLIT_PUNCTUATION =
+        setOf('，', ',', '、', '：', ':')
     private val NO_LEADING_SPACE_PUNCTUATION =
         setOf('，', '。', '！', '？', '；', '：', '、', ',', '.', '!', '?', ';', ':', ')', ']', '}')
     private val OPENING_PUNCTUATION =
