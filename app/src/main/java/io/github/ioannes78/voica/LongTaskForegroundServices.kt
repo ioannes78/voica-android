@@ -12,6 +12,7 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import io.github.ioannes78.voica.ui.library.RecordingDetailDestination
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -257,6 +258,8 @@ private data class MediaProcessingTaskDisplay(
     val label: String,
     val progressPercent: Int?,
     val cancelAction: String?,
+    val recordingId: String?,
+    val destination: RecordingDetailDestination?,
 )
 
 /**
@@ -320,6 +323,12 @@ class MediaProcessingForegroundService : Service() {
                 intent.getIntExtra(EXTRA_PROGRESS_PERCENT, NO_PROGRESS)
                     .takeIf { it in 0..100 },
             cancelAction = intent.getStringExtra(EXTRA_CANCEL_ACTION)?.takeIf { it.isNotBlank() },
+            recordingId = intent.getStringExtra(EXTRA_RECORDING_ID)?.takeIf { it.isNotBlank() },
+            destination =
+                intent.getStringExtra(EXTRA_DESTINATION)
+                    ?.let { value ->
+                        RecordingDetailDestination.entries.firstOrNull { it.name == value }
+                    },
         )
 
     private fun publish() {
@@ -332,12 +341,23 @@ class MediaProcessingForegroundService : Service() {
             } else {
                 "${task.label} · 另有 ${activeTasks.size - 1} 个任务"
             }
+        val contentIntent =
+            if (task.recordingId != null && task.destination != null) {
+                recordingOpenPendingIntent(
+                    context = this,
+                    requestCode = REQUEST_CONTENT,
+                    recordingId = task.recordingId,
+                    destination = task.destination,
+                )
+            } else {
+                mainActivityPendingIntent(this, REQUEST_CONTENT)
+            }
         val builder =
             Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_sys_download)
                 .setContentTitle(task.title)
                 .setContentText(text)
-                .setContentIntent(mainActivityPendingIntent(this, REQUEST_CONTENT))
+                .setContentIntent(contentIntent)
                 .setOnlyAlertOnce(true)
                 .setOngoing(true)
                 .setCategory(Notification.CATEGORY_SERVICE)
@@ -382,6 +402,8 @@ class MediaProcessingForegroundService : Service() {
         private const val EXTRA_LABEL = "label"
         private const val EXTRA_PROGRESS_PERCENT = "progressPercent"
         private const val EXTRA_CANCEL_ACTION = "cancelAction"
+        private const val EXTRA_RECORDING_ID = "recordingId"
+        private const val EXTRA_DESTINATION = "destination"
         private const val NO_PROGRESS = -1
 
         fun acquire(
@@ -391,6 +413,8 @@ class MediaProcessingForegroundService : Service() {
             label: String,
             progressPercent: Int?,
             cancelAction: String?,
+            recordingId: String? = null,
+            destination: RecordingDetailDestination? = null,
         ) {
             require(taskId.isNotBlank())
             ContextCompat.startForegroundService(
@@ -403,6 +427,8 @@ class MediaProcessingForegroundService : Service() {
                     label = label,
                     progressPercent = progressPercent,
                     cancelAction = cancelAction,
+                    recordingId = recordingId,
+                    destination = destination,
                 ),
             )
         }
@@ -414,6 +440,8 @@ class MediaProcessingForegroundService : Service() {
             label: String,
             progressPercent: Int?,
             cancelAction: String?,
+            recordingId: String? = null,
+            destination: RecordingDetailDestination? = null,
         ) {
             require(taskId.isNotBlank())
             runCatching {
@@ -426,6 +454,8 @@ class MediaProcessingForegroundService : Service() {
                         label = label,
                         progressPercent = progressPercent,
                         cancelAction = cancelAction,
+                        recordingId = recordingId,
+                        destination = destination,
                     ),
                 )
             }
@@ -450,6 +480,8 @@ class MediaProcessingForegroundService : Service() {
             label: String,
             progressPercent: Int?,
             cancelAction: String?,
+            recordingId: String?,
+            destination: RecordingDetailDestination?,
         ): Intent =
             Intent(context, MediaProcessingForegroundService::class.java)
                 .setAction(action)
@@ -458,6 +490,8 @@ class MediaProcessingForegroundService : Service() {
                 .putExtra(EXTRA_LABEL, label)
                 .putExtra(EXTRA_PROGRESS_PERCENT, progressPercent ?: NO_PROGRESS)
                 .putExtra(EXTRA_CANCEL_ACTION, cancelAction)
+                .putExtra(EXTRA_RECORDING_ID, recordingId)
+                .putExtra(EXTRA_DESTINATION, destination?.name)
     }
 }
 
