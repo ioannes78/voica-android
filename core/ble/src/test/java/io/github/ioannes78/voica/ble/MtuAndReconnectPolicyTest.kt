@@ -24,11 +24,14 @@ class MtuAndReconnectPolicyTest {
     }
 
     @Test
-    fun reconnectStopsAfterThreeAttempts() {
+    fun reconnectUsesFastThenLowFrequencyRecovery() {
         assertEquals(1_000L, ReconnectPolicy.delayForAttempt(1))
         assertEquals(2_000L, ReconnectPolicy.delayForAttempt(2))
         assertEquals(4_000L, ReconnectPolicy.delayForAttempt(3))
-        assertNull(ReconnectPolicy.delayForAttempt(4))
+        assertEquals(8_000L, ReconnectPolicy.delayForAttempt(4))
+        assertEquals(15_000L, ReconnectPolicy.delayForAttempt(5))
+        assertEquals(30_000L, ReconnectPolicy.delayForAttempt(6))
+        assertEquals(30_000L, ReconnectPolicy.delayForAttempt(50))
         assertNull(ReconnectPolicy.delayForAttempt(0))
     }
 
