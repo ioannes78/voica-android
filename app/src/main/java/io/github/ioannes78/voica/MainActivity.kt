@@ -1,5 +1,6 @@
 package io.github.ioannes78.voica
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -25,6 +26,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppRecordingNavigation.consumeIntent(intent)
         setContent {
             val themeSettings by appContainer.themeSettingsStore.settings.collectAsState()
             VoicaTheme(settings = themeSettings) {
@@ -68,6 +70,12 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        AppRecordingNavigation.consumeIntent(intent)
     }
 
     override fun onStart() {
