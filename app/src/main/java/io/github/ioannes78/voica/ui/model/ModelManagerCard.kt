@@ -27,6 +27,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import io.github.ioannes78.voica.DurableModelInstallController
+import io.github.ioannes78.voica.ModelInstallJournalRecord
+import io.github.ioannes78.voica.ModelInstallOrigin
+import io.github.ioannes78.voica.ModelInstallPhase
 import io.github.ioannes78.voica.ModelUpdateController
 import io.github.ioannes78.voica.VoicaModelChannel
 import io.github.ioannes78.voica.model.ModelAvailability
@@ -34,6 +38,7 @@ import io.github.ioannes78.voica.model.ModelManager
 import io.github.ioannes78.voica.model.ModelOperationStatus
 import io.github.ioannes78.voica.model.ModelState
 import java.util.concurrent.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
 @Composable
@@ -42,11 +47,16 @@ fun ModelManagerCard(
     modelUpdateController: ModelUpdateController,
 ) {
     val scope = rememberCoroutineScope()
-    val application =
-        LocalContext.current.applicationContext as Application
-    val debugChannelEnabled =
-        VoicaModelChannel.isDebuggable(application)
+    val application = LocalContext.current.applicationContext as Application
+    val debugChannelEnabled = VoicaModelChannel.isDebuggable(application)
     val operations by modelManager.operations.collectAsState()
+    val durableController = modelManager as? DurableModelInstallController
+    val durableOperationsFlow =
+        remember(modelManager) {
+            durableController?.installOperations
+                ?: MutableStateFlow<Map<String, ModelInstallJournalRecord>>(emptyMap())
+        }
+    val durableOperations by durableOperationsFlow.collectAsState()
     val updateSettings by modelUpdateController.settings.collectAsState()
     val updateState by modelUpdateController.state.collectAsState()
     var models by remember { mutableStateOf<List<ModelAvailability>>(emptyList()) }
@@ -68,7 +78,7 @@ fun ModelManagerCard(
             }
     }
 
-    LaunchedEffect(modelManager, operations) {
+    LaunchedEffect(modelManager, operations, durableOperations) {
         reload()
     }
 
@@ -77,10 +87,7 @@ fun ModelManagerCard(
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text(
-                "本地模型",
-                style = MaterialTheme.typography.titleMedium,
-            )
+            Text("本地模型", style = MaterialTheme.typography.titleMedium)
             Text(
                 "APK 仅内置 Silero VAD 基线；ASR、标点、高质量与说话人模型由受控模型通道提供。",
                 style = MaterialTheme.typography.bodySmall,
@@ -90,24 +97,18 @@ fun ModelManagerCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                TextButton(
-                    onClick = { updateSettingsExpanded = !updateSettingsExpanded },
-                ) {
+                TextButton(onClick = { updateSettingsExpanded = !updateSettingsExpanded }) {
                     Text(if (updateSettingsExpanded) "收起更新设置" else "更新设置")
                 }
                 if (debugChannelEnabled) {
-                    TextButton(
-                        onClick = { debugExpanded = !debugExpanded },
-                    ) {
+                    TextButton(onClick = { debugExpanded = !debugExpanded }) {
                         Text(if (debugExpanded) "收起开发选项" else "开发选项")
                     }
                 }
             }
 
             if (debugChannelEnabled && debugExpanded) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
                         "Stage 8/9/13A 候选模型验收（Debug）",
                         style = MaterialTheme.typography.titleSmall,
@@ -120,13 +121,10 @@ fun ModelManagerCard(
                         onClick = {
                             VoicaModelChannel.setDebugManifestUrl(
                                 application = application,
-                                manifestUrl =
-                                    VoicaModelChannel.STAGE13A_ALL_CANDIDATE_MANIFEST_URL,
+                                manifestUrl = VoicaModelChannel.STAGE13A_ALL_CANDIDATE_MANIFEST_URL,
                             )
-                            debugManifestUrl =
-                                VoicaModelChannel.STAGE13A_ALL_CANDIDATE_MANIFEST_URL
-                            message =
-                                "Stage 13A 候选模型清单已保存；完全退出并重新打开 App 后生效"
+                            debugManifestUrl = VoicaModelChannel.STAGE13A_ALL_CANDIDATE_MANIFEST_URL
+                            message = "Stage 13A 候选模型清单已保存；完全退出并重新打开 App 后生效"
                         },
                     ) {
                         Text("使用 Stage 13A 全量候选")
@@ -138,23 +136,17 @@ fun ModelManagerCard(
                         singleLine = true,
                         label = { Text("候选 production.json URL") },
                     )
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Button(
                             onClick = {
                                 try {
                                     VoicaModelChannel.setDebugManifestUrl(
                                         application = application,
-                                        manifestUrl =
-                                            debugManifestUrl.trim().takeIf { it.isNotEmpty() },
+                                        manifestUrl = debugManifestUrl.trim().takeIf { it.isNotEmpty() },
                                     )
                                     debugManifestUrl =
-                                        VoicaModelChannel
-                                            .configuredDebugManifestUrl(application)
-                                            .orEmpty()
-                                    message =
-                                        "候选模型清单已保存；完全退出并重新打开 App 后生效"
+                                        VoicaModelChannel.configuredDebugManifestUrl(application).orEmpty()
+                                    message = "候选模型清单已保存；完全退出并重新打开 App 后生效"
                                 } catch (error: Exception) {
                                     message =
                                         "候选模型清单无效：" +
@@ -171,16 +163,14 @@ fun ModelManagerCard(
                                     manifestUrl = null,
                                 )
                                 debugManifestUrl = ""
-                                message =
-                                    "已恢复 production；完全退出并重新打开 App 后生效"
+                                message = "已恢复 production；完全退出并重新打开 App 后生效"
                             },
                         ) {
                             Text("恢复 production")
                         }
                     }
                     Text(
-                        "下次启动清单：" +
-                            VoicaModelChannel.resolveManifestUrl(application),
+                        "下次启动清单：" + VoicaModelChannel.resolveManifestUrl(application),
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -193,36 +183,34 @@ fun ModelManagerCard(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("自动检查模型更新")
-                    Text(
-                        "默认开启；仅检查 production 清单。",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                Switch(
-                    checked = updateSettings.automaticChecksEnabled,
-                    onCheckedChange =
-                        modelUpdateController::setAutomaticChecksEnabled,
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Silero 小模型自动升级")
-                    Text(
-                        "自动下载、校验、运行库 smoke test 后切换；ASR、标点、SenseVoice 与说话人模型仍需手动确认。",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
+                        Text(
+                            "默认开启；仅检查 production 清单。",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                     Switch(
-                        checked =
-                            updateSettings.automaticSmallModelUpdatesEnabled,
-                        onCheckedChange =
-                            modelUpdateController::setAutomaticSmallModelUpdatesEnabled,
+                        checked = updateSettings.automaticChecksEnabled,
+                        onCheckedChange = modelUpdateController::setAutomaticChecksEnabled,
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Silero 小模型自动升级")
+                        Text(
+                            "自动下载、校验、运行库 smoke test 后切换；ASR、标点、SenseVoice 与说话人模型仍需手动确认。",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Switch(
+                        checked = updateSettings.automaticSmallModelUpdatesEnabled,
+                        onCheckedChange = modelUpdateController::setAutomaticSmallModelUpdatesEnabled,
                     )
                 }
             }
+
             Button(
                 enabled = !checking && !updateState.checking,
                 onClick = {
@@ -233,8 +221,7 @@ fun ModelManagerCard(
                             modelUpdateController.checkForUpdates(force = true)
                             reload()
                             val autoUpdated =
-                                modelUpdateController.state.value
-                                    .automaticallyUpdatedModelIds
+                                modelUpdateController.state.value.automaticallyUpdatedModelIds
                             message =
                                 if (autoUpdated.isEmpty()) {
                                     "模型更新检查完成"
@@ -253,73 +240,58 @@ fun ModelManagerCard(
                     }
                 },
             ) {
-                Text(
-                    if (checking || updateState.checking) {
-                        "检查中…"
-                    } else {
-                        "检查模型更新"
-                    },
-                )
+                Text(if (checking || updateState.checking) "检查中…" else "检查模型更新")
             }
 
             message?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall)
             }
-
             updateState.errorMessage?.let { error ->
                 if (message == null) {
                     Text(
-                        "自动检查失败：" + error,
+                        "自动检查失败：$error",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
             }
 
             models.forEach { availability ->
+                val descriptor = availability.descriptor
                 ModelAvailabilityRow(
                     availability = availability,
-                    operation = operations[availability.descriptor.modelId],
-                    onInstall = {
-                        val descriptor = availability.descriptor
+                    operation = operations[descriptor.modelId],
+                    durableOperation = durableOperations[descriptor.modelId],
+                    onInstallAndActivate = {
                         scope.launch {
                             try {
-                                modelManager.install(
-                                    modelId = descriptor.modelId,
-                                    version = descriptor.version,
-                                    revision = descriptor.revision,
-                                )
+                                if (durableController != null) {
+                                    durableController.installAndActivate(
+                                        modelId = descriptor.modelId,
+                                        version = descriptor.version,
+                                        revision = descriptor.revision,
+                                        origin = ModelInstallOrigin.MANUAL,
+                                    )
+                                } else {
+                                    modelManager.install(
+                                        modelId = descriptor.modelId,
+                                        version = descriptor.version,
+                                        revision = descriptor.revision,
+                                    )
+                                    modelManager.confirmInstalledVersion(
+                                        modelId = descriptor.modelId,
+                                        version = descriptor.version,
+                                        revision = descriptor.revision,
+                                    )
+                                }
                                 reload()
-                                message =
-                                    descriptor.displayName +
-                                        " 已下载并校验，等待运行库验证后启用"
-                            } catch (cancelled: CancellationException) {
-                                throw cancelled
-                            } catch (error: Exception) {
-                                message =
-                                    descriptor.displayName +
-                                        " 下载失败：" +
-                                        (error.message ?: error::class.java.simpleName)
-                            }
-                        }
-                    },
-                    onActivate = {
-                        val descriptor = availability.descriptor
-                        scope.launch {
-                            try {
-                                modelManager.confirmInstalledVersion(
-                                    modelId = descriptor.modelId,
-                                    version = descriptor.version,
-                                    revision = descriptor.revision,
-                                )
-                                reload()
-                                message = descriptor.displayName + " 验证成功并已启用"
+                                message = descriptor.displayName + " 已下载、验证并启用"
                             } catch (cancelled: CancellationException) {
                                 throw cancelled
                             } catch (error: Exception) {
                                 reload()
                                 message =
                                     descriptor.displayName +
-                                        " 运行库验证失败：" +
+                                        " 安装未完成：" +
                                         (error.message ?: error::class.java.simpleName)
                             }
                         }
@@ -327,16 +299,12 @@ fun ModelManagerCard(
                     onRollback = {
                         scope.launch {
                             try {
-                                modelManager.rollback(
-                                    availability.descriptor.modelId,
-                                )
+                                modelManager.rollback(descriptor.modelId)
                                 reload()
-                                message =
-                                    availability.descriptor.displayName +
-                                        " 已回滚"
+                                message = descriptor.displayName + " 已回滚"
                             } catch (error: Exception) {
                                 message =
-                                    availability.descriptor.displayName +
+                                    descriptor.displayName +
                                         " 回滚失败：" +
                                         (error.message ?: error::class.java.simpleName)
                             }
@@ -349,17 +317,15 @@ fun ModelManagerCard(
                             scope.launch {
                                 try {
                                     modelManager.removeDownloadedVersion(
-                                        modelId = availability.descriptor.modelId,
+                                        modelId = descriptor.modelId,
                                         version = version,
                                         revision = revision,
                                     )
                                     reload()
-                                    message =
-                                        availability.descriptor.displayName +
-                                            " 已删除"
+                                    message = descriptor.displayName + " 已删除"
                                 } catch (error: Exception) {
                                     message =
-                                        availability.descriptor.displayName +
+                                        descriptor.displayName +
                                             " 删除失败：" +
                                             (error.message ?: error::class.java.simpleName)
                                 }
@@ -368,9 +334,7 @@ fun ModelManagerCard(
                     },
                     onCancel = {
                         scope.launch {
-                            modelManager.cancelInstall(
-                                availability.descriptor.modelId,
-                            )
+                            modelManager.cancelInstall(descriptor.modelId)
                         }
                     },
                 )
@@ -383,8 +347,8 @@ fun ModelManagerCard(
 private fun ModelAvailabilityRow(
     availability: ModelAvailability,
     operation: ModelOperationStatus?,
-    onInstall: () -> Unit,
-    onActivate: () -> Unit,
+    durableOperation: ModelInstallJournalRecord?,
+    onInstallAndActivate: () -> Unit,
     onRollback: () -> Unit,
     onDelete: () -> Unit,
     onCancel: () -> Unit,
@@ -396,21 +360,30 @@ private fun ModelAvailabilityRow(
             availability.activeRevision != availability.availableRevision
     val hasDownloadedInstalledVersion =
         availability.installedRevision != null &&
-            (
-                availability.builtinRevision == null ||
-                    availability.installedRevision != availability.builtinRevision
-                )
+            (availability.builtinRevision == null ||
+                availability.installedRevision != availability.builtinRevision)
     val canRollback =
         availability.activeRevision != null &&
-            (
-                availability.previousRevision != null ||
-                    (
-                        availability.builtinRevision != null &&
-                            availability.activeRevision != availability.builtinRevision
-                        )
-                )
-    val retainedDownloadedBytes = operation?.downloadedBytes
-    val retainedTotalBytes = operation?.totalBytes
+            (availability.previousRevision != null ||
+                (availability.builtinRevision != null &&
+                    availability.activeRevision != availability.builtinRevision))
+    val durableVisible =
+        durableOperation != null &&
+            durableOperation.phase != ModelInstallPhase.READY &&
+            durableOperation.phase != ModelInstallPhase.CANCELLED
+    val durableRunning = durableVisible && durableOperation?.phase?.terminal == false
+    val durableAttention =
+        durableOperation?.requiresUserResume == true ||
+            durableOperation?.phase == ModelInstallPhase.FAILED_RUNTIME ||
+            durableOperation?.phase == ModelInstallPhase.FAILED_INTEGRITY ||
+            durableOperation?.phase == ModelInstallPhase.FAILED_CONFIGURATION
+    val sameDurableCandidate =
+        durableOperation?.snapshot?.descriptor?.let { frozen ->
+            frozen.version == descriptor.version && frozen.revision == descriptor.revision
+        } == true
+    val legacyRunning =
+        operation?.state == ModelState.DOWNLOADING ||
+            operation?.state == ModelState.VERIFYING
     var expanded by remember(descriptor.modelId) { mutableStateOf(false) }
 
     Column(
@@ -425,16 +398,26 @@ private fun ModelAvailabilityRow(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    descriptor.displayName,
-                    style = MaterialTheme.typography.titleSmall,
-                )
+                Text(descriptor.displayName, style = MaterialTheme.typography.titleSmall)
                 Text(
                     (availability.activeVersion ?: "未启用") +
                         " · " + modelStateText(availability.state),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (durableVisible && durableOperation != null) {
+                    Text(
+                        durableOperation.snapshot.descriptor.version +
+                            " · " + durablePhaseText(durableOperation),
+                        style = MaterialTheme.typography.bodySmall,
+                        color =
+                            if (durableAttention) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.primary
+                            },
+                    )
+                }
             }
             Text(
                 if (expanded) "收起" else "详情",
@@ -443,25 +426,19 @@ private fun ModelAvailabilityRow(
             )
         }
 
-        if (!expanded &&
-            operation?.state != ModelState.DOWNLOADING &&
-            operation?.state != ModelState.VERIFYING
-        ) {
+        if (!expanded && !durableRunning && !durableAttention && !legacyRunning) {
             return@Column
         }
 
         Text(
-            buildString {
-                append("可用版本 ")
-                append(availability.availableVersion ?: descriptor.version)
-                append(" · 当前 ")
-                append(availability.activeVersion ?: "未启用")
-            },
+            "可用版本 " +
+                (availability.availableVersion ?: descriptor.version) +
+                " · 当前 " +
+                (availability.activeVersion ?: "未启用"),
             style = MaterialTheme.typography.bodySmall,
         )
 
-        if (
-            availability.builtinRevision != null &&
+        if (availability.builtinRevision != null &&
             availability.activeRevision == availability.builtinRevision &&
             !availability.updateAvailable
         ) {
@@ -471,107 +448,27 @@ private fun ModelAvailabilityRow(
             )
         }
 
-        if (
-            operation?.state == ModelState.LOAD_FAILED ||
-            operation?.state == ModelState.CORRUPTED
-        ) {
-            operation.errorMessage?.takeIf { it.isNotBlank() }?.let { error ->
-                Text(
-                    "验证错误：" + error,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-        }
-
-        if (downloadedCandidateReady) {
-            Text(
-                "已下载并校验 · 尚未启用",
-                style = MaterialTheme.typography.bodySmall,
+        if (durableVisible && durableOperation != null) {
+            DurableOperationSection(
+                record = durableOperation,
+                sameCandidateAsCatalog = sameDurableCandidate,
+                hasDownloadedCandidate = downloadedCandidateReady,
+                onInstallAndActivate = onInstallAndActivate,
+                onDelete = onDelete,
+                onCancel = onCancel,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Button(onClick = onActivate) {
-                    Text("验证并启用")
-                }
-                OutlinedButton(onClick = onDelete) {
-                    Text("删除候选")
-                }
-            }
-        } else if (availability.updateAvailable) {
-            Text(
-                "有新版本可用",
-                style = MaterialTheme.typography.bodySmall,
+        } else {
+            LegacyOrStableModelActions(
+                availability = availability,
+                operation = operation,
+                downloadedCandidateReady = downloadedCandidateReady,
+                onInstallAndActivate = onInstallAndActivate,
+                onDelete = onDelete,
+                onCancel = onCancel,
             )
         }
 
-        if (operation?.state == ModelState.VERIFYING) {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            Text(
-                "正在后台校验、解包并准备模型…",
-                style = MaterialTheme.typography.bodySmall,
-            )
-        } else if (operation?.state == ModelState.DOWNLOADING) {
-            val downloaded = operation.downloadedBytes
-            val total = operation.totalBytes
-            if (downloaded != null && total != null && total > 0L) {
-                LinearProgressIndicator(
-                    progress = { downloaded.toFloat() / total.toFloat() },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Text(
-                    (downloaded * 100L / total).toString() + "% · " +
-                        formatBytes(downloaded) + " / " + formatBytes(total),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            } else {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            }
-            OutlinedButton(onClick = onCancel) {
-                Text("取消下载")
-            }
-        } else if (
-            operation?.state == ModelState.LOAD_FAILED &&
-            retainedDownloadedBytes != null &&
-            retainedTotalBytes != null &&
-            retainedDownloadedBytes > 0L
-        ) {
-            Text(
-                "已保留 " +
-                    formatBytes(retainedDownloadedBytes) +
-                    " / " +
-                    formatBytes(retainedTotalBytes) +
-                    "，可继续下载",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Button(onClick = onInstall) {
-                Text("继续下载")
-            }
-        } else if (
-            !downloadedCandidateReady &&
-            descriptor.downloadUrl != null &&
-            (
-                availability.state == ModelState.NOT_INSTALLED ||
-                    availability.state == ModelState.LOAD_FAILED ||
-                    availability.state == ModelState.CORRUPTED ||
-                    availability.updateAvailable
-                )
-        ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Button(onClick = onInstall) {
-                    Text(
-                        when {
-                            availability.state == ModelState.LOAD_FAILED ||
-                                availability.state == ModelState.CORRUPTED ->
-                                "重试下载"
-                            availability.updateAvailable -> "下载更新"
-                            else -> "下载"
-                        },
-                    )
-                }
-            }
-        }
-
-        if (!downloadedCandidateReady &&
+        if (!durableRunning && !durableVisible &&
             (canRollback || hasDownloadedInstalledVersion)
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -590,13 +487,213 @@ private fun ModelAvailabilityRow(
     }
 }
 
+@Composable
+private fun DurableOperationSection(
+    record: ModelInstallJournalRecord,
+    sameCandidateAsCatalog: Boolean,
+    hasDownloadedCandidate: Boolean,
+    onInstallAndActivate: () -> Unit,
+    onDelete: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    record.lastFailureMessage?.takeIf { it.isNotBlank() }?.let { error ->
+        Text(
+            error,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+        )
+    }
+
+    when (record.phase) {
+        ModelInstallPhase.DOWNLOAD -> {
+            val total = record.totalBytes
+            if (total != null && total > 0L) {
+                LinearProgressIndicator(
+                    progress = { record.downloadedBytes.toFloat() / total.toFloat() },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    (record.downloadedBytes * 100L / total).toString() + "% · " +
+                        formatBytes(record.downloadedBytes) + " / " + formatBytes(total),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            } else {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+            OutlinedButton(onClick = onCancel) {
+                Text("取消安装")
+            }
+        }
+
+        ModelInstallPhase.REQUESTED,
+        ModelInstallPhase.VERIFY,
+        ModelInstallPhase.EXTRACT,
+        ModelInstallPhase.FILE_VERIFY,
+        ModelInstallPhase.RUNTIME_VALIDATE,
+        ModelInstallPhase.ATOMIC_ACTIVATE -> {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Text(durablePhaseText(record), style = MaterialTheme.typography.bodySmall)
+            OutlinedButton(onClick = onCancel) {
+                Text("取消安装")
+            }
+        }
+
+        ModelInstallPhase.INTERRUPTED,
+        ModelInstallPhase.FAILED_RECOVERABLE -> {
+            if (sameCandidateAsCatalog) {
+                Button(onClick = onInstallAndActivate) {
+                    Text("继续安装")
+                }
+            } else {
+                Text(
+                    "未完成任务对应 ${record.snapshot.descriptor.version}；当前清单版本已变化。请先取消旧任务，再安装当前版本。",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            OutlinedButton(onClick = onCancel) {
+                Text("取消旧任务")
+            }
+        }
+
+        ModelInstallPhase.FAILED_RUNTIME -> {
+            if (sameCandidateAsCatalog) {
+                Button(onClick = onInstallAndActivate) {
+                    Text("重新验证")
+                }
+            }
+            if (hasDownloadedCandidate) {
+                OutlinedButton(onClick = onDelete) {
+                    Text("删除候选")
+                }
+            }
+        }
+
+        ModelInstallPhase.FAILED_INTEGRITY,
+        ModelInstallPhase.FAILED_CONFIGURATION -> {
+            if (sameCandidateAsCatalog) {
+                Button(onClick = onInstallAndActivate) {
+                    Text("重新下载安装")
+                }
+            }
+        }
+
+        ModelInstallPhase.READY,
+        ModelInstallPhase.CANCELLED -> Unit
+    }
+}
+
+@Composable
+private fun LegacyOrStableModelActions(
+    availability: ModelAvailability,
+    operation: ModelOperationStatus?,
+    downloadedCandidateReady: Boolean,
+    onInstallAndActivate: () -> Unit,
+    onDelete: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    val descriptor = availability.descriptor
+    if (operation?.state == ModelState.VERIFYING) {
+        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        Text("正在验证并启用模型…", style = MaterialTheme.typography.bodySmall)
+        OutlinedButton(onClick = onCancel) {
+            Text("取消安装")
+        }
+        return
+    }
+    if (operation?.state == ModelState.DOWNLOADING) {
+        val downloaded = operation.downloadedBytes
+        val total = operation.totalBytes
+        if (downloaded != null && total != null && total > 0L) {
+            LinearProgressIndicator(
+                progress = { downloaded.toFloat() / total.toFloat() },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                (downloaded * 100L / total).toString() + "% · " +
+                    formatBytes(downloaded) + " / " + formatBytes(total),
+                style = MaterialTheme.typography.bodySmall,
+            )
+        } else {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+        OutlinedButton(onClick = onCancel) {
+            Text("取消安装")
+        }
+        return
+    }
+
+    if (operation?.state == ModelState.LOAD_FAILED ||
+        operation?.state == ModelState.CORRUPTED
+    ) {
+        operation.errorMessage?.takeIf { it.isNotBlank() }?.let { error ->
+            Text(
+                "安装错误：$error",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+    }
+
+    if (downloadedCandidateReady) {
+        Text("候选模型已下载，尚未启用", style = MaterialTheme.typography.bodySmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Button(onClick = onInstallAndActivate) {
+                Text("验证并启用")
+            }
+            OutlinedButton(onClick = onDelete) {
+                Text("删除候选")
+            }
+        }
+        return
+    }
+
+    if (descriptor.downloadUrl != null &&
+        (availability.state == ModelState.NOT_INSTALLED ||
+            availability.state == ModelState.LOAD_FAILED ||
+            availability.state == ModelState.CORRUPTED ||
+            availability.updateAvailable)
+    ) {
+        if (availability.updateAvailable) {
+            Text("有新版本可用", style = MaterialTheme.typography.bodySmall)
+        }
+        Button(onClick = onInstallAndActivate) {
+            Text(
+                when {
+                    availability.updateAvailable -> "下载并启用更新"
+                    availability.state == ModelState.LOAD_FAILED ||
+                        availability.state == ModelState.CORRUPTED -> "重新下载安装"
+                    else -> "下载并启用"
+                },
+            )
+        }
+    }
+}
+
+private fun durablePhaseText(record: ModelInstallJournalRecord): String =
+    when (record.phase) {
+        ModelInstallPhase.REQUESTED -> "等待开始"
+        ModelInstallPhase.DOWNLOAD -> "正在下载"
+        ModelInstallPhase.VERIFY -> "正在校验下载文件"
+        ModelInstallPhase.EXTRACT -> "正在解压模型"
+        ModelInstallPhase.FILE_VERIFY -> "正在校验模型文件"
+        ModelInstallPhase.RUNTIME_VALIDATE -> "正在验证运行库"
+        ModelInstallPhase.ATOMIC_ACTIVATE -> "正在启用模型"
+        ModelInstallPhase.READY -> "已启用"
+        ModelInstallPhase.INTERRUPTED -> "安装已中断 · 可继续"
+        ModelInstallPhase.FAILED_RECOVERABLE -> "安装暂停 · 可继续"
+        ModelInstallPhase.FAILED_INTEGRITY -> "文件校验失败"
+        ModelInstallPhase.FAILED_RUNTIME -> "运行库验证失败"
+        ModelInstallPhase.FAILED_CONFIGURATION -> "安装配置失败"
+        ModelInstallPhase.CANCELLED -> "已取消"
+    }
+
 private fun modelStateText(state: ModelState): String =
     when (state) {
         ModelState.NOT_INSTALLED -> "未安装"
         ModelState.DOWNLOADING -> "下载中"
-        ModelState.VERIFYING -> "校验中"
+        ModelState.VERIFYING -> "验证中"
         ModelState.INSTALLED -> "已安装"
-        ModelState.LOAD_FAILED -> "加载失败"
+        ModelState.LOAD_FAILED -> "安装未完成"
         ModelState.CORRUPTED -> "文件损坏"
         ModelState.INCOMPATIBLE -> "与当前 App/运行库不兼容"
     }

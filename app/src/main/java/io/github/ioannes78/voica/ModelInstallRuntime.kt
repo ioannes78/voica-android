@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 interface DurableModelInstallController {
+    val installOperations: StateFlow<Map<String, ModelInstallJournalRecord>>
+
     suspend fun installAndActivate(
         modelId: String,
         version: String,
@@ -63,8 +65,11 @@ class DurableAwareModelManager(
     private val journalStore: ModelInstallJournalStore,
     scope: CoroutineScope,
 ) : ModelManager by delegate, DurableModelInstallController {
+    override val installOperations: StateFlow<Map<String, ModelInstallJournalRecord>> =
+        orchestrator.operations
+
     private val durableOperations =
-        orchestrator.operations.map(::toLegacyOperationMap)
+        installOperations.map(::toLegacyOperationMap)
 
     override val operations: StateFlow<Map<String, ModelOperationStatus>> =
         combine(delegate.operations, durableOperations) { legacy, durable ->
@@ -72,7 +77,7 @@ class DurableAwareModelManager(
         }.stateIn(
             scope = scope,
             started = SharingStarted.Eagerly,
-            initialValue = delegate.operations.value + toLegacyOperationMap(orchestrator.operations.value),
+            initialValue = delegate.operations.value + toLegacyOperationMap(installOperations.value),
         )
 
     override suspend fun install(
@@ -110,12 +115,23 @@ class DurableAwareModelManager(
         origin: ModelInstallOrigin,
     ) {
         val operationId =
-            orchestrator.requestInstall(
-                modelId = modelId,
-                version = version,
-                revision = revision,
-                origin = origin,
-            )
+            try {
+                orchestrator.requestInstall(
+                    modelId = modelId,
+                    version = version,
+                    revision = revision,
+                    origin = origin,
+                )
+            } catch (error: IllegalStateException) {
+                if (origin == ModelInstallOrigin.AUTO_SMALL &&
+                    error.message.orEmpty().contains("another model install is already active")
+                ) {
+                    throw ModelInstallUserResumeRequiredException(
+                        "已有未完成的模型安装，需要用户处理后再自动更新",
+                    )
+                }
+                throw error
+            }
         orchestrator.awaitReady(operationId)
     }
 
