@@ -2,6 +2,7 @@ package io.github.ioannes78.voica.transcript
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -148,6 +149,99 @@ class TranscriptRevisionEditorTest {
         assertEquals("speaker-2", result[1].speakerId)
         assertEquals("补充内容。", result[2].text)
         assertNull(result[2].speakerId)
+    }
+
+    @Test
+    fun arrangeForReadingGroupsCompleteSentencesFromSameSpeaker() {
+        val source =
+            listOf(
+                paragraph("今天介绍一下项目情况。", listOf("SEGMENT:1"), 0, 10_000, "speaker-1"),
+                paragraph("项目从今年三月份开始。", listOf("SEGMENT:2"), 10_000, 20_000, "speaker-1"),
+                paragraph("当前已经完成第一阶段。", listOf("SEGMENT:3"), 20_000, 30_000, "speaker-1"),
+            )
+
+        val result = TranscriptRevisionEditor.arrangeForReading(source)
+
+        assertEquals(1, result.size)
+        assertEquals(
+            "今天介绍一下项目情况。项目从今年三月份开始。当前已经完成第一阶段。",
+            result.single().text,
+        )
+        assertEquals(listOf("SEGMENT:1", "SEGMENT:2", "SEGMENT:3"), result.single().sourceAnchorRefs)
+        assertEquals(0L, result.single().anchorStartSampleIndex)
+        assertEquals(30_000L, result.single().anchorEndSampleIndexExclusive)
+        assertEquals(RevisionTimingQuality.ANCHORED, result.single().timingQuality)
+    }
+
+    @Test
+    fun arrangeForReadingNeverMergesAcrossSpeakerBoundary() {
+        val source =
+            listOf(
+                paragraph("我们先介绍产品。", listOf("SEGMENT:1"), 0, 10_000, "speaker-1"),
+                paragraph("我补充一下市场情况。", listOf("SEGMENT:2"), 10_000, 20_000, "speaker-2"),
+            )
+
+        val result = TranscriptRevisionEditor.arrangeForReading(source)
+
+        assertSame(source, result)
+        assertEquals(2, result.size)
+    }
+
+    @Test
+    fun arrangeForReadingMergesAdjacentUnlabelledSentences() {
+        val source =
+            listOf(
+                paragraph("第一句。", listOf("SEGMENT:1"), 0, 10_000, null),
+                paragraph("第二句。", listOf("SEGMENT:2"), 10_000, 20_000, null),
+            )
+
+        val result = TranscriptRevisionEditor.arrangeForReading(source)
+
+        assertEquals(1, result.size)
+        assertEquals("第一句。第二句。", result.single().text)
+        assertNull(result.single().speakerId)
+    }
+
+    @Test
+    fun arrangeForReadingSplitsVeryLongSourceAtSentenceBoundariesWithoutInventingTime() {
+        val first = "第一部分" + "甲".repeat(28) + "。"
+        val second = "第二部分" + "乙".repeat(28) + "。"
+        val third = "第三部分" + "丙".repeat(28) + "。"
+        val text = first + second + third
+        val source =
+            listOf(
+                paragraph(text, listOf("SEGMENT:1"), 100L, 900L, "speaker-1"),
+            )
+
+        val result =
+            TranscriptRevisionEditor.arrangeForReading(
+                paragraphs = source,
+                targetParagraphChars = 40,
+                maxParagraphChars = 60,
+            )
+
+        assertEquals(3, result.size)
+        assertEquals(text, result.joinToString(separator = "") { it.text })
+        result.forEach { paragraph ->
+            assertEquals(listOf("SEGMENT:1"), paragraph.sourceAnchorRefs)
+            assertEquals(100L, paragraph.anchorStartSampleIndex)
+            assertEquals(900L, paragraph.anchorEndSampleIndexExclusive)
+            assertEquals(RevisionTimingQuality.APPROXIMATE, paragraph.timingQuality)
+            assertTrue(paragraph.isUserModified)
+        }
+    }
+
+    @Test
+    fun arrangeForReadingReturnsOriginalListWhenNoStructureChanges() {
+        val source =
+            listOf(
+                paragraph("第一位发言人的完整段落。", listOf("SEGMENT:1"), 0, 10_000, "speaker-1"),
+                paragraph("第二位发言人的完整段落。", listOf("SEGMENT:2"), 10_000, 20_000, "speaker-2"),
+            )
+
+        val result = TranscriptRevisionEditor.arrangeForReading(source)
+
+        assertSame(source, result)
     }
 
     private fun paragraph(
