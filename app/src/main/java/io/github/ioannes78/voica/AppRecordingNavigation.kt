@@ -61,18 +61,25 @@ internal fun recordingOpenIntent(
         .putExtra(EXTRA_RECORDING_ID, recordingId)
         .putExtra(EXTRA_DESTINATION, destination.name)
 
-internal fun parseRecordingOpenIntent(intent: Intent?): RecordingOpenTarget? {
-    if (intent?.action != ACTION_OPEN_RECORDING) return null
-    val recordingId =
-        intent.getStringExtra(EXTRA_RECORDING_ID)
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() }
-            ?: return null
-    val destinationName = intent.getStringExtra(EXTRA_DESTINATION) ?: return null
+internal fun parseRecordingOpenIntent(intent: Intent?): RecordingOpenTarget? =
+    parseRecordingOpenTarget(
+        action = intent?.action,
+        recordingId = intent?.getStringExtra(EXTRA_RECORDING_ID),
+        destinationName = intent?.getStringExtra(EXTRA_DESTINATION),
+    )
+
+internal fun parseRecordingOpenTarget(
+    action: String?,
+    recordingId: String?,
+    destinationName: String?,
+): RecordingOpenTarget? {
+    if (action != ACTION_OPEN_RECORDING) return null
+    val safeRecordingId = recordingId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
     val destination =
-        RecordingDetailDestination.entries.firstOrNull { it.name == destinationName }
-            ?: return null
-    return RecordingOpenTarget(recordingId, destination)
+        destinationName?.let { name ->
+            RecordingDetailDestination.entries.firstOrNull { it.name == name }
+        } ?: return null
+    return RecordingOpenTarget(safeRecordingId, destination)
 }
 
 internal fun recordingOpenPendingIntent(
@@ -88,6 +95,6 @@ internal fun recordingOpenPendingIntent(
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
 
-private const val ACTION_OPEN_RECORDING = "io.github.ioannes78.voica.OPEN_RECORDING"
+internal const val ACTION_OPEN_RECORDING = "io.github.ioannes78.voica.OPEN_RECORDING"
 private const val EXTRA_RECORDING_ID = "io.github.ioannes78.voica.extra.RECORDING_ID"
 private const val EXTRA_DESTINATION = "io.github.ioannes78.voica.extra.DESTINATION"
