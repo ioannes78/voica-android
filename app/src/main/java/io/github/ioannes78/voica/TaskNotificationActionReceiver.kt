@@ -13,14 +13,14 @@ internal object TaskNotificationActions {
 class TaskNotificationActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         val app = context.applicationContext as? VoicaApplication ?: return
-        if (!app::container.isInitialized) return
+        val container = runCatching { app.container }.getOrNull() ?: return
         when (intent?.action) {
             TaskNotificationActions.CANCEL_TRANSCRIPTION ->
-                app.container.transcriptionCoordinator.cancel()
+                container.transcriptionCoordinator.cancel()
             TaskNotificationActions.CANCEL_DIARIZATION ->
-                app.container.diarizationCoordinator.cancel()
+                container.diarizationCoordinator.cancel()
             TaskNotificationActions.CANCEL_AI_SUMMARY ->
-                app.container.aiSummaryCoordinator.cancel()
+                container.aiSummaryCoordinator.cancel()
         }
     }
 }
