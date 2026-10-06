@@ -21,6 +21,9 @@ import io.github.ioannes78.voica.ble.RemoteDeviceFile
 import io.github.ioannes78.voica.protocol.RecordingGain
 import io.github.ioannes78.voica.protocol.RecordingStatus
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
@@ -38,8 +41,12 @@ class ServiceBackedDeviceRepository(
     context: Context,
     private val delegate: DeviceRepository,
     scope: CoroutineScope,
+    private val scanToConnectSettler: suspend () -> Unit = {
+        delay(SCAN_TO_CONNECT_SETTLE_MS)
+    },
 ) : DeviceRepository {
     private val appContext = context.applicationContext
+    private val scope = scope
     private val lock = Any()
 
     @Volatile
@@ -58,6 +65,9 @@ class ServiceBackedDeviceRepository(
     private var currentDeviceName: String? = null
     private var lastPublishedDeviceName: String? = null
     private var lastPublishedLabel: String? = null
+    private var pendingConnectJob: Job? = null
+    private var connectGeneration = 0L
+    private var scanToConnectTransitionInFlight = false
 
     override val scanState: StateFlow<BleScanState> = delegate.scanState
     override val connectionState: StateFlow<DeviceConnectionState> = delegate.connectionState
@@ -128,6 +138,7 @@ class ServiceBackedDeviceRepository(
     }
 
     override fun startScan() {
+        cancelPendingExplicitConnect()
         delegate.startScan()
     }
 
@@ -145,20 +156,62 @@ class ServiceBackedDeviceRepository(
                 ?.trim()
                 ?.takeIf { it.isNotEmpty() }
 
-        // An explicit row tap owns the transition from scanning to connecting. Stop the scanner
-        // before requesting foreground ownership so no lifecycle foreground callback can trigger a
-        // remembered-device auto-connect in parallel with this explicit connection.
-        delegate.stopScan()
+        val scanWasActive = delegate.scanState.value.isScanning
+        if (scanWasActive) {
+            delegate.stopScan()
+        }
 
-        // A foreground-service failure must never prevent a user-visible foreground connection.
-        holdService(
-            deviceName = resolvedDeviceName(),
-            label = "正在连接",
-        )
-        delegate.connect(address)
+        val generation: Long
+        val requiresSettle: Boolean
+        synchronized(lock) {
+            pendingConnectJob?.cancel()
+            connectGeneration += 1L
+            generation = connectGeneration
+            requiresSettle = scanWasActive || scanToConnectTransitionInFlight
+            scanToConnectTransitionInFlight = requiresSettle
+        }
+
+        val job =
+            scope.launch(start = CoroutineStart.LAZY) {
+                try {
+                    if (requiresSettle) {
+                        scanToConnectSettler()
+                    }
+                    val shouldConnect =
+                        synchronized(lock) {
+                            generation == connectGeneration &&
+                                !userDisconnectedThisProcess
+                        }
+                    if (shouldConnect) {
+                        // Foreground ownership is intentionally not requested from the row-click
+                        // call stack. When the delegate publishes Connecting, applyDecision() obtains
+                        // the connectedDevice FGS lease for that real connection generation.
+                        delegate.connect(address)
+                    }
+                } finally {
+                    synchronized(lock) {
+                        if (generation == connectGeneration) {
+                            pendingConnectJob = null
+                            scanToConnectTransitionInFlight = false
+                        }
+                    }
+                }
+            }
+
+        synchronized(lock) {
+            if (generation == connectGeneration) {
+                pendingConnectJob = job
+            } else {
+                job.cancel()
+            }
+        }
+        job.start()
     }
 
     override fun disconnect() {
+        // Cancel a scan-to-connect transition before latching the explicit disconnect. A delayed
+        // connect must never fire after the user has asked to disconnect.
+        cancelPendingExplicitConnect()
         // Latch before asking the delegate to disconnect so its transient Disconnecting state cannot
         // reacquire the foreground service after an explicit user disconnect.
         userDisconnectedThisProcess = true
@@ -173,8 +226,7 @@ class ServiceBackedDeviceRepository(
         appForeground = foreground
         if (foreground) {
             // Never let an Activity foreground transition initiate remembered-device auto-connect
-            // while an explicit scan is active. The scan result tap will stop scanning and connect
-            // exactly once through connect(address).
+            // while an explicit scan is active. The scan result tap owns that transition.
             if (!delegate.scanState.value.isScanning) {
                 delegate.setForeground(true)
             }
@@ -229,6 +281,16 @@ class ServiceBackedDeviceRepository(
 
     override suspend fun deleteLocalRecording(localId: String): LocalDeleteResult =
         delegate.deleteLocalRecording(localId)
+
+    private fun cancelPendingExplicitConnect() {
+        val pending =
+            synchronized(lock) {
+                connectGeneration += 1L
+                scanToConnectTransitionInFlight = false
+                pendingConnectJob.also { pendingConnectJob = null }
+            }
+        pending?.cancel()
+    }
 
     private fun applyDecision(decision: DeviceSessionForegroundDecision) {
         currentDeviceName = decision.deviceName.takeIf { it != FALLBACK_DEVICE_NAME } ?: currentDeviceName
@@ -378,5 +440,6 @@ class ServiceBackedDeviceRepository(
 
     private companion object {
         const val FALLBACK_DEVICE_NAME = "录音卡"
+        const val SCAN_TO_CONNECT_SETTLE_MS = 250L
     }
 }
