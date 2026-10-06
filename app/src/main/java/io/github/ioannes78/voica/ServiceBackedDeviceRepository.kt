@@ -51,6 +51,14 @@ class ServiceBackedDeviceRepository(
     @Volatile
     private var userDisconnectedThisProcess = false
 
+    @Volatile
+    private var foregroundStartFailedThisSession = false
+
+    private var serviceGeneration: Long? = null
+    private var currentDeviceName: String? = null
+    private var lastPublishedDeviceName: String? = null
+    private var lastPublishedLabel: String? = null
+
     override val scanState: StateFlow<BleScanState> = delegate.scanState
     override val connectionState: StateFlow<DeviceConnectionState> = delegate.connectionState
     override val deviceInfo: StateFlow<DeviceInfo> = delegate.deviceInfo
@@ -72,14 +80,44 @@ class ServiceBackedDeviceRepository(
                 delegate.connectionState,
                 delegate.recordingState,
                 delegate.fileOperationState,
-            ) { connection, recording, operation ->
+                delegate.deviceInfo,
+            ) { connection, recording, operation, info ->
+                val resolvedName =
+                    info.name?.trim()?.takeIf { it.isNotEmpty() }
+                        ?: currentDeviceName
+                        ?: FALLBACK_DEVICE_NAME
                 DeviceSessionForegroundDecision(
                     keep =
                         !userDisconnectedThisProcess &&
                             shouldKeepDeviceSession(connection),
+                    deviceName = resolvedName,
                     label = deviceSessionLabel(connection, recording, operation),
                 )
             }.collect(::applyDecision)
+        }
+
+        scope.launch {
+            DeviceSessionForegroundDiagnostics.state.collect { snapshot ->
+                val shouldDropLease =
+                    synchronized(lock) {
+                        snapshot.phase == DeviceSessionForegroundPhase.FAILED &&
+                            snapshot.generation == serviceGeneration
+                    }
+                if (shouldDropLease) {
+                    synchronized(lock) {
+                        if (snapshot.generation == serviceGeneration) {
+                            serviceHeld = false
+                            serviceGeneration = null
+                            lastPublishedDeviceName = null
+                            lastPublishedLabel = null
+                            foregroundStartFailedThisSession = true
+                        }
+                    }
+                    if (!appForeground) {
+                        delegate.setForeground(false)
+                    }
+                }
+            }
         }
     }
 
@@ -99,8 +137,18 @@ class ServiceBackedDeviceRepository(
 
     override fun connect(address: String) {
         userDisconnectedThisProcess = false
-        // Start the explicit Android execution owner while the initiating Activity is still visible.
-        holdService("正在连接录音卡")
+        foregroundStartFailedThisSession = false
+        currentDeviceName =
+            delegate.scanState.value.devices
+                .firstOrNull { it.address == address }
+                ?.name
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+        // A foreground-service failure must never prevent a user-visible foreground connection.
+        holdService(
+            deviceName = resolvedDeviceName(),
+            label = "正在连接",
+        )
         delegate.setForeground(true)
         delegate.connect(address)
     }
@@ -109,8 +157,10 @@ class ServiceBackedDeviceRepository(
         // Latch before asking the delegate to disconnect so its transient Disconnecting state cannot
         // reacquire the foreground service after an explicit user disconnect.
         userDisconnectedThisProcess = true
+        foregroundStartFailedThisSession = false
         delegate.disconnect()
         releaseService()
+        currentDeviceName = null
         if (!appForeground) delegate.setForeground(false)
     }
 
@@ -130,7 +180,7 @@ class ServiceBackedDeviceRepository(
     override suspend fun syncTime(): Boolean = delegate.syncTime()
 
     override suspend fun startRecording() {
-        holdService("正在开始录音")
+        holdService(resolvedDeviceName(), "正在开始录音")
         delegate.setForeground(true)
         delegate.startRecording()
     }
@@ -138,7 +188,7 @@ class ServiceBackedDeviceRepository(
     override suspend fun pauseRecording() = delegate.pauseRecording()
 
     override suspend fun resumeRecording() {
-        holdService("正在继续录音")
+        holdService(resolvedDeviceName(), "正在继续录音")
         delegate.setForeground(true)
         delegate.resumeRecording()
     }
@@ -155,7 +205,7 @@ class ServiceBackedDeviceRepository(
         file: RemoteDeviceFile,
         format: DeviceAudioFormat,
     ) {
-        holdService("正在下载录音文件")
+        holdService(resolvedDeviceName(), "正在下载")
         delegate.setForeground(true)
         delegate.downloadDeviceFile(file, format)
     }
@@ -171,8 +221,9 @@ class ServiceBackedDeviceRepository(
         delegate.deleteLocalRecording(localId)
 
     private fun applyDecision(decision: DeviceSessionForegroundDecision) {
+        currentDeviceName = decision.deviceName.takeIf { it != FALLBACK_DEVICE_NAME } ?: currentDeviceName
         if (decision.keep) {
-            holdService(decision.label)
+            holdService(decision.deviceName, decision.label)
             if (serviceHeld) {
                 // A session can become Ready after the Activity has already stopped. Keep the
                 // delegate active only after Android has an explicit connectedDevice FGS reason.
@@ -184,22 +235,71 @@ class ServiceBackedDeviceRepository(
         }
     }
 
-    private fun holdService(label: String) {
-        if (userDisconnectedThisProcess || delegate.missingPermissions().isNotEmpty()) return
+    private fun holdService(deviceName: String, label: String): Boolean {
+        if (
+            userDisconnectedThisProcess ||
+            foregroundStartFailedThisSession ||
+            delegate.missingPermissions().isNotEmpty()
+        ) {
+            return false
+        }
+
+        val safeName = deviceName.trim().ifEmpty { FALLBACK_DEVICE_NAME }
+        val safeLabel = label.trim().ifEmpty { "保持连接" }
         synchronized(lock) {
-            if (userDisconnectedThisProcess || delegate.missingPermissions().isNotEmpty()) return
-            serviceHeld = true
-            DeviceSessionForegroundService.acquire(appContext, label)
+            if (
+                userDisconnectedThisProcess ||
+                foregroundStartFailedThisSession ||
+                delegate.missingPermissions().isNotEmpty()
+            ) {
+                return false
+            }
+            if (
+                serviceHeld &&
+                lastPublishedDeviceName == safeName &&
+                lastPublishedLabel == safeLabel
+            ) {
+                return true
+            }
+
+            val result =
+                DeviceSessionForegroundService.acquire(
+                    context = appContext,
+                    deviceName = safeName,
+                    label = safeLabel,
+                )
+            if (result.requestAccepted) {
+                serviceHeld = true
+                serviceGeneration = result.generation
+                lastPublishedDeviceName = safeName
+                lastPublishedLabel = safeLabel
+            } else if (!serviceHeld) {
+                foregroundStartFailedThisSession = true
+                serviceGeneration = null
+                lastPublishedDeviceName = null
+                lastPublishedLabel = null
+            }
+            return serviceHeld
         }
     }
 
     private fun releaseService() {
         synchronized(lock) {
-            if (!serviceHeld) return
+            if (!serviceHeld && serviceGeneration == null) return
             serviceHeld = false
+            serviceGeneration = null
+            lastPublishedDeviceName = null
+            lastPublishedLabel = null
             DeviceSessionForegroundService.release(appContext)
         }
     }
+
+    private fun resolvedDeviceName(): String =
+        delegate.deviceInfo.value.name
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: currentDeviceName
+            ?: FALLBACK_DEVICE_NAME
 
     private fun shouldKeepDeviceSession(state: DeviceConnectionState): Boolean =
         when (state) {
@@ -236,32 +336,37 @@ class ServiceBackedDeviceRepository(
             val progress = activeOperation.progress
             if (progress != null && progress.expectedBytes > 0L) {
                 val percent = progress.receivedBytes * 100L / progress.expectedBytes
-                return "正在下载录音文件 · ${percent.coerceIn(0L, 100L)}%"
+                return "正在下载 · ${percent.coerceIn(0L, 100L)}%"
             }
-            return "正在下载录音文件"
+            return "正在下载"
         }
 
         return when (recording.status) {
-            RecordingStatus.Recording -> "录音卡正在录音"
-            RecordingStatus.Paused -> "录音卡录音已暂停"
+            RecordingStatus.Recording -> "正在录音"
+            RecordingStatus.Paused -> "录音已暂停"
             else ->
                 when (connection) {
                     is DeviceConnectionState.ReconnectWaiting ->
-                        "正在重连录音卡 · 第 ${connection.attempt} 次"
+                        "正在重连 · 第 ${connection.attempt} 次"
                     is DeviceConnectionState.Connecting,
                     is DeviceConnectionState.LinkConnected,
                     is DeviceConnectionState.DiscoveringServices,
                     is DeviceConnectionState.Subscribing,
                     is DeviceConnectionState.NegotiatingMtu,
-                    -> "正在连接录音卡"
-                    is DeviceConnectionState.Ready -> "录音卡已连接"
-                    else -> "保持录音卡连接"
+                    -> "正在连接"
+                    is DeviceConnectionState.Ready -> "已连接"
+                    else -> "保持连接"
                 }
         }
     }
 
     private data class DeviceSessionForegroundDecision(
         val keep: Boolean,
+        val deviceName: String,
         val label: String,
     )
+
+    private companion object {
+        const val FALLBACK_DEVICE_NAME = "录音卡"
+    }
 }
