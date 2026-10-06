@@ -22,10 +22,6 @@ object VoicaModelChannel {
     const val BOOTSTRAP_CATALOG_ASSET = "model-catalog-v1.json"
     const val PRODUCTION_MANIFEST_URL =
         "https://raw.githubusercontent.com/ioannes78/voica-model-channel/main/manifests/production.json"
-    const val STAGE13A_STREAMING_CANDIDATE_MANIFEST_URL =
-        "https://github.com/ioannes78/voica-model-channel/releases/download/candidate-stage13a-streaming-asr-r1/production.json"
-    const val STAGE13A_ALL_CANDIDATE_MANIFEST_URL =
-        "https://github.com/ioannes78/voica-model-channel/releases/download/candidate-stage13a-all-r1/production.json"
 
     private const val PREFERENCES_NAME = "voica-model-channel"
     private const val KEY_DEBUG_MANIFEST_URL = "debug-manifest-url"
@@ -83,7 +79,7 @@ object VoicaModelChannel {
         }.getOrDefault(false)
 }
 
-private val STAGE13A_QA5_PRODUCT_MODEL_IDS =
+private val PRODUCT_MODEL_IDS =
     setOf(
         Stage8ModelIds.VAD,
         Stage8ModelIds.PUNCTUATION,
@@ -125,7 +121,7 @@ fun createVoicaModelManager(
             catalog.copy(
                 models =
                     catalog.models.filter { descriptor ->
-                        descriptor.modelId in STAGE13A_QA5_PRODUCT_MODEL_IDS
+                        descriptor.modelId in PRODUCT_MODEL_IDS
                     },
             )
         }
@@ -165,6 +161,11 @@ fun createVoicaModelManager(
         ModelInstallJournalStore(
             File(application.noBackupFilesDir, "model-install-journal"),
         )
+    val startupInterruptedOperationIds =
+        ModelInstallStartupRecoveryPolicy(
+            application = application,
+            journalStore = journalStore,
+        ).interruptManualInstallsAfterUserRequestedExit()
     val scheduler = AndroidModelInstallScheduler(application)
     val orchestrator =
         ModelInstallOrchestrator(
@@ -178,6 +179,7 @@ fun createVoicaModelManager(
             orchestrator = orchestrator,
             backend = installBackend,
             journalStore = journalStore,
+            scheduler = scheduler,
             scope = ModelInstallRuntime.processScope,
         )
 
@@ -185,6 +187,8 @@ fun createVoicaModelManager(
         manager = durableManager,
         orchestrator = orchestrator,
         journalStore = journalStore,
+        scheduler = scheduler,
+        startupInterruptedOperationIds = startupInterruptedOperationIds,
     )
     return durableManager
 }

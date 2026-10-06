@@ -37,6 +37,8 @@ import io.github.ioannes78.voica.model.ModelAvailability
 import io.github.ioannes78.voica.model.ModelManager
 import io.github.ioannes78.voica.model.ModelOperationStatus
 import io.github.ioannes78.voica.model.ModelState
+import io.github.ioannes78.voica.modelInstallRecordUserMessage
+import io.github.ioannes78.voica.modelUserSafeErrorMessage
 import java.util.concurrent.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -110,25 +112,13 @@ fun ModelManagerCard(
             if (debugChannelEnabled && debugExpanded) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
-                        "Stage 8/9/13A 候选模型验收（Debug）",
+                        "候选模型清单验收（Debug）",
                         style = MaterialTheme.typography.titleSmall,
                     )
                     Text(
-                        "仅用于未合并候选清单的真机验收。正式版始终固定 production；修改后需完全退出并重新打开 App 才会生效。",
+                        "仅用于后续未合并候选清单的真机验收。正式模型使用 production；修改后需完全退出并重新打开 App 才会生效。",
                         style = MaterialTheme.typography.bodySmall,
                     )
-                    OutlinedButton(
-                        onClick = {
-                            VoicaModelChannel.setDebugManifestUrl(
-                                application = application,
-                                manifestUrl = VoicaModelChannel.STAGE13A_ALL_CANDIDATE_MANIFEST_URL,
-                            )
-                            debugManifestUrl = VoicaModelChannel.STAGE13A_ALL_CANDIDATE_MANIFEST_URL
-                            message = "Stage 13A 候选模型清单已保存；完全退出并重新打开 App 后生效"
-                        },
-                    ) {
-                        Text("使用 Stage 13A 全量候选")
-                    }
                     OutlinedTextField(
                         value = debugManifestUrl,
                         onValueChange = { debugManifestUrl = it },
@@ -147,10 +137,8 @@ fun ModelManagerCard(
                                     debugManifestUrl =
                                         VoicaModelChannel.configuredDebugManifestUrl(application).orEmpty()
                                     message = "候选模型清单已保存；完全退出并重新打开 App 后生效"
-                                } catch (error: Exception) {
-                                    message =
-                                        "候选模型清单无效：" +
-                                            (error.message ?: error::class.java.simpleName)
+                                } catch (_: Exception) {
+                                    message = "候选模型清单无效，请检查 URL"
                                 }
                             },
                         ) {
@@ -233,7 +221,10 @@ fun ModelManagerCard(
                         } catch (error: Exception) {
                             message =
                                 "模型更新检查失败：" +
-                                    (error.message ?: error::class.java.simpleName)
+                                    modelUserSafeErrorMessage(
+                                        error.message,
+                                        "请检查网络后重试",
+                                    )
                         } finally {
                             checking = false
                         }
@@ -249,7 +240,8 @@ fun ModelManagerCard(
             updateState.errorMessage?.let { error ->
                 if (message == null) {
                     Text(
-                        "自动检查失败：$error",
+                        "自动检查失败：" +
+                            modelUserSafeErrorMessage(error, "请检查网络后重试"),
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -292,7 +284,10 @@ fun ModelManagerCard(
                                 message =
                                     descriptor.displayName +
                                         " 安装未完成：" +
-                                        (error.message ?: error::class.java.simpleName)
+                                        modelUserSafeErrorMessage(
+                                            error.message,
+                                            "请查看模型状态后重试",
+                                        )
                             }
                         }
                     },
@@ -306,7 +301,7 @@ fun ModelManagerCard(
                                 message =
                                     descriptor.displayName +
                                         " 回滚失败：" +
-                                        (error.message ?: error::class.java.simpleName)
+                                        modelUserSafeErrorMessage(error.message, "请稍后重试")
                             }
                         }
                     },
@@ -327,7 +322,7 @@ fun ModelManagerCard(
                                     message =
                                         descriptor.displayName +
                                             " 删除失败：" +
-                                            (error.message ?: error::class.java.simpleName)
+                                            modelUserSafeErrorMessage(error.message, "请稍后重试")
                                 }
                             }
                         }
@@ -496,7 +491,7 @@ private fun DurableOperationSection(
     onDelete: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    record.lastFailureMessage?.takeIf { it.isNotBlank() }?.let { error ->
+    modelInstallRecordUserMessage(record)?.let { error ->
         Text(
             error,
             style = MaterialTheme.typography.bodySmall,
@@ -507,6 +502,7 @@ private fun DurableOperationSection(
     when (record.phase) {
         ModelInstallPhase.DOWNLOAD -> {
             val total = record.totalBytes
+            val complete = total != null && total > 0L && record.downloadedBytes >= total
             if (total != null && total > 0L) {
                 LinearProgressIndicator(
                     progress = { record.downloadedBytes.toFloat() / total.toFloat() },
@@ -521,11 +517,18 @@ private fun DurableOperationSection(
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
             OutlinedButton(onClick = onCancel) {
-                Text("取消安装")
+                Text(if (complete) "暂停安装" else "取消下载")
             }
         }
 
-        ModelInstallPhase.REQUESTED,
+        ModelInstallPhase.REQUESTED -> {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Text(durablePhaseText(record), style = MaterialTheme.typography.bodySmall)
+            OutlinedButton(onClick = onCancel) {
+                Text("取消下载")
+            }
+        }
+
         ModelInstallPhase.VERIFY,
         ModelInstallPhase.EXTRACT,
         ModelInstallPhase.FILE_VERIFY,
@@ -534,7 +537,7 @@ private fun DurableOperationSection(
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             Text(durablePhaseText(record), style = MaterialTheme.typography.bodySmall)
             OutlinedButton(onClick = onCancel) {
-                Text("取消安装")
+                Text("暂停安装")
             }
         }
 
@@ -546,12 +549,12 @@ private fun DurableOperationSection(
                 }
             } else {
                 Text(
-                    "未完成任务对应 ${record.snapshot.descriptor.version}；当前清单版本已变化。请先取消旧任务，再安装当前版本。",
+                    "未完成任务对应 ${record.snapshot.descriptor.version}；当前清单版本已变化。请放弃旧任务后安装当前版本。",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
             OutlinedButton(onClick = onCancel) {
-                Text("取消旧任务")
+                Text("放弃安装并删除下载")
             }
         }
 
@@ -596,13 +599,14 @@ private fun LegacyOrStableModelActions(
         LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         Text("正在验证并启用模型…", style = MaterialTheme.typography.bodySmall)
         OutlinedButton(onClick = onCancel) {
-            Text("取消安装")
+            Text("暂停安装")
         }
         return
     }
     if (operation?.state == ModelState.DOWNLOADING) {
         val downloaded = operation.downloadedBytes
         val total = operation.totalBytes
+        val complete = downloaded != null && total != null && total > 0L && downloaded >= total
         if (downloaded != null && total != null && total > 0L) {
             LinearProgressIndicator(
                 progress = { downloaded.toFloat() / total.toFloat() },
@@ -617,7 +621,7 @@ private fun LegacyOrStableModelActions(
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         }
         OutlinedButton(onClick = onCancel) {
-            Text("取消安装")
+            Text(if (complete) "暂停安装" else "取消下载")
         }
         return
     }
@@ -627,7 +631,7 @@ private fun LegacyOrStableModelActions(
     ) {
         operation.errorMessage?.takeIf { it.isNotBlank() }?.let { error ->
             Text(
-                "安装错误：$error",
+                "安装错误：" + modelUserSafeErrorMessage(error, "模型安装未完成，请重试"),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
