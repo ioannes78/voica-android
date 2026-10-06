@@ -20,7 +20,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -43,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.github.ioannes78.voica.AiSummaryRunState
 import io.github.ioannes78.voica.DiarizationBenchmarkRunner
 import io.github.ioannes78.voica.DiarizationRunState
 import io.github.ioannes78.voica.SpeechBenchmarkRunner
@@ -54,10 +54,10 @@ import io.github.ioannes78.voica.database.RecordingLibraryItem
 import io.github.ioannes78.voica.database.SearchDocumentEntity
 import io.github.ioannes78.voica.ui.ai.AiSummaryContentViewModel
 import io.github.ioannes78.voica.ui.ai.AiSummaryProductCard
+import io.github.ioannes78.voica.ui.ai.AiSummaryTransientHeader
 import io.github.ioannes78.voica.ui.ai.AiSummaryViewModel
 import io.github.ioannes78.voica.ui.diarization.DiarizationStatusCard
 import io.github.ioannes78.voica.ui.diarization.DiarizationViewModel
-import io.github.ioannes78.voica.ui.playback.MiniPlaybackBar
 import io.github.ioannes78.voica.ui.playback.PlaybackViewModel
 import io.github.ioannes78.voica.ui.playback.RecordingPlaybackCard
 import io.github.ioannes78.voica.ui.transcript.TranscriptContinuousReading
@@ -133,6 +133,8 @@ internal fun RecordingDetailProductScreen(
     val transcriptContentState by transcriptContentViewModel.state.collectAsState()
     val diarizationState by diarizationViewModel.runState.collectAsState()
     val diarizationNotice by diarizationViewModel.notice.collectAsState()
+    val aiSummaryRunState by aiSummaryViewModel.runState.collectAsState()
+    val aiSummaryCandidateId by aiSummaryViewModel.candidateId.collectAsState()
     val syncState by transcriptPlaybackSyncViewModel.state.collectAsState()
     val playbackSnapshot by playbackViewModel.snapshot.collectAsState()
 
@@ -143,6 +145,11 @@ internal fun RecordingDetailProductScreen(
         (transcriptionState as? TranscriptionRunState.Running)?.recordingId == recording.id
     val diarizationBusy =
         (diarizationState as? DiarizationRunState.Running)?.recordingId == recording.id
+    val summaryRunning =
+        (aiSummaryRunState as? AiSummaryRunState.Running)
+            ?.takeIf { running ->
+                recordingDocument?.transcriptionId == running.transcriptionId
+            }
     val canonicalReady =
         recording.assets.any { asset ->
             asset.role == AudioAssetRole.CANONICAL_WAV &&
@@ -254,6 +261,71 @@ internal fun RecordingDetailProductScreen(
             }
         }
 
+        when (selectedTab) {
+            ProductDetailTab.TRANSCRIPT -> {
+                if (
+                    shouldShowTranscriptionStatus(transcriptionState, recording.id) ||
+                    shouldShowDiarizationStatus(diarizationState, recording.id) ||
+                    candidateId != null
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        if (shouldShowTranscriptionStatus(transcriptionState, recording.id)) {
+                            TranscriptionStatusCard(
+                                state = transcriptionState,
+                                recordingName = recording.displayName,
+                                notice = transcriptionNotice,
+                                onCancel = transcriptionViewModel::cancel,
+                            )
+                        }
+                        if (shouldShowDiarizationStatus(diarizationState, recording.id)) {
+                            DiarizationStatusCard(
+                                state = diarizationState,
+                                recordingName = recording.displayName,
+                                notice = diarizationNotice,
+                                onCancel = diarizationViewModel::cancel,
+                                onRetry = diarizationViewModel::retry,
+                                onOpenSettings = onOpenSettings,
+                            )
+                        }
+                        candidateId?.let { newResultId ->
+                            CandidateTranscriptionBanner(
+                                previewing = candidatePreview,
+                                onPreview = {
+                                    transcriptViewMode = TranscriptViewMode.READING
+                                    transcriptionViewModel.previewCandidate(newResultId)
+                                },
+                                onReturnCurrent = {
+                                    transcriptionViewModel.showCurrent(recording.id)
+                                },
+                                onAdopt = {
+                                    transcriptViewMode = TranscriptViewMode.READING
+                                    transcriptionViewModel.adoptCandidate(newResultId)
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+
+            ProductDetailTab.SUMMARY -> {
+                if (recordingDocument != null) {
+                    AiSummaryTransientHeader(
+                        running = summaryRunning,
+                        candidateId = aiSummaryCandidateId,
+                        recordingName = recording.displayName,
+                        onCancel = aiSummaryViewModel::cancel,
+                        onViewCandidate = aiSummaryViewModel::selectSummary,
+                        onAdoptCandidate = aiSummaryViewModel::adoptSummaryResult,
+                    )
+                }
+            }
+
+            ProductDetailTab.RECORDING -> Unit
+        }
+
         Box(
             modifier =
                 Modifier
@@ -318,48 +390,6 @@ internal fun RecordingDetailProductScreen(
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        if (shouldShowTranscriptionStatus(transcriptionState, recording.id)) {
-                            item(key = "transcription-status") {
-                                TranscriptionStatusCard(
-                                    state = transcriptionState,
-                                    recordingName = recording.displayName,
-                                    notice = transcriptionNotice,
-                                    onCancel = transcriptionViewModel::cancel,
-                                )
-                            }
-                        }
-                        if (shouldShowDiarizationStatus(diarizationState, recording.id)) {
-                            item(key = "diarization-status") {
-                                DiarizationStatusCard(
-                                    state = diarizationState,
-                                    recordingName = recording.displayName,
-                                    notice = diarizationNotice,
-                                    onCancel = diarizationViewModel::cancel,
-                                    onRetry = diarizationViewModel::retry,
-                                    onOpenSettings = onOpenSettings,
-                                )
-                            }
-                        }
-
-                        candidateId?.let { newResultId ->
-                            item(key = "transcription-candidate") {
-                                CandidateTranscriptionBanner(
-                                    previewing = candidatePreview,
-                                    onPreview = {
-                                        transcriptViewMode = TranscriptViewMode.READING
-                                        transcriptionViewModel.previewCandidate(newResultId)
-                                    },
-                                    onReturnCurrent = {
-                                        transcriptionViewModel.showCurrent(recording.id)
-                                    },
-                                    onAdopt = {
-                                        transcriptViewMode = TranscriptViewMode.READING
-                                        transcriptionViewModel.adoptCandidate(newResultId)
-                                    },
-                                )
-                            }
-                        }
-
                         if (recordingDocument == null) {
                             item(key = "transcription-empty") {
                                 EmptyTranscriptionPanel(
@@ -523,23 +553,12 @@ internal fun RecordingDetailProductScreen(
                                         onSeekEvidence = { sampleIndex ->
                                             playbackViewModel.seekAndPlay(recording.id, sampleIndex)
                                         },
+                                        showTransientHeader = false,
                                     )
                             }
                         }
                     }
             }
-        }
-
-        if (selectedTab != ProductDetailTab.RECORDING) {
-            MiniPlaybackBar(
-                recordingId = recording.id,
-                recordingName = recording.displayName,
-                durationMs = recording.mediaDurationMs ?: recording.deviceReportedDurationMs,
-                canonicalReady = canonicalReady,
-                deviceRecordingActive = deviceRecordingActive,
-                playbackViewModel = playbackViewModel,
-                onOpenFullPlayer = { selectedTab = ProductDetailTab.RECORDING },
-            )
         }
     }
 
