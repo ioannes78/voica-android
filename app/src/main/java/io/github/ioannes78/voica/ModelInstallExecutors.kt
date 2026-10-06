@@ -9,6 +9,7 @@ import android.app.job.JobService
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
@@ -175,6 +176,7 @@ internal object ModelInstallNotifications {
         ForegroundInfo(
             notificationId(record.operationId),
             notification(context, record),
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
         )
 
     fun notify(

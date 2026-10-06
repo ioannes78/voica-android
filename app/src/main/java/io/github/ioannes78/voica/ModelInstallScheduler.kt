@@ -28,6 +28,18 @@ interface ModelInstallScheduler {
     suspend fun isScheduled(record: ModelInstallJournalRecord): Boolean
 }
 
+internal fun modelInstallDownloadExecutor(
+    origin: ModelInstallOrigin,
+    sdkInt: Int,
+): ModelInstallExecutorKind =
+    if (origin == ModelInstallOrigin.MANUAL &&
+        sdkInt >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+    ) {
+        ModelInstallExecutorKind.UIDT
+    } else {
+        ModelInstallExecutorKind.WORK_MANAGER_DOWNLOAD
+    }
+
 class AndroidModelInstallScheduler(
     private val application: Application,
 ) : ModelInstallScheduler {
@@ -35,13 +47,7 @@ class AndroidModelInstallScheduler(
     private val jobScheduler = application.getSystemService(JobScheduler::class.java)
 
     override fun downloadExecutor(origin: ModelInstallOrigin): ModelInstallExecutorKind =
-        if (origin == ModelInstallOrigin.MANUAL &&
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
-        ) {
-            ModelInstallExecutorKind.UIDT
-        } else {
-            ModelInstallExecutorKind.WORK_MANAGER_DOWNLOAD
-        }
+        modelInstallDownloadExecutor(origin, Build.VERSION.SDK_INT)
 
     override suspend fun scheduleDownload(record: ModelInstallJournalRecord) {
         when (downloadExecutor(record.origin)) {
