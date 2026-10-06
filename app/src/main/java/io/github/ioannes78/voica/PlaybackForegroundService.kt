@@ -18,6 +18,7 @@ import androidx.core.content.ContextCompat
 import io.github.ioannes78.voica.audio.CanonicalPcmProfile
 import io.github.ioannes78.voica.audio.PlaybackSnapshot
 import io.github.ioannes78.voica.audio.PlaybackState as VoicaPlaybackState
+import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -34,15 +35,18 @@ import kotlinx.coroutines.launch
 class PlaybackForegroundService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var playbackController: io.github.ioannes78.voica.playback.AndroidPlaybackController
+    private lateinit var recordingRepository: RecordingLibraryRepository
     private lateinit var mediaSession: MediaSession
     private lateinit var notificationManager: NotificationManager
     private var observing = false
     private var lastMetadataKey: String? = null
+    private var currentRecordingName: String = FALLBACK_RECORDING_NAME
 
     override fun onCreate() {
         super.onCreate()
         val application = application as VoicaApplication
         playbackController = application.container.playbackRuntime
+        recordingRepository = application.container.recordingLibraryRepository
         notificationManager = getSystemService(NotificationManager::class.java)
         createChannel()
         mediaSession =
@@ -85,6 +89,7 @@ class PlaybackForegroundService : Service() {
                 )
                 isActive = true
             }
+        observeRecordingNames()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -119,6 +124,25 @@ class PlaybackForegroundService : Service() {
         super.onDestroy()
     }
 
+    private fun observeRecordingNames() {
+        serviceScope.launch {
+            recordingRepository.recordings.collect { recordings ->
+                val snapshot = playbackController.snapshot.value
+                val recordingId = snapshot.recordingId
+                val item = recordings.firstOrNull { it.id == recordingId }
+                val resolved =
+                    item?.displayName?.trim()?.takeIf { it.isNotEmpty() }
+                        ?: item?.originalFilename?.trim()?.takeIf { it.isNotEmpty() }
+                        ?: FALLBACK_RECORDING_NAME
+                if (resolved != currentRecordingName) {
+                    currentRecordingName = resolved
+                    lastMetadataKey = null
+                    if (recordingId != null) publishSnapshot(snapshot)
+                }
+            }
+        }
+    }
+
     private fun startObserving() {
         if (observing) return
         observing = true
@@ -139,6 +163,9 @@ class PlaybackForegroundService : Service() {
     }
 
     private fun publishSnapshot(snapshot: PlaybackSnapshot) {
+        if (snapshot.recordingId == null) {
+            currentRecordingName = FALLBACK_RECORDING_NAME
+        }
         updateMediaSession(snapshot)
         val notification = buildNotification(snapshot)
 
@@ -182,16 +209,13 @@ class PlaybackForegroundService : Service() {
     }
 
     private fun updateMediaSession(snapshot: PlaybackSnapshot) {
-        val metadataKey = snapshot.recordingId.orEmpty() + "|" + snapshot.durationUs
+        val metadataKey =
+            snapshot.recordingId.orEmpty() + "|" + snapshot.durationUs + "|" + currentRecordingName
         if (metadataKey != lastMetadataKey) {
             lastMetadataKey = metadataKey
             mediaSession.setMetadata(
                 MediaMetadata.Builder()
-                    .putString(MediaMetadata.METADATA_KEY_TITLE, "Voica 录音")
-                    .putString(
-                        MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE,
-                        snapshot.recordingId?.takeIf { it.isNotBlank() } ?: "本地录音",
-                    )
+                    .putString(MediaMetadata.METADATA_KEY_TITLE, currentRecordingName)
                     .putLong(
                         MediaMetadata.METADATA_KEY_DURATION,
                         snapshot.durationUs.coerceAtLeast(0L) / 1_000L,
@@ -255,21 +279,22 @@ class PlaybackForegroundService : Service() {
                 notificationAction(ACTION_PLAY, android.R.drawable.ic_media_play, "播放", REQUEST_TOGGLE)
             }
         val forward = notificationAction(ACTION_FORWARD, android.R.drawable.ic_media_ff, "前进 10 秒", REQUEST_FORWARD)
+        val speed = formatSpeed(snapshot.speed)
         val text =
             when (snapshot.state) {
-                VoicaPlaybackState.PLAYING -> formatProgress(snapshot)
-                VoicaPlaybackState.PAUSED -> "已暂停 · " + formatProgress(snapshot)
+                VoicaPlaybackState.PLAYING -> "正在播放 · $speed"
+                VoicaPlaybackState.PAUSED -> "已暂停 · $speed"
                 VoicaPlaybackState.SEEKING -> "正在跳转…"
                 VoicaPlaybackState.PREPARING -> "正在准备播放…"
                 VoicaPlaybackState.COMPLETED -> "播放完成"
-                VoicaPlaybackState.READY -> "准备播放"
+                VoicaPlaybackState.READY -> "准备播放 · $speed"
                 VoicaPlaybackState.ERROR -> "播放失败"
                 else -> "录音播放"
             }
 
         return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(if (playing) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause)
-            .setContentTitle("Voica 录音播放")
+            .setContentTitle(currentRecordingName)
             .setContentText(text)
             .setContentIntent(contentIntent)
             .setOnlyAlertOnce(true)
@@ -312,23 +337,15 @@ class PlaybackForegroundService : Service() {
         serviceScope.launch { playbackController.seekToSample(target) }
     }
 
-    private fun formatProgress(snapshot: PlaybackSnapshot): String {
-        val currentSeconds = snapshot.positionUs.coerceAtLeast(0L) / 1_000_000L
-        val totalSeconds = snapshot.durationUs.coerceAtLeast(0L) / 1_000_000L
-        return formatDuration(currentSeconds) + " / " + formatDuration(totalSeconds) +
-            " · " + String.format("%.2gx", snapshot.speed)
-    }
-
-    private fun formatDuration(seconds: Long): String {
-        val hours = seconds / 3_600L
-        val minutes = (seconds % 3_600L) / 60L
-        val remaining = seconds % 60L
-        return if (hours > 0L) {
-            "%d:%02d:%02d".format(hours, minutes, remaining)
-        } else {
-            "%02d:%02d".format(minutes, remaining)
+    private fun formatSpeed(speed: Float): String =
+        when (speed) {
+            0.5f -> "0.5x"
+            0.75f -> "0.75x"
+            1f -> "1.0x"
+            1.5f -> "1.5x"
+            2f -> "2.0x"
+            else -> String.format("%.2gx", speed)
         }
-    }
 
     private fun createChannel() {
         notificationManager.createNotificationChannel(
@@ -357,6 +374,7 @@ class PlaybackForegroundService : Service() {
         private const val NOTIFICATION_ID = 13021
         private const val SESSION_TAG = "VoicaPlayback"
         private const val SEEK_SECONDS = 10L
+        private const val FALLBACK_RECORDING_NAME = "录音"
 
         private const val ACTION_ENSURE = "io.github.ioannes78.voica.playback.ENSURE"
         private const val ACTION_PLAY = "io.github.ioannes78.voica.playback.PLAY"
