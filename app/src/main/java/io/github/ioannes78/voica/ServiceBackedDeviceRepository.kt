@@ -163,13 +163,18 @@ class ServiceBackedDeviceRepository(
 
         val generation: Long
         val requiresSettle: Boolean
+        val previousJob: Job?
         synchronized(lock) {
-            pendingConnectJob?.cancel()
+            // Advance ownership before cancelling the old job. Its finally block must see a stale
+            // generation and therefore cannot clear the settle state inherited by this request.
             connectGeneration += 1L
             generation = connectGeneration
             requiresSettle = scanWasActive || scanToConnectTransitionInFlight
             scanToConnectTransitionInFlight = requiresSettle
+            previousJob = pendingConnectJob
+            pendingConnectJob = null
         }
+        previousJob?.cancel()
 
         val job =
             scope.launch(start = CoroutineStart.LAZY) {
