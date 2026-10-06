@@ -10,6 +10,7 @@ import io.github.ioannes78.voica.ble.DeviceConnectionState
 import io.github.ioannes78.voica.ble.DeviceFileListState
 import io.github.ioannes78.voica.ble.DeviceInfo
 import io.github.ioannes78.voica.ble.DeviceRepository
+import io.github.ioannes78.voica.ble.DisconnectReason
 import io.github.ioannes78.voica.ble.FileOperationState
 import io.github.ioannes78.voica.ble.FileTransferDiagnostics
 import io.github.ioannes78.voica.ble.LocalDeleteResult
@@ -27,6 +28,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -134,7 +137,7 @@ class ServiceBackedDeviceRepositoryTest {
     }
 
     @Test
-    fun foregroundCallbackDoesNotReachDelegateWhileScanIsActive() {
+    fun foregroundCallbackDoesNotReachDelegateWhileScanIsActiveAndIsIdempotentAfterward() {
         val delegate = FakeDeviceRepository(scanning = true)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val repository =
@@ -151,12 +154,64 @@ class ServiceBackedDeviceRepositoryTest {
 
         delegate.scan.value = delegate.scan.value.copy(isScanning = false)
         repository.setForeground(true)
+        repository.setForeground(true)
 
         assertEquals(listOf("setForeground:true"), delegate.events)
         scope.cancel()
     }
 
-    private class FakeDeviceRepository(scanning: Boolean) : DeviceRepository {
+    @Test
+    fun reconnectWaitingRefreshesForegroundServiceWithoutReissuingDelegateForeground() {
+        val delegate = FakeDeviceRepository(scanning = false, missingPermissions = emptySet())
+        val serviceAcquireCount = AtomicInteger(0)
+        val serviceReleaseCount = AtomicInteger(0)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val repository =
+            ServiceBackedDeviceRepository(
+                context = ApplicationProvider.getApplicationContext<Context>(),
+                delegate = delegate,
+                scope = scope,
+                foregroundServiceAcquire = { _, _, _ -> serviceAcquireCount.incrementAndGet().toLong() },
+                foregroundServiceRelease = { serviceReleaseCount.incrementAndGet() },
+            )
+        delegate.events.clear()
+
+        delegate.connection.value =
+            DeviceConnectionState.ReconnectWaiting(DEVICE_ADDRESS, attempt = 1, delayMs = 1_000L)
+        flushUnconfined()
+        delegate.connection.value =
+            DeviceConnectionState.ReconnectWaiting(DEVICE_ADDRESS, attempt = 2, delayMs = 2_000L)
+        flushUnconfined()
+        delegate.connection.value =
+            DeviceConnectionState.ReconnectWaiting(DEVICE_ADDRESS, attempt = 3, delayMs = 4_000L)
+        flushUnconfined()
+
+        assertEquals(3, serviceAcquireCount.get())
+        assertEquals(
+            listOf("setForeground:true"),
+            delegate.events.filter { it.startsWith("setForeground:") },
+        )
+
+        delegate.connection.value =
+            DeviceConnectionState.Disconnected(DEVICE_ADDRESS, DisconnectReason.USER)
+        flushUnconfined()
+
+        assertEquals(1, serviceReleaseCount.get())
+        assertEquals(
+            listOf("setForeground:true", "setForeground:false"),
+            delegate.events.filter { it.startsWith("setForeground:") },
+        )
+        scope.cancel()
+    }
+
+    private fun flushUnconfined() {
+        runBlocking { yield() }
+    }
+
+    private class FakeDeviceRepository(
+        scanning: Boolean,
+        private val missingPermissions: Set<String> = setOf("test.permission"),
+    ) : DeviceRepository {
         val events = mutableListOf<String>()
         val scan =
             MutableStateFlow(
@@ -183,7 +238,7 @@ class ServiceBackedDeviceRepositoryTest {
                         ),
                 ),
             )
-        private val connection = MutableStateFlow<DeviceConnectionState>(DeviceConnectionState.Idle)
+        val connection = MutableStateFlow<DeviceConnectionState>(DeviceConnectionState.Idle)
 
         override val scanState: StateFlow<BleScanState> = scan
         override val connectionState: StateFlow<DeviceConnectionState> = connection
@@ -204,7 +259,7 @@ class ServiceBackedDeviceRepositoryTest {
             MutableStateFlow(emptyList())
         override val diagnostics: StateFlow<BleDiagnostics> = MutableStateFlow(BleDiagnostics())
 
-        override fun missingPermissions(): Set<String> = setOf("test.permission")
+        override fun missingPermissions(): Set<String> = missingPermissions
 
         override fun onPermissionsChanged() = Unit
 

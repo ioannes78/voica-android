@@ -44,6 +44,18 @@ class ServiceBackedDeviceRepository(
     private val scanToConnectSettler: suspend () -> Unit = {
         delay(SCAN_TO_CONNECT_SETTLE_MS)
     },
+    private val foregroundServiceAcquire: (Context, String, String) -> Long? =
+        { serviceContext, deviceName, label ->
+            val result =
+                DeviceSessionForegroundService.acquire(
+                    context = serviceContext,
+                    deviceName = deviceName,
+                    label = label,
+                )
+            result.generation.takeIf { result.requestAccepted }
+        },
+    private val foregroundServiceRelease: (Context) -> Unit =
+        { serviceContext -> DeviceSessionForegroundService.release(serviceContext) },
 ) : DeviceRepository {
     private val appContext = context.applicationContext
     private val scope = scope
@@ -61,6 +73,7 @@ class ServiceBackedDeviceRepository(
     @Volatile
     private var foregroundStartFailedThisSession = false
 
+    private var delegateForegroundActive = false
     private var serviceGeneration: Long? = null
     private var currentDeviceName: String? = null
     private var lastPublishedDeviceName: String? = null
@@ -123,9 +136,7 @@ class ServiceBackedDeviceRepository(
                             foregroundStartFailedThisSession = true
                         }
                     }
-                    if (!appForeground) {
-                        delegate.setForeground(false)
-                    }
+                    reconcileDelegateForeground()
                 }
             }
         }
@@ -224,22 +235,14 @@ class ServiceBackedDeviceRepository(
         delegate.disconnect()
         releaseService()
         currentDeviceName = null
-        if (!appForeground) delegate.setForeground(false)
     }
 
     override fun setForeground(foreground: Boolean) {
         appForeground = foreground
-        if (foreground) {
-            // Never let an Activity foreground transition initiate remembered-device auto-connect
-            // while an explicit scan is active. The scan result tap owns that transition.
-            if (!delegate.scanState.value.isScanning) {
-                delegate.setForeground(true)
-            }
-        } else if (!serviceHeld) {
-            delegate.setForeground(false)
-        }
-        // If a connected-device FGS lease is active, deliberately do not propagate false: the
-        // repository may continue GATT callbacks, recording polling, reconnect and active transfer.
+        reconcileDelegateForeground()
+        // If a connected-device FGS lease is active, desired foreground ownership stays true even
+        // after the Activity stops. While an explicit scan is active, a previously-inactive delegate
+        // is not promoted solely by an Activity foreground callback; the scan-row transition owns it.
     }
 
     override suspend fun refreshDeviceInfo() = delegate.refreshDeviceInfo()
@@ -248,7 +251,6 @@ class ServiceBackedDeviceRepository(
 
     override suspend fun startRecording() {
         holdService(resolvedDeviceName(), "正在开始录音")
-        delegate.setForeground(true)
         delegate.startRecording()
     }
 
@@ -256,7 +258,6 @@ class ServiceBackedDeviceRepository(
 
     override suspend fun resumeRecording() {
         holdService(resolvedDeviceName(), "正在继续录音")
-        delegate.setForeground(true)
         delegate.resumeRecording()
     }
 
@@ -273,7 +274,6 @@ class ServiceBackedDeviceRepository(
         format: DeviceAudioFormat,
     ) {
         holdService(resolvedDeviceName(), "正在下载")
-        delegate.setForeground(true)
         delegate.downloadDeviceFile(file, format)
     }
 
@@ -301,14 +301,8 @@ class ServiceBackedDeviceRepository(
         currentDeviceName = decision.deviceName.takeIf { it != FALLBACK_DEVICE_NAME } ?: currentDeviceName
         if (decision.keep) {
             holdService(decision.deviceName, decision.label)
-            if (serviceHeld) {
-                // A session can become Ready after the Activity has already stopped. Keep the
-                // delegate active only after Android has an explicit connectedDevice FGS reason.
-                delegate.setForeground(true)
-            }
         } else {
             releaseService()
-            if (!appForeground) delegate.setForeground(false)
         }
     }
 
@@ -318,56 +312,90 @@ class ServiceBackedDeviceRepository(
             foregroundStartFailedThisSession ||
             delegate.missingPermissions().isNotEmpty()
         ) {
+            reconcileDelegateForeground()
             return false
         }
 
         val safeName = deviceName.trim().ifEmpty { FALLBACK_DEVICE_NAME }
         val safeLabel = label.trim().ifEmpty { "保持连接" }
-        synchronized(lock) {
-            if (
-                userDisconnectedThisProcess ||
-                foregroundStartFailedThisSession ||
-                delegate.missingPermissions().isNotEmpty()
-            ) {
-                return false
+        val held =
+            synchronized(lock) {
+                if (
+                    userDisconnectedThisProcess ||
+                    foregroundStartFailedThisSession ||
+                    delegate.missingPermissions().isNotEmpty()
+                ) {
+                    serviceHeld
+                } else if (
+                    serviceHeld &&
+                    lastPublishedDeviceName == safeName &&
+                    lastPublishedLabel == safeLabel
+                ) {
+                    true
+                } else {
+                    val generation =
+                        foregroundServiceAcquire(
+                            appContext,
+                            safeName,
+                            safeLabel,
+                        )
+                    if (generation != null) {
+                        serviceHeld = true
+                        serviceGeneration = generation
+                        lastPublishedDeviceName = safeName
+                        lastPublishedLabel = safeLabel
+                    } else if (!serviceHeld) {
+                        foregroundStartFailedThisSession = true
+                        serviceGeneration = null
+                        lastPublishedDeviceName = null
+                        lastPublishedLabel = null
+                    }
+                    serviceHeld
+                }
             }
-            if (
-                serviceHeld &&
-                lastPublishedDeviceName == safeName &&
-                lastPublishedLabel == safeLabel
-            ) {
-                return true
-            }
-
-            val result =
-                DeviceSessionForegroundService.acquire(
-                    context = appContext,
-                    deviceName = safeName,
-                    label = safeLabel,
-                )
-            if (result.requestAccepted) {
-                serviceHeld = true
-                serviceGeneration = result.generation
-                lastPublishedDeviceName = safeName
-                lastPublishedLabel = safeLabel
-            } else if (!serviceHeld) {
-                foregroundStartFailedThisSession = true
-                serviceGeneration = null
-                lastPublishedDeviceName = null
-                lastPublishedLabel = null
-            }
-            return serviceHeld
-        }
+        reconcileDelegateForeground()
+        return held
     }
 
     private fun releaseService() {
-        synchronized(lock) {
-            if (!serviceHeld && serviceGeneration == null) return
-            serviceHeld = false
-            serviceGeneration = null
-            lastPublishedDeviceName = null
-            lastPublishedLabel = null
-            DeviceSessionForegroundService.release(appContext)
+        val shouldRelease =
+            synchronized(lock) {
+                val hadLease = serviceHeld || serviceGeneration != null
+                serviceHeld = false
+                serviceGeneration = null
+                lastPublishedDeviceName = null
+                lastPublishedLabel = null
+                hadLease
+            }
+        if (shouldRelease) {
+            foregroundServiceRelease(appContext)
+        }
+        reconcileDelegateForeground()
+    }
+
+    /**
+     * Collapse Activity visibility and connected-device FGS ownership into one lifecycle signal for
+     * the underlying repository. Re-emitting ReconnectWaiting/recording/download states may refresh
+     * the notification, but must never call delegate.setForeground(true) again while ownership is
+     * already active because DefaultDeviceRepository.setForeground(true) can schedule reconnect.
+     */
+    private fun reconcileDelegateForeground() {
+        val transition =
+            synchronized(lock) {
+                val scanActive = delegate.scanState.value.isScanning
+                val appRequiresForeground =
+                    appForeground &&
+                        (!scanActive || delegateForegroundActive)
+                val desired = serviceHeld || appRequiresForeground
+                if (delegateForegroundActive == desired) {
+                    null
+                } else {
+                    delegateForegroundActive = desired
+                    desired
+                }
+            }
+        if (transition != null) {
+            delegate.setForeground(transition)
         }
     }
 
@@ -424,7 +452,11 @@ class ServiceBackedDeviceRepository(
             else ->
                 when (connection) {
                     is DeviceConnectionState.ReconnectWaiting ->
-                        "正在重连 · 第 ${connection.attempt} 次"
+                        if (connection.attempt <= FAST_RECONNECT_VISIBLE_ATTEMPTS) {
+                            "正在重连 · 第 ${connection.attempt} 次"
+                        } else {
+                            "等待设备重新连接"
+                        }
                     is DeviceConnectionState.Connecting,
                     is DeviceConnectionState.LinkConnected,
                     is DeviceConnectionState.DiscoveringServices,
@@ -446,5 +478,6 @@ class ServiceBackedDeviceRepository(
     private companion object {
         const val FALLBACK_DEVICE_NAME = "录音卡"
         const val SCAN_TO_CONNECT_SETTLE_MS = 250L
+        const val FAST_RECONNECT_VISIBLE_ATTEMPTS = 3
     }
 }
