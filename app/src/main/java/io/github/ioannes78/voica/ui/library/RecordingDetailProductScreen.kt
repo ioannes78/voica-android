@@ -105,6 +105,7 @@ internal fun RecordingDetailProductScreen(
     onCancelCanonical: (String) -> Unit,
     deviceRecordingActive: Boolean,
     initialDestination: RecordingDetailDestination,
+    navigationRequestToken: Int,
     onDestinationChanged: (RecordingDetailDestination?) -> Unit,
 ) {
     @Suppress("UNUSED_VARIABLE") val ignoredSpeechBenchmarkRunner = speechBenchmarkRunner
@@ -160,6 +161,15 @@ internal fun RecordingDetailProductScreen(
 
     LaunchedEffect(recording.id) {
         transcriptionViewModel.viewVersions(recording.id)
+    }
+    LaunchedEffect(recording.id, navigationRequestToken) {
+        if (navigationRequestToken > 0) {
+            val target = initialDestination.toProductTab()
+            if (target != ProductDetailTab.TRANSCRIPT && candidatePreview) {
+                transcriptionViewModel.showCurrent(recording.id)
+            }
+            selectedTab = target
+        }
     }
     LaunchedEffect(recordingDocument?.transcriptionId, recordingDocument?.alignmentId) {
         transcriptContentViewModel.bind(recordingDocument)
