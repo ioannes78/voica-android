@@ -1,8 +1,5 @@
 package io.github.ioannes78.voica
 
-import android.content.Context
-import android.content.Intent
-import androidx.test.core.app.ApplicationProvider
 import io.github.ioannes78.voica.ui.library.RecordingDetailDestination
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -10,51 +7,51 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppRecordingNavigationTest {
-    private val context: Context
-        get() = ApplicationProvider.getApplicationContext()
-
     @Test
-    fun transcriptIntentRoundTripsRecordingAndDestination() {
-        val intent =
-            recordingOpenIntent(
-                context = context,
-                recordingId = "recording-a",
-                destination = RecordingDetailDestination.TRANSCRIPT,
-            )
-
+    fun transcriptRouteParsesRecordingAndDestination() {
         assertEquals(
             RecordingOpenTarget("recording-a", RecordingDetailDestination.TRANSCRIPT),
-            parseRecordingOpenIntent(intent),
+            parseRecordingOpenTarget(
+                action = ACTION_OPEN_RECORDING,
+                recordingId = "recording-a",
+                destinationName = RecordingDetailDestination.TRANSCRIPT.name,
+            ),
         )
     }
 
     @Test
-    fun summaryIntentRoundTripsRecordingAndDestination() {
-        val intent =
-            recordingOpenIntent(
-                context = context,
-                recordingId = "recording-b",
-                destination = RecordingDetailDestination.SUMMARY,
-            )
-
+    fun summaryRouteParsesRecordingAndDestination() {
         assertEquals(
             RecordingOpenTarget("recording-b", RecordingDetailDestination.SUMMARY),
-            parseRecordingOpenIntent(intent),
+            parseRecordingOpenTarget(
+                action = ACTION_OPEN_RECORDING,
+                recordingId = "recording-b",
+                destinationName = RecordingDetailDestination.SUMMARY.name,
+            ),
         )
     }
 
     @Test
-    fun invalidOrIncompleteIntentIsIgnored() {
-        assertNull(parseRecordingOpenIntent(Intent("other.action")))
+    fun invalidOrIncompleteRouteIsIgnored() {
         assertNull(
-            parseRecordingOpenIntent(
-                recordingOpenIntent(
-                    context = context,
-                    recordingId = "recording-a",
-                    destination = RecordingDetailDestination.PLAYBACK,
-                ).apply {
-                    action = "other.action"
-                },
+            parseRecordingOpenTarget(
+                action = "other.action",
+                recordingId = "recording-a",
+                destinationName = RecordingDetailDestination.PLAYBACK.name,
+            ),
+        )
+        assertNull(
+            parseRecordingOpenTarget(
+                action = ACTION_OPEN_RECORDING,
+                recordingId = " ",
+                destinationName = RecordingDetailDestination.PLAYBACK.name,
+            ),
+        )
+        assertNull(
+            parseRecordingOpenTarget(
+                action = ACTION_OPEN_RECORDING,
+                recordingId = "recording-a",
+                destinationName = "UNKNOWN",
             ),
         )
     }
