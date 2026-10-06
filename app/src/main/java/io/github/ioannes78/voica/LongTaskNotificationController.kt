@@ -16,10 +16,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
-/**
- * Android notification/execution projection for the existing coordinator state machines.
- * Coordinators and Room remain authoritative; this controller never invents task state.
- */
 class LongTaskNotificationController(
     private val context: Context,
     private val scope: CoroutineScope,
@@ -259,6 +255,7 @@ internal fun buildDiarizationLabel(
             DiarizationPhase.VAD -> "正在分析语音"
             DiarizationPhase.DIARIZATION -> "正在分析说话人"
             DiarizationPhase.STITCHING -> "正在合并说话人片段"
+            DiarizationPhase.ALIGNMENT -> "正在对齐转写"
             DiarizationPhase.PERSISTING -> "正在保存结果"
         }
     return buildString {
