@@ -135,6 +135,52 @@ class AiSummaryDurableStateTest {
         assertEquals("active", running.summaryId)
     }
 
+    @Test
+    fun ambiguousManualRetryClonesOriginalFrozenLineageAndConfiguration() {
+        val original =
+            summary(
+                id = "ambiguous-old",
+                status = AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT,
+                errorCode = "REMOTE_RESULT_UNKNOWN",
+                message = "上一次请求状态无法确认，需要手动重试。",
+            ).copy(
+                mode = AiSummaryModeValue.CUSTOM,
+                templateId = "template-old",
+                templateSnapshot = "{\"id\":\"template-old\",\"focus\":\"old\"}",
+                providerProfileId = "provider-old",
+                providerNameSnapshot = "Provider Old",
+                baseUrlSnapshot = "https://old.example.invalid/v1",
+                model = "model-old",
+                promptVersion = 7,
+                resultSchemaVersion = 3,
+                requestConfigSnapshot =
+                    "{\"transcriptionRevisionId\":\"revision-old\",\"inputContentDigest\":\"digest-old\"}",
+                alignmentIdSnapshot = "alignment-old",
+                sourceLineageSnapshot =
+                    "{\"transcriptionRevisionId\":\"revision-old\",\"inputContentDigest\":\"digest-old\"}",
+            )
+        val immutableBeforeRetry = original.copy()
+
+        val retry = frozenRetryRequest(original)
+
+        assertEquals(original.recordingId, retry.recordingId)
+        assertEquals(original.transcriptionId, retry.transcriptionId)
+        assertEquals(original.mode, retry.mode)
+        assertEquals(original.templateId, retry.templateId)
+        assertEquals(original.templateSnapshot, retry.templateSnapshot)
+        assertEquals(original.providerProfileId, retry.providerProfileId)
+        assertEquals(original.providerNameSnapshot, retry.providerNameSnapshot)
+        assertEquals(original.baseUrlSnapshot, retry.baseUrlSnapshot)
+        assertEquals(original.model, retry.model)
+        assertEquals(original.promptVersion, retry.promptVersion)
+        assertEquals(original.resultSchemaVersion, retry.resultSchemaVersion)
+        assertEquals(original.requestConfigSnapshot, retry.requestConfigSnapshot)
+        assertEquals(original.alignmentIdSnapshot, retry.alignmentIdSnapshot)
+        assertEquals(original.sourceLineageSnapshot, retry.sourceLineageSnapshot)
+        assertEquals(original.id, retry.retryOfSummaryId)
+        assertEquals(immutableBeforeRetry, original)
+    }
+
     private fun summary(
         id: String = SUMMARY_ID,
         status: String,
