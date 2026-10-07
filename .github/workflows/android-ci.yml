@@ -30,6 +30,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          # Bootstrap must commit on the actual PR head branch, not refs/pull/*/merge.
+          ref: ${{ github.event.pull_request.head.ref }}
 
       - name: Setup JDK 17
         uses: actions/setup-java@v5
@@ -69,7 +72,7 @@ jobs:
       - name: Commit generated Room v9 schema
         shell: bash
         env:
-          TARGET_BRANCH: ${{ github.head_ref }}
+          TARGET_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
           schema="core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/9.json"
