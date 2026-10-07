@@ -20,18 +20,20 @@ class RoomSummaryCheckpointStore(
         inputDigest: String,
     ): String? {
         val chunk =
-            generation?.let { currentGeneration ->
-                repository.findChunkForGeneration(
+            if (generation == null) {
+                repository.findChunk(
                     summaryId = summaryId,
-                    generation = currentGeneration,
                     level = level,
                     chunkIndex = chunkIndex,
                 )
-            } ?: repository.findChunk(
-                summaryId = summaryId,
-                level = level,
-                chunkIndex = chunkIndex,
-            ) ?: return null
+            } else {
+                repository.findChunkForGeneration(
+                    summaryId = summaryId,
+                    generation = generation,
+                    level = level,
+                    chunkIndex = chunkIndex,
+                )
+            } ?: return null
         if (chunk.inputDigest != inputDigest || chunk.status != STATUS_COMPLETED) {
             return null
         }
