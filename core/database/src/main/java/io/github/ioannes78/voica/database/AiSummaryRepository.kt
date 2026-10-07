@@ -20,6 +20,7 @@ data class NewAiSummaryRequest(
     val requestConfigSnapshot: String,
     val alignmentIdSnapshot: String?,
     val sourceLineageSnapshot: String,
+    val retryOfSummaryId: String? = null,
 )
 
 data class SaveAiCustomTemplateRequest(
@@ -55,6 +56,15 @@ class AiSummaryRepository(
 
     fun observeForTranscription(transcriptionId: String): Flow<List<AiSummaryEntity>> =
         dao.observeForTranscription(transcriptionId)
+
+    fun observeDurableTasks(): Flow<List<AiSummaryEntity>> =
+        dao.observeDurableTasks(
+            activeStates = AiSummaryStateValue.ACTIVE,
+            terminalAttentionStates = ATTENTION_TERMINAL_STATES,
+        )
+
+    suspend fun loadActiveSummaries(): List<AiSummaryEntity> =
+        dao.loadActiveSummaries(AiSummaryStateValue.ACTIVE)
 
     suspend fun find(summaryId: String): AiSummaryEntity? = dao.findSummary(summaryId)
 
@@ -105,6 +115,7 @@ class AiSummaryRepository(
         require(request.resultSchemaVersion >= 1)
         require(request.requestConfigSnapshot.isNotBlank())
         require(request.sourceLineageSnapshot.isNotBlank())
+        require(request.retryOfSummaryId == null || request.retryOfSummaryId.isNotBlank())
 
         val transcription =
             transcriptionDao.findTranscription(request.transcriptionId)
@@ -144,6 +155,10 @@ class AiSummaryRepository(
                 usageSnapshot = null,
                 alignmentIdSnapshot = request.alignmentIdSnapshot,
                 sourceLineageSnapshot = request.sourceLineageSnapshot,
+                executionGeneration = 1L,
+                remoteDispatchState = AiSummaryRemoteDispatchStateValue.NONE,
+                remoteCallOrdinal = 0,
+                retryOfSummaryId = request.retryOfSummaryId,
             ),
         )
         return id
@@ -244,6 +259,101 @@ class AiSummaryRepository(
     suspend fun loadEvidence(summaryId: String): List<AiSummaryEvidenceEntity> =
         dao.loadEvidence(summaryId)
 
+    suspend fun prepareRemoteCall(
+        summaryId: String,
+        generation: Long,
+        requestId: String,
+        stepKind: String,
+        stepKey: String,
+    ): Boolean {
+        require(generation >= 1L)
+        require(requestId.isNotBlank())
+        require(stepKind.isNotBlank())
+        require(stepKey.isNotBlank())
+        return dao.prepareRemoteCall(
+            summaryId = summaryId,
+            generation = generation,
+            requestId = requestId,
+            stepKind = stepKind,
+            stepKey = stepKey,
+            nowMs = nowMs(),
+            activeStates = AiSummaryStateValue.ACTIVE,
+        ) == 1
+    }
+
+    suspend fun markRemoteRequestInFlight(
+        summaryId: String,
+        generation: Long,
+        requestId: String,
+        stepKind: String,
+        stepKey: String,
+    ): Boolean {
+        require(generation >= 1L)
+        require(requestId.isNotBlank())
+        require(stepKind.isNotBlank())
+        require(stepKey.isNotBlank())
+        return dao.markRemoteRequestInFlight(
+            summaryId = summaryId,
+            generation = generation,
+            requestId = requestId,
+            stepKind = stepKind,
+            stepKey = stepKey,
+            nowMs = nowMs(),
+            activeStates = AiSummaryStateValue.ACTIVE,
+        ) == 1
+    }
+
+    suspend fun clearRemoteDispatch(
+        summaryId: String,
+        generation: Long,
+        requestId: String,
+    ): Boolean {
+        require(generation >= 1L)
+        require(requestId.isNotBlank())
+        return dao.clearRemoteDispatch(
+            summaryId = summaryId,
+            generation = generation,
+            requestId = requestId,
+            nowMs = nowMs(),
+            activeStates = AiSummaryStateValue.ACTIVE,
+        ) == 1
+    }
+
+    suspend fun markAmbiguousRemoteResult(
+        summaryId: String,
+        generation: Long,
+    ): Boolean {
+        require(generation >= 1L)
+        return dao.markAmbiguousRemoteResult(
+            summaryId = summaryId,
+            generation = generation,
+            nowMs = nowMs(),
+            sanitizedErrorMessage = AMBIGUOUS_REMOTE_MESSAGE,
+            activeStates = AiSummaryStateValue.ACTIVE,
+        ) == 1
+    }
+
+    suspend fun cancelForGeneration(
+        summaryId: String,
+        generation: Long,
+    ): Boolean {
+        require(generation >= 1L)
+        return dao.cancelForGeneration(
+            summaryId = summaryId,
+            generation = generation,
+            nowMs = nowMs(),
+            sanitizedErrorMessage = "AI 总结生成已取消。",
+            activeStates = AiSummaryStateValue.ACTIVE,
+        ) == 1
+    }
+
+    suspend fun acknowledgeTerminal(summaryId: String): Boolean =
+        dao.acknowledgeTerminal(
+            summaryId = summaryId,
+            nowMs = nowMs(),
+            terminalStates = ATTENTION_TERMINAL_STATES,
+        ) == 1
+
     suspend fun resumeInterrupted(summaryId: String): Boolean =
         dao.resumeInterrupted(summaryId, nowMs()) == 1
 
@@ -301,7 +411,16 @@ class AiSummaryRepository(
                 AiSummaryStateValue.FAILED,
                 AiSummaryStateValue.CANCELLED,
                 AiSummaryStateValue.INTERRUPTED,
+                AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT,
             )
+        val ATTENTION_TERMINAL_STATES =
+            listOf(
+                AiSummaryStateValue.COMPLETED,
+                AiSummaryStateValue.FAILED,
+                AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT,
+            )
+        const val AMBIGUOUS_REMOTE_MESSAGE =
+            "上一次请求状态无法确认，需要手动重试。"
         val ALL_STATES = AiSummaryStateValue.ACTIVE.toSet() + TERMINAL_STATES
     }
 }

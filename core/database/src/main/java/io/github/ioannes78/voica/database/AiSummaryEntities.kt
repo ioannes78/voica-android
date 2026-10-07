@@ -1,5 +1,6 @@
 package io.github.ioannes78.voica.database
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -28,6 +29,7 @@ object AiSummaryStateValue {
     const val FAILED = "FAILED"
     const val CANCELLED = "CANCELLED"
     const val INTERRUPTED = "INTERRUPTED"
+    const val AMBIGUOUS_REMOTE_RESULT = "AMBIGUOUS_REMOTE_RESULT"
 
     val ACTIVE =
         listOf(
@@ -39,6 +41,14 @@ object AiSummaryStateValue {
             REDUCING,
             VALIDATING,
         )
+}
+
+object AiSummaryRemoteDispatchStateValue {
+    const val NONE = "NONE"
+    const val READY_TO_SEND = "READY_TO_SEND"
+    const val REQUEST_IN_FLIGHT = "REQUEST_IN_FLIGHT"
+
+    val ALL = setOf(NONE, READY_TO_SEND, REQUEST_IN_FLIGHT)
 }
 
 @Entity(
@@ -93,6 +103,18 @@ data class AiSummaryEntity(
     val usageSnapshot: String?,
     val alignmentIdSnapshot: String?,
     val sourceLineageSnapshot: String,
+    @ColumnInfo(defaultValue = "0")
+    val executionGeneration: Long = 0L,
+    @ColumnInfo(defaultValue = "'NONE'")
+    val remoteDispatchState: String = AiSummaryRemoteDispatchStateValue.NONE,
+    val remoteRequestId: String? = null,
+    val remoteStepKind: String? = null,
+    val remoteStepKey: String? = null,
+    @ColumnInfo(defaultValue = "0")
+    val remoteCallOrdinal: Int = 0,
+    val remoteStartedAtMs: Long? = null,
+    val terminalAcknowledgedAtMs: Long? = null,
+    val retryOfSummaryId: String? = null,
 )
 
 @Entity(

@@ -93,7 +93,7 @@ jobs:
             tr '[:upper:]' '[:lower:]')"
           test "$actual_cert_sha256" = "$expected_cert_sha256"
 
-      # Stage 13A migration gate: committed Room v1-v7 schemas must stay in sync.
+      # Stage 13B.5 migration gate: committed Room v1-v8 schemas must stay in sync.
       - name: Verify committed Room schemas
         shell: bash
         run: |
@@ -105,6 +105,7 @@ jobs:
           test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/5.json"
           test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/6.json"
           test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/7.json"
+          test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/8.json"
           git diff --exit-code -- "$schema_dir"
           test -z "$(git status --porcelain --untracked-files=all -- "$schema_dir")"
 
