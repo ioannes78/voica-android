@@ -28,8 +28,8 @@ class Stage13B5DatabaseMigrationTest {
                 """
                 INSERT INTO recordings (
                     id, sourceType, sourceRemoteIdentity, sourceDeviceAddress,
-                    originalFilename, displayName, recoredAtLocalIso,
-                    deviceReportedDurationMs, mediaLurationMs, downloadedAtMs,
+                    originalFilename, displayName, recordedAtLocalIso,
+                    deviceReportedDurationMs, mediaDurationMs, downloadedAtMs,
                     createdAtMs, updatedAtMs, state
                 ) VALUES (
                     'rec-13b5', 'LOCAL_IMPORT', NULL, NULL,
@@ -51,13 +51,13 @@ class Stage13B5DatabaseMigrationTest {
                     updatedAtMs, completedAtMs, errorCode, errorMessage
                 ) VALUES (
                     'tx-13b5', 'rec-13b5', 'FAST', 'COMPLETED', 'canonical-13b5',
-                    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
                     'CANONICAL_PCM16_16000_MONO_WAV_V1', 960000,
                     1, 'sherpa-onnx', '1.13.8', 'silero-vad-int8', '2025-07-11',
                     'sensevoice-2024-int8', '2024-07-17',
                     NULL, NULL, 'ct-transformer-zh-en-int8', '2024-04-12', 'auto',
                     '{}',
-                    'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                    'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
                     2000, 2000, 2001, 2001, NULL, NULL
                 )
                 """.trimIndent(),
