@@ -6,10 +6,12 @@ import io.github.ioannes78.voica.ai.SummaryCheckpointStore
 class RoomSummaryCheckpointStore(
     private val repository: AiSummaryRepository,
     private val summaryId: String,
+    private val generation: Long? = null,
     private val nowMs: () -> Long = System::currentTimeMillis,
 ) : SummaryCheckpointStore {
     init {
         require(summaryId.isNotBlank())
+        require(generation == null || generation >= 1L)
     }
 
     override suspend fun load(
@@ -18,7 +20,14 @@ class RoomSummaryCheckpointStore(
         inputDigest: String,
     ): String? {
         val chunk =
-            repository.findChunk(
+            generation?.let { currentGeneration ->
+                repository.findChunkForGeneration(
+                    summaryId = summaryId,
+                    generation = currentGeneration,
+                    level = level,
+                    chunkIndex = chunkIndex,
+                )
+            } ?: repository.findChunk(
                 summaryId = summaryId,
                 level = level,
                 chunkIndex = chunkIndex,
@@ -30,7 +39,7 @@ class RoomSummaryCheckpointStore(
     }
 
     override suspend fun save(record: SummaryCheckpointRecord) {
-        repository.upsertChunk(
+        val chunk =
             AiSummaryChunkEntity(
                 id = deterministicId(record.level, record.chunkIndex),
                 aiSummaryId = summaryId,
@@ -47,8 +56,21 @@ class RoomSummaryCheckpointStore(
                 errorCode = null,
                 sanitizedErrorMessage = null,
                 updatedAtMs = nowMs(),
-            ),
-        )
+            )
+        val currentGeneration = generation
+        if (currentGeneration == null) {
+            repository.upsertChunk(chunk)
+        } else if (
+            !repository.upsertChunkForGeneration(
+                summaryId = summaryId,
+                generation = currentGeneration,
+                chunk = chunk,
+            )
+        ) {
+            throw SummaryRemoteCallBoundaryChangedException(
+                "AI summary checkpoint executor generation changed",
+            )
+        }
     }
 
     private fun deterministicId(
