@@ -47,8 +47,11 @@ class AiSummaryRepository(
     private val database: VoicaDatabase,
     private val nowMs: () -> Long = System::currentTimeMillis,
     private val idFactory: () -> String = { UUID.randomUUID().toString() },
+    private val currentOwnerTaskId: () -> Int? = { 0 },
+    private val isOwnerTaskActive: (Int) -> Boolean = { true },
 ) {
     private val dao = database.aiSummaryDao()
+    private val ownershipDao = database.aiSummaryOwnershipDao()
     private val transcriptionDao = database.transcriptionDao()
 
     fun observeForRecording(recordingId: String): Flow<List<AiSummaryEntity>> =
@@ -123,6 +126,9 @@ class AiSummaryRepository(
         require(transcription.recordingId == request.recordingId)
         require(transcription.state == TranscriptionStateValue.COMPLETED)
 
+        val ownerTaskId =
+            currentOwnerTaskId()?.takeIf { it >= 0 }
+                ?: error("AI summary owner task unavailable")
         val now = nowMs()
         val id = newId()
         dao.insertSummary(
@@ -156,6 +162,7 @@ class AiSummaryRepository(
                 alignmentIdSnapshot = request.alignmentIdSnapshot,
                 sourceLineageSnapshot = request.sourceLineageSnapshot,
                 executionGeneration = 1L,
+                ownerTaskId = ownerTaskId,
                 remoteDispatchState = AiSummaryRemoteDispatchStateValue.NONE,
                 remoteCallOrdinal = 0,
                 retryOfSummaryId = request.retryOfSummaryId,
@@ -288,6 +295,56 @@ class AiSummaryRepository(
     suspend fun loadEvidence(summaryId: String): List<AiSummaryEvidenceEntity> =
         dao.loadEvidence(summaryId)
 
+    suspend fun ensureOwnerTaskActive(
+        summaryId: String,
+        generation: Long,
+    ): Boolean {
+        require(summaryId.isNotBlank())
+        require(generation >= 1L)
+        val snapshot = dao.findSummary(summaryId) ?: return false
+        if (snapshot.executionGeneration != generation || snapshot.status !in AiSummaryStateValue.ACTIVE) {
+            return false
+        }
+        val ownerTaskId = snapshot.ownerTaskId
+        if (ownerTaskId != null && ownerTaskId >= 0 && isOwnerTaskActive(ownerTaskId)) {
+            return true
+        }
+
+        return database.withTransaction {
+            val current = dao.findSummary(summaryId) ?: return@withTransaction false
+            if (current.executionGeneration != generation || current.status !in AiSummaryStateValue.ACTIVE) {
+                return@withTransaction false
+            }
+            when (current.remoteDispatchState) {
+                AiSummaryRemoteDispatchStateValue.REQUEST_IN_FLIGHT -> {
+                    val requestId = current.remoteRequestId
+                    if (!requestId.isNullOrBlank()) {
+                        dao.markAmbiguousRemoteResult(
+                            summaryId = summaryId,
+                            generation = generation,
+                            requestId = requestId,
+                            nowMs = nowMs(),
+                            sanitizedErrorMessage = AMBIGUOUS_REMOTE_MESSAGE,
+                            activeStates = AiSummaryStateValue.ACTIVE,
+                        )
+                    }
+                }
+                AiSummaryRemoteDispatchStateValue.NONE,
+                AiSummaryRemoteDispatchStateValue.READY_TO_SEND,
+                -> {
+                    ownershipDao.interruptMissingOwnerBeforeSend(
+                        summaryId = summaryId,
+                        generation = generation,
+                        nowMs = nowMs(),
+                        sanitizedErrorMessage = OWNER_TASK_INTERRUPTED_MESSAGE,
+                        activeStates = AiSummaryStateValue.ACTIVE,
+                    )
+                }
+            }
+            false
+        }
+    }
+
     suspend fun prepareRemoteCall(
         summaryId: String,
         generation: Long,
@@ -299,6 +356,7 @@ class AiSummaryRepository(
         require(requestId.isNotBlank())
         require(stepKind.isNotBlank())
         require(stepKey.isNotBlank())
+        if (!ensureOwnerTaskActive(summaryId, generation)) return false
         return dao.prepareRemoteCall(
             summaryId = summaryId,
             generation = generation,
@@ -321,6 +379,7 @@ class AiSummaryRepository(
         require(requestId.isNotBlank())
         require(stepKind.isNotBlank())
         require(stepKey.isNotBlank())
+        if (!ensureOwnerTaskActive(summaryId, generation)) return false
         return dao.markRemoteRequestInFlight(
             summaryId = summaryId,
             generation = generation,
@@ -345,6 +404,7 @@ class AiSummaryRepository(
         require(newRequestId.isNotBlank())
         require(stepKind.isNotBlank())
         require(stepKey.isNotBlank())
+        if (!ensureOwnerTaskActive(summaryId, generation)) return false
         return dao.replaceRemoteRequestInFlight(
             summaryId = summaryId,
             generation = generation,
@@ -436,8 +496,10 @@ class AiSummaryRepository(
             terminalStates = ATTENTION_TERMINAL_STATES,
         ) == 1
 
-    suspend fun resumeInterrupted(summaryId: String): Boolean =
-        dao.resumeInterrupted(summaryId, nowMs()) == 1
+    suspend fun resumeInterrupted(summaryId: String): Boolean {
+        val ownerTaskId = currentOwnerTaskId()?.takeIf { it >= 0 } ?: return false
+        return ownershipDao.resumeInterrupted(summaryId, ownerTaskId, nowMs()) == 1
+    }
 
     suspend fun findChunk(
         summaryId: String,
@@ -593,6 +655,8 @@ class AiSummaryRepository(
             AiSummaryStateValue.ACTIVE + AiSummaryStateValue.COMPLETED
         const val AMBIGUOUS_REMOTE_MESSAGE =
             "上一次请求状态无法确认，需要手动重试。"
+        const val OWNER_TASK_INTERRUPTED_MESSAGE =
+            "应用任务已结束，AI 总结已中断。重新打开后可手动继续。"
         val ALL_STATES = AiSummaryStateValue.ACTIVE.toSet() + TERMINAL_STATES
     }
 }
