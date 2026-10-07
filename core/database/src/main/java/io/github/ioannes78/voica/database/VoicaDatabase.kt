@@ -39,7 +39,7 @@ import androidx.room.RoomDatabase
         SearchDocumentFtsEntity::class,
         SearchIndexStateEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class VoicaDatabase : RoomDatabase() {
@@ -72,6 +72,7 @@ abstract class VoicaDatabase : RoomDatabase() {
                     MIGRATION_5_6,
                     MIGRATION_6_7,
                     MIGRATION_7_8,
+                    MIGRATION_8_9,
                 )
                 .build()
     }
