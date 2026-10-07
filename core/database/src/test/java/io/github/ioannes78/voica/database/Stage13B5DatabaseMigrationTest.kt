@@ -14,7 +14,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35])
 class Stage13B5DatabaseMigrationTest {
     @Test
-    fun migration7To8PreservesSummaryCheckpointsAndAddsDurableExecutionDefaults() {
+    fun migration7To9PreservesSummaryCheckpointsAndAddsDurableExecutionDefaults() {
         val helper =
             MigrationTestHelper(
                 InstrumentationRegistry.getInstrumentation(),
@@ -111,15 +111,16 @@ class Stage13B5DatabaseMigrationTest {
         val migrated =
             helper.runMigrationsAndValidate(
                 TEST_DB,
-                8,
+                9,
                 true,
                 MIGRATION_7_8,
+                MIGRATION_8_9,
             )
 
         try {
             migrated.query(
                 """
-                SELECT status, executionGeneration, remoteDispatchState,
+                SELECT status, executionGeneration, ownerTaskId, remoteDispatchState,
                        remoteRequestId, remoteStepKind, remoteStepKey,
                        remoteCallOrdinal, remoteStartedAtMs,
                        terminalAcknowledgedAtMs, retryOfSummaryId
@@ -130,14 +131,15 @@ class Stage13B5DatabaseMigrationTest {
                 assertTrue(cursor.moveToFirst())
                 assertEquals("MAPPING", cursor.getString(0))
                 assertEquals(0L, cursor.getLong(1))
-                assertEquals("NONE", cursor.getString(2))
-                assertNull(cursor.getString(3))
+                assertTrue(cursor.isNull(2))
+                assertEquals("NONE", cursor.getString(3))
                 assertNull(cursor.getString(4))
                 assertNull(cursor.getString(5))
-                assertEquals(0, cursor.getInt(6))
-                assertTrue(cursor.isNull(7))
+                assertNull(cursor.getString(6))
+                assertEquals(0, cursor.getInt(7))
                 assertTrue(cursor.isNull(8))
                 assertTrue(cursor.isNull(9))
+                assertTrue(cursor.isNull(10))
             }
 
             migrated.query(
