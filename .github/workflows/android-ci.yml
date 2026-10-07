@@ -61,7 +61,7 @@ jobs:
           # Encrypt persisted Configuration Cache state so it can be safely reused across hosted runners.
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
 
-      # Temporary Stage 13B.5 QA2 bootstrap: emit the generated v9 schema so it can be committed.
+      # Temporary Stage 13B.5 QA2 bootstrap: generate and upload the exact v9 schema so it can be committed.
       - name: Emit generated Room v9 schema
         shell: bash
         run: |
@@ -71,7 +71,18 @@ jobs:
           echo "ROOM_SCHEMA_9_BEGIN"
           cat "$schema"
           echo "ROOM_SCHEMA_9_END"
-          exit 1
+
+      - name: Upload Room v9 schema bootstrap
+        uses: actions/upload-artifact@v4
+        with:
+          name: Room-v9-schema-bootstrap
+          path: core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/9.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Stop after Room v9 schema bootstrap
+        shell: bash
+        run: exit 1
 
       - name: Unit test and debug build
         run: >
