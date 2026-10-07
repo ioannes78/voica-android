@@ -24,6 +24,70 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
+internal enum class ModelInstallNotificationAction {
+    CANCEL_DOWNLOAD,
+    PAUSE_INSTALL,
+    CONTINUE_INSTALL,
+    NONE,
+}
+
+internal fun modelInstallDownloadPercent(
+    downloadedBytes: Long,
+    totalBytes: Long?,
+): Int? =
+    totalBytes
+        ?.takeIf { it > 0L }
+        ?.let { total ->
+            ((downloadedBytes.coerceAtLeast(0L) * 100L) / total)
+                .coerceIn(0L, 100L)
+                .toInt()
+        }
+
+internal fun modelInstallNotificationAction(
+    phase: ModelInstallPhase,
+    requiresUserResume: Boolean,
+    downloadedBytes: Long,
+    totalBytes: Long?,
+): ModelInstallNotificationAction {
+    if (phase.terminal) return ModelInstallNotificationAction.NONE
+    if (requiresUserResume ||
+        phase == ModelInstallPhase.INTERRUPTED ||
+        phase == ModelInstallPhase.FAILED_RECOVERABLE
+    ) {
+        return ModelInstallNotificationAction.CONTINUE_INSTALL
+    }
+    if (phase == ModelInstallPhase.REQUESTED) {
+        return ModelInstallNotificationAction.CANCEL_DOWNLOAD
+    }
+    if (phase == ModelInstallPhase.DOWNLOAD) {
+        val complete = totalBytes != null && totalBytes > 0L && downloadedBytes >= totalBytes
+        return if (complete) {
+            ModelInstallNotificationAction.PAUSE_INSTALL
+        } else {
+            ModelInstallNotificationAction.CANCEL_DOWNLOAD
+        }
+    }
+    return ModelInstallNotificationAction.PAUSE_INSTALL
+}
+
+internal fun modelInstallNotificationPhaseLabel(phase: ModelInstallPhase): String =
+    when (phase) {
+        ModelInstallPhase.REQUESTED -> "等待开始"
+        ModelInstallPhase.DOWNLOAD -> "正在下载"
+        ModelInstallPhase.VERIFY -> "正在校验下载文件"
+        ModelInstallPhase.EXTRACT -> "正在解压模型"
+        ModelInstallPhase.FILE_VERIFY -> "正在校验模型文件"
+        ModelInstallPhase.RUNTIME_VALIDATE -> "正在验证运行库"
+        ModelInstallPhase.ATOMIC_ACTIVATE -> "正在启用模型"
+        ModelInstallPhase.READY -> "已启用"
+        ModelInstallPhase.INTERRUPTED -> "安装已中断，可继续"
+        ModelInstallPhase.FAILED_RECOVERABLE -> "安装暂停，可继续"
+        ModelInstallPhase.FAILED_INTEGRITY -> "文件校验失败"
+        ModelInstallPhase.FAILED_RUNTIME -> "运行库验证失败"
+        ModelInstallPhase.FAILED_CONFIGURATION -> "模型安装配置失败"
+        ModelInstallPhase.CANCELLED -> "已取消"
+    }
+
 class ModelInstallDownloadWorker(
     appContext: Context,
     workerParams: WorkerParameters,
@@ -43,15 +107,21 @@ class ModelInstallDownloadWorker(
             setForeground(ModelInstallNotifications.foregroundInfo(applicationContext, record))
         }
 
-        return when (
-            runtime.orchestrator.executeDownload(
-                operationId = operationId,
-                generation = generation,
-            )
-        ) {
-            ModelInstallExecutionOutcome.SUCCESS -> Result.success()
-            ModelInstallExecutionOutcome.RETRY -> Result.retry()
-            ModelInstallExecutionOutcome.FAILURE -> Result.failure()
+        return try {
+            when (
+                runtime.orchestrator.executeDownload(
+                    operationId = operationId,
+                    generation = generation,
+                )
+            ) {
+                ModelInstallExecutionOutcome.SUCCESS -> Result.success()
+                ModelInstallExecutionOutcome.RETRY -> Result.retry()
+                ModelInstallExecutionOutcome.FAILURE -> Result.failure()
+            }
+        } finally {
+            runtime.journalStore.read(operationId)?.let { latest ->
+                ModelInstallNotifications.sync(applicationContext, latest)
+            }
         }
     }
 }
@@ -70,7 +140,7 @@ class ModelInstallFinalizeWorker(
         val record = runtime.journalStore.read(operationId) ?: return Result.success()
         val manual = record.origin == ModelInstallOrigin.MANUAL
         if (manual) {
-            ModelInstallNotifications.notify(applicationContext, record)
+            ModelInstallNotifications.sync(applicationContext, record)
         }
         return try {
             when (
@@ -86,10 +156,10 @@ class ModelInstallFinalizeWorker(
         } finally {
             if (manual) {
                 val latest = runtime.journalStore.read(operationId)
-                if (latest == null || latest.phase.terminal || latest.requiresUserResume) {
+                if (latest == null) {
                     ModelInstallNotifications.cancel(applicationContext, operationId)
                 } else {
-                    ModelInstallNotifications.notify(applicationContext, latest)
+                    ModelInstallNotifications.sync(applicationContext, latest)
                 }
             }
         }
@@ -121,6 +191,9 @@ class ModelInstallUidtJobService : JobService() {
                     val reschedule =
                         runtime.orchestrator.executeDownload(operationId, generation) ==
                             ModelInstallExecutionOutcome.RETRY
+                    runtime.journalStore.read(operationId)?.let { latest ->
+                        ModelInstallNotifications.sync(this@ModelInstallUidtJobService, latest)
+                    }
                     runningJobs.remove(params.jobId)
                     jobFinished(params, reschedule)
                 } catch (cancelled: CancellationException) {
@@ -152,12 +225,35 @@ class ModelInstallUidtJobService : JobService() {
 
 class ModelInstallActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != ACTION_CANCEL_MODEL_INSTALL) return
+        if (intent.action != ACTION_CONTROL_MODEL_INSTALL) return
         val operationId = intent.getStringExtra(EXTRA_OPERATION_ID) ?: return
         val pending = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
-                ModelInstallRuntime.requireHolder().orchestrator.cancelOperation(operationId)
+                val runtime = ModelInstallRuntime.requireHolder()
+                val controller = runtime.manager as? DurableModelInstallController
+                    ?: return@launch
+                val current = runtime.journalStore.read(operationId) ?: return@launch
+                when (
+                    modelInstallNotificationAction(
+                        phase = current.phase,
+                        requiresUserResume = current.requiresUserResume,
+                        downloadedBytes = current.downloadedBytes,
+                        totalBytes = current.totalBytes,
+                    )
+                ) {
+                    ModelInstallNotificationAction.CONTINUE_INSTALL ->
+                        controller.resumeInstall(operationId)
+
+                    ModelInstallNotificationAction.CANCEL_DOWNLOAD,
+                    ModelInstallNotificationAction.PAUSE_INSTALL ->
+                        controller.requestUserStop(operationId)
+
+                    ModelInstallNotificationAction.NONE -> Unit
+                }
+                runtime.journalStore.latestForModel(current.modelId)?.let { latest ->
+                    ModelInstallNotifications.sync(context, latest)
+                }
             } finally {
                 pending.finish()
             }
@@ -178,6 +274,17 @@ internal object ModelInstallNotifications {
             notification(context, record),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
         )
+
+    fun sync(
+        context: Context,
+        record: ModelInstallJournalRecord,
+    ) {
+        if (record.origin != ModelInstallOrigin.MANUAL || record.phase.terminal) {
+            cancel(context, record.operationId)
+            return
+        }
+        notify(context, record)
+    }
 
     fun notify(
         context: Context,
@@ -210,44 +317,70 @@ internal object ModelInstallNotifications {
                     .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
-        val cancelIntent =
+        val controlIntent =
             PendingIntent.getBroadcast(
                 context,
                 notificationId(record.operationId) + 1,
                 Intent(context, ModelInstallActionReceiver::class.java)
-                    .setAction(ACTION_CANCEL_MODEL_INSTALL)
+                    .setAction(ACTION_CONTROL_MODEL_INSTALL)
                     .putExtra(EXTRA_OPERATION_ID, record.operationId),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
+        val progressPercent =
+            if (record.phase == ModelInstallPhase.DOWNLOAD) {
+                modelInstallDownloadPercent(record.downloadedBytes, record.totalBytes)
+            } else {
+                null
+            }
+        val contentText =
+            if (progressPercent != null) {
+                "$progressPercent% · ${formatMiB(record.downloadedBytes)} / ${formatMiB(record.totalBytes ?: 0L)}"
+            } else {
+                phaseText(record)
+            }
         val builder =
             NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_sys_download)
                 .setContentTitle(record.snapshot.descriptor.displayName)
-                .setContentText(phaseText(record))
+                .setContentText(contentText)
                 .setContentIntent(openIntent)
                 .setOnlyAlertOnce(true)
                 .setOngoing(!record.phase.terminal && !record.requiresUserResume)
                 .setCategory(NotificationCompat.CATEGORY_PROGRESS)
 
-        if (record.phase == ModelInstallPhase.DOWNLOAD &&
-            record.totalBytes != null &&
-            record.totalBytes > 0L
-        ) {
-            val percent =
-                ((record.downloadedBytes * 100L) / record.totalBytes)
-                    .coerceIn(0L, 100L)
-                    .toInt()
-            builder.setProgress(100, percent, false)
+        if (record.phase == ModelInstallPhase.DOWNLOAD) {
+            if (progressPercent != null) {
+                builder.setSubText("正在下载")
+                builder.setProgress(100, progressPercent, false)
+            } else {
+                builder.setProgress(0, 0, true)
+            }
         } else if (!record.phase.terminal && !record.requiresUserResume) {
             builder.setProgress(0, 0, true)
         }
 
-        if (!record.phase.terminal && !record.cancelRequested) {
-            builder.addAction(
-                android.R.drawable.ic_menu_close_clear_cancel,
-                "取消",
-                cancelIntent,
+        val action =
+            modelInstallNotificationAction(
+                phase = record.phase,
+                requiresUserResume = record.requiresUserResume,
+                downloadedBytes = record.downloadedBytes,
+                totalBytes = record.totalBytes,
             )
+        if (action != ModelInstallNotificationAction.NONE && !record.cancelRequested) {
+            val label =
+                when (action) {
+                    ModelInstallNotificationAction.CANCEL_DOWNLOAD -> "取消下载"
+                    ModelInstallNotificationAction.PAUSE_INSTALL -> "暂停安装"
+                    ModelInstallNotificationAction.CONTINUE_INSTALL -> "继续安装"
+                    ModelInstallNotificationAction.NONE -> ""
+                }
+            val icon =
+                if (action == ModelInstallNotificationAction.CONTINUE_INSTALL) {
+                    android.R.drawable.ic_media_play
+                } else {
+                    android.R.drawable.ic_menu_close_clear_cancel
+                }
+            builder.addAction(icon, label, controlIntent)
         }
         return builder.build()
     }
@@ -257,26 +390,9 @@ internal object ModelInstallNotifications {
 
     private fun phaseText(record: ModelInstallJournalRecord): String =
         when (record.phase) {
-            ModelInstallPhase.REQUESTED -> "等待开始"
-            ModelInstallPhase.DOWNLOAD ->
-                if (record.totalBytes != null) {
-                    "正在下载 · ${formatMiB(record.downloadedBytes)} / ${formatMiB(record.totalBytes)}"
-                } else {
-                    "正在下载"
-                }
-            ModelInstallPhase.VERIFY -> "正在校验下载文件"
-            ModelInstallPhase.EXTRACT -> "正在解压模型"
-            ModelInstallPhase.FILE_VERIFY -> "正在校验模型文件"
-            ModelInstallPhase.RUNTIME_VALIDATE -> "正在验证运行库"
-            ModelInstallPhase.ATOMIC_ACTIVATE -> "正在启用模型"
-            ModelInstallPhase.READY -> "已启用"
-            ModelInstallPhase.INTERRUPTED -> "安装已中断，可继续"
             ModelInstallPhase.FAILED_RECOVERABLE ->
-                record.lastFailureMessage ?: "安装暂停，可继续"
-            ModelInstallPhase.FAILED_INTEGRITY -> "文件校验失败"
-            ModelInstallPhase.FAILED_RUNTIME -> "运行库验证失败"
-            ModelInstallPhase.FAILED_CONFIGURATION -> "模型安装配置失败"
-            ModelInstallPhase.CANCELLED -> "已取消"
+                modelInstallRecordUserMessage(record) ?: modelInstallNotificationPhaseLabel(record.phase)
+            else -> modelInstallNotificationPhaseLabel(record.phase)
         }
 
     private fun formatMiB(bytes: Long): String =
@@ -297,6 +413,6 @@ internal object ModelInstallNotifications {
     }
 }
 
-internal const val ACTION_CANCEL_MODEL_INSTALL =
-    "io.github.ioannes78.voica.action.CANCEL_MODEL_INSTALL"
+internal const val ACTION_CONTROL_MODEL_INSTALL =
+    "io.github.ioannes78.voica.action.CONTROL_MODEL_INSTALL"
 internal const val EXTRA_OPERATION_ID = "model-install-operation-id"

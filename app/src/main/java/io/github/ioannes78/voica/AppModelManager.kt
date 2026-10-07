@@ -207,6 +207,7 @@ fun createVoicaModelManager(
         )
 
     ModelInstallRuntime.register(
+        application = application,
         manager = durableManager,
         orchestrator = orchestrator,
         journalStore = journalStore,

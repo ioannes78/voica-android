@@ -1,5 +1,6 @@
 package io.github.ioannes78.voica
 
+import android.app.Application
 import io.github.ioannes78.voica.model.ModelInstallBackend
 import io.github.ioannes78.voica.model.ModelInstallCandidateInspection
 import io.github.ioannes78.voica.model.ModelManager
@@ -27,6 +28,12 @@ interface DurableModelInstallController {
         revision: Long,
         origin: ModelInstallOrigin,
     )
+
+    suspend fun requestUserStop(operationId: String)
+
+    suspend fun resumeInstall(operationId: String)
+
+    suspend fun interruptForTaskRemoval(operationId: String)
 }
 
 internal data class ModelInstallRuntimeHolder(
@@ -43,6 +50,7 @@ object ModelInstallRuntime {
     private var holder: ModelInstallRuntimeHolder? = null
 
     internal fun register(
+        application: Application,
         manager: ModelManager,
         orchestrator: ModelInstallOrchestrator,
         journalStore: ModelInstallJournalStore,
@@ -60,6 +68,12 @@ object ModelInstallRuntime {
                 runCatching { scheduler.cancel(operationId) }
             }
             orchestrator.reconcileOnStartup()
+            (manager as? DurableModelInstallController)?.let { controller ->
+                ModelInstallNotificationController(
+                    application = application,
+                    controller = controller,
+                ).start(processScope)
+            }
         }
     }
 
@@ -155,29 +169,113 @@ class DurableAwareModelManager(
     }
 
     override suspend fun cancelInstall(modelId: String) {
-        val current = journalStore.activeForModel(modelId)
+        val current =
+            journalStore.activeForModel(modelId)
+                ?: journalStore.latestForModel(modelId)
+                    ?.takeIf { it.phase != ModelInstallPhase.READY }
         if (current == null) {
             clearLocalOverride(modelId)
-            orchestrator.cancelModel(modelId)
+            return
+        }
+        requestUserStop(current.operationId)
+    }
+
+    override suspend fun requestUserStop(operationId: String) {
+        val current = journalStore.read(operationId) ?: return
+        if (current.phase == ModelInstallPhase.READY || current.phase == ModelInstallPhase.CANCELLED) {
+            clearLocalOverride(current.modelId)
             return
         }
 
-        if (current.phase == ModelInstallPhase.INTERRUPTED ||
+        // Once a task is already interrupted, an explicit stop from the product UI is
+        // the destructive secondary action: abandon the install and delete transient data.
+        if (current.requiresUserResume ||
+            current.phase == ModelInstallPhase.INTERRUPTED ||
             current.phase == ModelInstallPhase.FAILED_RECOVERABLE
         ) {
-            clearLocalOverride(modelId)
-            orchestrator.cancelModel(modelId)
+            clearLocalOverride(current.modelId)
+            orchestrator.cancelOperation(operationId)
             return
         }
+
+        // First invalidate the running executor generation and stop the executor. Only
+        // after it is quiescent do we inspect storage. This closes the race where a stale
+        // "取消下载" notification is tapped just as the final download bytes land.
+        val invalidated =
+            journalStore.write(
+                current.copy(
+                    phase = ModelInstallPhase.INTERRUPTED,
+                    cancelRequested = false,
+                    requiresUserResume = true,
+                    executorKind = ModelInstallExecutorKind.NONE,
+                    executorGeneration = current.executorGeneration + 1L,
+                    lastFailureCode = "USER_STOPPING",
+                    lastFailureMessage = "正在停止模型安装",
+                ),
+            )
+        publishLocalOverride(invalidated)
+        runCatching { scheduler.cancel(operationId) }
 
         val inspection = runCatching { backend.inspectCandidate(current.snapshot) }.getOrNull()
-        if (!shouldPauseInsteadOfCancel(current, inspection)) {
-            clearLocalOverride(modelId)
-            orchestrator.cancelModel(modelId)
+        if (inspection?.active == true) {
+            publishLocalOverride(
+                journalStore.write(
+                    invalidated.copy(
+                        phase = ModelInstallPhase.READY,
+                        requiresUserResume = false,
+                        lastFailureCode = null,
+                        lastFailureMessage = null,
+                    ),
+                ),
+            )
             return
         }
 
-        pausePostDownloadInstall(current, inspection)
+        if (shouldPauseInsteadOfCancel(current, inspection)) {
+            publishLocalOverride(
+                journalStore.write(
+                    invalidated.copy(
+                        phase = ModelInstallPhase.INTERRUPTED,
+                        requiresUserResume = true,
+                        lastFailureCode = "USER_PAUSED",
+                        lastFailureMessage = "安装已暂停，可继续安装",
+                    ),
+                ),
+            )
+            return
+        }
+
+        clearLocalOverride(current.modelId)
+        orchestrator.cancelOperation(operationId)
+    }
+
+    override suspend fun resumeInstall(operationId: String) {
+        val current = journalStore.read(operationId) ?: return
+        try {
+            orchestrator.requestInstall(
+                modelId = current.modelId,
+                version = current.snapshot.descriptor.version,
+                revision = current.snapshot.descriptor.revision,
+                origin = ModelInstallOrigin.MANUAL,
+            )
+        } finally {
+            clearLocalOverride(current.modelId)
+        }
+    }
+
+    override suspend fun interruptForTaskRemoval(operationId: String) {
+        val current = journalStore.read(operationId) ?: return
+        if (current.origin != ModelInstallOrigin.MANUAL ||
+            current.phase.terminal ||
+            current.requiresUserResume
+        ) {
+            return
+        }
+        interruptPreservingStorage(
+            current = current,
+            failureCode = "TASK_REMOVED",
+            message = "安装已中断，请点击继续安装",
+        )
     }
 
     override suspend fun removeDownloadedVersion(
@@ -250,42 +348,44 @@ class DurableAwareModelManager(
         publishLocalOverride(tombstone)
     }
 
-    private suspend fun pausePostDownloadInstall(
+    private suspend fun interruptPreservingStorage(
         current: ModelInstallJournalRecord,
-        initialInspection: ModelInstallCandidateInspection?,
+        failureCode: String,
+        message: String,
     ) {
-        val alreadyActive = initialInspection?.active == true
         val invalidated =
             journalStore.write(
                 current.copy(
-                    phase = if (alreadyActive) ModelInstallPhase.READY else ModelInstallPhase.INTERRUPTED,
+                    phase = ModelInstallPhase.INTERRUPTED,
                     cancelRequested = false,
-                    requiresUserResume = !alreadyActive,
+                    requiresUserResume = true,
                     executorKind = ModelInstallExecutorKind.NONE,
                     executorGeneration = current.executorGeneration + 1L,
-                    lastFailureCode = if (alreadyActive) null else "USER_PAUSED",
-                    lastFailureMessage = if (alreadyActive) null else "安装已暂停，可继续安装",
+                    lastFailureCode = failureCode,
+                    lastFailureMessage = message,
                 ),
             )
         publishLocalOverride(invalidated)
 
         runCatching { scheduler.cancel(current.operationId) }
 
-        if (!alreadyActive) {
-            val afterCancel = runCatching { backend.inspectCandidate(current.snapshot) }.getOrNull()
+        val afterCancel = runCatching { backend.inspectCandidate(current.snapshot) }.getOrNull()
+        val settled =
             if (afterCancel?.active == true) {
-                val ready =
-                    journalStore.write(
-                        invalidated.copy(
-                            phase = ModelInstallPhase.READY,
-                            requiresUserResume = false,
-                            lastFailureCode = null,
-                            lastFailureMessage = null,
-                        ),
-                    )
-                publishLocalOverride(ready)
+                journalStore.write(
+                    invalidated.copy(
+                        phase = ModelInstallPhase.READY,
+                        requiresUserResume = false,
+                        lastFailureCode = null,
+                        lastFailureMessage = null,
+                    ),
+                )
+            } else {
+                // Re-write after scheduler cancellation so notification projection wins
+                // over WorkManager tearing down its foreground notification.
+                journalStore.write(invalidated)
             }
-        }
+        publishLocalOverride(settled)
     }
 
     private fun publishLocalOverride(record: ModelInstallJournalRecord) {
