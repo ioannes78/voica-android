@@ -511,9 +511,7 @@ class AiSummaryViewModel(
                 modelOverride = entity.model,
                 retryOfSummaryId = entity.id,
             )
-        if (started) {
-            repository.acknowledgeTerminal(entity.id)
-        } else {
+        if (!started) {
             mutableNotice.value = "已有总结任务正在运行。"
         }
     }
@@ -540,9 +538,7 @@ class AiSummaryViewModel(
                 providerProfileId = entity.providerProfileId,
                 modelOverride = entity.model,
             )
-        if (started) {
-            repository.acknowledgeTerminal(entity.id)
-        } else {
+        if (!started) {
             mutableNotice.value = "已有总结任务正在运行。"
         }
     }
