@@ -49,13 +49,16 @@ interface AiSummaryDao {
                 current.executionGeneration > 0
                 AND current.status IN (:terminalAttentionStates)
                 AND (
-                    current.terminalAcknowledgedAtMs IS NULL
-                    OR (
+                    (
                         current.status = 'AMBIGUOUS_REMOTE_RESULT'
                         AND NOT EXISTS (
                             SELECT 1 FROM ai_summaries AS retry
                             WHERE retry.retryOfSummaryId = current.id
                         )
+                    )
+                    OR (
+                        current.status != 'AMBIGUOUS_REMOTE_RESULT'
+                        AND current.terminalAcknowledgedAtMs IS NULL
                     )
                 )
            )
