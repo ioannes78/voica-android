@@ -51,6 +51,8 @@ abstract class VoicaDatabase : RoomDatabase() {
 
     abstract fun aiSummaryDao(): AiSummaryDao
 
+    abstract fun aiSummaryOwnershipDao(): AiSummaryOwnershipDao
+
     abstract fun stage12cContentDao(): Stage12CContentDao
 
     abstract fun searchDao(): SearchDao
