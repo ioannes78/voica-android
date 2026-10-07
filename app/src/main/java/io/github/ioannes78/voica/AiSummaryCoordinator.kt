@@ -36,8 +36,10 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -91,7 +93,17 @@ class AiSummaryCoordinator(
     private val isRecordingActive: suspend (String) -> Boolean = { true },
 ) {
     private val mutableState = MutableStateFlow<AiSummaryRunState>(AiSummaryRunState.Idle)
-    val state: StateFlow<AiSummaryRunState> = mutableState.asStateFlow()
+    val state: StateFlow<AiSummaryRunState> =
+        combine(
+            repository.observeDurableTasks(),
+            mutableState,
+        ) { durableTasks, transientState ->
+            projectAiSummaryRunState(durableTasks, transientState)
+        }.stateIn(
+            scope = scope,
+            started = SharingStarted.Eagerly,
+            initialValue = AiSummaryRunState.Idle,
+        )
 
     private val preparationLock = Any()
     private var preparationJob: Job? = null
