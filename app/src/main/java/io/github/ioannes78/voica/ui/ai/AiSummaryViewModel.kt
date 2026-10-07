@@ -419,7 +419,6 @@ class AiSummaryViewModel(
         if (summaryId.isBlank()) return
         viewModelScope.launch {
             val entity = repository.find(summaryId) ?: return@launch
-            if (entity.transcriptionId != boundTranscriptionId) return@launch
             when (entity.status) {
                 AiSummaryStateValue.COMPLETED -> {
                     mutableCandidateId.value =
