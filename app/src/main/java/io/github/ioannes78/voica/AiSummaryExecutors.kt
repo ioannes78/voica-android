@@ -9,7 +9,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import java.util.concurrent.CancellationException
 
-internal interface AiSummaryWorkScheduler {
+interface AiSummaryWorkScheduler {
     fun enqueue(
         summaryId: String,
         generation: Long,
