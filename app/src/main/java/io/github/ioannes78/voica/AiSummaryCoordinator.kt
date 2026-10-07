@@ -152,7 +152,7 @@ class AiSummaryCoordinator(
         scope.launch {
             val runningId = (mutableState.value as? AiSummaryRunState.Running)?.summaryId
             val target =
-                runningId?.let(repository::find)
+                (if (runningId != null) repository.find(runningId) else null)
                     ?: repository.loadActiveSummaries().firstOrNull()
                     ?: return@launch
             cancelDurable(target)
