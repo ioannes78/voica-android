@@ -91,6 +91,19 @@ fun AiSummaryProductCard(
     LaunchedEffect(transcriptionId) {
         viewModel.bind(transcriptionId)
     }
+    LaunchedEffect(runState, transcriptionId) {
+        when (val state = runState) {
+            is AiSummaryRunState.Completed ->
+                if (state.transcriptionId == transcriptionId) {
+                    viewModel.acknowledgeTerminal(state.summaryId)
+                }
+            is AiSummaryRunState.Failed ->
+                if (state.transcriptionId == transcriptionId) {
+                    state.summaryId?.let(viewModel::acknowledgeTerminal)
+                }
+            else -> Unit
+        }
+    }
     LaunchedEffect(Unit) {
         viewModel.refreshProvider()
     }
