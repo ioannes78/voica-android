@@ -28,7 +28,9 @@ internal fun projectAiSummaryRunState(
     }?.let { return it.toTerminalRunState() }
 
     return when (transientState) {
-        is AiSummaryRunState.Running -> transientState
+        // A non-null summaryId means the transient state already has a durable Room owner. If that
+        // row is no longer active/attention-worthy, Room wins and stale callbacks cannot revive it.
+        is AiSummaryRunState.Running -> AiSummaryRunState.Idle
         is AiSummaryRunState.Cancelled -> transientState
         is AiSummaryRunState.Failed ->
             if (transientState.summaryId == null) transientState else AiSummaryRunState.Idle
