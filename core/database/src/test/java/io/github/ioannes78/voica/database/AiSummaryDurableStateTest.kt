@@ -21,6 +21,8 @@ class AiSummaryDurableStateTest {
     private lateinit var database: VoicaDatabase
     private lateinit var repository: AiSummaryRepository
     private var clock = 10_000L
+    private var ownerTaskId = 42
+    private var ownerTaskActive = true
 
     @Before
     fun setUp() {
@@ -29,7 +31,13 @@ class AiSummaryDurableStateTest {
             Room.inMemoryDatabaseBuilder(context, VoicaDatabase::class.java)
                 .allowMainThreadQueries()
                 .build()
-        repository = AiSummaryRepository(database, nowMs = { clock++ })
+        repository =
+            AiSummaryRepository(
+                database = database,
+                nowMs = { clock++ },
+                currentOwnerTaskId = { ownerTaskId },
+                isOwnerTaskActive = { taskId -> ownerTaskActive && taskId == ownerTaskId },
+            )
     }
 
     @After
@@ -42,6 +50,7 @@ class AiSummaryDurableStateTest {
         val summaryId = createSummary()
         val created = requireNotNull(repository.find(summaryId))
         assertEquals(1L, created.executionGeneration)
+        assertEquals(ownerTaskId, created.ownerTaskId)
         assertEquals(AiSummaryRemoteDispatchStateValue.NONE, created.remoteDispatchState)
         assertEquals(0, created.remoteCallOrdinal)
 
@@ -89,6 +98,75 @@ class AiSummaryDurableStateTest {
         assertNull(cleared.remoteRequestId)
         assertNull(cleared.remoteStartedAtMs)
         assertEquals(1, cleared.remoteCallOrdinal)
+    }
+
+    @Test
+    fun missingOwnerBeforeSendInterruptsAndClearsPreparedBoundary() = runBlocking {
+        val summaryId = createSummary()
+        assertTrue(
+            repository.prepareRemoteCall(
+                summaryId,
+                1L,
+                "request-ready",
+                "MAP",
+                "map:0",
+            ),
+        )
+        ownerTaskActive = false
+
+        assertFalse(repository.ensureOwnerTaskActive(summaryId, 1L))
+        val interrupted = requireNotNull(repository.find(summaryId))
+        assertEquals(AiSummaryStateValue.INTERRUPTED, interrupted.status)
+        assertEquals("APP_TASK_REMOVED", interrupted.errorCode)
+        assertEquals(AiSummaryRemoteDispatchStateValue.NONE, interrupted.remoteDispatchState)
+        assertNull(interrupted.remoteRequestId)
+    }
+
+    @Test
+    fun missingOwnerDuringInFlightMarksAmbiguousInsteadOfReplaying() = runBlocking {
+        val summaryId = createSummary()
+        assertTrue(
+            repository.prepareRemoteCall(
+                summaryId,
+                1L,
+                "request-in-flight",
+                "DIRECT",
+                "direct",
+            ),
+        )
+        assertTrue(
+            repository.markRemoteRequestInFlight(
+                summaryId,
+                1L,
+                "request-in-flight",
+                "DIRECT",
+                "direct",
+            ),
+        )
+        ownerTaskActive = false
+
+        assertFalse(repository.ensureOwnerTaskActive(summaryId, 1L))
+        val ambiguous = requireNotNull(repository.find(summaryId))
+        assertEquals(AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT, ambiguous.status)
+        assertEquals("REMOTE_RESULT_UNKNOWN", ambiguous.errorCode)
+        assertEquals(AiSummaryRemoteDispatchStateValue.REQUEST_IN_FLIGHT, ambiguous.remoteDispatchState)
+    }
+
+    @Test
+    fun manualResumeRebindsCurrentTaskAndAdvancesGeneration() = runBlocking {
+        val summaryId = createSummary()
+        ownerTaskActive = false
+        assertFalse(repository.ensureOwnerTaskActive(summaryId, 1L))
+
+        ownerTaskId = 99
+        ownerTaskActive = true
+        assertTrue(repository.resumeInterrupted(summaryId))
+
+        val resumed = requireNotNull(repository.find(summaryId))
+        assertEquals(AiSummaryStateValue.PREPARING, resumed.status)
+        assertEquals(2L, resumed.executionGeneration)
+        assertEquals(99, resumed.ownerTaskId)
+        assertEquals(AiSummaryRemoteDispatchStateValue.NONE, resumed.remoteDispatchState)
     }
 
     @Test
