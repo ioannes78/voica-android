@@ -80,6 +80,8 @@ jobs:
           :app:testDebugUnitTest
           :app:assembleQa
           --stacktrace
+          --refresh-dependencies
+          --no-configuration-cache
 
       - name: Verify stable QA signing identity
         shell: bash
