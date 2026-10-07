@@ -334,19 +334,22 @@ class AiSummaryCoordinator(
                 publishRunning(existing)
                 return
             }
-            retryOfSummaryId?.let { retryId ->
-                val retrySource =
-                    repository.find(retryId)
-                        ?: throw AiSummaryConfigurationException("原 AI 总结任务不存在，请重新生成总结")
-                if (
-                    retrySource.status != AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT ||
-                    retrySource.transcriptionId != transcriptionId
-                ) {
-                    throw AiSummaryConfigurationException("该 AI 总结任务不能手动重试，请重新生成总结")
+            val retrySource =
+                retryOfSummaryId?.let { retryId ->
+                    val source =
+                        repository.find(retryId)
+                            ?: throw AiSummaryConfigurationException("原 AI 总结任务不存在，请重新生成总结")
+                    if (
+                        source.status != AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT ||
+                        source.transcriptionId != transcriptionId
+                    ) {
+                        throw AiSummaryConfigurationException("该 AI 总结任务不能手动重试，请重新生成总结")
+                    }
+                    source
                 }
-            }
             val recordingId =
-                repository.recordingIdForTranscription(transcriptionId)
+                retrySource?.recordingId
+                    ?: repository.recordingIdForTranscription(transcriptionId)
                     ?: throw AiSummaryConfigurationException("转写记录不存在")
             if (!isRecordingActive(recordingId)) return
 
@@ -357,42 +360,45 @@ class AiSummaryCoordinator(
                     transcriptionId = transcriptionId,
                     phase = AiSummaryEnginePhase.PREPARING,
                 )
-            val input = inputBuilder.buildEffective(transcriptionId)
-            val profile = resolveProfile(providerProfileId, modelOverride)
-            validateProfileForGeneration(profile)
-            if (!isRecordingActive(input.recordingId)) {
-                throw CancellationException("recording is being deleted")
-            }
+            val request =
+                if (retrySource != null) {
+                    frozenRetryRequest(retrySource)
+                } else {
+                    val input = inputBuilder.buildEffective(transcriptionId)
+                    val profile = resolveProfile(providerProfileId, modelOverride)
+                    validateProfileForGeneration(profile)
+                    if (!isRecordingActive(input.recordingId)) {
+                        throw CancellationException("recording is being deleted")
+                    }
+                    NewAiSummaryRequest(
+                        recordingId = input.recordingId,
+                        transcriptionId = input.transcriptionId,
+                        mode = mode.databaseValue(),
+                        templateId = template.id,
+                        templateSnapshot = SummaryTemplateSnapshotCodec.encode(template),
+                        providerProfileId = profile.providerProfileId,
+                        providerNameSnapshot = profile.displayName,
+                        baseUrlSnapshot = profile.baseUrl,
+                        model = profile.defaultModel,
+                        promptVersion = SummaryPromptFactory.PROMPT_VERSION,
+                        resultSchemaVersion = SummaryPromptFactory.RESULT_SCHEMA_VERSION,
+                        requestConfigSnapshot =
+                            buildJsonObject {
+                                put("inputMode", "TRANSCRIPT_TEXT")
+                                put("mode", mode.name)
+                                put("inputContentDigest", input.inputContentDigest)
+                                input.transcriptionRevisionId?.let {
+                                    put("transcriptionRevisionId", it)
+                                }
+                                template.id?.let { put("templateId", it) }
+                            }.toString(),
+                        alignmentIdSnapshot = input.alignmentId,
+                        sourceLineageSnapshot = lineageSnapshot(input),
+                    )
+                }
             summaryId =
                 withContext(NonCancellable) {
-                    repository.create(
-                        NewAiSummaryRequest(
-                            recordingId = input.recordingId,
-                            transcriptionId = input.transcriptionId,
-                            mode = mode.databaseValue(),
-                            templateId = template.id,
-                            templateSnapshot = SummaryTemplateSnapshotCodec.encode(template),
-                            providerProfileId = profile.providerProfileId,
-                            providerNameSnapshot = profile.displayName,
-                            baseUrlSnapshot = profile.baseUrl,
-                            model = profile.defaultModel,
-                            promptVersion = SummaryPromptFactory.PROMPT_VERSION,
-                            resultSchemaVersion = SummaryPromptFactory.RESULT_SCHEMA_VERSION,
-                            requestConfigSnapshot =
-                                buildJsonObject {
-                                    put("inputMode", "TRANSCRIPT_TEXT")
-                                    put("mode", mode.name)
-                                    put("inputContentDigest", input.inputContentDigest)
-                                    input.transcriptionRevisionId?.let {
-                                        put("transcriptionRevisionId", it)
-                                    }
-                                    template.id?.let { put("templateId", it) }
-                                }.toString(),
-                            alignmentIdSnapshot = input.alignmentId,
-                            sourceLineageSnapshot = lineageSnapshot(input),
-                            retryOfSummaryId = retryOfSummaryId,
-                        ),
-                    )
+                    repository.create(request)
                 }
             currentCoroutineContext().ensureActive()
             val durable =
@@ -1027,4 +1033,28 @@ class AiSummaryCoordinator(
         const val AMBIGUOUS_REMOTE_MESSAGE =
             "上一次请求状态无法确认，需要手动重试。"
     }
+}
+
+internal fun frozenRetryRequest(source: AiSummaryEntity): NewAiSummaryRequest {
+    val transcriptionId =
+        requireNotNull(source.transcriptionId) {
+            "retry source must use transcript text input"
+        }
+    return NewAiSummaryRequest(
+        recordingId = source.recordingId,
+        transcriptionId = transcriptionId,
+        mode = source.mode,
+        templateId = source.templateId,
+        templateSnapshot = source.templateSnapshot,
+        providerProfileId = source.providerProfileId,
+        providerNameSnapshot = source.providerNameSnapshot,
+        baseUrlSnapshot = source.baseUrlSnapshot,
+        model = source.model,
+        promptVersion = source.promptVersion,
+        resultSchemaVersion = source.resultSchemaVersion,
+        requestConfigSnapshot = source.requestConfigSnapshot,
+        alignmentIdSnapshot = source.alignmentIdSnapshot,
+        sourceLineageSnapshot = source.sourceLineageSnapshot,
+        retryOfSummaryId = source.id,
+    )
 }
