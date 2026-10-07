@@ -337,6 +337,32 @@ interface AiSummaryDao {
     @Query(
         """
         UPDATE ai_summaries
+        SET status = :status,
+            startedAtMs = COALESCE(startedAtMs, :startedAtMs),
+            updatedAtMs = :updatedAtMs,
+            completedAtMs = :completedAtMs,
+            errorCode = :errorCode,
+            sanitizedErrorMessage = :sanitizedErrorMessage
+        WHERE id = :summaryId
+          AND executionGeneration = :generation
+          AND status IN (:activeStates)
+        """,
+    )
+    suspend fun updateStateForGeneration(
+        summaryId: String,
+        generation: Long,
+        status: String,
+        startedAtMs: Long?,
+        updatedAtMs: Long,
+        completedAtMs: Long?,
+        errorCode: String?,
+        sanitizedErrorMessage: String?,
+        activeStates: List<String>,
+    ): Int
+
+    @Query(
+        """
+        UPDATE ai_summaries
         SET status = 'COMPLETED',
             contentType = :contentType,
             classificationConfidence = :classificationConfidence,
@@ -352,6 +378,36 @@ interface AiSummaryDao {
     )
     suspend fun complete(
         summaryId: String,
+        contentType: String,
+        classificationConfidence: Double?,
+        structuredPayloadJson: String,
+        displayText: String,
+        usageSnapshot: String?,
+        completedAtMs: Long,
+        activeStates: List<String>,
+    ): Int
+
+    @Query(
+        """
+        UPDATE ai_summaries
+        SET status = 'COMPLETED',
+            contentType = :contentType,
+            classificationConfidence = :classificationConfidence,
+            structuredPayloadJson = :structuredPayloadJson,
+            displayText = :displayText,
+            usageSnapshot = :usageSnapshot,
+            updatedAtMs = :completedAtMs,
+            completedAtMs = :completedAtMs,
+            errorCode = NULL,
+            sanitizedErrorMessage = NULL
+        WHERE id = :summaryId
+          AND executionGeneration = :generation
+          AND status IN (:activeStates)
+        """,
+    )
+    suspend fun completeForGeneration(
+        summaryId: String,
+        generation: Long,
         contentType: String,
         classificationConfidence: Double?,
         structuredPayloadJson: String,
