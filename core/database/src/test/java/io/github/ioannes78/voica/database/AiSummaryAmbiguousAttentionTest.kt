@@ -42,15 +42,7 @@ class AiSummaryAmbiguousAttentionTest {
         insertRecording()
         insertCompletedTranscription()
 
-        val originalId = repository.create(newRequest())
-        assertTrue(
-            repository.transition(
-                summaryId = originalId,
-                status = AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT,
-                errorCode = "REMOTE_RESULT_UNKNOWN",
-                sanitizedErrorMessage = "上一次请求状态无法确认，需要手动重试。",
-            ),
-        )
+        val originalId = createAmbiguousSummary()
         assertTrue(repository.acknowledgeTerminal(originalId))
         assertNotNull(requireNotNull(repository.find(originalId)).terminalAcknowledgedAtMs)
 
@@ -61,6 +53,32 @@ class AiSummaryAmbiguousAttentionTest {
         val afterRetry = repository.observeDurableTasks().first()
         assertFalse(afterRetry.any { it.id == originalId })
         assertTrue(afterRetry.any { it.id == retryId })
+    }
+
+    @Test
+    fun explicitRetrySuppressesAmbiguousAttentionEvenBeforeAckCommits() = runBlocking {
+        insertRecording()
+        insertCompletedTranscription()
+
+        val originalId = createAmbiguousSummary()
+        val retryId = repository.create(newRequest(retryOfSummaryId = originalId))
+        val tasks = repository.observeDurableTasks().first()
+
+        assertFalse(tasks.any { it.id == originalId })
+        assertTrue(tasks.any { it.id == retryId })
+    }
+
+    private suspend fun createAmbiguousSummary(): String {
+        val summaryId = repository.create(newRequest())
+        assertTrue(
+            repository.transition(
+                summaryId = summaryId,
+                status = AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT,
+                errorCode = "REMOTE_RESULT_UNKNOWN",
+                sanitizedErrorMessage = "上一次请求状态无法确认，需要手动重试。",
+            ),
+        )
+        return summaryId
     }
 
     private fun newRequest(retryOfSummaryId: String? = null): NewAiSummaryRequest =
