@@ -4,6 +4,7 @@ import androidx.room.withTransaction
 import java.util.UUID
 import java.util.concurrent.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 data class NewAiSummaryRequest(
     val recordingId: String,
@@ -53,6 +54,7 @@ class AiSummaryRepository(
     private val dao = database.aiSummaryDao()
     private val ownershipDao = database.aiSummaryOwnershipDao()
     private val transcriptionDao = database.transcriptionDao()
+    private val contentDao = database.stage12cContentDao()
 
     fun observeForRecording(recordingId: String): Flow<List<AiSummaryEntity>> =
         dao.observeForRecording(recordingId)
@@ -64,7 +66,7 @@ class AiSummaryRepository(
         dao.observeDurableTasks(
             activeStates = AiSummaryStateValue.ACTIVE,
             terminalAttentionStates = ATTENTION_TERMINAL_STATES,
-        )
+        ).map(::filterResolvedDurableAttention)
 
     suspend fun loadActiveSummaries(): List<AiSummaryEntity> =
         dao.loadActiveSummaries(AiSummaryStateValue.ACTIVE)
@@ -493,7 +495,7 @@ class AiSummaryRepository(
         dao.acknowledgeTerminal(
             summaryId = summaryId,
             nowMs = nowMs(),
-            terminalStates = ATTENTION_TERMINAL_STATES,
+            terminalStates = ACKNOWLEDGEABLE_ATTENTION_STATES,
         ) == 1
 
     suspend fun resumeInterrupted(summaryId: String): Boolean {
@@ -553,6 +555,30 @@ class AiSummaryRepository(
             activeStates = AiSummaryStateValue.ACTIVE,
             nowMs = nowMs(),
         )
+
+    private suspend fun filterResolvedDurableAttention(
+        tasks: List<AiSummaryEntity>,
+    ): List<AiSummaryEntity> {
+        val retryParents = tasks.mapNotNullTo(mutableSetOf()) { it.retryOfSummaryId }
+        return tasks.filter { task ->
+            when {
+                task.status in AiSummaryStateValue.ACTIVE -> true
+                task.terminalAcknowledgedAtMs != null -> false
+                task.id in retryParents -> false
+                else -> !isResolvedByExplicitNewerSelection(task)
+            }
+        }
+    }
+
+    private suspend fun isResolvedByExplicitNewerSelection(task: AiSummaryEntity): Boolean {
+        val selectedId =
+            contentDao.findContentSelection(task.recordingId)?.currentAiSummaryId
+                ?: return false
+        val selected = dao.findSummary(selectedId) ?: return false
+        return selected.recordingId == task.recordingId &&
+            selected.status == AiSummaryStateValue.COMPLETED &&
+            selected.createdAtMs > task.createdAtMs
+    }
 
     private fun validateCompletion(
         contentType: String,
@@ -651,6 +677,8 @@ class AiSummaryRepository(
                 AiSummaryStateValue.FAILED,
                 AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT,
             )
+        val ACKNOWLEDGEABLE_ATTENTION_STATES =
+            ATTENTION_TERMINAL_STATES + AiSummaryStateValue.INTERRUPTED
         val REMOTE_RESOLVABLE_STATES =
             AiSummaryStateValue.ACTIVE + AiSummaryStateValue.COMPLETED
         const val AMBIGUOUS_REMOTE_MESSAGE =
