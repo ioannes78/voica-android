@@ -61,6 +61,13 @@ jobs:
           # Encrypt persisted Configuration Cache state so it can be safely reused across hosted runners.
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
 
+      # Temporary Stage 13B.5 QA2 bootstrap: emit the generated v9 schema so it can be committed.
+      - name: Emit generated Room v9 schema
+        shell: bash
+        run: |
+          gradle :core:database:kspDebugKotlin
+          cat core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/9.json
+
       - name: Unit test and debug build
         run: >
           gradle
