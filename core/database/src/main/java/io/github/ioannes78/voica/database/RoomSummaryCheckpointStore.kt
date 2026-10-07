@@ -6,8 +6,8 @@ import io.github.ioannes78.voica.ai.SummaryCheckpointStore
 class RoomSummaryCheckpointStore(
     private val repository: AiSummaryRepository,
     private val summaryId: String,
-    private val generation: Long? = null,
     private val nowMs: () -> Long = System::currentTimeMillis,
+    private val generation: Long? = null,
 ) : SummaryCheckpointStore {
     init {
         require(summaryId.isNotBlank())
