@@ -213,6 +213,30 @@ interface AiSummaryDao {
             updatedAtMs = :nowMs
         WHERE id = :summaryId
           AND executionGeneration = :generation
+          AND status IN (:activeStates)
+          AND remoteDispatchState = 'READY_TO_SEND'
+          AND remoteRequestId = :requestId
+        """,
+    )
+    suspend fun resetPreparedRemoteCall(
+        summaryId: String,
+        generation: Long,
+        requestId: String,
+        nowMs: Long,
+        activeStates: List<String>,
+    ): Int
+
+    @Query(
+        """
+        UPDATE ai_summaries
+        SET remoteDispatchState = 'NONE',
+            remoteRequestId = NULL,
+            remoteStepKind = NULL,
+            remoteStepKey = NULL,
+            remoteStartedAtMs = NULL,
+            updatedAtMs = :nowMs
+        WHERE id = :summaryId
+          AND executionGeneration = :generation
           AND status IN (:resolvableStates)
           AND remoteDispatchState = 'REQUEST_IN_FLIGHT'
           AND remoteRequestId = :requestId
@@ -313,6 +337,32 @@ interface AiSummaryDao {
     @Query(
         """
         UPDATE ai_summaries
+        SET status = :status,
+            startedAtMs = COALESCE(startedAtMs, :startedAtMs),
+            updatedAtMs = :updatedAtMs,
+            completedAtMs = :completedAtMs,
+            errorCode = :errorCode,
+            sanitizedErrorMessage = :sanitizedErrorMessage
+        WHERE id = :summaryId
+          AND executionGeneration = :generation
+          AND status IN (:activeStates)
+        """,
+    )
+    suspend fun updateStateForGeneration(
+        summaryId: String,
+        generation: Long,
+        status: String,
+        startedAtMs: Long?,
+        updatedAtMs: Long,
+        completedAtMs: Long?,
+        errorCode: String?,
+        sanitizedErrorMessage: String?,
+        activeStates: List<String>,
+    ): Int
+
+    @Query(
+        """
+        UPDATE ai_summaries
         SET status = 'COMPLETED',
             contentType = :contentType,
             classificationConfidence = :classificationConfidence,
@@ -328,6 +378,36 @@ interface AiSummaryDao {
     )
     suspend fun complete(
         summaryId: String,
+        contentType: String,
+        classificationConfidence: Double?,
+        structuredPayloadJson: String,
+        displayText: String,
+        usageSnapshot: String?,
+        completedAtMs: Long,
+        activeStates: List<String>,
+    ): Int
+
+    @Query(
+        """
+        UPDATE ai_summaries
+        SET status = 'COMPLETED',
+            contentType = :contentType,
+            classificationConfidence = :classificationConfidence,
+            structuredPayloadJson = :structuredPayloadJson,
+            displayText = :displayText,
+            usageSnapshot = :usageSnapshot,
+            updatedAtMs = :completedAtMs,
+            completedAtMs = :completedAtMs,
+            errorCode = NULL,
+            sanitizedErrorMessage = NULL
+        WHERE id = :summaryId
+          AND executionGeneration = :generation
+          AND status IN (:activeStates)
+        """,
+    )
+    suspend fun completeForGeneration(
+        summaryId: String,
+        generation: Long,
         contentType: String,
         classificationConfidence: Double?,
         structuredPayloadJson: String,

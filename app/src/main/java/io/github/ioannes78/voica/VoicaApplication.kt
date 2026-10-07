@@ -158,6 +158,7 @@ class AppContainer(
             transport = UrlConnectionLlmHttpTransport(),
             credentials = providerCredentialStore,
         )
+    private val aiSummaryWorkScheduler = AndroidAiSummaryWorkScheduler(application)
     val aiSummaryCoordinator =
         AiSummaryCoordinator(
             scope = applicationScope,
@@ -165,6 +166,7 @@ class AppContainer(
             inputBuilder = structuredTranscriptInputBuilder,
             profileStore = providerProfileStore,
             providerRegistry = providerAdapterRegistry,
+            workScheduler = aiSummaryWorkScheduler,
             engine = AiSummaryEngine(),
             isRecordingActive = recordingLibraryRepository::isRecordingActive,
         )
@@ -339,7 +341,7 @@ class AppContainer(
             transcriptionCoordinator.reconcileOnStartup()
             diarizationCoordinator.reconcileOnStartup()
             autoDiarizationPostProcessor.recoverPendingOnStartup()
-            aiSummaryRepository.reconcileInterruptedOnStartup()
+            recoverAiSummaryWorkOnStartup(aiSummaryRepository, aiSummaryWorkScheduler)
             searchIndexRebuilder.rebuildIfRequired()
         }
     }

@@ -7,9 +7,11 @@ class RoomSummaryCheckpointStore(
     private val repository: AiSummaryRepository,
     private val summaryId: String,
     private val nowMs: () -> Long = System::currentTimeMillis,
+    private val generation: Long? = null,
 ) : SummaryCheckpointStore {
     init {
         require(summaryId.isNotBlank())
+        require(generation == null || generation >= 1L)
     }
 
     override suspend fun load(
@@ -18,11 +20,20 @@ class RoomSummaryCheckpointStore(
         inputDigest: String,
     ): String? {
         val chunk =
-            repository.findChunk(
-                summaryId = summaryId,
-                level = level,
-                chunkIndex = chunkIndex,
-            ) ?: return null
+            if (generation == null) {
+                repository.findChunk(
+                    summaryId = summaryId,
+                    level = level,
+                    chunkIndex = chunkIndex,
+                )
+            } else {
+                repository.findChunkForGeneration(
+                    summaryId = summaryId,
+                    generation = generation,
+                    level = level,
+                    chunkIndex = chunkIndex,
+                )
+            } ?: return null
         if (chunk.inputDigest != inputDigest || chunk.status != STATUS_COMPLETED) {
             return null
         }
@@ -30,7 +41,7 @@ class RoomSummaryCheckpointStore(
     }
 
     override suspend fun save(record: SummaryCheckpointRecord) {
-        repository.upsertChunk(
+        val chunk =
             AiSummaryChunkEntity(
                 id = deterministicId(record.level, record.chunkIndex),
                 aiSummaryId = summaryId,
@@ -47,8 +58,21 @@ class RoomSummaryCheckpointStore(
                 errorCode = null,
                 sanitizedErrorMessage = null,
                 updatedAtMs = nowMs(),
-            ),
-        )
+            )
+        val currentGeneration = generation
+        if (currentGeneration == null) {
+            repository.upsertChunk(chunk)
+        } else if (
+            !repository.upsertChunkForGeneration(
+                summaryId = summaryId,
+                generation = currentGeneration,
+                chunk = chunk,
+            )
+        ) {
+            throw SummaryRemoteCallBoundaryChangedException(
+                "AI summary checkpoint executor generation changed",
+            )
+        }
     }
 
     private fun deterministicId(
