@@ -341,7 +341,7 @@ class AppContainer(
             transcriptionCoordinator.reconcileOnStartup()
             diarizationCoordinator.reconcileOnStartup()
             autoDiarizationPostProcessor.recoverPendingOnStartup()
-            aiSummaryCoordinator.recoverOnStartup()
+            recoverAiSummaryWorkOnStartup(aiSummaryRepository, aiSummaryWorkScheduler)
             searchIndexRebuilder.rebuildIfRequired()
         }
     }
