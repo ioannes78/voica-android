@@ -213,6 +213,30 @@ interface AiSummaryDao {
             updatedAtMs = :nowMs
         WHERE id = :summaryId
           AND executionGeneration = :generation
+          AND status IN (:activeStates)
+          AND remoteDispatchState = 'READY_TO_SEND'
+          AND remoteRequestId = :requestId
+        """,
+    )
+    suspend fun resetPreparedRemoteCall(
+        summaryId: String,
+        generation: Long,
+        requestId: String,
+        nowMs: Long,
+        activeStates: List<String>,
+    ): Int
+
+    @Query(
+        """
+        UPDATE ai_summaries
+        SET remoteDispatchState = 'NONE',
+            remoteRequestId = NULL,
+            remoteStepKind = NULL,
+            remoteStepKey = NULL,
+            remoteStartedAtMs = NULL,
+            updatedAtMs = :nowMs
+        WHERE id = :summaryId
+          AND executionGeneration = :generation
           AND status IN (:resolvableStates)
           AND remoteDispatchState = 'REQUEST_IN_FLIGHT'
           AND remoteRequestId = :requestId
