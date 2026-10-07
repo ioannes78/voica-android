@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   actions: write
 
 concurrency:
@@ -55,30 +55,34 @@ jobs:
         uses: gradle/actions/setup-gradle@v5.0.2
         with:
           gradle-version: "9.6.0"
-          # Same-repository PRs and manual runs may populate the Gradle cache.
-          # External fork PRs stay read-only so untrusted contributors cannot write shared cache state.
           cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
-          # Encrypt persisted Configuration Cache state so it can be safely reused across hosted runners.
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
 
-      # Temporary Stage 13B.5 QA2 bootstrap: generate and upload the exact v9 schema so it can be committed.
-      - name: Emit generated Room v9 schema
+      # One-shot Stage 13B.5 QA2 bootstrap: commit the exact Room/KSP v9 schema.
+      - name: Generate Room v9 schema
         shell: bash
         run: |
           gradle :core:database:kspDebugKotlin --rerun-tasks
           schema="core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/9.json"
           test -f "$schema"
-          echo "ROOM_SCHEMA_9_BEGIN"
-          cat "$schema"
-          echo "ROOM_SCHEMA_9_END"
 
-      - name: Upload Room v9 schema bootstrap
-        uses: actions/upload-artifact@v4
-        with:
-          name: Room-v9-schema-bootstrap
-          path: core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/9.json
-          if-no-files-found: error
-          retention-days: 1
+      - name: Commit generated Room v9 schema
+        shell: bash
+        env:
+          TARGET_BRANCH: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          schema="core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/9.json"
+          test -n "$TARGET_BRANCH"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- "$schema"
+          if git diff --cached --quiet; then
+            echo "Room v9 schema is already committed."
+            exit 0
+          fi
+          git commit -m "db: commit Room v9 schema"
+          git push origin "HEAD:${TARGET_BRANCH}"
 
       - name: Stop after Room v9 schema bootstrap
         shell: bash
@@ -113,31 +117,20 @@ jobs:
           expected_cert_sha256="3df9c619ad0d06f2fabb24232420bf056ca2d8ea9413e7f776669a591974f288"
           apk="app/build/outputs/apk/qa/app-qa.apk"
           signer="$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner"
-
           test -f "$apk"
-          actual_cert_sha256="$("$signer" verify --print-certs "$apk" |
-            sed -n 's/^Signer #1 certificate SHA-256 digest: //p' |
-            tr '[:upper:]' '[:lower:]')"
+          actual_cert_sha256="$("$signer" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | tr '[:upper:]' '[:lower:]')"
           test "$actual_cert_sha256" = "$expected_cert_sha256"
 
-      # Stage 13B.5 migration gate: committed Room v1-v8 schemas must stay in sync.
       - name: Verify committed Room schemas
         shell: bash
         run: |
           schema_dir="core/database/schemas"
-          test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/1.json"
-          test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/2.json"
-          test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/3.json"
-          test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/4.json"
-          test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/5.json"
-          test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/6.json"
-          test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/7.json"
-          test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/8.json"
+          for version in 1 2 3 4 5 6 7 8 9; do
+            test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/${version}.json"
+          done
           git diff --exit-code -- "$schema_dir"
           test -z "$(git status --porcelain --untracked-files=all -- "$schema_dir")"
 
-      # Low-cost default: PR builds do not upload artifacts.
-      # Add [APK] to the PR title only when an explicit real-device candidate is needed.
       - name: Upload debug APK
         if: ${{ success() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[APK]'))) }}
         uses: actions/upload-artifact@v4
@@ -147,9 +140,6 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-      # Keep storage bounded during high-frequency device testing:
-      # after a new candidate is safely uploaded, remove older APK artifacts
-      # from the same source branch. Other branches are left untouched.
       - name: Remove older QA APK artifacts for this branch
         if: ${{ success() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[APK]'))) }}
         continue-on-error: true
@@ -160,22 +150,14 @@ jobs:
           CURRENT_RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
-
           mapfile -t artifact_ids < <(
-            gh api --paginate \
-              -H "Accept: application/vnd.github+json" \
-              "/repos/${GITHUB_REPOSITORY}/actions/artifacts?name=Voica-qa-apk&per_page=100" \
-              --jq ".artifacts[] | select((.workflow_run.head_branch == \"${TARGET_BRANCH}\") and (.workflow_run.id != ${CURRENT_RUN_ID})) | .id"
+            gh api --paginate -H "Accept: application/vnd.github+json" "/repos/${GITHUB_REPOSITORY}/actions/artifacts?name=Voica-qa-apk&per_page=100" --jq ".artifacts[] | select((.workflow_run.head_branch == \"${TARGET_BRANCH}\") and (.workflow_run.id != ${CURRENT_RUN_ID})) | .id"
           )
-
           if (( ${#artifact_ids[@]} == 0 )); then
             echo "No older Voica-qa-apk artifacts to remove for branch ${TARGET_BRANCH}."
             exit 0
           fi
-
           for artifact_id in "${artifact_ids[@]}"; do
             echo "Deleting older artifact ${artifact_id} from branch ${TARGET_BRANCH}."
-            gh api --method DELETE \
-              -H "Accept: application/vnd.github+json" \
-              "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}"
+            gh api --method DELETE -H "Accept: application/vnd.github+json" "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}"
           done
