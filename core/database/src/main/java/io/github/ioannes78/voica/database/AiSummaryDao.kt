@@ -43,10 +43,23 @@ interface AiSummaryDao {
 
     @Query(
         """
-        SELECT * FROM ai_summaries
-        WHERE status IN (:activeStates)
-           OR (executionGeneration > 0 AND status IN (:terminalAttentionStates) AND terminalAcknowledgedAtMs IS NULL)
-        ORDER BY updatedAtMs DESC, createdAtMs DESC
+        SELECT current.* FROM ai_summaries AS current
+        WHERE current.status IN (:activeStates)
+           OR (
+                current.executionGeneration > 0
+                AND current.status IN (:terminalAttentionStates)
+                AND (
+                    current.terminalAcknowledgedAtMs IS NULL
+                    OR (
+                        current.status = 'AMBIGUOUS_REMOTE_RESULT'
+                        AND NOT EXISTS (
+                            SELECT 1 FROM ai_summaries AS retry
+                            WHERE retry.retryOfSummaryId = current.id
+                        )
+                    )
+                )
+           )
+        ORDER BY current.updatedAtMs DESC, current.createdAtMs DESC
         """,
     )
     fun observeDurableTasks(
