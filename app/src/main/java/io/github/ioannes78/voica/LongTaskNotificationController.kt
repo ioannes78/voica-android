@@ -5,8 +5,9 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
 import io.github.ioannes78.voica.ai.AiSummaryEnginePhase
+import io.github.ioannes78.voica.database.AiSummaryRepository
+import io.github.ioannes78.voica.database.AiSummaryStateValue
 import io.github.ioannes78.voica.database.RecordingLibraryItem
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.transcript.DiarizationPhase
@@ -24,6 +25,7 @@ class LongTaskNotificationController(
     private val transcriptionCoordinator: TranscriptionCoordinator,
     private val diarizationCoordinator: DiarizationCoordinator,
     private val aiSummaryCoordinator: AiSummaryCoordinator,
+    private val aiSummaryRepository: AiSummaryRepository,
 ) {
     private val notificationManager = context.getSystemService(NotificationManager::class.java)
     private var transcriptionTaskId: String? = null
@@ -151,10 +153,39 @@ class LongTaskNotificationController(
                         notificationManager.cancel(AI_SUMMARY_NOTIFICATION_ID)
                         return@collect
                     }
+
+                    val cancelIntent =
+                        running.summaryId?.let { summaryId ->
+                            val durable = aiSummaryRepository.find(summaryId)
+                            if (
+                                durable == null ||
+                                durable.status !in AiSummaryStateValue.ACTIVE ||
+                                durable.executionGeneration < 1L
+                            ) {
+                                notificationManager.cancel(AI_SUMMARY_NOTIFICATION_ID)
+                                return@collect
+                            }
+                            PendingIntent.getBroadcast(
+                                context,
+                                AI_SUMMARY_REQUEST_CANCEL,
+                                aiSummaryCancelIntent(
+                                    context = context,
+                                    summaryId = summaryId,
+                                    executionGeneration = durable.executionGeneration,
+                                ),
+                                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                            )
+                        }
+
                     val title = recordingName(recordings, recordingId)
                     notificationManager.notify(
                         AI_SUMMARY_NOTIFICATION_ID,
-                        buildAiSummaryNotification(title, running, recordingId),
+                        buildAiSummaryNotification(
+                            title = title,
+                            running = running,
+                            recordingId = recordingId,
+                            cancelIntent = cancelIntent,
+                        ),
                     )
                 }
         }
@@ -164,6 +195,7 @@ class LongTaskNotificationController(
         title: String,
         running: AiSummaryRunState.Running,
         recordingId: String,
+        cancelIntent: PendingIntent?,
     ): Notification {
         val progress =
             if (running.totalUnits > 0) {
@@ -173,40 +205,32 @@ class LongTaskNotificationController(
             } else {
                 null
             }
-        return Notification.Builder(context, AI_SUMMARY_CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_sys_upload)
-            .setContentTitle(title)
-            .setContentText(buildAiSummaryLabel(running))
-            .setContentIntent(
-                recordingOpenPendingIntent(
-                    context = context,
-                    requestCode = AI_SUMMARY_REQUEST_CONTENT,
-                    recordingId = recordingId,
-                    destination = RecordingDetailDestination.SUMMARY,
-                ),
-            )
-            .setOnlyAlertOnce(true)
-            .setOngoing(true)
-            .setCategory(Notification.CATEGORY_PROGRESS)
-            .setProgress(100, progress ?: 0, progress == null)
-            .addAction(
+        val builder =
+            Notification.Builder(context, AI_SUMMARY_CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.stat_sys_upload)
+                .setContentTitle(title)
+                .setContentText(buildAiSummaryLabel(running))
+                .setContentIntent(
+                    recordingOpenPendingIntent(
+                        context = context,
+                        requestCode = AI_SUMMARY_REQUEST_CONTENT,
+                        recordingId = recordingId,
+                        destination = RecordingDetailDestination.SUMMARY,
+                    ),
+                )
+                .setOnlyAlertOnce(true)
+                .setOngoing(true)
+                .setCategory(Notification.CATEGORY_PROGRESS)
+                .setProgress(100, progress ?: 0, progress == null)
+        if (cancelIntent != null) {
+            builder.addAction(
                 android.R.drawable.ic_menu_close_clear_cancel,
                 "取消生成",
-                cancelPendingIntent(
-                    TaskNotificationActions.CANCEL_AI_SUMMARY,
-                    AI_SUMMARY_REQUEST_CANCEL,
-                ),
+                cancelIntent,
             )
-            .build()
+        }
+        return builder.build()
     }
-
-    private fun cancelPendingIntent(action: String, requestCode: Int): PendingIntent =
-        PendingIntent.getBroadcast(
-            context,
-            requestCode,
-            Intent(context, TaskNotificationActionReceiver::class.java).setAction(action),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
 
     private fun createAiSummaryChannel() {
         notificationManager.createNotificationChannel(
