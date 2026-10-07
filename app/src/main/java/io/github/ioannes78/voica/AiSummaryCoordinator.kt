@@ -5,6 +5,7 @@ import io.github.ioannes78.voica.ai.AiSummaryEnginePhase
 import io.github.ioannes78.voica.ai.AiSummaryEngineProgress
 import io.github.ioannes78.voica.ai.AiSummaryEngineRequest
 import io.github.ioannes78.voica.ai.AiSummaryMode
+import io.github.ioannes78.voica.ai.ProviderErrorCode
 import io.github.ioannes78.voica.ai.ProviderFailureCarrier
 import io.github.ioannes78.voica.ai.ProviderProfile
 import io.github.ioannes78.voica.ai.StructuredTranscriptInput
@@ -17,10 +18,12 @@ import io.github.ioannes78.voica.ai.SummaryTemplateSnapshotCodec
 import io.github.ioannes78.voica.ai.SummaryTemplateSpec
 import io.github.ioannes78.voica.database.AiSummaryEvidenceWrite
 import io.github.ioannes78.voica.database.AiSummaryModeValue
+import io.github.ioannes78.voica.database.AiSummaryRemoteDispatchStateValue
 import io.github.ioannes78.voica.database.AiSummaryRepository
 import io.github.ioannes78.voica.database.AiSummaryStateValue
 import io.github.ioannes78.voica.database.NewAiSummaryRequest
 import io.github.ioannes78.voica.database.RoomSummaryCheckpointStore
+import io.github.ioannes78.voica.database.RoomSummaryRemoteCallGate
 import io.github.ioannes78.voica.database.StructuredTranscriptInputBuilder
 import io.github.ioannes78.voica.llm.ProviderAdapterRegistry
 import io.github.ioannes78.voica.llm.ProviderProfileStore
@@ -367,6 +370,18 @@ class AiSummaryCoordinator(
         mode: AiSummaryMode,
         template: SummaryTemplateSpec,
     ) {
+        val durableSummary =
+            repository.find(summaryId)
+                ?: throw AiSummaryConfigurationException("AI 总结记录不存在")
+        if (durableSummary.executionGeneration < 1L) {
+            throw AiSummaryConfigurationException("AI 总结执行状态需要重新生成")
+        }
+        val remoteCallGate =
+            RoomSummaryRemoteCallGate(
+                repository = repository,
+                summaryId = summaryId,
+                generation = durableSummary.executionGeneration,
+            )
         val provider = providerRegistry.forProfile(profile)
         val output =
             engine.generate(
@@ -382,6 +397,7 @@ class AiSummaryCoordinator(
                                 repository = repository,
                                 summaryId = summaryId,
                             ),
+                        remoteCallGate = remoteCallGate,
                     ),
             ) { progress ->
                 persistProgress(
@@ -439,6 +455,11 @@ class AiSummaryCoordinator(
             )
         if (!completed) {
             throw CancellationException("AI summary is no longer active")
+        }
+        // COMPLETED is authoritative. Remote boundary cleanup comes afterwards so a crash
+        // between commit and cleanup can never make the provider request replay-safe.
+        output.pendingRemoteRequestId?.let { requestId ->
+            runCatching { remoteCallGate.resolve(requestId) }
         }
         mutableState.value =
             AiSummaryRunState.Completed(
@@ -520,6 +541,38 @@ class AiSummaryCoordinator(
         transcriptionId: String,
         error: Throwable,
     ) {
+        if (summaryId != null && shouldMarkAmbiguousRemoteFailure(error)) {
+            val current = runCatching { repository.find(summaryId) }.getOrNull()
+            val requestId = current?.remoteRequestId
+            if (
+                current != null &&
+                current.status in AiSummaryStateValue.ACTIVE &&
+                current.executionGeneration >= 1L &&
+                current.remoteDispatchState == AiSummaryRemoteDispatchStateValue.REQUEST_IN_FLIGHT &&
+                !requestId.isNullOrBlank()
+            ) {
+                val marked =
+                    runCatching {
+                        repository.markAmbiguousRemoteResult(
+                            summaryId = summaryId,
+                            generation = current.executionGeneration,
+                            requestId = requestId,
+                        )
+                    }.getOrDefault(false)
+                if (marked) {
+                    mutableState.value =
+                        AiSummaryRunState.Failed(
+                            summaryId = summaryId,
+                            recordingId = current.recordingId,
+                            transcriptionId = transcriptionId,
+                            errorCode = "REMOTE_RESULT_UNKNOWN",
+                            message = "上一次请求状态无法确认，需要手动重试。",
+                        )
+                    return
+                }
+            }
+        }
+
         val failure = sanitizeFailure(error)
         val transitioned =
             summaryId?.let { id ->
@@ -546,6 +599,12 @@ class AiSummaryCoordinator(
                 errorCode = failure.first,
                 message = failure.second,
             )
+    }
+
+    private fun shouldMarkAmbiguousRemoteFailure(error: Throwable): Boolean {
+        val failure = (error as? ProviderFailureCarrier)?.failure ?: return false
+        return failure.code == ProviderErrorCode.TIMEOUT ||
+            failure.code == ProviderErrorCode.NETWORK_UNAVAILABLE
     }
 
     private fun sanitizeFailure(error: Throwable): Pair<String, String> =
