@@ -38,7 +38,7 @@ class AiSummaryAmbiguousAttentionTest {
     }
 
     @Test
-    fun acknowledgedAmbiguousRemainsAttentionUntilExplicitRetryExists() = runBlocking {
+    fun acknowledgedAmbiguousLeavesDurableAttentionImmediately() = runBlocking {
         insertRecording()
         insertCompletedTranscription()
 
@@ -46,13 +46,9 @@ class AiSummaryAmbiguousAttentionTest {
         assertTrue(repository.acknowledgeTerminal(originalId))
         assertNotNull(requireNotNull(repository.find(originalId)).terminalAcknowledgedAtMs)
 
-        val beforeRetry = repository.observeDurableTasks().first()
-        assertTrue(beforeRetry.any { it.id == originalId })
-
-        val retryId = repository.create(newRequest(retryOfSummaryId = originalId))
-        val afterRetry = repository.observeDurableTasks().first()
-        assertFalse(afterRetry.any { it.id == originalId })
-        assertTrue(afterRetry.any { it.id == retryId })
+        val tasks = repository.observeDurableTasks().first()
+        assertFalse(tasks.any { it.id == originalId })
+        assertTrue(requireNotNull(repository.find(originalId)).status == AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT)
     }
 
     @Test
@@ -66,6 +62,25 @@ class AiSummaryAmbiguousAttentionTest {
 
         assertFalse(tasks.any { it.id == originalId })
         assertTrue(tasks.any { it.id == retryId })
+    }
+
+    @Test
+    fun newerCompletedSummarySuppressesOldAmbiguousOnlyAfterExplicitAdoption() = runBlocking {
+        insertRecording()
+        insertCompletedTranscription()
+
+        val originalId = createAmbiguousSummary()
+        val replacementId = repository.create(newRequest())
+        assertTrue(repository.transition(replacementId, AiSummaryStateValue.COMPLETED))
+
+        val beforeAdoption = repository.observeDurableTasks().first()
+        assertTrue(beforeAdoption.any { it.id == originalId })
+
+        Stage12CContentRepository(database).setCurrentAiSummaryVersion(RECORDING_ID, replacementId)
+
+        val afterAdoption = repository.observeDurableTasks().first()
+        assertFalse(afterAdoption.any { it.id == originalId })
+        assertTrue(requireNotNull(repository.find(originalId)).status == AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT)
     }
 
     private suspend fun createAmbiguousSummary(): String {
