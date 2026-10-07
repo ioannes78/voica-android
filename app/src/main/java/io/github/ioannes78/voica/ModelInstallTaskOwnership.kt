@@ -88,7 +88,7 @@ internal fun currentAppTaskIds(context: Context): Set<Int>? =
     runCatching {
         context.getSystemService(ActivityManager::class.java)
             .appTasks
-            .mapTo(linkedSetOf()) { appTask -> appTask.taskInfo.taskId }
+            .mapNotNullTo(linkedSetOf()) { appTask -> appTask.taskInfo?.taskId }
     }.getOrNull()
 
 internal fun shouldInterruptForMissingOwnerTask(
