@@ -243,6 +243,7 @@ class AppContainer(
             transcriptionCoordinator = transcriptionCoordinator,
             diarizationCoordinator = diarizationCoordinator,
             aiSummaryCoordinator = aiSummaryCoordinator,
+            aiSummaryRepository = aiSummaryRepository,
         )
 
     internal val playbackRuntime =
