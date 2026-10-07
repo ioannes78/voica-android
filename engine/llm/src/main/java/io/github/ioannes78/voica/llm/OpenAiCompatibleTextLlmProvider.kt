@@ -224,39 +224,19 @@ class OpenAiCompatibleTextLlmProvider(
             try {
                 parseGeneration(request.requestId, first.body)
             } catch (empty: EmptyTextCompletionException) {
-                if (
-                    !structuredNonThinking &&
-                    profile.presetId in REASONING_FALLBACK_PRESETS &&
-                    empty.hasReasoningContent
-                ) {
-                    // Some OpenAI-compatible reasoning models expose
-                    // reasoning_content and final content separately. If the
-                    // reasoning phase consumes the output budget, retry once
-                    // with provider-native thinking disabled so a deterministic
-                    // JSON/text result can still be produced.
-                    val retry = execute(disableThinking = true)
-                    try {
-                        parseGeneration(request.requestId, retry.body)
-                    } catch (_: EmptyTextCompletionException) {
-                        throw ProviderCallException(
-                            ProviderFailure(
-                                ProviderErrorCode.MALFORMED_RESPONSE,
-                                "模型未返回最终文本；自动关闭思考模式重试后仍无结果，请更换文本对话模型。",
-                            ),
-                        )
-                    }
-                } else {
-                    throw ProviderCallException(
-                        ProviderFailure(
-                            ProviderErrorCode.MALFORMED_RESPONSE,
-                            if (empty.hasReasoningContent) {
-                                "模型只返回了推理过程，没有最终文本内容，请更换模型或调整模型输出设置。"
-                            } else {
-                                "模型返回成功但没有可用文本，请确认所选模型支持文本对话。"
-                            },
-                        ),
-                    )
-                }
+                // Stage 13B.5: provider adapters must never hide a second generation POST
+                // inside one logical generate() call. Any follow-up generation must cross
+                // the durable AI-summary send boundary as a separately identified request.
+                throw ProviderCallException(
+                    ProviderFailure(
+                        ProviderErrorCode.MALFORMED_RESPONSE,
+                        if (empty.hasReasoningContent) {
+                            "模型只返回了推理过程，没有最终文本内容，请更换模型或调整模型输出设置。"
+                        } else {
+                            "模型返回成功但没有可用文本，请确认所选模型支持文本对话。"
+                        },
+                    ),
+                )
             }
         }.recoverCatching { error ->
             if (error is ProviderCallException) throw error

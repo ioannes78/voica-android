@@ -571,6 +571,57 @@ class ProviderAdaptersTest {
         }
 
     @Test
+    fun reasoningOnlyCompletionDoesNotTriggerHiddenSecondPost() =
+        runTest {
+            val transport =
+                FakeTransport(
+                    ArrayDeque(
+                        listOf(
+                            LlmHttpResponse(
+                                200,
+                                """{"choices":[{"message":{"content":"","reasoning_content":"internal reasoning"},"finish_reason":"stop"}]}""",
+                                emptyMap(),
+                            ),
+                            LlmHttpResponse(
+                                200,
+                                """{"choices":[{"message":{"content":"must-not-be-used"},"finish_reason":"stop"}]}""",
+                                emptyMap(),
+                            ),
+                        ),
+                    ),
+                )
+            val provider =
+                OpenAiCompatibleTextLlmProvider(
+                    transport,
+                    FakeCredentials("secret"),
+                )
+            val profile =
+                profile(
+                    presetId = ProviderPresetIds.SILICONFLOW,
+                    baseUrl = "https://api.siliconflow.cn/v1",
+                )
+
+            val result =
+                provider.generate(
+                    profile,
+                    LlmGenerationRequest(
+                        requestId = "reasoning-no-hidden-replay",
+                        model = "reasoning-model",
+                        systemInstruction = "test",
+                        taskInstruction = "test",
+                        transcriptPayload = "test",
+                        structuredOutputSchema = null,
+                        maxOutputTokens = 128,
+                    ),
+                )
+
+            assertTrue(result.isFailure)
+            assertEquals(1, transport.requests.size)
+            val failure = result.exceptionOrNull() as ProviderCallException
+            assertEquals(ProviderErrorCode.MALFORMED_RESPONSE, failure.failure.code)
+        }
+
+    @Test
     fun openAiPresetUsesCurrentCompletionTokenParameter() =
         runTest {
             val transport =

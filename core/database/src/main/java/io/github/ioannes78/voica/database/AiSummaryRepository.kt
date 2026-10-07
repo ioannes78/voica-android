@@ -303,6 +303,31 @@ class AiSummaryRepository(
         ) == 1
     }
 
+    suspend fun replaceRemoteRequestInFlight(
+        summaryId: String,
+        generation: Long,
+        expectedRequestId: String,
+        newRequestId: String,
+        stepKind: String,
+        stepKey: String,
+    ): Boolean {
+        require(generation >= 1L)
+        require(expectedRequestId.isNotBlank())
+        require(newRequestId.isNotBlank())
+        require(stepKind.isNotBlank())
+        require(stepKey.isNotBlank())
+        return dao.replaceRemoteRequestInFlight(
+            summaryId = summaryId,
+            generation = generation,
+            expectedRequestId = expectedRequestId,
+            newRequestId = newRequestId,
+            stepKind = stepKind,
+            stepKey = stepKey,
+            nowMs = nowMs(),
+            activeStates = AiSummaryStateValue.ACTIVE,
+        ) == 1
+    }
+
     suspend fun clearRemoteDispatch(
         summaryId: String,
         generation: Long,

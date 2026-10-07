@@ -178,6 +178,33 @@ interface AiSummaryDao {
     @Query(
         """
         UPDATE ai_summaries
+        SET remoteRequestId = :newRequestId,
+            remoteStepKind = :stepKind,
+            remoteStepKey = :stepKey,
+            remoteStartedAtMs = :nowMs,
+            remoteCallOrdinal = remoteCallOrdinal + 1,
+            updatedAtMs = :nowMs
+        WHERE id = :summaryId
+          AND executionGeneration = :generation
+          AND status IN (:activeStates)
+          AND remoteDispatchState = 'REQUEST_IN_FLIGHT'
+          AND remoteRequestId = :expectedRequestId
+        """,
+    )
+    suspend fun replaceRemoteRequestInFlight(
+        summaryId: String,
+        generation: Long,
+        expectedRequestId: String,
+        newRequestId: String,
+        stepKind: String,
+        stepKey: String,
+        nowMs: Long,
+        activeStates: List<String>,
+    ): Int
+
+    @Query(
+        """
+        UPDATE ai_summaries
         SET remoteDispatchState = 'NONE',
             remoteRequestId = NULL,
             remoteStepKind = NULL,

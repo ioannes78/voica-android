@@ -38,6 +38,7 @@ data class AiSummaryEngineRequest(
     val mode: AiSummaryMode,
     val template: SummaryTemplateSpec,
     val checkpointStore: SummaryCheckpointStore? = null,
+    val remoteCallGate: SummaryRemoteCallGate? = null,
 )
 
 data class AiSummaryEngineOutput(
@@ -46,6 +47,7 @@ data class AiSummaryEngineOutput(
     val usage: LlmUsage?,
     val providerCallCount: Int,
     val mapChunkCount: Int,
+    val pendingRemoteRequestId: String? = null,
 )
 
 class AiSummaryEngine(
@@ -113,63 +115,74 @@ class AiSummaryEngine(
                 ?.let { it == "length" || it == "max_tokens" || it == "max_output_tokens" }
                 ?: false
 
+        var unresolvedRemoteRequestId: String? = null
+
         suspend fun providerCall(
             task: String,
             dataPayload: String,
             maxOutputTokens: Int,
-        ): LlmGenerationResponse {
-            var attempt = 1
-            while (true) {
-                val requestId = newRequestId()
-                activeRequestId = requestId
-                val response =
-                    try {
-                        provider.generate(
-                            request.profile,
-                            LlmGenerationRequest(
-                                requestId = requestId,
-                                model = request.profile.defaultModel,
-                                systemInstruction = SummaryPromptFactory.systemInstruction,
-                                taskInstruction = task,
-                                transcriptPayload = dataPayload,
-                                structuredOutputSchema = SummaryPromptFactory.resultSchemaJson,
-                                maxOutputTokens = maxOutputTokens,
-                            ),
-                        ).getOrThrow()
-                    } catch (cancelled: CancellationException) {
-                        provider.cancel(requestId)
-                        throw cancelled
-                    } catch (error: Throwable) {
-                        val failure = (error as? ProviderFailureCarrier)?.failure
-                        if (failure != null && retryPolicy.shouldRetry(failure, attempt)) {
-                            sleeper(retryPolicy.delayMs(failure, attempt))
-                            attempt++
-                            continue
-                        }
-                        throw error
-                    } finally {
-                        activeRequestId = null
-                    }
-                providerCalls++
-                accumulator.add(response.usage)
-                return response
-            }
+            stepKind: String,
+            stepKey: String,
+        ): Pair<LlmGenerationResponse, String> {
+            val requestId = newRequestId()
+            request.remoteCallGate?.begin(
+                call =
+                    SummaryRemoteCallDescriptor(
+                        requestId = requestId,
+                        stepKind = stepKind,
+                        stepKey = stepKey,
+                    ),
+                replacesRequestId = unresolvedRemoteRequestId,
+            )
+            unresolvedRemoteRequestId = requestId
+            activeRequestId = requestId
+            val response =
+                try {
+                    provider.generate(
+                        request.profile,
+                        LlmGenerationRequest(
+                            requestId = requestId,
+                            model = request.profile.defaultModel,
+                            systemInstruction = SummaryPromptFactory.systemInstruction,
+                            taskInstruction = task,
+                            transcriptPayload = dataPayload,
+                            structuredOutputSchema = SummaryPromptFactory.resultSchemaJson,
+                            maxOutputTokens = maxOutputTokens,
+                        ),
+                    ).getOrThrow()
+                } catch (cancelled: CancellationException) {
+                    provider.cancel(requestId)
+                    throw cancelled
+                } finally {
+                    activeRequestId = null
+                }
+            providerCalls++
+            accumulator.add(response.usage)
+            return response to requestId
         }
 
         suspend fun call(
             task: String,
             dataPayload: String,
             allowedEvidenceRefs: Set<String>,
+            stepKind: String,
+            stepKey: String,
         ): ParsedCall {
             var nextTask = task
             var nextPayload = dataPayload
             var repairAttempt = 0
+            var followUpReason: String? = null
             while (true) {
-                val response =
+                val effectiveKind = if (followUpReason == null) stepKind else "REPAIR"
+                val effectiveKey =
+                    followUpReason?.let { "$stepKey:$it:$repairAttempt" } ?: stepKey
+                val (response, requestId) =
                     providerCall(
                         task = nextTask,
                         dataPayload = nextPayload,
                         maxOutputTokens = outputLimitFor(dataPayload, repairAttempt),
+                        stepKind = effectiveKind,
+                        stepKey = effectiveKey,
                     )
 
                 if (response.isLengthTruncated()) {
@@ -184,6 +197,7 @@ class AiSummaryEngine(
                         currentLimit < hardLimit
                     ) {
                         repairAttempt++
+                        followUpReason = "length"
                         continue
                     }
                     throw SummaryStructuredOutputException(
@@ -201,7 +215,10 @@ class AiSummaryEngine(
                         )
                     }
                 if (parsed.isSuccess) {
-                    return ParsedCall(parsed.getOrThrow())
+                    return ParsedCall(
+                        result = parsed.getOrThrow(),
+                        remoteRequestId = requestId,
+                    )
                 }
 
                 val failure =
@@ -216,6 +233,7 @@ class AiSummaryEngine(
                 }
 
                 repairAttempt++
+                followUpReason = "repair"
                 nextTask =
                     SummaryPromptFactory.repairInstruction(
                         failure = failure,
@@ -248,6 +266,7 @@ class AiSummaryEngine(
             sourceEndOrdinalExclusive: Int,
             startSampleIndex: Long?,
             endSampleIndexExclusive: Long?,
+            remoteRequestId: String?,
         ) {
             if (startSampleIndex == null || endSampleIndexExclusive == null) {
                 // An all-unanchored revision chunk has no truthful audio range. It may be sent to
@@ -266,6 +285,12 @@ class AiSummaryEngine(
                     structuredResultJson = SummaryResultCodec.encode(result),
                 ),
             )
+            remoteRequestId?.let { resolvedRequestId ->
+                request.remoteCallGate?.resolve(resolvedRequestId)
+                if (unresolvedRemoteRequestId == resolvedRequestId) {
+                    unresolvedRemoteRequestId = null
+                }
+            }
         }
 
         try {
@@ -274,7 +299,13 @@ class AiSummaryEngine(
                     request.input.units.mapNotNullTo(LinkedHashSet()) { it.evidence?.ref }
                 val direct =
                     try {
-                        call(taskInstruction, fullPayload, allRefs)
+                        call(
+                            task = taskInstruction,
+                            dataPayload = fullPayload,
+                            allowedEvidenceRefs = allRefs,
+                            stepKind = "DIRECT",
+                            stepKey = "direct",
+                        )
                     } catch (error: Throwable) {
                         val providerFailure = (error as? ProviderFailureCarrier)?.failure
                         val structuredFailure = error as? SummaryStructuredOutputException
@@ -294,6 +325,7 @@ class AiSummaryEngine(
                         usage = accumulator.toUsage(),
                         providerCallCount = providerCalls,
                         mapChunkCount = 1,
+                        pendingRemoteRequestId = direct.remoteRequestId,
                     )
                 }
             }
@@ -340,17 +372,21 @@ class AiSummaryEngine(
                         task = mapTask,
                         dataPayload = chunk.payload,
                         allowedEvidenceRefs = chunk.evidenceRefs,
-                    ).result.also { generated ->
+                        stepKind = "MAP",
+                        stepKey = "map:$index",
+                    ).let { generated ->
                         saveCheckpoint(
                             level = 0,
                             chunkIndex = index,
                             digest = digest,
-                            result = generated,
+                            result = generated.result,
                             sourceStartOrdinal = chunk.sourceStartOrdinal,
                             sourceEndOrdinalExclusive = chunk.sourceEndOrdinalExclusive,
                             startSampleIndex = chunk.startSampleIndex,
                             endSampleIndexExclusive = chunk.endSampleIndexExclusive,
+                            remoteRequestId = generated.remoteRequestId,
                         )
+                        generated.result
                     }
                 nodes +=
                     SummaryNode(
@@ -425,17 +461,21 @@ class AiSummaryEngine(
                                     task = reductionTask,
                                     dataPayload = reductionPayload,
                                     allowedEvidenceRefs = allowed,
-                                ).result.also { generated ->
+                                    stepKind = "REDUCE",
+                                    stepKey = "reduce:$reductionLevel:$groupIndex",
+                                ).let { generated ->
                                     saveCheckpoint(
                                         level = reductionLevel,
                                         chunkIndex = groupIndex,
                                         digest = digest,
-                                        result = generated,
+                                        result = generated.result,
                                         sourceStartOrdinal = sourceStart,
                                         sourceEndOrdinalExclusive = sourceEnd,
                                         startSampleIndex = sampleStart,
                                         endSampleIndexExclusive = sampleEnd,
+                                        remoteRequestId = generated.remoteRequestId,
                                     )
+                                    generated.result
                                 }
                             SummaryNode(
                                 result = result,
@@ -466,6 +506,7 @@ class AiSummaryEngine(
                 usage = accumulator.toUsage(),
                 providerCallCount = providerCalls,
                 mapChunkCount = chunks.size,
+                pendingRemoteRequestId = unresolvedRemoteRequestId,
             )
         } catch (cancelled: CancellationException) {
             activeRequestId?.let(provider::cancel)
@@ -504,6 +545,7 @@ class AiSummaryEngine(
 
     private data class ParsedCall(
         val result: AiSummaryResult,
+        val remoteRequestId: String,
     )
 
     private data class SummaryNode(

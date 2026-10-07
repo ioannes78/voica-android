@@ -92,6 +92,57 @@ class AiSummaryDurableStateTest {
     }
 
     @Test
+    fun followUpRemoteRequestAtomicallyReplacesInFlightIdentity() = runBlocking {
+        val summaryId = createSummary()
+        assertTrue(
+            repository.prepareRemoteCall(
+                summaryId = summaryId,
+                generation = 1L,
+                requestId = "request-1",
+                stepKind = "DIRECT",
+                stepKey = "direct",
+            ),
+        )
+        assertTrue(
+            repository.markRemoteRequestInFlight(
+                summaryId = summaryId,
+                generation = 1L,
+                requestId = "request-1",
+                stepKind = "DIRECT",
+                stepKey = "direct",
+            ),
+        )
+
+        assertFalse(
+            repository.replaceRemoteRequestInFlight(
+                summaryId = summaryId,
+                generation = 1L,
+                expectedRequestId = "stale-request",
+                newRequestId = "request-2",
+                stepKind = "REPAIR",
+                stepKey = "direct:repair:1",
+            ),
+        )
+        assertTrue(
+            repository.replaceRemoteRequestInFlight(
+                summaryId = summaryId,
+                generation = 1L,
+                expectedRequestId = "request-1",
+                newRequestId = "request-2",
+                stepKind = "REPAIR",
+                stepKey = "direct:repair:1",
+            ),
+        )
+
+        val replaced = requireNotNull(repository.find(summaryId))
+        assertEquals(AiSummaryRemoteDispatchStateValue.REQUEST_IN_FLIGHT, replaced.remoteDispatchState)
+        assertEquals("request-2", replaced.remoteRequestId)
+        assertEquals("REPAIR", replaced.remoteStepKind)
+        assertEquals("direct:repair:1", replaced.remoteStepKey)
+        assertEquals(2, replaced.remoteCallOrdinal)
+    }
+
+    @Test
     fun inFlightRequestCanBecomeAmbiguousAndCannotBeRevivedByLateProgress() = runBlocking {
         val summaryId = createSummary()
         assertTrue(
