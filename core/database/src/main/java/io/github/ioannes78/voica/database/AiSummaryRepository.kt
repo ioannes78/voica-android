@@ -328,6 +328,22 @@ class AiSummaryRepository(
         ) == 1
     }
 
+    suspend fun resetPreparedRemoteCall(
+        summaryId: String,
+        generation: Long,
+        requestId: String,
+    ): Boolean {
+        require(generation >= 1L)
+        require(requestId.isNotBlank())
+        return dao.resetPreparedRemoteCall(
+            summaryId = summaryId,
+            generation = generation,
+            requestId = requestId,
+            nowMs = nowMs(),
+            activeStates = AiSummaryStateValue.ACTIVE,
+        ) == 1
+    }
+
     suspend fun clearRemoteDispatch(
         summaryId: String,
         generation: Long,
