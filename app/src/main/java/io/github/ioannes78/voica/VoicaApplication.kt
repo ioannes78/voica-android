@@ -144,7 +144,13 @@ class AppContainer(
 
     val diarizationRepository = DiarizationRepository(recordingDatabase)
 
-    val aiSummaryRepository = AiSummaryRepository(recordingDatabase)
+    private val aiSummaryTaskOwnershipStore = AiSummaryTaskOwnershipStore(application)
+    val aiSummaryRepository =
+        AiSummaryRepository(
+            database = recordingDatabase,
+            currentOwnerTaskId = aiSummaryTaskOwnershipStore::currentTaskId,
+            isOwnerTaskActive = aiSummaryTaskOwnershipStore::isTaskActive,
+        )
     val structuredTranscriptInputBuilder = StructuredTranscriptInputBuilder(recordingDatabase)
     val providerCredentialStore = AndroidKeystoreCredentialStore(application)
     val providerProfileStore = AppPrivateProviderProfileStore(application)
