@@ -7,6 +7,8 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import io.github.ioannes78.voica.database.AiSummaryRepository
+import io.github.ioannes78.voica.database.AiSummaryStateValue
 import java.util.concurrent.CancellationException
 
 interface AiSummaryWorkScheduler {
@@ -79,6 +81,30 @@ class AiSummaryWorker(
             // The coordinator persists a business failure when possible. A platform retry here
             // would be unsafe because it could resend a request whose remote outcome is unknown.
             Result.success()
+        }
+    }
+}
+
+internal suspend fun recoverAiSummaryWorkOnStartup(
+    repository: AiSummaryRepository,
+    scheduler: AiSummaryWorkScheduler,
+) {
+    repository.loadActiveSummaries().forEach { summary ->
+        runCatching {
+            if (summary.executionGeneration < 1L) {
+                // A pre-v8 active row has no durable send boundary. Its remote outcome is unknown,
+                // so upgrading must never turn it into an automatic provider replay.
+                repository.transition(
+                    summaryId = summary.id,
+                    status = AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT,
+                    errorCode = "REMOTE_RESULT_UNKNOWN",
+                    sanitizedErrorMessage = "上一次请求状态无法确认，需要手动重试。",
+                )
+            } else {
+                // KEEP is intentional: WorkManager may already be restoring this same unique work.
+                // The Worker alone classifies NONE / READY_TO_SEND / REQUEST_IN_FLIGHT.
+                scheduler.enqueue(summary.id, summary.executionGeneration)
+            }
         }
     }
 }
