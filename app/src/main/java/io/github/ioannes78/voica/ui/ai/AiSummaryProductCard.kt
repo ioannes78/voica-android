@@ -47,6 +47,7 @@ import io.github.ioannes78.voica.TextExportFormat
 import io.github.ioannes78.voica.TextShareOutcome
 import io.github.ioannes78.voica.ai.AiSummaryEnginePhase
 import io.github.ioannes78.voica.ai.SummaryTemplateCatalog
+import io.github.ioannes78.voica.database.AiSummaryEntity
 import io.github.ioannes78.voica.database.AiSummaryStateValue
 import kotlinx.coroutines.launch
 
@@ -64,6 +65,7 @@ fun AiSummaryProductCard(
     val runState by viewModel.runState.collectAsState()
     val selected by viewModel.selected.collectAsState()
     val candidateId by viewModel.candidateId.collectAsState()
+    val attention by viewModel.attention.collectAsState()
     val stale by viewModel.stale.collectAsState()
     val provider by viewModel.provider.collectAsState()
     val providers by viewModel.providers.collectAsState()
@@ -81,8 +83,6 @@ fun AiSummaryProductCard(
     var selectedProviderId by remember { mutableStateOf<String?>(null) }
     var selectedModel by remember { mutableStateOf("") }
     var selectedPresetId by remember { mutableStateOf(SummaryTemplateCatalog.GENERIC) }
-    var ambiguousRetrySummaryId by remember(transcriptionId) { mutableStateOf<String?>(null) }
-    var ambiguousRetryMessage by remember(transcriptionId) { mutableStateOf<String?>(null) }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -94,27 +94,9 @@ fun AiSummaryProductCard(
         viewModel.bind(transcriptionId)
     }
     LaunchedEffect(runState, transcriptionId) {
-        when (val state = runState) {
-            is AiSummaryRunState.Completed ->
-                if (state.transcriptionId == transcriptionId) {
-                    ambiguousRetrySummaryId = null
-                    ambiguousRetryMessage = null
-                    viewModel.acknowledgeTerminal(state.summaryId)
-                }
-            is AiSummaryRunState.Failed ->
-                if (state.transcriptionId == transcriptionId) {
-                    if (state.errorCode == "REMOTE_RESULT_UNKNOWN" && state.summaryId != null) {
-                        ambiguousRetrySummaryId = state.summaryId
-                        ambiguousRetryMessage = state.message
-                    }
-                    state.summaryId?.let(viewModel::acknowledgeTerminal)
-                }
-            is AiSummaryRunState.Running ->
-                if (state.transcriptionId == transcriptionId) {
-                    ambiguousRetrySummaryId = null
-                    ambiguousRetryMessage = null
-                }
-            else -> Unit
+        val state = runState
+        if (state is AiSummaryRunState.Completed && state.transcriptionId == transcriptionId) {
+            viewModel.acknowledgeTerminal(state.summaryId)
         }
     }
     LaunchedEffect(Unit) {
@@ -200,6 +182,16 @@ fun AiSummaryProductCard(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        attention?.let { attentionEntity ->
+            AiSummaryAttentionBanner(
+                entity = attentionEntity,
+                actionEnabled = running == null,
+                onRetry = { viewModel.retryAttention(attentionEntity.id) },
+                onIgnore = { viewModel.ignoreAttention(attentionEntity.id) },
+                onOpenSettings = onOpenSettings,
+            )
+        }
+
         if (stale && selected?.entity?.status == AiSummaryStateValue.COMPLETED) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
@@ -249,34 +241,6 @@ fun AiSummaryProductCard(
                         Button(onClick = { viewModel.adoptSummaryResult(newSummaryId) }) {
                             Text("使用新结果")
                         }
-                    }
-                }
-            }
-        }
-
-        val retrySummaryId = ambiguousRetrySummaryId
-        if (showTransientHeader && retrySummaryId != null && running == null) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.medium,
-                tonalElevation = 1.dp,
-            ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Text(
-                        ambiguousRetryMessage
-                            ?: "上一次请求状态无法确认，需要手动重试。",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Text(
-                        "为避免重复生成或重复计费，Voica 不会自动重新发送该请求。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Button(onClick = { viewModel.retryAmbiguous(retrySummaryId) }) {
-                        Text("手动重试")
                     }
                 }
             }
@@ -475,11 +439,13 @@ fun AiSummaryProductCard(
                     Text(current.entity.displayText.orEmpty())
 
                 current.entity.status == AiSummaryStateValue.INTERRUPTED -> {
-                    Text("上次生成已中断，可继续生成。")
-                    Button(
-                        enabled = running == null,
-                        onClick = { viewModel.resumeSelected() },
-                    ) { Text("继续生成") }
+                    if (attention?.id != current.entity.id) {
+                        Text("上次生成已中断，可继续生成。")
+                        Button(
+                            enabled = running == null,
+                            onClick = { viewModel.resumeSelected() },
+                        ) { Text("继续生成") }
+                    }
                 }
 
                 !current.entity.sanitizedErrorMessage.isNullOrBlank() ->
@@ -668,6 +634,101 @@ fun AiSummaryProductCard(
             }
         }
     }
+}
+
+@Composable
+private fun AiSummaryAttentionBanner(
+    entity: AiSummaryEntity,
+    actionEnabled: Boolean,
+    onRetry: () -> Unit,
+    onIgnore: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        tonalElevation = 2.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                aiSummaryAttentionTitle(entity),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                aiSummaryAttentionMessage(entity),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            aiSummaryAttentionDiagnostic(entity)?.let { diagnostic ->
+                Text(
+                    diagnostic,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Button(
+                    enabled = actionEnabled,
+                    onClick = onRetry,
+                ) {
+                    Text(
+                        when (entity.status) {
+                            AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT -> "手动重试"
+                            AiSummaryStateValue.INTERRUPTED -> "继续生成"
+                            else -> "重新生成"
+                        },
+                    )
+                }
+                if (entity.status == AiSummaryStateValue.FAILED) {
+                    TextButton(onClick = onOpenSettings) {
+                        Text("AI 服务设置")
+                    }
+                }
+                TextButton(onClick = onIgnore) {
+                    Text("忽略")
+                }
+            }
+        }
+    }
+}
+
+internal fun aiSummaryAttentionTitle(entity: AiSummaryEntity): String =
+    when (entity.status) {
+        AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT -> "上一次总结请求状态无法确认"
+        AiSummaryStateValue.INTERRUPTED -> "AI 总结已中断"
+        else -> "AI 总结生成失败"
+    }
+
+internal fun aiSummaryAttentionMessage(entity: AiSummaryEntity): String =
+    when (entity.status) {
+        AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT ->
+            "为避免重复生成或重复计费，Voica 不会自动重新发送该请求。"
+        AiSummaryStateValue.INTERRUPTED ->
+            "上次生成在远端请求确认前中断，可以继续生成或忽略本次提醒。"
+        else ->
+            "AI 服务请求失败，请检查服务或模型配置后重试。"
+    }
+
+internal fun aiSummaryAttentionDiagnostic(entity: AiSummaryEntity): String? {
+    val raw = listOfNotNull(entity.sanitizedErrorMessage, entity.errorCode).joinToString(" ")
+    val httpStatus = Regex("""HTTP\s*\d{3}""", RegexOption.IGNORE_CASE).find(raw)?.value?.uppercase()
+    val technical =
+        when {
+            httpStatus != null -> httpStatus
+            entity.status == AiSummaryStateValue.FAILED -> entity.errorCode
+            else -> null
+        }
+    return listOfNotNull(
+        entity.providerNameSnapshot.takeIf { it.isNotBlank() },
+        entity.model.takeIf { it.isNotBlank() },
+        technical?.takeIf { it.isNotBlank() },
+    ).takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }
 
 private fun productProgressText(state: AiSummaryRunState.Running): String =
