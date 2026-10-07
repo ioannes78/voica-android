@@ -65,8 +65,13 @@ jobs:
       - name: Emit generated Room v9 schema
         shell: bash
         run: |
-          gradle :core:database:kspDebugKotlin
-          cat core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/9.json
+          gradle :core:database:kspDebugKotlin --rerun-tasks
+          schema="core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/9.json"
+          test -f "$schema"
+          echo "ROOM_SCHEMA_9_BEGIN"
+          cat "$schema"
+          echo "ROOM_SCHEMA_9_END"
+          exit 1
 
       - name: Unit test and debug build
         run: >
