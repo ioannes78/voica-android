@@ -71,6 +71,9 @@ class AiSummaryWorker(
         val application = applicationContext as? VoicaApplication ?: return Result.failure()
         val container = runCatching { application.container }.getOrNull() ?: return Result.failure()
         return try {
+            if (!container.aiSummaryRepository.ensureOwnerTaskActive(summaryId, generation)) {
+                return Result.success()
+            }
             container.aiSummaryCoordinator.executeDurable(summaryId, generation)
             // Remote LLM requests are never replayed through WorkManager Result.retry().
             // Recovery eligibility is decided only from Room inside executeDurable().
@@ -100,7 +103,7 @@ internal suspend fun recoverAiSummaryWorkOnStartup(
                     errorCode = "REMOTE_RESULT_UNKNOWN",
                     sanitizedErrorMessage = "上一次请求状态无法确认，需要手动重试。",
                 )
-            } else {
+            } else if (repository.ensureOwnerTaskActive(summary.id, summary.executionGeneration)) {
                 // KEEP is intentional: WorkManager may already be restoring this same unique work.
                 // The Worker alone classifies NONE / READY_TO_SEND / REQUEST_IN_FLIGHT.
                 scheduler.enqueue(summary.id, summary.executionGeneration)
