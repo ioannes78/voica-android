@@ -415,6 +415,32 @@ class AiSummaryViewModel(
         }
     }
 
+    fun acknowledgeTerminal(summaryId: String) {
+        if (summaryId.isBlank()) return
+        viewModelScope.launch {
+            val entity = repository.find(summaryId) ?: return@launch
+            if (entity.transcriptionId != boundTranscriptionId) return@launch
+            when (entity.status) {
+                AiSummaryStateValue.COMPLETED -> {
+                    mutableCandidateId.value =
+                        contentRepository.resolveAiSummaryCandidateId(entity.recordingId)
+                    if (mutableCandidateId.value == entity.id) {
+                        mutableNotice.value = "新的总结结果已生成。"
+                    }
+                    refreshCurrentSelection()
+                }
+                AiSummaryStateValue.FAILED,
+                AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT,
+                -> {
+                    mutableNotice.value =
+                        entity.sanitizedErrorMessage ?: "AI 总结生成失败，请重试"
+                }
+                else -> return@launch
+            }
+            repository.acknowledgeTerminal(summaryId)
+        }
+    }
+
     fun clearNotice() {
         mutableNotice.value = null
     }
