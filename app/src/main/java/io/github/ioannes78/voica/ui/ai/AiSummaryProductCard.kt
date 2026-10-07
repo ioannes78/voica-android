@@ -81,6 +81,8 @@ fun AiSummaryProductCard(
     var selectedProviderId by remember { mutableStateOf<String?>(null) }
     var selectedModel by remember { mutableStateOf("") }
     var selectedPresetId by remember { mutableStateOf(SummaryTemplateCatalog.GENERIC) }
+    var ambiguousRetrySummaryId by remember(transcriptionId) { mutableStateOf<String?>(null) }
+    var ambiguousRetryMessage by remember(transcriptionId) { mutableStateOf<String?>(null) }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -95,11 +97,22 @@ fun AiSummaryProductCard(
         when (val state = runState) {
             is AiSummaryRunState.Completed ->
                 if (state.transcriptionId == transcriptionId) {
+                    ambiguousRetrySummaryId = null
+                    ambiguousRetryMessage = null
                     viewModel.acknowledgeTerminal(state.summaryId)
                 }
             is AiSummaryRunState.Failed ->
                 if (state.transcriptionId == transcriptionId) {
+                    if (state.errorCode == "REMOTE_RESULT_UNKNOWN" && state.summaryId != null) {
+                        ambiguousRetrySummaryId = state.summaryId
+                        ambiguousRetryMessage = state.message
+                    }
                     state.summaryId?.let(viewModel::acknowledgeTerminal)
+                }
+            is AiSummaryRunState.Running ->
+                if (state.transcriptionId == transcriptionId) {
+                    ambiguousRetrySummaryId = null
+                    ambiguousRetryMessage = null
                 }
             else -> Unit
         }
@@ -236,6 +249,34 @@ fun AiSummaryProductCard(
                         Button(onClick = { viewModel.adoptSummaryResult(newSummaryId) }) {
                             Text("使用新结果")
                         }
+                    }
+                }
+            }
+        }
+
+        val retrySummaryId = ambiguousRetrySummaryId
+        if (showTransientHeader && retrySummaryId != null && running == null) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+                tonalElevation = 1.dp,
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        ambiguousRetryMessage
+                            ?: "上一次请求状态无法确认，需要手动重试。",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        "为避免重复生成或重复计费，Voica 不会自动重新发送该请求。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Button(onClick = { viewModel.retryAmbiguous(retrySummaryId) }) {
+                        Text("手动重试")
                     }
                 }
             }

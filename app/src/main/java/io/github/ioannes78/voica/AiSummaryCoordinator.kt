@@ -120,8 +120,10 @@ class AiSummaryCoordinator(
         template: SummaryTemplateSpec,
         providerProfileId: String? = null,
         modelOverride: String? = null,
+        retryOfSummaryId: String? = null,
     ): Boolean {
         require(transcriptionId.isNotBlank())
+        require(retryOfSummaryId == null || retryOfSummaryId.isNotBlank())
         synchronized(preparationLock) {
             if (preparationJob?.isActive == true || mutableState.value is AiSummaryRunState.Running) {
                 return false
@@ -134,6 +136,7 @@ class AiSummaryCoordinator(
                         template = template,
                         providerProfileId = providerProfileId,
                         modelOverride = modelOverride,
+                        retryOfSummaryId = retryOfSummaryId,
                     )
                 }
             installPreparationJob(job, PreparationTarget.Transcription(transcriptionId))
@@ -322,6 +325,7 @@ class AiSummaryCoordinator(
         template: SummaryTemplateSpec,
         providerProfileId: String?,
         modelOverride: String?,
+        retryOfSummaryId: String?,
     ) {
         var summaryId: String? = null
         try {
@@ -329,6 +333,17 @@ class AiSummaryCoordinator(
             if (existing != null) {
                 publishRunning(existing)
                 return
+            }
+            retryOfSummaryId?.let { retryId ->
+                val retrySource =
+                    repository.find(retryId)
+                        ?: throw AiSummaryConfigurationException("原 AI 总结任务不存在，请重新生成总结")
+                if (
+                    retrySource.status != AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT ||
+                    retrySource.transcriptionId != transcriptionId
+                ) {
+                    throw AiSummaryConfigurationException("该 AI 总结任务不能手动重试，请重新生成总结")
+                }
             }
             val recordingId =
                 repository.recordingIdForTranscription(transcriptionId)
@@ -375,6 +390,7 @@ class AiSummaryCoordinator(
                                 }.toString(),
                             alignmentIdSnapshot = input.alignmentId,
                             sourceLineageSnapshot = lineageSnapshot(input),
+                            retryOfSummaryId = retryOfSummaryId,
                         ),
                     )
                 }
