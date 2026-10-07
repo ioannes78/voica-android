@@ -3,6 +3,7 @@ package io.github.ioannes78.voica.database
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import io.github.ioannes78.voica.ai.SummaryCheckpointRecord
 import io.github.ioannes78.voica.ai.SummaryRemoteCallDescriptor
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -64,6 +65,26 @@ class RoomSummaryRemoteCallGateTest {
     }
 
     @Test
+    fun preparedRequestResetRequiresExactRequestId() = runBlocking {
+        val summaryId = createSummary()
+        assertTrue(
+            repository.prepareRemoteCall(
+                summaryId = summaryId,
+                generation = 1L,
+                requestId = "request-ready",
+                stepKind = "DIRECT",
+                stepKey = "direct",
+            ),
+        )
+        assertFalse(repository.resetPreparedRemoteCall(summaryId, 1L, "request-wrong"))
+        assertTrue(repository.resetPreparedRemoteCall(summaryId, 1L, "request-ready"))
+
+        val reset = requireNotNull(repository.find(summaryId))
+        assertEquals(AiSummaryRemoteDispatchStateValue.NONE, reset.remoteDispatchState)
+        assertNull(reset.remoteRequestId)
+    }
+
+    @Test
     fun staleRequestCannotMarkReplacementAmbiguous() = runBlocking {
         val summaryId = createSummary()
         val gate = RoomSummaryRemoteCallGate(repository, summaryId, generation = 1L)
@@ -104,8 +125,9 @@ class RoomSummaryRemoteCallGateTest {
         )
 
         assertTrue(
-            repository.persistCompleted(
+            repository.persistCompletedForGeneration(
                 summaryId = summaryId,
+                generation = 1L,
                 contentType = "GENERAL",
                 classificationConfidence = null,
                 structuredPayloadJson = "{}",
@@ -152,6 +174,82 @@ class RoomSummaryRemoteCallGateTest {
         assertEquals(AiSummaryStateValue.PREPARING, resumed.status)
         assertEquals(2L, resumed.executionGeneration)
         assertEquals(AiSummaryRemoteDispatchStateValue.NONE, resumed.remoteDispatchState)
+    }
+
+    @Test
+    fun staleGenerationCannotMutateStateOrCompleteNewGeneration() = runBlocking {
+        val summaryId = createSummary()
+        assertTrue(repository.transition(summaryId, AiSummaryStateValue.INTERRUPTED))
+        assertTrue(repository.resumeInterrupted(summaryId))
+
+        assertFalse(
+            repository.transitionForGeneration(
+                summaryId = summaryId,
+                generation = 1L,
+                status = AiSummaryStateValue.MAPPING,
+            ),
+        )
+        assertFalse(
+            repository.persistCompletedForGeneration(
+                summaryId = summaryId,
+                generation = 1L,
+                contentType = "GENERAL",
+                classificationConfidence = null,
+                structuredPayloadJson = "{}",
+                displayText = "stale",
+                usageSnapshot = null,
+                evidence = emptyList(),
+            ),
+        )
+
+        val current = requireNotNull(repository.find(summaryId))
+        assertEquals(2L, current.executionGeneration)
+        assertEquals(AiSummaryStateValue.PREPARING, current.status)
+        assertNull(current.displayText)
+    }
+
+    @Test
+    fun staleGenerationCannotReadOrOverwriteCheckpoint() = runBlocking {
+        val summaryId = createSummary()
+        val firstGenerationStore =
+            RoomSummaryCheckpointStore(
+                repository = repository,
+                summaryId = summaryId,
+                generation = 1L,
+                nowMs = { clock++ },
+            )
+        val record =
+            SummaryCheckpointRecord(
+                level = 0,
+                chunkIndex = 0,
+                sourceStartOrdinal = 0,
+                sourceEndOrdinalExclusive = 1,
+                startSampleIndex = 0L,
+                endSampleIndexExclusive = 16_000L,
+                inputDigest = "digest-1",
+                structuredResultJson = "{\"schemaVersion\":1}",
+            )
+        firstGenerationStore.save(record)
+        assertTrue(repository.transition(summaryId, AiSummaryStateValue.INTERRUPTED))
+        assertTrue(repository.resumeInterrupted(summaryId))
+
+        assertNull(firstGenerationStore.load(0, 0, "digest-1"))
+        var rejected = false
+        try {
+            firstGenerationStore.save(record.copy(structuredResultJson = "{\"stale\":true}"))
+        } catch (_: SummaryRemoteCallBoundaryChangedException) {
+            rejected = true
+        }
+        assertTrue(rejected)
+
+        val secondGenerationStore =
+            RoomSummaryCheckpointStore(
+                repository = repository,
+                summaryId = summaryId,
+                generation = 2L,
+                nowMs = { clock++ },
+            )
+        assertEquals("{\"schemaVersion\":1}", secondGenerationStore.load(0, 0, "digest-1"))
     }
 
     private suspend fun createSummary(): String {
