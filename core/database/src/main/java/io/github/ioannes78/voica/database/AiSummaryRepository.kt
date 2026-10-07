@@ -189,6 +189,35 @@ class AiSummaryRepository(
         ) == 1
     }
 
+    suspend fun transitionForGeneration(
+        summaryId: String,
+        generation: Long,
+        status: String,
+        errorCode: String? = null,
+        sanitizedErrorMessage: String? = null,
+    ): Boolean {
+        require(generation >= 1L)
+        require(status in ALL_STATES)
+        val current = dao.findSummary(summaryId) ?: return false
+        if (current.executionGeneration != generation) return false
+        if (current.status == status) return true
+        if (current.status !in AiSummaryStateValue.ACTIVE) return false
+
+        val now = nowMs()
+        val terminal = status in TERMINAL_STATES
+        return dao.updateStateForGeneration(
+            summaryId = summaryId,
+            generation = generation,
+            status = status,
+            startedAtMs = current.startedAtMs ?: now,
+            updatedAtMs = now,
+            completedAtMs = if (terminal) now else null,
+            errorCode = errorCode,
+            sanitizedErrorMessage = sanitizedErrorMessage,
+            activeStates = AiSummaryStateValue.ACTIVE,
+        ) == 1
+    }
+
     suspend fun persistCompleted(
         summaryId: String,
         contentType: String,
@@ -198,12 +227,7 @@ class AiSummaryRepository(
         usageSnapshot: String?,
         evidence: List<AiSummaryEvidenceWrite>,
     ): Boolean {
-        require(contentType.isNotBlank())
-        require(classificationConfidence == null || classificationConfidence in 0.0..1.0)
-        require(structuredPayloadJson.isNotBlank())
-        require(displayText.isNotBlank())
-        validateEvidence(evidence)
-
+        validateCompletion(contentType, classificationConfidence, structuredPayloadJson, displayText, evidence)
         val now = nowMs()
         val completed =
             database.withTransaction {
@@ -219,40 +243,45 @@ class AiSummaryRepository(
                         activeStates = AiSummaryStateValue.ACTIVE,
                     )
                 if (updated != 1) return@withTransaction false
-                if (evidence.isNotEmpty()) {
-                    dao.insertEvidence(
-                        evidence.map { item ->
-                            AiSummaryEvidenceEntity(
-                                id = newId(),
-                                aiSummaryId = summaryId,
-                                summaryItemId = item.summaryItemId,
-                                sourceRef = item.sourceRef,
-                                sourceKind = item.sourceKind,
-                                sourceId = item.sourceId,
-                                startSampleIndex = item.startSampleIndex,
-                                endSampleIndexExclusive = item.endSampleIndexExclusive,
-                                speakerId = item.speakerId,
-                                assignmentQuality = item.assignmentQuality,
-                            )
-                        },
-                    )
-                }
+                insertEvidence(summaryId, evidence)
                 true
             }
-        if (completed) {
-            try {
-                val summary = dao.findSummary(summaryId)
-                if (summary != null) {
-                    Stage12CContentRepository(database).onAiSummaryCompleted(
-                        recordingId = summary.recordingId,
+        if (completed) onCompleted(summaryId)
+        return completed
+    }
+
+    suspend fun persistCompletedForGeneration(
+        summaryId: String,
+        generation: Long,
+        contentType: String,
+        classificationConfidence: Double?,
+        structuredPayloadJson: String,
+        displayText: String,
+        usageSnapshot: String?,
+        evidence: List<AiSummaryEvidenceWrite>,
+    ): Boolean {
+        require(generation >= 1L)
+        validateCompletion(contentType, classificationConfidence, structuredPayloadJson, displayText, evidence)
+        val now = nowMs()
+        val completed =
+            database.withTransaction {
+                val updated =
+                    dao.completeForGeneration(
                         summaryId = summaryId,
+                        generation = generation,
+                        contentType = contentType,
+                        classificationConfidence = classificationConfidence,
+                        structuredPayloadJson = structuredPayloadJson,
+                        displayText = displayText,
+                        usageSnapshot = usageSnapshot,
+                        completedAtMs = now,
+                        activeStates = AiSummaryStateValue.ACTIVE,
                     )
-                }
-            } catch (_: CancellationException) {
-                // Completion is already committed atomically. Current-selection/search maintenance
-                // is rebuildable and must not turn a completed summary back into a cancellation race.
+                if (updated != 1) return@withTransaction false
+                insertEvidence(summaryId, evidence)
+                true
             }
-        }
+        if (completed) onCompleted(summaryId)
         return completed
     }
 
@@ -417,10 +446,105 @@ class AiSummaryRepository(
     ): AiSummaryChunkEntity? =
         dao.findChunk(summaryId, level, chunkIndex)
 
+    suspend fun findChunkForGeneration(
+        summaryId: String,
+        generation: Long,
+        level: Int,
+        chunkIndex: Int,
+    ): AiSummaryChunkEntity? =
+        database.withTransaction {
+            val summary = dao.findSummary(summaryId) ?: return@withTransaction null
+            if (summary.executionGeneration != generation || summary.status !in AiSummaryStateValue.ACTIVE) {
+                return@withTransaction null
+            }
+            dao.findChunk(summaryId, level, chunkIndex)
+        }
+
     suspend fun loadChunks(summaryId: String): List<AiSummaryChunkEntity> =
         dao.loadChunks(summaryId)
 
     suspend fun upsertChunk(chunk: AiSummaryChunkEntity) {
+        validateChunk(chunk)
+        dao.upsertChunk(chunk)
+    }
+
+    suspend fun upsertChunkForGeneration(
+        summaryId: String,
+        generation: Long,
+        chunk: AiSummaryChunkEntity,
+    ): Boolean {
+        require(generation >= 1L)
+        require(chunk.aiSummaryId == summaryId)
+        validateChunk(chunk)
+        return database.withTransaction {
+            val summary = dao.findSummary(summaryId) ?: return@withTransaction false
+            if (summary.executionGeneration != generation || summary.status !in AiSummaryStateValue.ACTIVE) {
+                return@withTransaction false
+            }
+            dao.upsertChunk(chunk)
+            true
+        }
+    }
+
+    suspend fun reconcileInterruptedOnStartup(): Int =
+        dao.markActiveInterrupted(
+            activeStates = AiSummaryStateValue.ACTIVE,
+            nowMs = nowMs(),
+        )
+
+    private fun validateCompletion(
+        contentType: String,
+        classificationConfidence: Double?,
+        structuredPayloadJson: String,
+        displayText: String,
+        evidence: List<AiSummaryEvidenceWrite>,
+    ) {
+        require(contentType.isNotBlank())
+        require(classificationConfidence == null || classificationConfidence in 0.0..1.0)
+        require(structuredPayloadJson.isNotBlank())
+        require(displayText.isNotBlank())
+        validateEvidence(evidence)
+    }
+
+    private suspend fun insertEvidence(
+        summaryId: String,
+        evidence: List<AiSummaryEvidenceWrite>,
+    ) {
+        if (evidence.isEmpty()) return
+        dao.insertEvidence(
+            evidence.map { item ->
+                AiSummaryEvidenceEntity(
+                    id = newId(),
+                    aiSummaryId = summaryId,
+                    summaryItemId = item.summaryItemId,
+                    sourceRef = item.sourceRef,
+                    sourceKind = item.sourceKind,
+                    sourceId = item.sourceId,
+                    startSampleIndex = item.startSampleIndex,
+                    endSampleIndexExclusive = item.endSampleIndexExclusive,
+                    speakerId = item.speakerId,
+                    assignmentQuality = item.assignmentQuality,
+                )
+            },
+        )
+    }
+
+    private suspend fun onCompleted(summaryId: String) {
+        try {
+            val summary = dao.findSummary(summaryId)
+            if (summary != null) {
+                Stage12CContentRepository(database).onAiSummaryCompleted(
+                    recordingId = summary.recordingId,
+                    summaryId = summaryId,
+                )
+            }
+        } catch (_: CancellationException) {
+            // Completion is already committed atomically. Current-selection/search maintenance
+            // is rebuildable and must not turn a completed summary back into a cancellation race.
+        }
+    }
+
+    private fun validateChunk(chunk: AiSummaryChunkEntity) {
         require(chunk.aiSummaryId.isNotBlank())
         require(chunk.level >= 0)
         require(chunk.chunkIndex >= 0)
@@ -430,14 +554,7 @@ class AiSummaryRepository(
         require(chunk.endSampleIndexExclusive > chunk.startSampleIndex)
         require(chunk.inputDigest.isNotBlank())
         require(chunk.attempt >= 1)
-        dao.upsertChunk(chunk)
     }
-
-    suspend fun reconcileInterruptedOnStartup(): Int =
-        dao.markActiveInterrupted(
-            activeStates = AiSummaryStateValue.ACTIVE,
-            nowMs = nowMs(),
-        )
 
     private fun validateEvidence(evidence: List<AiSummaryEvidenceWrite>) {
         val unique = mutableSetOf<Pair<String, String>>()
