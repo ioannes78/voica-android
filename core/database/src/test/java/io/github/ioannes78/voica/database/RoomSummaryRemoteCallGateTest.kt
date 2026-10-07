@@ -211,6 +211,7 @@ class RoomSummaryRemoteCallGateTest {
     @Test
     fun staleGenerationCannotReadOrOverwriteCheckpoint() = runBlocking {
         val summaryId = createSummary()
+        val digest = "c".repeat(64)
         val firstGenerationStore =
             RoomSummaryCheckpointStore(
                 repository = repository,
@@ -226,14 +227,14 @@ class RoomSummaryRemoteCallGateTest {
                 sourceEndOrdinalExclusive = 1,
                 startSampleIndex = 0L,
                 endSampleIndexExclusive = 16_000L,
-                inputDigest = "digest-1",
+                inputDigest = digest,
                 structuredResultJson = "{\"schemaVersion\":1}",
             )
         firstGenerationStore.save(record)
         assertTrue(repository.transition(summaryId, AiSummaryStateValue.INTERRUPTED))
         assertTrue(repository.resumeInterrupted(summaryId))
 
-        assertNull(firstGenerationStore.load(0, 0, "digest-1"))
+        assertNull(firstGenerationStore.load(0, 0, digest))
         var rejected = false
         try {
             firstGenerationStore.save(record.copy(structuredResultJson = "{\"stale\":true}"))
@@ -249,7 +250,7 @@ class RoomSummaryRemoteCallGateTest {
                 generation = 2L,
                 nowMs = { clock++ },
             )
-        assertEquals("{\"schemaVersion\":1}", secondGenerationStore.load(0, 0, "digest-1"))
+        assertEquals("{\"schemaVersion\":1}", secondGenerationStore.load(0, 0, digest))
     }
 
     private suspend fun createSummary(): String {
