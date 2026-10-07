@@ -105,6 +105,7 @@ data class AiSummaryEntity(
     val sourceLineageSnapshot: String,
     @ColumnInfo(defaultValue = "0")
     val executionGeneration: Long = 0L,
+    val ownerTaskId: Int? = null,
     @ColumnInfo(defaultValue = "'NONE'")
     val remoteDispatchState: String = AiSummaryRemoteDispatchStateValue.NONE,
     val remoteRequestId: String? = null,
