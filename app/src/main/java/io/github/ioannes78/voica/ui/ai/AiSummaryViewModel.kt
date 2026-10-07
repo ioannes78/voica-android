@@ -482,10 +482,13 @@ class AiSummaryViewModel(
         val recordingId = boundRecordingId ?: return
         val summaries = mutableHistory.value
         val currentId = contentRepository.resolveCurrentAiSummaryId(recordingId)
+        // An interrupted candidate must remain discoverable after task removal without becoming
+        // Current Effective. Once it resumes, the normal current completed summary is shown again.
         val target =
-            summaries.firstOrNull {
-                it.id == currentId && it.status == AiSummaryStateValue.COMPLETED
-            } ?: summaries.firstOrNull { it.status == AiSummaryStateValue.INTERRUPTED }
+            summaries.firstOrNull { it.status == AiSummaryStateValue.INTERRUPTED }
+                ?: summaries.firstOrNull {
+                    it.id == currentId && it.status == AiSummaryStateValue.COMPLETED
+                }
         if (target == null) {
             mutableSelected.value = null
             mutableStale.value = false
