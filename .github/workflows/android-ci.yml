@@ -12,7 +12,6 @@ on:
       - "build.gradle.kts"
       - ".github/workflows/android-ci.yml"
       - "ci/**"
-      - "docs/STAGE_*.md"
   workflow_dispatch:
 
 permissions:
@@ -53,9 +52,14 @@ jobs:
             "cmake;3.22.1"
 
       - name: Setup Gradle 9.6
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5.0.2
         with:
           gradle-version: "9.6.0"
+          # Same-repository PRs and manual runs may populate the Gradle cache.
+          # External fork PRs stay read-only so untrusted contributors cannot write shared cache state.
+          cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+          # Encrypt persisted Configuration Cache state so it can be safely reused across hosted runners.
+          cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
 
       - name: Unit test and debug build
         run: >
