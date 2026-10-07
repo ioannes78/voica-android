@@ -89,9 +89,11 @@ internal class ModelInstallTaskRemovalMarkerStore(
 
 /**
  * Converts explicit user stops into an explicit-resume boundary before durable
- * executors are allowed to reconcile. Task-removal markers cover OEMs that do
- * not report a recent-task swipe as REASON_USER_REQUESTED; ApplicationExitInfo
- * remains the fallback for system Force stop / user-requested process stops.
+ * executors are allowed to reconcile. QA4 primarily uses durable task ownership:
+ * when the Android task that owns a manual install no longer exists, that install
+ * must require explicit user resume. Legacy QA3 task-removal markers are still
+ * consumed for upgrade compatibility, and ApplicationExitInfo remains the fallback
+ * for system Force stop / user-requested process stops.
  */
 internal class ModelInstallStartupRecoveryPolicy(
     private val application: Application,
@@ -99,6 +101,7 @@ internal class ModelInstallStartupRecoveryPolicy(
 ) {
     fun interruptManualInstallsAfterUserRequestedExit(): List<String> {
         val interrupted = linkedSetOf<String>()
+        interruptMissingOwnerTasks(interrupted)
         interruptTaskRemovedInstalls(interrupted)
 
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return interrupted.toList()
@@ -159,6 +162,32 @@ internal class ModelInstallStartupRecoveryPolicy(
             .putLong(KEY_LAST_HANDLED_EXIT_TIMESTAMP, latestMainExit.timestampMs)
             .commit()
         return interrupted.toList()
+    }
+
+    private fun interruptMissingOwnerTasks(interrupted: MutableSet<String>) {
+        val activeTaskIds = currentAppTaskIds(application) ?: return
+        val ownershipStore = ModelInstallTaskOwnershipStore(application)
+        journalStore.readAll()
+            .filter { record ->
+                record.origin == ModelInstallOrigin.MANUAL &&
+                    !record.phase.terminal &&
+                    !record.requiresUserResume &&
+                    record.executorKind != ModelInstallExecutorKind.NONE
+            }
+            .forEach { record ->
+                val owner = ownershipStore.ownerFor(record.operationId)
+                if (
+                    shouldInterruptForMissingOwnerTask(
+                        owner = owner,
+                        record = record,
+                        activeTaskIds = activeTaskIds,
+                    )
+                ) {
+                    val written = interruptRecord(record, FAILURE_TASK_REMOVED)
+                    ownershipStore.clear(record.operationId)
+                    interrupted += written.operationId
+                }
+            }
     }
 
     private fun interruptTaskRemovedInstalls(interrupted: MutableSet<String>) {

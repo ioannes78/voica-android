@@ -76,11 +76,6 @@
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />
 
-        <service
-            android:name=".ModelInstallTaskRemovalGuardService"
-            android:exported="false"
-            android:stopWithTask="false" />
-
         <receiver
             android:name=".TaskNotificationActionReceiver"
             android:exported="false" />

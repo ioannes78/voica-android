@@ -80,6 +80,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        ModelInstallTaskOwnershipStore(applicationContext).registerCurrentTask(taskId)
         deviceRepository.setForeground(true)
     }
 
