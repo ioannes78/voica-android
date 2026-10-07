@@ -415,6 +415,40 @@ class AiSummaryViewModel(
         }
     }
 
+    fun retryAmbiguous(summaryId: String) {
+        if (summaryId.isBlank()) return
+        viewModelScope.launch {
+            val entity = repository.find(summaryId) ?: return@launch
+            if (entity.status != AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT) {
+                mutableNotice.value = "该总结任务当前不能手动重试。"
+                return@launch
+            }
+            val transcriptionId = entity.transcriptionId ?: return@launch
+            val mode =
+                when (entity.mode) {
+                    AiSummaryModeValue.PRESET -> AiSummaryMode.PRESET
+                    AiSummaryModeValue.CUSTOM -> AiSummaryMode.CUSTOM
+                    else -> AiSummaryMode.SMART
+                }
+            val template =
+                entity.templateSnapshot
+                    ?.let { runCatching { SummaryTemplateSnapshotCodec.decode(it) }.getOrNull() }
+                    ?: entity.templateId?.let(SummaryTemplateCatalog::find)
+                    ?: SummaryTemplateCatalog.smart()
+            mutableNotice.value = null
+            val started =
+                coordinator.start(
+                    transcriptionId = transcriptionId,
+                    mode = mode,
+                    template = template,
+                    providerProfileId = entity.providerProfileId,
+                    modelOverride = entity.model,
+                    retryOfSummaryId = entity.id,
+                )
+            if (!started) mutableNotice.value = "已有总结任务正在运行。"
+        }
+    }
+
     fun acknowledgeTerminal(summaryId: String) {
         if (summaryId.isBlank()) return
         viewModelScope.launch {
