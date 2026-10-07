@@ -340,6 +340,23 @@ class AiSummaryRepository(
             generation = generation,
             requestId = requestId,
             nowMs = nowMs(),
+            resolvableStates = REMOTE_RESOLVABLE_STATES,
+        ) == 1
+    }
+
+    suspend fun markAmbiguousRemoteResult(
+        summaryId: String,
+        generation: Long,
+        requestId: String,
+    ): Boolean {
+        require(generation >= 1L)
+        require(requestId.isNotBlank())
+        return dao.markAmbiguousRemoteResult(
+            summaryId = summaryId,
+            generation = generation,
+            requestId = requestId,
+            nowMs = nowMs(),
+            sanitizedErrorMessage = AMBIGUOUS_REMOTE_MESSAGE,
             activeStates = AiSummaryStateValue.ACTIVE,
         ) == 1
     }
@@ -348,14 +365,9 @@ class AiSummaryRepository(
         summaryId: String,
         generation: Long,
     ): Boolean {
-        require(generation >= 1L)
-        return dao.markAmbiguousRemoteResult(
-            summaryId = summaryId,
-            generation = generation,
-            nowMs = nowMs(),
-            sanitizedErrorMessage = AMBIGUOUS_REMOTE_MESSAGE,
-            activeStates = AiSummaryStateValue.ACTIVE,
-        ) == 1
+        val current = dao.findSummary(summaryId) ?: return false
+        val requestId = current.remoteRequestId ?: return false
+        return markAmbiguousRemoteResult(summaryId, generation, requestId)
     }
 
     suspend fun cancelForGeneration(
@@ -444,6 +456,8 @@ class AiSummaryRepository(
                 AiSummaryStateValue.FAILED,
                 AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT,
             )
+        val REMOTE_RESOLVABLE_STATES =
+            AiSummaryStateValue.ACTIVE + AiSummaryStateValue.COMPLETED
         const val AMBIGUOUS_REMOTE_MESSAGE =
             "上一次请求状态无法确认，需要手动重试。"
         val ALL_STATES = AiSummaryStateValue.ACTIVE.toSet() + TERMINAL_STATES

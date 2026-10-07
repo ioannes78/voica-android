@@ -213,7 +213,7 @@ interface AiSummaryDao {
             updatedAtMs = :nowMs
         WHERE id = :summaryId
           AND executionGeneration = :generation
-          AND status IN (:activeStates)
+          AND status IN (:resolvableStates)
           AND remoteDispatchState = 'REQUEST_IN_FLIGHT'
           AND remoteRequestId = :requestId
         """,
@@ -223,7 +223,7 @@ interface AiSummaryDao {
         generation: Long,
         requestId: String,
         nowMs: Long,
-        activeStates: List<String>,
+        resolvableStates: List<String>,
     ): Int
 
     @Query(
@@ -238,11 +238,13 @@ interface AiSummaryDao {
           AND executionGeneration = :generation
           AND status IN (:activeStates)
           AND remoteDispatchState = 'REQUEST_IN_FLIGHT'
+          AND remoteRequestId = :requestId
         """,
     )
     suspend fun markAmbiguousRemoteResult(
         summaryId: String,
         generation: Long,
+        requestId: String,
         nowMs: Long,
         sanitizedErrorMessage: String,
         activeStates: List<String>,
@@ -343,8 +345,14 @@ interface AiSummaryDao {
             updatedAtMs = :nowMs,
             completedAtMs = NULL,
             errorCode = NULL,
-            sanitizedErrorMessage = NULL
-        WHERE id = :summaryId AND status = 'INTERRUPTED'
+            sanitizedErrorMessage = NULL,
+            executionGeneration = CASE
+                WHEN executionGeneration < 1 THEN 1
+                ELSE executionGeneration + 1
+            END
+        WHERE id = :summaryId
+          AND status = 'INTERRUPTED'
+          AND remoteDispatchState = 'NONE'
         """,
     )
     suspend fun resumeInterrupted(
