@@ -29,6 +29,16 @@ interface DiarizationDao {
     @Query(
         """
         SELECT * FROM diarization_runs
+        WHERE state IN (:activeStates)
+        ORDER BY createdAtMs DESC
+        LIMIT 2
+        """,
+    )
+    suspend fun loadActiveRuns(activeStates: List<String>): List<DiarizationRunEntity>
+
+    @Query(
+        """
+        SELECT * FROM diarization_runs
         WHERE recordingId = :recordingId
         ORDER BY createdAtMs DESC
         """,
