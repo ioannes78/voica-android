@@ -70,6 +70,17 @@ jobs:
 
           python3 ci/qa4_r1_bootstrap.py
 
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("core/database/src/main/java/io/github/ioannes78/voica/database/Stage13B5Qa4DurableState.kt")
+          content = path.read_text(encoding="utf-8")
+          content = content.replace("AS current\n", "AS selected_current\n")
+          content = content.replace("current.id", "selected_current.id")
+          content = content.replace("current.completedAtMs", "selected_current.completedAtMs")
+          content = content.replace("current.createdAtMs", "selected_current.createdAtMs")
+          path.write_text(content, encoding="utf-8")
+          PY
+
           cat > app/src/test/java/io/github/ioannes78/voica/ui/ai/SummaryStalePolicyTest.kt <<'EOF'
           package io.github.ioannes78.voica.ui.ai
 
