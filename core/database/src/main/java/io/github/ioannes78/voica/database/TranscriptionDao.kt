@@ -38,6 +38,16 @@ interface TranscriptionDao {
     @Query(
         """
         SELECT * FROM transcriptions
+        WHERE state IN (:states)
+          AND terminalAcknowledgedAtMs IS NULL
+        ORDER BY updatedAtMs DESC, createdAtMs DESC
+        """,
+    )
+    fun observeDurableAttention(states: List<String>): Flow<List<TranscriptionEntity>>
+
+    @Query(
+        """
+        SELECT * FROM transcriptions
         WHERE recordingId = :recordingId AND state = 'COMPLETED'
         ORDER BY completedAtMs DESC, createdAtMs DESC
         LIMIT 1
@@ -132,6 +142,40 @@ interface TranscriptionDao {
         completedAtMs: Long?,
         errorCode: String?,
         errorMessage: String?,
+    ): Int
+
+    @Query(
+        """
+        UPDATE transcriptions
+        SET terminalAcknowledgedAtMs = :nowMs,
+            updatedAtMs = :nowMs
+        WHERE id = :transcriptionId
+          AND state IN (:states)
+          AND terminalAcknowledgedAtMs IS NULL
+        """,
+    )
+    suspend fun acknowledgeTerminal(
+        transcriptionId: String,
+        states: List<String>,
+        nowMs: Long,
+    ): Int
+
+    @Query(
+        """
+        UPDATE transcriptions
+        SET terminalAcknowledgedAtMs = :nowMs,
+            updatedAtMs = :nowMs
+        WHERE recordingId = :recordingId
+          AND id != :exceptTranscriptionId
+          AND state IN (:states)
+          AND terminalAcknowledgedAtMs IS NULL
+        """,
+    )
+    suspend fun acknowledgePreviousAttention(
+        recordingId: String,
+        exceptTranscriptionId: String,
+        states: List<String>,
+        nowMs: Long,
     ): Int
 
     @Query(
