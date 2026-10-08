@@ -226,7 +226,14 @@ class AppContainer(
         )
 
     private val stage9DiarizationEngineProvider =
-        diarizationBenchmarkRunner.profilingEngineProvider()
+        if (BuildConfig.DEBUG) {
+            Stage13CBoundaryProfilingProvider(
+                application = application,
+                delegate = diarizationBenchmarkRunner.profilingEngineProvider(),
+            )
+        } else {
+            diarizationBenchmarkRunner.profilingEngineProvider()
+        }
 
     val diarizationCoordinator =
         DiarizationCoordinator(
