@@ -43,7 +43,9 @@ fun TranscriptProductActionBar(
     mode: TranscriptViewMode,
     state: TranscriptContentState,
     viewModel: TranscriptContentViewModel,
+    speakerModeLabel: String,
     onModeChange: (TranscriptViewMode) -> Unit,
+    onSpeakerModeClick: () -> Unit,
     onRetranscribe: () -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
@@ -117,6 +119,11 @@ fun TranscriptProductActionBar(
                 selected = mode == TranscriptViewMode.TIMELINE,
                 onClick = { onModeChange(TranscriptViewMode.TIMELINE) },
                 label = { Text("时间轴") },
+            )
+            FilterChip(
+                selected = false,
+                onClick = onSpeakerModeClick,
+                label = { Text("说话人·$speakerModeLabel") },
             )
             androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
             Button(
