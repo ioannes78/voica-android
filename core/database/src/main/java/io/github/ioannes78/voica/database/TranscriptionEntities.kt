@@ -32,6 +32,12 @@ object TranscriptionStateValue {
         PUNCTUATING,
         PERSISTING,
     )
+
+    val ATTENTION = listOf(
+        INTERRUPTED,
+        FAILED_RECOVERABLE,
+        FAILED_PERMANENT,
+    )
 }
 
 object TranscriptTokenSourceValue {
@@ -96,6 +102,7 @@ data class TranscriptionEntity(
     val requestedConfigSnapshot: String = configSnapshot,
     @ColumnInfo(defaultValue = "'{}'")
     val effectiveConfigSnapshot: String = configSnapshot,
+    val terminalAcknowledgedAtMs: Long? = null,
 )
 
 @Entity(
