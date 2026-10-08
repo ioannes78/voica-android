@@ -10,6 +10,7 @@ import io.github.ioannes78.voica.audio.PcmSourceResolver
 import io.github.ioannes78.voica.ble.DefaultDeviceRepository
 import io.github.ioannes78.voica.ble.DeviceRepository
 import io.github.ioannes78.voica.database.AiSummaryRepository
+import io.github.ioannes78.voica.database.DiarizationActiveRunReader
 import io.github.ioannes78.voica.database.DiarizationRepository
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.database.SearchIndexRebuilder
@@ -148,7 +149,7 @@ class AppContainer(
     private val stage9VadReusingDiarizationEngineProvider =
         VadReusingStage9DiarizationEngineProvider(
             delegate = stage9BaseDiarizationEngineProvider,
-            diarizationDao = recordingDatabase.diarizationDao(),
+            activeRunReader = DiarizationActiveRunReader(recordingDatabase),
             transcriptionRepository = transcriptionRepository,
         )
 
