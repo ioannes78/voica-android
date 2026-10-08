@@ -21,11 +21,11 @@ internal fun projectAiSummaryRunState(
         return transientState
     }
 
-    durableTasks.firstOrNull {
-        it.status == AiSummaryStateValue.COMPLETED ||
-            it.status == AiSummaryStateValue.FAILED ||
-            it.status == AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT
-    }?.let { return it.toTerminalRunState() }
+    // Stage 13B.5 QA4 keeps failure/interruption attention on the dedicated durable Room surface.
+    // Do not project those terminal rows back into the legacy process-local task notification path,
+    // otherwise simply opening the detail page can hide an unresolved durable attention item.
+    durableTasks.firstOrNull { it.status == AiSummaryStateValue.COMPLETED }
+        ?.let { return it.toCompletedRunState() }
 
     return when (transientState) {
         // A non-null summaryId means the transient state already has a durable Room owner. If that
@@ -47,33 +47,12 @@ private fun AiSummaryEntity.toRunningState(): AiSummaryRunState.Running =
         phase = durableAiSummaryPhase(status),
     )
 
-private fun AiSummaryEntity.toTerminalRunState(): AiSummaryRunState =
-    when (status) {
-        AiSummaryStateValue.COMPLETED ->
-            AiSummaryRunState.Completed(
-                summaryId = id,
-                recordingId = recordingId,
-                transcriptionId = transcriptionId.orEmpty(),
-            )
-        AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT ->
-            AiSummaryRunState.Failed(
-                summaryId = id,
-                recordingId = recordingId,
-                transcriptionId = transcriptionId.orEmpty(),
-                errorCode = errorCode ?: "REMOTE_RESULT_UNKNOWN",
-                message =
-                    sanitizedErrorMessage
-                        ?: "上一次请求状态无法确认，需要手动重试。",
-            )
-        else ->
-            AiSummaryRunState.Failed(
-                summaryId = id,
-                recordingId = recordingId,
-                transcriptionId = transcriptionId.orEmpty(),
-                errorCode = errorCode ?: "AI_SUMMARY_FAILED",
-                message = sanitizedErrorMessage ?: "AI 总结生成失败，请重试",
-            )
-    }
+private fun AiSummaryEntity.toCompletedRunState(): AiSummaryRunState.Completed =
+    AiSummaryRunState.Completed(
+        summaryId = id,
+        recordingId = recordingId,
+        transcriptionId = transcriptionId.orEmpty(),
+    )
 
 private fun durableAiSummaryPhase(status: String): AiSummaryEnginePhase =
     when (status) {
