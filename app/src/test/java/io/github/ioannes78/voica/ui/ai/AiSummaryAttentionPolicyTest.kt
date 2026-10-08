@@ -101,7 +101,7 @@ class AiSummaryAttentionPolicyTest {
             )
 
         assertEquals("AI 总结生成失败", aiSummaryAttentionTitle(failure))
-        assertEquals("AI 服务请求失败，请检查服务或模型配置后重试。", aiSummaryAttentionMessage(failure))
+        assertEquals("AI 服务请求失败，请选择 AI 服务或模型重新生成。", aiSummaryAttentionMessage(failure))
         assertEquals(
             "Google Gemini API / AI Studio · gemini-3.5-flash-lite · HTTP 402",
             aiSummaryAttentionDiagnostic(failure),
