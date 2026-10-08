@@ -59,6 +59,14 @@ internal val MIGRATION_8_9_SQL =
 internal val MIGRATION_9_10_SQL =
     listOf(
         "ALTER TABLE transcriptions ADD COLUMN terminalAcknowledgedAtMs INTEGER",
-        "ALTER TABLE recording_content_selection ADD COLUMN dismissedTranscriptionCandidateId TEXT",
-        "ALTER TABLE recording_content_selection ADD COLUMN dismissedAiSummaryCandidateId TEXT",
+        """
+        CREATE TABLE IF NOT EXISTS recording_candidate_attention (
+            recordingId TEXT NOT NULL,
+            dismissedTranscriptionCandidateId TEXT,
+            dismissedAiSummaryCandidateId TEXT,
+            updatedAtMs INTEGER NOT NULL,
+            PRIMARY KEY(recordingId),
+            FOREIGN KEY(recordingId) REFERENCES recordings(id) ON UPDATE NO ACTION ON DELETE CASCADE
+        )
+        """.trimIndent(),
     )
