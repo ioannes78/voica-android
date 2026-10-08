@@ -22,10 +22,13 @@ import io.github.ioannes78.voica.ai.AiSummaryEnginePhase
 fun AiSummaryTransientHeader(
     running: AiSummaryRunState.Running?,
     candidateId: String?,
+    candidatePreviewing: Boolean,
     recordingName: String,
     onCancel: () -> Unit,
     onViewCandidate: (String) -> Unit,
+    onReturnCurrent: () -> Unit,
     onAdoptCandidate: (String) -> Unit,
+    onIgnoreCandidate: (String) -> Unit,
 ) {
     when {
         running != null ->
@@ -86,7 +89,11 @@ fun AiSummaryTransientHeader(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            "新的总结结果已生成",
+                            if (candidatePreviewing) {
+                                "新结果预览 · 当前总结尚未切换"
+                            } else {
+                                "新的总结结果已生成"
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         Text(
@@ -95,11 +102,22 @@ fun AiSummaryTransientHeader(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    TextButton(onClick = { onViewCandidate(candidateId) }) {
-                        Text("查看")
+                    TextButton(
+                        onClick = {
+                            if (candidatePreviewing) {
+                                onReturnCurrent()
+                            } else {
+                                onViewCandidate(candidateId)
+                            }
+                        },
+                    ) {
+                        Text(if (candidatePreviewing) "返回当前" else "查看")
                     }
                     Button(onClick = { onAdoptCandidate(candidateId) }) {
                         Text("使用新结果")
+                    }
+                    TextButton(onClick = { onIgnoreCandidate(candidateId) }) {
+                        Text("忽略")
                     }
                 }
             }
