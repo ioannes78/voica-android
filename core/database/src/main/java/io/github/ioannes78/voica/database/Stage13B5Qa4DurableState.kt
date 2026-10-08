@@ -7,7 +7,6 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
-import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 
 @Entity(
@@ -50,6 +49,40 @@ interface Stage13B5Qa4Dao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertCandidateAttention(entity: RecordingCandidateAttentionEntity)
+
+    @Query(
+        """
+        SELECT summary.*
+        FROM ai_summaries AS summary
+        LEFT JOIN recording_content_selection AS selection
+            ON selection.recordingId = summary.recordingId
+        LEFT JOIN ai_summaries AS selected
+            ON selected.id = selection.currentAiSummaryId
+        WHERE summary.executionGeneration > 0
+          AND summary.status IN (:states)
+          AND summary.terminalAcknowledgedAtMs IS NULL
+          AND summary.id NOT IN (
+              SELECT retryOfSummaryId
+              FROM ai_summaries
+              WHERE retryOfSummaryId IS NOT NULL
+          )
+          AND NOT (
+              selected.id IS NOT NULL
+              AND selected.status = 'COMPLETED'
+              AND selected.createdAtMs > summary.createdAtMs
+          )
+          AND NOT (
+              summary.status IN ('FAILED', 'INTERRUPTED')
+              AND EXISTS (
+                  SELECT 1 FROM ai_summaries AS newer
+                  WHERE newer.recordingId = summary.recordingId
+                    AND newer.createdAtMs > summary.createdAtMs
+              )
+          )
+        ORDER BY summary.updatedAtMs DESC, summary.createdAtMs DESC
+        """,
+    )
+    fun observeAiSummaryAttention(states: List<String>): Flow<List<AiSummaryEntity>>
 }
 
 class Stage13B5Qa4Repository(
@@ -70,6 +103,9 @@ class Stage13B5Qa4Repository(
             recordingId = recordingId,
             states = TranscriptionStateValue.ATTENTION,
         )
+
+    fun observeAiSummaryAttention(): Flow<List<AiSummaryEntity>> =
+        dao.observeAiSummaryAttention(QA4_AI_ATTENTION_STATES)
 
     suspend fun dismissTranscriptionCandidate(
         recordingId: String,
@@ -150,4 +186,13 @@ class Stage13B5Qa4Repository(
             states = TranscriptionStateValue.ATTENTION,
             nowMs = nowMs(),
         )
+
+    private companion object {
+        val QA4_AI_ATTENTION_STATES =
+            listOf(
+                AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT,
+                AiSummaryStateValue.FAILED,
+                AiSummaryStateValue.INTERRUPTED,
+            )
+    }
 }
