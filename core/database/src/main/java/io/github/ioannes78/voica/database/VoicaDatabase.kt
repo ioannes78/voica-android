@@ -35,6 +35,7 @@ import androidx.room.RoomDatabase
         AiSummaryUserMetadataEntity::class,
         AiSummaryRevisionEntity::class,
         RecordingContentSelectionEntity::class,
+        RecordingCandidateAttentionEntity::class,
         SearchDocumentEntity::class,
         SearchDocumentFtsEntity::class,
         SearchIndexStateEntity::class,
@@ -54,6 +55,8 @@ abstract class VoicaDatabase : RoomDatabase() {
     abstract fun aiSummaryOwnershipDao(): AiSummaryOwnershipDao
 
     abstract fun stage12cContentDao(): Stage12CContentDao
+
+    abstract fun stage13B5Qa4Dao(): Stage13B5Qa4Dao
 
     abstract fun searchDao(): SearchDao
 
