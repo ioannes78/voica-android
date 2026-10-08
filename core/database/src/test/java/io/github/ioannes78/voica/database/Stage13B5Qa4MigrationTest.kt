@@ -105,7 +105,86 @@ class Stage13B5Qa4MigrationTest {
         }
     }
 
+    @Test
+    fun migration10To11PreservesCandidateStateAndAddsStaleAcknowledgement() {
+        val helper =
+            MigrationTestHelper(
+                InstrumentationRegistry.getInstrumentation(),
+                VoicaDatabase::class.java,
+            )
+
+        val v10 = helper.createDatabase(TEST_DB_V11, 10)
+        try {
+            v10.execSQL("PRAGMA foreign_keys = ON")
+            v10.execSQL(
+                """
+                INSERT INTO recordings (
+                    id, sourceType, sourceRemoteIdentity, sourceDeviceAddress,
+                    originalFilename, displayName, recordedAtLocalIso,
+                    deviceReportedDurationMs, mediaDurationMs, downloadedAtMs,
+                    createdAtMs, updatedAtMs, state
+                ) VALUES (
+                    'rec-qa4-r1', 'LOCAL_IMPORT', NULL, NULL,
+                    'qa4-r1.wav', 'QA4-R1', NULL,
+                    1000, 1000, NULL, 1, 1, 'ACTIVE'
+                )
+                """.trimIndent(),
+            )
+            v10.execSQL(
+                """
+                INSERT INTO recording_candidate_attention (
+                    recordingId, dismissedTranscriptionCandidateId,
+                    dismissedAiSummaryCandidateId, updatedAtMs
+                ) VALUES ('rec-qa4-r1', 'tx-candidate', 'summary-candidate', 10)
+                """.trimIndent(),
+            )
+        } finally {
+            v10.close()
+        }
+
+        val migrated =
+            helper.runMigrationsAndValidate(
+                TEST_DB_V11,
+                11,
+                true,
+                MIGRATION_10_11,
+            )
+
+        try {
+            migrated.query(
+                """
+                SELECT dismissedTranscriptionCandidateId, dismissedAiSummaryCandidateId,
+                       dismissedStaleSummaryFingerprint
+                FROM recording_candidate_attention
+                WHERE recordingId = 'rec-qa4-r1'
+                """.trimIndent(),
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("tx-candidate", cursor.getString(0))
+                assertEquals("summary-candidate", cursor.getString(1))
+                assertTrue(cursor.isNull(2))
+            }
+
+            migrated.execSQL(
+                """
+                UPDATE recording_candidate_attention
+                SET dismissedStaleSummaryFingerprint = 'summary|tx|revision'
+                WHERE recordingId = 'rec-qa4-r1'
+                """.trimIndent(),
+            )
+            migrated.query(
+                "SELECT dismissedStaleSummaryFingerprint FROM recording_candidate_attention WHERE recordingId = 'rec-qa4-r1'",
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("summary|tx|revision", cursor.getString(0))
+            }
+        } finally {
+            migrated.close()
+        }
+    }
+
     private companion object {
         const val TEST_DB = "stage13b5-qa4-migration-test.db"
+        const val TEST_DB_V11 = "stage13b5-qa4-r1-migration-test.db"
     }
 }

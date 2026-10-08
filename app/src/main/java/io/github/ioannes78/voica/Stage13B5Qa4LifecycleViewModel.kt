@@ -121,6 +121,14 @@ class Stage13B5Qa4LifecycleViewModel(
         }
     }
 
+    fun dismissStaleSummary(fingerprint: String) {
+        val recordingId = boundRecordingId ?: return
+        if (fingerprint.isBlank()) return
+        viewModelScope.launch {
+            qa4Repository.dismissStaleSummary(recordingId, fingerprint)
+        }
+    }
+
     fun ignoreTranscriptionAttention(transcriptionId: String) {
         if (transcriptionId.isBlank()) return
         viewModelScope.launch {

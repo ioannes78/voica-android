@@ -23,6 +23,30 @@ import io.github.ioannes78.voica.database.RecordingLibraryItem
 import io.github.ioannes78.voica.database.TranscriptionEntity
 import io.github.ioannes78.voica.database.TranscriptionStateValue
 import io.github.ioannes78.voica.ui.library.RecordingDetailDestination
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+internal data class Qa4VisibleDetailContext(
+    val recordingId: String,
+    val destination: RecordingDetailDestination,
+)
+
+internal object Stage13B5Qa4PageVisibility {
+    private val mutableCurrent = MutableStateFlow<Qa4VisibleDetailContext?>(null)
+    val current: StateFlow<Qa4VisibleDetailContext?> = mutableCurrent.asStateFlow()
+
+    fun update(recordingId: String, destination: RecordingDetailDestination?) {
+        mutableCurrent.value =
+            destination?.let { Qa4VisibleDetailContext(recordingId = recordingId, destination = it) }
+    }
+
+    fun clear(recordingId: String) {
+        if (mutableCurrent.value?.recordingId == recordingId) {
+            mutableCurrent.value = null
+        }
+    }
+}
 
 internal data class Qa4GlobalAttentionItem(
     val key: String,
@@ -43,14 +67,27 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
     val aiSummaryAttention by
         container.stage13B5Qa4Repository.observeAiSummaryAttention()
             .collectAsState(initial = emptyList())
+    val transcriptionCandidates by
+        container.stage13B5Qa4Repository.observeTranscriptionCandidates()
+            .collectAsState(initial = emptyList())
+    val aiSummaryCandidates by
+        container.stage13B5Qa4Repository.observeAiSummaryCandidates()
+            .collectAsState(initial = emptyList())
     val recordings by
         container.recordingLibraryRepository.recordings
             .collectAsState(initial = emptyList())
+    val visibleDetail by Stage13B5Qa4PageVisibility.current.collectAsState()
     val items =
-        buildQa4GlobalAttentionItems(
-            transcriptionAttention = transcriptionAttention,
-            aiSummaryAttention = aiSummaryAttention,
-            recordings = recordings,
+        filterQa4GlobalAttentionItems(
+            items =
+                buildQa4GlobalAttentionItems(
+                    transcriptionAttention = transcriptionAttention,
+                    aiSummaryAttention = aiSummaryAttention,
+                    transcriptionCandidates = transcriptionCandidates,
+                    aiSummaryCandidates = aiSummaryCandidates,
+                    recordings = recordings,
+                ),
+            visibleDetail = visibleDetail,
         )
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -76,10 +113,25 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
     }
 }
 
+internal fun filterQa4GlobalAttentionItems(
+    items: List<Qa4GlobalAttentionItem>,
+    visibleDetail: Qa4VisibleDetailContext?,
+): List<Qa4GlobalAttentionItem> =
+    if (visibleDetail == null) {
+        items
+    } else {
+        items.filterNot { item ->
+            item.recordingId == visibleDetail.recordingId &&
+                item.destination == visibleDetail.destination
+        }
+    }
+
 internal fun buildQa4GlobalAttentionItems(
     transcriptionAttention: List<TranscriptionEntity>,
     aiSummaryAttention: List<AiSummaryEntity>,
     recordings: List<RecordingLibraryItem>,
+    transcriptionCandidates: List<TranscriptionEntity> = emptyList(),
+    aiSummaryCandidates: List<AiSummaryEntity> = emptyList(),
 ): List<Qa4GlobalAttentionItem> {
     fun recordingName(recordingId: String): String =
         recordings.firstOrNull { it.id == recordingId }?.displayName ?: "录音"
@@ -113,6 +165,28 @@ internal fun buildQa4GlobalAttentionItems(
                             AiSummaryStateValue.INTERRUPTED -> "总结已中断"
                             else -> "总结失败"
                         },
+                    destination = RecordingDetailDestination.SUMMARY,
+                ),
+            )
+        }
+        transcriptionCandidates.forEach { transcription ->
+            add(
+                Qa4GlobalAttentionItem(
+                    key = "transcription-candidate:${transcription.id}",
+                    recordingId = transcription.recordingId,
+                    recordingName = recordingName(transcription.recordingId),
+                    label = "新的转写结果已生成",
+                    destination = RecordingDetailDestination.TRANSCRIPT,
+                ),
+            )
+        }
+        aiSummaryCandidates.forEach { summary ->
+            add(
+                Qa4GlobalAttentionItem(
+                    key = "summary-candidate:${summary.id}",
+                    recordingId = summary.recordingId,
+                    recordingName = recordingName(summary.recordingId),
+                    label = "新的总结结果已生成",
                     destination = RecordingDetailDestination.SUMMARY,
                 ),
             )

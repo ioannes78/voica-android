@@ -2,9 +2,11 @@ package io.github.ioannes78.voica.ui.library
 
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import io.github.ioannes78.voica.DiarizationBenchmarkRunner
 import io.github.ioannes78.voica.DiarizationRunState
 import io.github.ioannes78.voica.SpeechBenchmarkRunner
+import io.github.ioannes78.voica.Stage13B5Qa4PageVisibility
 import io.github.ioannes78.voica.TranscriptionRunState
 import io.github.ioannes78.voica.database.RecordingLibraryItem
 import io.github.ioannes78.voica.database.SearchDocumentEntity
@@ -51,6 +53,10 @@ fun RecordingDetailScreen(
     navigationRequestToken: Int = 0,
     onDestinationChanged: (RecordingDetailDestination?) -> Unit = {},
 ) {
+    DisposableEffect(recording.id) {
+        onDispose { Stage13B5Qa4PageVisibility.clear(recording.id) }
+    }
+
     RecordingDetailProductScreen(
         padding = padding,
         recording = recording,
@@ -77,7 +83,10 @@ fun RecordingDetailScreen(
         deviceRecordingActive = deviceRecordingActive,
         initialDestination = initialDestination,
         navigationRequestToken = navigationRequestToken,
-        onDestinationChanged = onDestinationChanged,
+        onDestinationChanged = { destination ->
+            Stage13B5Qa4PageVisibility.update(recording.id, destination)
+            onDestinationChanged(destination)
+        },
     )
 }
 

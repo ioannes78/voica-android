@@ -50,10 +50,49 @@ class Stage13B5Qa4DurableStateTest {
         assertEquals("tx-candidate", attention?.dismissedTranscriptionCandidateId)
         assertEquals("summary-candidate", attention?.dismissedAiSummaryCandidateId)
 
+        repository.dismissStaleSummary(RECORDING_ID, "summary-current|tx-current|revision-1")
+        attention = repository.observeCandidateAttention(RECORDING_ID).first()
+        assertEquals("tx-candidate", attention?.dismissedTranscriptionCandidateId)
+        assertEquals("summary-candidate", attention?.dismissedAiSummaryCandidateId)
+        assertEquals(
+            "summary-current|tx-current|revision-1",
+            attention?.dismissedStaleSummaryFingerprint,
+        )
+
         repository.clearTranscriptionCandidateDismissal(RECORDING_ID)
         attention = repository.observeCandidateAttention(RECORDING_ID).first()
         assertNull(attention?.dismissedTranscriptionCandidateId)
         assertEquals("summary-candidate", attention?.dismissedAiSummaryCandidateId)
+        assertEquals(
+            "summary-current|tx-current|revision-1",
+            attention?.dismissedStaleSummaryFingerprint,
+        )
+    }
+
+    @Test
+    fun transcriptionCandidateProjectionIsDurableUntilDismissed() = runBlocking {
+        val contentRepository = Stage12CContentRepository(database, nowMs = { clock++ })
+        insertTranscription(
+            id = "tx-current",
+            state = TranscriptionStateValue.COMPLETED,
+            createdAtMs = 100L,
+        )
+        contentRepository.onTranscriptionCompleted(RECORDING_ID, "tx-current")
+
+        insertTranscription(
+            id = "tx-candidate",
+            state = TranscriptionStateValue.COMPLETED,
+            createdAtMs = 200L,
+        )
+        contentRepository.onTranscriptionCompleted(RECORDING_ID, "tx-candidate")
+
+        assertEquals(
+            listOf("tx-candidate"),
+            repository.observeTranscriptionCandidates().first().map { it.id },
+        )
+
+        repository.dismissTranscriptionCandidate(RECORDING_ID, "tx-candidate")
+        assertTrue(repository.observeTranscriptionCandidates().first().isEmpty())
     }
 
     @Test

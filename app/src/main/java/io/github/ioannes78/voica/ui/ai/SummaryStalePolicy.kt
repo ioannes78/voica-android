@@ -10,3 +10,13 @@ internal fun isSummaryStale(
     effective == null ||
         lineageTranscriptionId != effective.transcriptionId ||
         lineageRevisionId != effective.revisionId
+
+internal fun summaryStaleFingerprint(
+    summaryId: String,
+    effective: EffectiveTranscriptionRef?,
+): String =
+    listOf(
+        summaryId,
+        effective?.transcriptionId.orEmpty(),
+        effective?.revisionId.orEmpty(),
+    ).joinToString("|")

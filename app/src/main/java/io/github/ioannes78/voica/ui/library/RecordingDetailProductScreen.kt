@@ -627,6 +627,9 @@ internal fun RecordingDetailProductScreen(
                                             playbackViewModel.seekAndPlay(recording.id, sampleIndex)
                                         },
                                         showTransientHeader = false,
+                                        dismissedStaleSummaryFingerprint =
+                                            candidateAttention?.dismissedStaleSummaryFingerprint,
+                                        onIgnoreStale = qa4LifecycleViewModel::dismissStaleSummary,
                                     )
                             }
                         }

@@ -92,6 +92,9 @@ class AiSummaryViewModel(
     private val mutableStale = MutableStateFlow(false)
     val stale: StateFlow<Boolean> = mutableStale.asStateFlow()
 
+    private val mutableStaleFingerprint = MutableStateFlow<String?>(null)
+    val staleFingerprint: StateFlow<String?> = mutableStaleFingerprint.asStateFlow()
+
     private val mutableProvider = MutableStateFlow<AiSummaryProviderPreview?>(null)
     val provider: StateFlow<AiSummaryProviderPreview?> = mutableProvider.asStateFlow()
 
@@ -164,6 +167,7 @@ class AiSummaryViewModel(
         mutableCandidateId.value = null
         mutableAttention.value = null
         mutableStale.value = false
+        mutableStaleFingerprint.value = null
         mutableNotice.value = null
         if (transcriptionId == null) return
 
@@ -557,6 +561,7 @@ class AiSummaryViewModel(
         if (target == null) {
             mutableSelected.value = null
             mutableStale.value = false
+            mutableStaleFingerprint.value = null
         } else if (mutableSelected.value?.entity?.id != target.id) {
             loadDocument(target)
             refreshStale()
@@ -570,16 +575,20 @@ class AiSummaryViewModel(
         val summary = mutableSelected.value?.entity
         if (summary == null || summary.status != AiSummaryStateValue.COMPLETED) {
             mutableStale.value = false
+            mutableStaleFingerprint.value = null
             return
         }
         val effective = contentRepository.resolveEffectiveTranscription(recordingId)
         val lineage = parseSummaryLineage(summary.sourceLineageSnapshot)
-        mutableStale.value =
+        val stale =
             isSummaryStale(
                 lineageTranscriptionId = lineage.transcriptionId,
                 lineageRevisionId = lineage.revisionId,
                 effective = effective,
             )
+        mutableStale.value = stale
+        mutableStaleFingerprint.value =
+            if (stale) summaryStaleFingerprint(summary.id, effective) else null
     }
 
     private fun parseSummaryLineage(raw: String): SummaryLineageRef =

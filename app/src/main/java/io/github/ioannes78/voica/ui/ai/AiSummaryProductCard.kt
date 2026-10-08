@@ -62,6 +62,8 @@ fun AiSummaryProductCard(
     onSeekEvidence: (Long) -> Unit,
     showTransientHeader: Boolean = true,
     attentionOverride: AiSummaryEntity? = null,
+    dismissedStaleSummaryFingerprint: String? = null,
+    onIgnoreStale: (String) -> Unit = {},
 ) {
     val runState by viewModel.runState.collectAsState()
     val selected by viewModel.selected.collectAsState()
@@ -69,6 +71,7 @@ fun AiSummaryProductCard(
     val internalAttention by viewModel.attention.collectAsState()
     val attention = attentionOverride ?: internalAttention
     val stale by viewModel.stale.collectAsState()
+    val staleFingerprint by viewModel.staleFingerprint.collectAsState()
     val provider by viewModel.provider.collectAsState()
     val providers by viewModel.providers.collectAsState()
     val generationModels by viewModel.generationModels.collectAsState()
@@ -199,7 +202,13 @@ fun AiSummaryProductCard(
             )
         }
 
-        if (stale && selected?.entity?.status == AiSummaryStateValue.COMPLETED) {
+        val visibleStaleFingerprint =
+            staleFingerprint?.takeUnless { it == dismissedStaleSummaryFingerprint }
+        if (
+            stale &&
+            visibleStaleFingerprint != null &&
+            selected?.entity?.status == AiSummaryStateValue.COMPLETED
+        ) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = MaterialTheme.shapes.medium,
@@ -220,6 +229,11 @@ fun AiSummaryProductCard(
                         onClick = { generationOpen = true },
                     ) {
                         Text("生成新总结")
+                    }
+                    TextButton(
+                        onClick = { onIgnoreStale(visibleStaleFingerprint) },
+                    ) {
+                        Text("忽略")
                     }
                 }
             }

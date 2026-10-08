@@ -351,7 +351,10 @@ fun VoicaApp(
             recordings = libraryRecordings,
         )
     val liveRunningTasks = liveGlobalTasks.filterNot { it.terminal }
-    val liveTerminalTasks = liveGlobalTasks.filter { it.terminal }
+    val liveTerminalTasks =
+        liveGlobalTasks.filter { task ->
+            task.terminal && task.key.startsWith("diarization-")
+        }
 
     LaunchedEffect(activeDetailContext, liveTerminalTasks.map { it.key }) {
         val current = activeDetailContext

@@ -41,6 +41,35 @@ class Stage13B5Qa4GlobalAttentionTest {
         assertEquals("总结失败", item.label)
     }
 
+    @Test
+    fun candidateProjectionIsSuppressedOnlyOnMatchingDetailPage() {
+        val items =
+            buildQa4GlobalAttentionItems(
+                transcriptionAttention = emptyList(),
+                aiSummaryAttention = emptyList(),
+                recordings = emptyList(),
+                transcriptionCandidates = listOf(transcription(TranscriptionStateValue.COMPLETED)),
+                aiSummaryCandidates = listOf(summary(AiSummaryStateValue.COMPLETED)),
+            )
+
+        assertEquals(2, items.size)
+        assertEquals("新的转写结果已生成", items[0].label)
+        assertEquals("新的总结结果已生成", items[1].label)
+
+        val filtered =
+            filterQa4GlobalAttentionItems(
+                items = items,
+                visibleDetail =
+                    Qa4VisibleDetailContext(
+                        recordingId = "recording",
+                        destination = RecordingDetailDestination.TRANSCRIPT,
+                    ),
+            )
+
+        assertEquals(1, filtered.size)
+        assertEquals(RecordingDetailDestination.SUMMARY, filtered.single().destination)
+    }
+
     private fun transcription(state: String): TranscriptionEntity =
         TranscriptionEntity(
             id = "tx",

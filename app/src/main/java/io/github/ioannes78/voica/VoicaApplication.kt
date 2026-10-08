@@ -255,6 +255,14 @@ class AppContainer(
             stage13B5Qa4Repository = stage13B5Qa4Repository,
         )
 
+    val stage13B5Qa4CandidateNotificationController =
+        Stage13B5Qa4CandidateNotificationController(
+            context = application,
+            scope = applicationScope,
+            recordingRepository = recordingLibraryRepository,
+            qa4Repository = stage13B5Qa4Repository,
+        )
+
     internal val playbackRuntime =
         AndroidPlaybackController(
             context = application,

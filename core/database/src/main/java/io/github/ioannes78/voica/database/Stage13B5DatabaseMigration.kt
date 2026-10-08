@@ -38,6 +38,17 @@ val MIGRATION_9_10: Migration =
         }
     }
 
+val MIGRATION_10_11: Migration =
+    object : Migration(10, 11) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            MIGRATION_10_11_SQL.forEach(db::execSQL)
+        }
+
+        override fun migrate(connection: SQLiteConnection) {
+            MIGRATION_10_11_SQL.forEach(connection::execSQL)
+        }
+    }
+
 internal val MIGRATION_7_8_SQL =
     listOf(
         "ALTER TABLE ai_summaries ADD COLUMN executionGeneration INTEGER NOT NULL DEFAULT 0",
@@ -69,4 +80,9 @@ internal val MIGRATION_9_10_SQL =
             FOREIGN KEY(recordingId) REFERENCES recordings(id) ON UPDATE NO ACTION ON DELETE CASCADE
         )
         """.trimIndent(),
+    )
+
+internal val MIGRATION_10_11_SQL =
+    listOf(
+        "ALTER TABLE recording_candidate_attention ADD COLUMN dismissedStaleSummaryFingerprint TEXT",
     )
