@@ -1,5 +1,7 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
+val buildGitSha = providers.environmentVariable("GITHUB_SHA").getOrElse("unknown")
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
@@ -14,8 +16,9 @@ android {
         applicationId = "io.github.ioannes78.voica"
         minSdk = 26
         targetSdk = 37
-        versionCode = 64
-        versionName = "0.13.1-stage13b-ai-summary-qa4-r2"
+        versionCode = 65
+        versionName = "0.13.2-stage13c-c0"
+        buildConfigField("String", "GIT_SHA", "\"$buildGitSha\"")
         ndk {
             abiFilters += "arm64-v8a"
         }
