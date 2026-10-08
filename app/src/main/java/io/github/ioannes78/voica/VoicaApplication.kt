@@ -14,6 +14,7 @@ import io.github.ioannes78.voica.database.DiarizationRepository
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.database.SearchIndexRebuilder
 import io.github.ioannes78.voica.database.Stage12CContentRepository
+import io.github.ioannes78.voica.database.Stage13B5Qa4Repository
 import io.github.ioannes78.voica.database.StructuredTranscriptInputBuilder
 import io.github.ioannes78.voica.database.TranscriptionRepository
 import io.github.ioannes78.voica.database.UnifiedSearchRepository
@@ -135,6 +136,7 @@ class AppContainer(
 
     val transcriptionRepository = TranscriptionRepository(recordingDatabase)
     val stage12CContentRepository = Stage12CContentRepository(recordingDatabase)
+    val stage13B5Qa4Repository = Stage13B5Qa4Repository(recordingDatabase)
     val unifiedSearchRepository = UnifiedSearchRepository(recordingDatabase)
     val searchIndexRebuilder =
         SearchIndexRebuilder(
@@ -235,6 +237,12 @@ class AppContainer(
             localSpeechSettings = { localSpeechSettingsStore.settings.value },
         )
 
+    val stage13B5Qa4AttentionReconciler =
+        Stage13B5Qa4AttentionReconciler(
+            scope = applicationScope,
+            aiSummaryRepository = aiSummaryRepository,
+        )
+
     val longTaskNotificationController =
         LongTaskNotificationController(
             context = application,
@@ -244,6 +252,7 @@ class AppContainer(
             diarizationCoordinator = diarizationCoordinator,
             aiSummaryCoordinator = aiSummaryCoordinator,
             aiSummaryRepository = aiSummaryRepository,
+            stage13B5Qa4Repository = stage13B5Qa4Repository,
         )
 
     internal val playbackRuntime =
