@@ -47,7 +47,7 @@ class AiSummaryDurableStateTest {
     }
 
     @Test
-    fun durableTerminalOverridesStaleRunningState() {
+    fun durableTerminalAttentionDoesNotReviveLegacyFailedRunState() {
         val state =
             projectAiSummaryRunState(
                 durableTasks =
@@ -67,9 +67,7 @@ class AiSummaryDurableStateTest {
                     ),
             )
 
-        val failed = state as AiSummaryRunState.Failed
-        assertEquals(SUMMARY_ID, failed.summaryId)
-        assertEquals("REMOTE_RESULT_UNKNOWN", failed.errorCode)
+        assertEquals(AiSummaryRunState.Idle, state)
     }
 
     @Test
