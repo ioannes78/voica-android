@@ -2,7 +2,7 @@ package io.github.ioannes78.voica
 
 import io.github.ioannes78.voica.audio.CanonicalPcmProfile
 import io.github.ioannes78.voica.audio.PcmSource
-import io.github.ioannes78.voica.database.DiarizationDao
+import io.github.ioannes78.voica.database.DiarizationActiveRunReader
 import io.github.ioannes78.voica.database.DiarizationStateValue
 import io.github.ioannes78.voica.database.TranscriptSegmentEntity
 import io.github.ioannes78.voica.database.TranscriptionEntity
@@ -43,7 +43,7 @@ internal data class DiarizationVadReuseContext(
  */
 internal class VadReusingStage9DiarizationEngineProvider(
     private val delegate: Stage9DiarizationEngineProvider,
-    private val diarizationDao: DiarizationDao,
+    private val activeRunReader: DiarizationActiveRunReader,
     private val transcriptionRepository: TranscriptionRepository,
 ) : Stage9DiarizationEngineProvider {
     override fun vadFactory(
@@ -102,7 +102,7 @@ internal class VadReusingStage9DiarizationEngineProvider(
         numThreads: Int,
         vadSettings: LocalVadSettings,
     ): ReusableVadCandidate? {
-        val activeRuns = diarizationDao.loadActiveRuns(DiarizationStateValue.ACTIVE)
+        val activeRuns = activeRunReader.loadActiveRuns()
         val run = activeRuns.singleOrNull() ?: return null
         if (
             run.state != DiarizationStateValue.PREPARING &&
