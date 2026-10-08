@@ -37,13 +37,38 @@ interface TranscriptionDao {
 
     @Query(
         """
-        SELECT * FROM transcriptions
-        WHERE state IN (:states)
-          AND terminalAcknowledgedAtMs IS NULL
-        ORDER BY updatedAtMs DESC, createdAtMs DESC
+        SELECT current.* FROM transcriptions AS current
+        WHERE current.state IN (:states)
+          AND current.terminalAcknowledgedAtMs IS NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM transcriptions AS newer
+              WHERE newer.recordingId = current.recordingId
+                AND newer.createdAtMs > current.createdAtMs
+          )
+        ORDER BY current.updatedAtMs DESC, current.createdAtMs DESC
         """,
     )
     fun observeDurableAttention(states: List<String>): Flow<List<TranscriptionEntity>>
+
+    @Query(
+        """
+        SELECT current.* FROM transcriptions AS current
+        WHERE current.recordingId = :recordingId
+          AND current.state IN (:states)
+          AND current.terminalAcknowledgedAtMs IS NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM transcriptions AS newer
+              WHERE newer.recordingId = current.recordingId
+                AND newer.createdAtMs > current.createdAtMs
+          )
+        ORDER BY current.updatedAtMs DESC, current.createdAtMs DESC
+        LIMIT 1
+        """,
+    )
+    fun observeDurableAttentionForRecording(
+        recordingId: String,
+        states: List<String>,
+    ): Flow<TranscriptionEntity?>
 
     @Query(
         """
