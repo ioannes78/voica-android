@@ -40,18 +40,24 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.ioannes78.voica.AiSummaryRunState
 import io.github.ioannes78.voica.DiarizationBenchmarkRunner
 import io.github.ioannes78.voica.DiarizationRunState
 import io.github.ioannes78.voica.SpeechBenchmarkRunner
+import io.github.ioannes78.voica.Stage13B5Qa4LifecycleViewModel
 import io.github.ioannes78.voica.TranscriptionRunState
+import io.github.ioannes78.voica.VoicaApplication
 import io.github.ioannes78.voica.database.AudioAssetRole
 import io.github.ioannes78.voica.database.AudioIntegrityState
 import io.github.ioannes78.voica.database.AudioValidationState
 import io.github.ioannes78.voica.database.RecordingLibraryItem
 import io.github.ioannes78.voica.database.SearchDocumentEntity
+import io.github.ioannes78.voica.database.TranscriptionEntity
+import io.github.ioannes78.voica.database.TranscriptionStateValue
 import io.github.ioannes78.voica.ui.ai.AiSummaryContentViewModel
 import io.github.ioannes78.voica.ui.ai.AiSummaryProductCard
 import io.github.ioannes78.voica.ui.ai.AiSummaryTransientHeader
@@ -112,6 +118,23 @@ internal fun RecordingDetailProductScreen(
     @Suppress("UNUSED_VARIABLE") val ignoredDiarizationBenchmarkRunner = diarizationBenchmarkRunner
     @Suppress("UNUSED_VARIABLE") val ignoredSearchTarget = initialSearchTarget
 
+    val application = LocalContext.current.applicationContext as VoicaApplication
+    val qa4LifecycleViewModel: Stage13B5Qa4LifecycleViewModel =
+        viewModel(
+            factory =
+                remember(
+                    application.container.stage13B5Qa4Repository,
+                    application.container.aiSummaryRepository,
+                    application.container.stage12CContentRepository,
+                ) {
+                    Stage13B5Qa4LifecycleViewModel.Factory(
+                        qa4Repository = application.container.stage13B5Qa4Repository,
+                        aiSummaryRepository = application.container.aiSummaryRepository,
+                        contentRepository = application.container.stage12CContentRepository,
+                    )
+                },
+        )
+
     var selectedTab by rememberSaveable(recording.id, initialDestination) {
         mutableStateOf(initialDestination.toProductTab())
     }
@@ -136,12 +159,24 @@ internal fun RecordingDetailProductScreen(
     val diarizationNotice by diarizationViewModel.notice.collectAsState()
     val aiSummaryRunState by aiSummaryViewModel.runState.collectAsState()
     val aiSummaryCandidateId by aiSummaryViewModel.candidateId.collectAsState()
+    val selectedAiSummary by aiSummaryViewModel.selected.collectAsState()
+    val candidateAttention by qa4LifecycleViewModel.candidateAttention.collectAsState()
+    val transcriptionAttention by qa4LifecycleViewModel.transcriptionAttention.collectAsState()
+    val currentAiSummaryId by qa4LifecycleViewModel.currentAiSummaryId.collectAsState()
     val syncState by transcriptPlaybackSyncViewModel.state.collectAsState()
     val playbackSnapshot by playbackViewModel.snapshot.collectAsState()
 
+    val visibleTranscriptionCandidateId =
+        candidateId?.takeUnless { it == candidateAttention?.dismissedTranscriptionCandidateId }
+    val visibleAiSummaryCandidateId =
+        aiSummaryCandidateId?.takeUnless { it == candidateAttention?.dismissedAiSummaryCandidateId }
     val recordingDocument = document?.takeIf { it.recordingId == recording.id }
     val candidatePreview =
-        candidateId != null && recordingDocument?.transcriptionId == candidateId
+        visibleTranscriptionCandidateId != null &&
+            recordingDocument?.transcriptionId == visibleTranscriptionCandidateId
+    val aiSummaryCandidatePreview =
+        visibleAiSummaryCandidateId != null &&
+            selectedAiSummary?.entity?.id == visibleAiSummaryCandidateId
     val transcriptionBusy =
         (transcriptionState as? TranscriptionRunState.Running)?.recordingId == recording.id
     val diarizationBusy =
@@ -161,6 +196,7 @@ internal fun RecordingDetailProductScreen(
 
     LaunchedEffect(recording.id) {
         transcriptionViewModel.viewVersions(recording.id)
+        qa4LifecycleViewModel.bind(recording.id)
     }
     LaunchedEffect(recording.id, navigationRequestToken) {
         if (navigationRequestToken > 0) {
@@ -276,7 +312,8 @@ internal fun RecordingDetailProductScreen(
                 if (
                     shouldShowTranscriptionStatus(transcriptionState, recording.id) ||
                     shouldShowDiarizationStatus(diarizationState, recording.id) ||
-                    candidateId != null
+                    visibleTranscriptionCandidateId != null ||
+                    transcriptionAttention != null
                 ) {
                     Column(
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -290,6 +327,16 @@ internal fun RecordingDetailProductScreen(
                                 onCancel = transcriptionViewModel::cancel,
                             )
                         }
+                        transcriptionAttention?.let { attention ->
+                            TranscriptionAttentionBanner(
+                                entity = attention,
+                                actionEnabled = !transcriptionBusy,
+                                onRestart = { transcriptionViewModel.startOffline(recording.id) },
+                                onIgnore = {
+                                    qa4LifecycleViewModel.ignoreTranscriptionAttention(attention.id)
+                                },
+                            )
+                        }
                         if (shouldShowDiarizationStatus(diarizationState, recording.id)) {
                             DiarizationStatusCard(
                                 state = diarizationState,
@@ -300,7 +347,7 @@ internal fun RecordingDetailProductScreen(
                                 onOpenSettings = onOpenSettings,
                             )
                         }
-                        candidateId?.let { newResultId ->
+                        visibleTranscriptionCandidateId?.let { newResultId ->
                             CandidateTranscriptionBanner(
                                 previewing = candidatePreview,
                                 onPreview = {
@@ -314,6 +361,12 @@ internal fun RecordingDetailProductScreen(
                                     transcriptViewMode = TranscriptViewMode.READING
                                     transcriptionViewModel.adoptCandidate(newResultId)
                                 },
+                                onIgnore = {
+                                    if (candidatePreview) {
+                                        transcriptionViewModel.showCurrent(recording.id)
+                                    }
+                                    qa4LifecycleViewModel.dismissTranscriptionCandidate(newResultId)
+                                },
                             )
                         }
                     }
@@ -324,11 +377,21 @@ internal fun RecordingDetailProductScreen(
                 if (recordingDocument != null) {
                     AiSummaryTransientHeader(
                         running = summaryRunning,
-                        candidateId = aiSummaryCandidateId,
+                        candidateId = visibleAiSummaryCandidateId,
+                        candidatePreviewing = aiSummaryCandidatePreview,
                         recordingName = recording.displayName,
                         onCancel = aiSummaryViewModel::cancel,
                         onViewCandidate = aiSummaryViewModel::selectSummary,
+                        onReturnCurrent = {
+                            currentAiSummaryId?.let(aiSummaryViewModel::selectSummary)
+                        },
                         onAdoptCandidate = aiSummaryViewModel::adoptSummaryResult,
+                        onIgnoreCandidate = { candidate ->
+                            if (aiSummaryCandidatePreview) {
+                                currentAiSummaryId?.let(aiSummaryViewModel::selectSummary)
+                            }
+                            qa4LifecycleViewModel.dismissAiSummaryCandidate(candidate)
+                        },
                     )
                 }
             }
@@ -575,7 +638,7 @@ internal fun RecordingDetailProductScreen(
     if (renameOpen) {
         AlertDialog(
             onDismissRequest = { renameOpen = false },
-            title = { Text("重命名录音") },
+            title = { Text("重命名录音？") },
             text = {
                 OutlinedTextField(
                     value = renameValue,
@@ -627,11 +690,60 @@ internal fun RecordingDetailProductScreen(
 }
 
 @Composable
+private fun TranscriptionAttentionBanner(
+    entity: TranscriptionEntity,
+    actionEnabled: Boolean,
+    onRestart: () -> Unit,
+    onIgnore: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        tonalElevation = 2.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                if (entity.state == TranscriptionStateValue.INTERRUPTED) {
+                    "上一次转写已中断"
+                } else {
+                    "转写失败"
+                },
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                if (entity.state == TranscriptionStateValue.INTERRUPTED) {
+                    "应用进程在转写完成前结束，需要重新进行转写。"
+                } else {
+                    "上一次转写没有完成，请重新进行转写。"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Button(enabled = actionEnabled, onClick = onRestart) {
+                    Text("重新转写")
+                }
+                TextButton(onClick = onIgnore) {
+                    Text("忽略")
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun CandidateTranscriptionBanner(
     previewing: Boolean,
     onPreview: () -> Unit,
     onReturnCurrent: () -> Unit,
     onAdopt: () -> Unit,
+    onIgnore: () -> Unit,
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -644,7 +756,11 @@ private fun CandidateTranscriptionBanner(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
-                "新的转写结果已生成",
+                if (previewing) {
+                    "新结果预览 · 当前转写尚未切换"
+                } else {
+                    "新的转写结果已生成"
+                },
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -652,6 +768,7 @@ private fun CandidateTranscriptionBanner(
                 Text(if (previewing) "返回当前" else "查看")
             }
             Button(onClick = onAdopt) { Text("使用新结果") }
+            TextButton(onClick = onIgnore) { Text("忽略") }
         }
     }
 }
