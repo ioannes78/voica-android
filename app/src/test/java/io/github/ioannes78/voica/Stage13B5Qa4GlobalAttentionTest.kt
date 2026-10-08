@@ -42,7 +42,7 @@ class Stage13B5Qa4GlobalAttentionTest {
     }
 
     @Test
-    fun candidateProjectionIsSuppressedOnlyOnMatchingDetailPage() {
+    fun candidateProjectionIsSuppressedOnlyOnMatchingDetailPageAndRestoredAfterLeaving() {
         val items =
             buildQa4GlobalAttentionItems(
                 transcriptionAttention = emptyList(),
@@ -68,6 +68,13 @@ class Stage13B5Qa4GlobalAttentionTest {
 
         assertEquals(1, filtered.size)
         assertEquals(RecordingDetailDestination.SUMMARY, filtered.single().destination)
+
+        val restored =
+            filterQa4GlobalAttentionItems(
+                items = items,
+                visibleDetail = null,
+            )
+        assertEquals(items, restored)
     }
 
     private fun transcription(state: String): TranscriptionEntity =
