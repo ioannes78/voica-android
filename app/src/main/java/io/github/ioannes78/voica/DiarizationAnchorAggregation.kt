@@ -1,32 +1,9 @@
 package io.github.ioannes78.voica
 
-import io.github.ioannes78.voica.model.ModelDescriptor
 import io.github.ioannes78.voica.transcript.DiarizationConfig
 import io.github.ioannes78.voica.transcript.DiarizationSpeakerTurn
 import io.github.ioannes78.voica.transcript.SpeakerAnchorEmbedding
 import io.github.ioannes78.voica.transcript.SpeakerEmbeddingEngine
-import java.util.LinkedHashMap
-import java.util.WeakHashMap
-
-/**
- * Stage 13C C2 exact-range embedding reuse.
- *
- * DiarizationCoordinator creates one SpeakerEmbeddingEngine per diarization run and closes it when
- * that run finishes. The weak registry therefore scopes every cache to exactly one run/source
- * lineage and never reuses entries across recordings or later runs. Inside that scope the key pins
- * the absolute canonical sample range, complete embedding-model lineage, sample rate and anchor
- * preprocessing version.
- *
- * If this cache is ever made persistent or shared across runs, canonical SHA-256 must become an
- * explicit persisted key component before cross-run reuse is allowed.
- */
-private val anchorEmbeddingCacheRegistry =
-    WeakHashMap<SpeakerEmbeddingEngine, BoundedAnchorEmbeddingCache>()
-private val anchorEmbeddingCacheRegistryLock = Any()
-
-internal const val STAGE13C_ANCHOR_CACHE_MAX_ENTRIES = 128
-private const val STAGE13C_ANCHOR_CACHE_MAX_BYTES = 512L * 1024L
-private const val STAGE13C_ANCHOR_PREPROCESS_VERSION = 1
 
 internal suspend fun buildSpeakerAnchorEmbeddings(
     windowStartSampleIndex: Long,
@@ -72,13 +49,16 @@ internal suspend fun buildSpeakerAnchorEmbeddings(
             var totalWeight = 0L
             var weightedEmbedding: DoubleArray? = null
             ranges.forEach { range ->
+                val startOffset =
+                    Math.toIntExact(range.startSampleIndex - windowStartSampleIndex)
+                val endOffset =
+                    Math.toIntExact(range.endSampleIndexExclusive - windowStartSampleIndex)
                 val normalized =
-                    embedSpeakerAnchorRange(
-                        windowStartSampleIndex = windowStartSampleIndex,
-                        windowSamples = windowSamples,
-                        range = range,
-                        embeddingEngine = embeddingEngine,
-                        sampleRateHz = config.sampleRateHz,
+                    normalizeSpeakerAnchorEmbedding(
+                        embeddingEngine.embed(
+                            samples = windowSamples.copyOfRange(startOffset, endOffset),
+                            sampleRateHz = config.sampleRateHz,
+                        ),
                     )
                 val accumulator =
                     weightedEmbedding ?: DoubleArray(normalized.size).also {
@@ -111,50 +91,6 @@ internal suspend fun buildSpeakerAnchorEmbeddings(
         }
 }
 
-private suspend fun embedSpeakerAnchorRange(
-    windowStartSampleIndex: Long,
-    windowSamples: ShortArray,
-    range: SpeakerAnchorRange,
-    embeddingEngine: SpeakerEmbeddingEngine,
-    sampleRateHz: Int,
-): FloatArray {
-    val cache = runScopedAnchorEmbeddingCache(embeddingEngine)
-    val key =
-        AnchorEmbeddingCacheKey(
-            identity = cache.identity,
-            startSampleIndex = range.startSampleIndex,
-            endSampleIndexExclusive = range.endSampleIndexExclusive,
-            sampleRateHz = sampleRateHz,
-            preprocessVersion = STAGE13C_ANCHOR_PREPROCESS_VERSION,
-        )
-    cache.get(key)?.let { return it }
-
-    val startOffset =
-        Math.toIntExact(range.startSampleIndex - windowStartSampleIndex)
-    val endOffset =
-        Math.toIntExact(range.endSampleIndexExclusive - windowStartSampleIndex)
-    val normalized =
-        normalizeSpeakerAnchorEmbedding(
-            embeddingEngine.embed(
-                samples = windowSamples.copyOfRange(startOffset, endOffset),
-                sampleRateHz = sampleRateHz,
-            ),
-        )
-    cache.put(key, normalized)
-    return normalized
-}
-
-private fun runScopedAnchorEmbeddingCache(
-    embeddingEngine: SpeakerEmbeddingEngine,
-): BoundedAnchorEmbeddingCache =
-    synchronized(anchorEmbeddingCacheRegistryLock) {
-        anchorEmbeddingCacheRegistry.getOrPut(embeddingEngine) {
-            BoundedAnchorEmbeddingCache(
-                identity = embeddingEngine.model.toAnchorCacheIdentity(),
-            )
-        }
-    }
-
 private data class SpeakerAnchorRange(
     val speakerIndex: Int,
     val startSampleIndex: Long,
@@ -163,76 +99,6 @@ private data class SpeakerAnchorRange(
     val sampleCount: Long
         get() = endSampleIndexExclusive - startSampleIndex
 }
-
-private data class AnchorEmbeddingCacheIdentity(
-    val modelId: String,
-    val modelVersion: String,
-    val modelRevision: Long,
-    val modelFileSha256: String,
-)
-
-private data class AnchorEmbeddingCacheKey(
-    val identity: AnchorEmbeddingCacheIdentity,
-    val startSampleIndex: Long,
-    val endSampleIndexExclusive: Long,
-    val sampleRateHz: Int,
-    val preprocessVersion: Int,
-)
-
-private class BoundedAnchorEmbeddingCache(
-    val identity: AnchorEmbeddingCacheIdentity,
-) {
-    private val entries =
-        LinkedHashMap<AnchorEmbeddingCacheKey, FloatArray>(16, 0.75F, true)
-    private var retainedBytes = 0L
-
-    @Synchronized
-    fun get(key: AnchorEmbeddingCacheKey): FloatArray? =
-        entries[key]?.copyOf()
-
-    @Synchronized
-    fun put(
-        key: AnchorEmbeddingCacheKey,
-        embedding: FloatArray,
-    ) {
-        require(key.identity == identity)
-        val stored = embedding.copyOf()
-        val previous = entries.put(key, stored)
-        if (previous != null) {
-            retainedBytes -= previous.embeddingBytes()
-        }
-        retainedBytes += stored.embeddingBytes()
-        trimToBounds()
-    }
-
-    private fun trimToBounds() {
-        while (
-            entries.size > STAGE13C_ANCHOR_CACHE_MAX_ENTRIES ||
-            retainedBytes > STAGE13C_ANCHOR_CACHE_MAX_BYTES
-        ) {
-            val iterator = entries.entries.iterator()
-            if (!iterator.hasNext()) return
-            val eldest = iterator.next()
-            retainedBytes -= eldest.value.embeddingBytes()
-            iterator.remove()
-        }
-    }
-}
-
-private fun ModelDescriptor.toAnchorCacheIdentity(): AnchorEmbeddingCacheIdentity =
-    AnchorEmbeddingCacheIdentity(
-        modelId = modelId,
-        modelVersion = version,
-        modelRevision = revision,
-        modelFileSha256 =
-            files
-                .sortedBy { it.relativePath }
-                .joinToString("|") { file ->
-                    file.relativePath + ":" + file.sha256.lowercase()
-                },
-    )
-
-private fun FloatArray.embeddingBytes(): Long = size.toLong() * Float.SIZE_BYTES.toLong()
 
 private fun normalizeSpeakerAnchorEmbedding(values: FloatArray): FloatArray {
     require(values.isNotEmpty())
