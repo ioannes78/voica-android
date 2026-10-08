@@ -192,7 +192,7 @@ class SherpaStage9DiarizationEngineProvider(
             segmentationModel = segmentation.descriptor,
             segmentationDirectory = segmentationDirectory,
             embeddingModel = embedding.descriptor,
-            embeddingDirectory = embeddingDirectory,
+            embeddingModelDirectory = embeddingDirectory,
         )
         validatedBundles += key
     }
@@ -287,6 +287,30 @@ class DiarizationCoordinator(
                         config = effectiveConfig,
                         speechSettings = speechSettings,
                         requestedSpeakerCount = requestedSpeakerCount,
+                    )
+                }
+            installCurrentJob(job, OperationTarget.Recording(recordingId))
+            return true
+        }
+    }
+
+    fun start(
+        recordingId: String,
+        speakerCountChoice: SpeakerCountChoice,
+    ): Boolean {
+        require(recordingId.isNotBlank())
+        synchronized(lock) {
+            if (currentJob?.isActive == true) return false
+            val speechSettings = localSpeechSettings()
+            val effectiveConfig =
+                speakerCountChoice.toDiarizationConfig(speechSettings.diarization)
+            val job =
+                scope.launch {
+                    runDiarization(
+                        recordingId = recordingId,
+                        config = effectiveConfig,
+                        speechSettings = speechSettings,
+                        requestedSpeakerCount = speakerCountChoice,
                     )
                 }
             installCurrentJob(job, OperationTarget.Recording(recordingId))
@@ -413,13 +437,15 @@ class DiarizationCoordinator(
                     source.totalSampleCount
                 } ?: error("canonical PCM source is unavailable")
 
+            val singleSpeakerFastPath = requestedSpeakerCount == SpeakerCountChoice.ONE
             val models =
                 resolveActiveModels(
                     speakerEmbeddingModel = speechSettings.speakerEmbeddingModel,
                 )
             val performance = speechSettings.resolvePerformance()
+            val leasedModels = if (singleSpeakerFastPath) listOf(models.vad) else models.all
             leases =
-                models.all.map { active ->
+                leasedModels.map { active ->
                     modelUseRegistry.acquire(
                         modelId = active.descriptor.modelId,
                         version = active.descriptor.version,
@@ -427,10 +453,12 @@ class DiarizationCoordinator(
                     )
                 }
 
-            engineProvider.validateBundle(
-                segmentation = models.segmentation,
-                embedding = models.embedding,
-            )
+            if (!singleSpeakerFastPath) {
+                engineProvider.validateBundle(
+                    segmentation = models.segmentation,
+                    embedding = models.embedding,
+                )
+            }
 
             if (!isRecordingActive(recordingId)) {
                 throw CancellationException("recording is being deleted")
@@ -466,6 +494,7 @@ class DiarizationCoordinator(
                                 requestedSpeakerCount = requestedSpeakerCount,
                                 requestedEmbeddingModel =
                                     speechSettings.speakerEmbeddingModel,
+                                singleSpeakerFastPath = singleSpeakerFastPath,
                             ),
                     ),
                 )
@@ -479,6 +508,49 @@ class DiarizationCoordinator(
                     numThreads = performance.effectiveThreads,
                     vadSettings = speechSettings.vad,
                 )
+
+            if (singleSpeakerFastPath) {
+                currentCoroutineContext().ensureActive()
+                val turns =
+                    speechSegments.map { segment ->
+                        GlobalSpeakerTurn(
+                            globalSpeakerIndex = 0,
+                            startSampleIndex = segment.startSampleIndex,
+                            endSampleIndexExclusive = segment.endSampleIndexExclusive,
+                            confidence = null,
+                            overlap = false,
+                        )
+                    }
+                publishProgress(
+                    recordingId = recordingId,
+                    runId = createdRunId,
+                    phase = DiarizationPhase.PERSISTING,
+                )
+                diarizationRepository.persistCompletedRun(
+                    runId = createdRunId,
+                    speakerCount = if (turns.isEmpty()) 0 else 1,
+                    turns =
+                        turns.map { turn ->
+                            SpeakerTurnWrite(
+                                speakerIndex = turn.globalSpeakerIndex,
+                                startSampleIndex = turn.startSampleIndex,
+                                endSampleIndexExclusive = turn.endSampleIndexExclusive,
+                                confidence = turn.confidence,
+                                overlap = turn.overlap,
+                            )
+                        },
+                )
+                leases = releaseLeases(leases)
+                releaseOperationSlot()
+                mutableState.value =
+                    DiarizationRunState.Completed(
+                        recordingId = recordingId,
+                        runId = createdRunId,
+                        speakerCount = if (turns.isEmpty()) 0 else 1,
+                        turns = turns,
+                    )
+                return
+            }
 
             val ranges =
                 planDiarizationWindows(
@@ -995,12 +1067,14 @@ class DiarizationCoordinator(
         performance: ResolvedSpeechPerformance,
         requestedSpeakerCount: SpeakerCountChoice?,
         requestedEmbeddingModel: SpeakerEmbeddingModelChoice,
+        singleSpeakerFastPath: Boolean,
     ): String =
         buildString {
             append("{\"schemaVersion\":2")
             append(",\"pipelineVersion\":").append(DIARIZATION_PIPELINE_VERSION)
             append(",\"stitchingAlgorithmVersion\":").append(STITCHING_ALGORITHM_VERSION)
             append(",\"anchorStrategy\":\"").append(ANCHOR_STRATEGY).append("\"")
+            append(",\"singleSpeakerFastPath\":").append(singleSpeakerFastPath)
             append(",\"sampleRateHz\":").append(config.sampleRateHz)
             append(",\"chunkSizeSamples\":").append(config.chunkSizeSamples)
             append(",\"chunkOverlapSamples\":").append(config.chunkOverlapSamples)
