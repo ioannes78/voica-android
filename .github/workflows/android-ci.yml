@@ -58,6 +58,20 @@ jobs:
           cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
 
+      # Temporary Stage 13B.5 QA4 bootstrap: export the exact KSP-generated Room v10
+      # schema before the migration test starts requiring it. Remove this pair after 10.json
+      # is committed to the repository.
+      - name: Generate Room v10 schema bootstrap
+        run: gradle :core:database:kspDebugKotlin --stacktrace
+
+      - name: Upload Room v10 schema bootstrap
+        uses: actions/upload-artifact@v4
+        with:
+          name: Room-v10-schema-bootstrap
+          path: core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/10.json
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Unit test and debug build
         run: >
           gradle
