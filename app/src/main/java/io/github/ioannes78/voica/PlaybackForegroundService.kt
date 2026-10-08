@@ -16,6 +16,7 @@ import android.os.SystemClock
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import io.github.ioannes78.voica.audio.CanonicalPcmProfile
+import io.github.ioannes78.voica.audio.PlaybackErrorCode
 import io.github.ioannes78.voica.audio.PlaybackSnapshot
 import io.github.ioannes78.voica.audio.PlaybackState as VoicaPlaybackState
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
@@ -25,6 +26,20 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.launch
+
+internal fun playbackErrorMessage(code: PlaybackErrorCode): String =
+    when (code) {
+        PlaybackErrorCode.SOURCE_NOT_AVAILABLE -> "音频文件不可用"
+        PlaybackErrorCode.SOURCE_INTEGRITY_FAILED -> "音频文件校验失败"
+        PlaybackErrorCode.INVALID_CANONICAL_WAV -> "音频格式无效"
+        PlaybackErrorCode.AUDIO_TRACK_INIT_FAILED -> "音频输出初始化失败"
+        PlaybackErrorCode.AUDIO_FOCUS_DENIED -> "无法获取音频焦点"
+        PlaybackErrorCode.AUDIO_READ_FAILED -> "读取音频失败"
+        PlaybackErrorCode.PLAYBACK_SPEED_UNSUPPORTED -> "当前播放速度不受支持"
+        PlaybackErrorCode.OUTPUT_ROUTE_FAILED -> "音频输出失败"
+        PlaybackErrorCode.SOURCE_REMOVED -> "音频文件已被移除"
+        PlaybackErrorCode.INTERNAL_STATE_ERROR -> "播放状态异常"
+    }
 
 /**
  * Stage 13B mediaPlayback foreground owner for the existing Voica playback runtime.
@@ -118,6 +133,8 @@ class PlaybackForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        notificationManager.cancel(NOTIFICATION_ID)
         mediaSession.isActive = false
         mediaSession.release()
         serviceScope.cancel()
@@ -256,7 +273,7 @@ class PlaybackForegroundService : Service() {
                     SystemClock.elapsedRealtime(),
                 )
         snapshot.error?.let { error ->
-            builder.setErrorMessage(error.code.name)
+            builder.setErrorMessage(playbackErrorMessage(error.code))
         }
         mediaSession.setPlaybackState(builder.build())
     }
@@ -397,6 +414,7 @@ class PlaybackForegroundService : Service() {
         }
 
         fun stop(context: Context) {
+            context.getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
             context.stopService(Intent(context, PlaybackForegroundService::class.java))
         }
     }
