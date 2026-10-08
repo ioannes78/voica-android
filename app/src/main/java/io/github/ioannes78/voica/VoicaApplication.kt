@@ -145,6 +145,12 @@ class AppContainer(
         )
 
     val diarizationRepository = DiarizationRepository(recordingDatabase)
+    private val stage9VadReusingDiarizationEngineProvider =
+        VadReusingStage9DiarizationEngineProvider(
+            delegate = stage9BaseDiarizationEngineProvider,
+            diarizationDao = recordingDatabase.diarizationDao(),
+            transcriptionRepository = transcriptionRepository,
+        )
 
     private val aiSummaryTaskOwnershipStore = AiSummaryTaskOwnershipStore(application)
     val aiSummaryRepository =
@@ -208,7 +214,7 @@ class AppContainer(
             pcmSourceResolver = pcmSourceResolver,
             modelManager = modelManager,
             modelUseRegistry = modelUseRegistry,
-            engineProvider = stage9BaseDiarizationEngineProvider,
+            engineProvider = stage9VadReusingDiarizationEngineProvider,
             localSpeechSettings = { localSpeechSettingsStore.settings.value },
         )
     private val diarizationBenchmarkExportController =
