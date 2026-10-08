@@ -96,6 +96,39 @@ class Stage13B5Qa4DurableStateTest {
     }
 
     @Test
+    fun aiSummaryCandidateProjectionIsDurableUntilDismissed() = runBlocking {
+        val contentRepository = Stage12CContentRepository(database, nowMs = { clock++ })
+        insertTranscription(
+            id = "tx-current",
+            state = TranscriptionStateValue.COMPLETED,
+            createdAtMs = 100L,
+        )
+        contentRepository.onTranscriptionCompleted(RECORDING_ID, "tx-current")
+
+        insertCompletedSummary(
+            id = "summary-current",
+            transcriptionId = "tx-current",
+            createdAtMs = 300L,
+        )
+        contentRepository.onAiSummaryCompleted(RECORDING_ID, "summary-current")
+
+        insertCompletedSummary(
+            id = "summary-candidate",
+            transcriptionId = "tx-current",
+            createdAtMs = 400L,
+        )
+        contentRepository.onAiSummaryCompleted(RECORDING_ID, "summary-candidate")
+
+        assertEquals(
+            listOf("summary-candidate"),
+            repository.observeAiSummaryCandidates().first().map { it.id },
+        )
+
+        repository.dismissAiSummaryCandidate(RECORDING_ID, "summary-candidate")
+        assertTrue(repository.observeAiSummaryCandidates().first().isEmpty())
+    }
+
+    @Test
     fun interruptedTranscriptionRemainsAttentionUntilExplicitlyAcknowledged() = runBlocking {
         insertTranscription(
             id = "tx-interrupted",
@@ -183,6 +216,46 @@ class Stage13B5Qa4DurableStateTest {
                 completedAtMs = createdAtMs.takeIf { state !in TranscriptionStateValue.ACTIVE },
                 errorCode = null,
                 errorMessage = null,
+            ),
+        )
+    }
+
+    private suspend fun insertCompletedSummary(
+        id: String,
+        transcriptionId: String,
+        createdAtMs: Long,
+    ) {
+        database.aiSummaryDao().insertSummary(
+            AiSummaryEntity(
+                id = id,
+                recordingId = RECORDING_ID,
+                transcriptionId = transcriptionId,
+                inputMode = AiSummaryInputModeValue.TRANSCRIPT_TEXT,
+                mode = AiSummaryModeValue.SMART,
+                templateId = null,
+                templateSnapshot = null,
+                providerProfileId = "provider",
+                providerNameSnapshot = "Provider",
+                baseUrlSnapshot = "https://example.invalid",
+                model = "model",
+                promptVersion = 1,
+                resultSchemaVersion = 1,
+                contentType = "GENERAL",
+                classificationConfidence = 0.9,
+                structuredPayloadJson = null,
+                displayText = "summary-$id",
+                status = AiSummaryStateValue.COMPLETED,
+                createdAtMs = createdAtMs,
+                startedAtMs = createdAtMs,
+                updatedAtMs = createdAtMs,
+                completedAtMs = createdAtMs,
+                errorCode = null,
+                sanitizedErrorMessage = null,
+                requestConfigSnapshot = "{}",
+                usageSnapshot = null,
+                alignmentIdSnapshot = null,
+                sourceLineageSnapshot =
+                    """{"lineageVersion":2,"transcriptionId":"$transcriptionId","transcriptionRevisionId":null}""",
             ),
         )
     }
