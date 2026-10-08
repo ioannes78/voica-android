@@ -165,4 +165,6 @@ data class RecordingContentSelectionEntity(
     val currentTranscriptionId: String?,
     val currentAiSummaryId: String?,
     val updatedAtMs: Long,
+    val dismissedTranscriptionCandidateId: String? = null,
+    val dismissedAiSummaryCandidateId: String? = null,
 )
