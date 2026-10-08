@@ -124,7 +124,7 @@ class AppContainer(
         SherpaStage8TranscriptionEngineProvider(
             assetManager = application.assets,
         )
-    private val stage9DiarizationEngineProvider =
+    private val stage9BaseDiarizationEngineProvider =
         SherpaStage9DiarizationEngineProvider(
             assetManager = application.assets,
         )
@@ -208,9 +208,12 @@ class AppContainer(
             pcmSourceResolver = pcmSourceResolver,
             modelManager = modelManager,
             modelUseRegistry = modelUseRegistry,
-            engineProvider = stage9DiarizationEngineProvider,
+            engineProvider = stage9BaseDiarizationEngineProvider,
             localSpeechSettings = { localSpeechSettingsStore.settings.value },
         )
+
+    private val stage9DiarizationEngineProvider =
+        diarizationBenchmarkRunner.profilingEngineProvider()
 
     val diarizationCoordinator =
         DiarizationCoordinator(
@@ -329,6 +332,8 @@ class AppContainer(
         )
 
     init {
+        diarizationBenchmarkRunner.attach(diarizationCoordinator)
+
         applicationScope.launch {
             combine(
                 deviceRepository.recordingState,
