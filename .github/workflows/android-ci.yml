@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   actions: write
 
 concurrency:
@@ -58,45 +58,6 @@ jobs:
           cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
 
-      # Temporary Stage 13B.5 QA4 bootstrap: force the exact KSP-generated Room v10
-      # schema, commit it to the PR source branch, then remove this bootstrap block.
-      - name: Generate Room v10 schema bootstrap
-        run: gradle :core:database:kspDebugKotlin --rerun-tasks --stacktrace
-
-      - name: Commit Room v10 schema bootstrap
-        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
-        shell: bash
-        env:
-          TARGET_BRANCH: ${{ github.head_ref }}
-        run: |
-          set -euo pipefail
-          schema="core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/10.json"
-          test -f "$schema"
-
-          # pull_request checkout points at the synthetic merge ref. Move to the exact
-          # PR source branch before committing so the merge commit is never pushed back.
-          git fetch --no-tags origin "${TARGET_BRANCH}"
-          git switch --detach "origin/${TARGET_BRANCH}"
-
-          git add -- "$schema"
-          if git diff --cached --quiet; then
-            echo "Room v10 schema is already committed."
-            exit 0
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "db: add Room v10 schema"
-          git push origin "HEAD:${TARGET_BRANCH}"
-
-      - name: Upload Room v10 schema bootstrap
-        uses: actions/upload-artifact@v4
-        with:
-          name: Room-v10-schema-bootstrap
-          path: core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/10.json
-          if-no-files-found: error
-          retention-days: 1
-
       - name: Unit test and debug build
         run: >
           gradle
@@ -133,12 +94,12 @@ jobs:
             tr '[:upper:]' '[:lower:]')"
           test "$actual_cert_sha256" = "$expected_cert_sha256"
 
-      # Stage 13B.5 migration gate: committed Room v1-v9 schemas must stay in sync.
+      # Stage 13B.5 migration gate: committed Room v1-v10 schemas must stay in sync.
       - name: Verify committed Room schemas
         shell: bash
         run: |
           schema_dir="core/database/schemas"
-          for version in 1 2 3 4 5 6 7 8 9; do
+          for version in 1 2 3 4 5 6 7 8 9 10; do
             test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/${version}.json"
           done
           git diff --exit-code -- "$schema_dir"
