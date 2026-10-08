@@ -2,6 +2,8 @@ package io.github.ioannes78.voica
 
 import io.github.ioannes78.voica.audio.CanonicalPcmProfile
 import io.github.ioannes78.voica.audio.PcmSource
+import io.github.ioannes78.voica.database.DiarizationDao
+import io.github.ioannes78.voica.database.DiarizationStateValue
 import io.github.ioannes78.voica.database.TranscriptSegmentEntity
 import io.github.ioannes78.voica.database.TranscriptionEntity
 import io.github.ioannes78.voica.database.TranscriptionRepository
@@ -9,7 +11,9 @@ import io.github.ioannes78.voica.database.TranscriptionStateValue
 import io.github.ioannes78.voica.model.ActiveModel
 import io.github.ioannes78.voica.model.ModelDescriptor
 import io.github.ioannes78.voica.sherpa.SherpaRuntime
+import io.github.ioannes78.voica.transcript.DiarizationEngine
 import io.github.ioannes78.voica.transcript.ProgressListener
+import io.github.ioannes78.voica.transcript.SpeakerEmbeddingEngine
 import io.github.ioannes78.voica.transcript.SpeechSegment
 import io.github.ioannes78.voica.transcript.TranscriptionPhase
 import io.github.ioannes78.voica.transcript.TranscriptionProgress
@@ -28,6 +32,111 @@ internal data class DiarizationVadReuseContext(
     val vadSettings: LocalVadSettings,
     val effectiveThreads: Int,
 )
+
+/**
+ * Stage 13C C1 provider decorator.
+ *
+ * It sits below the C0 profiling provider, so a reuse hit still flows through the ordinary
+ * profiling VadEngine wrapper. As a result the benchmark keeps truthful VAD segment/speech
+ * workload counters while VAD_ENGINE measures the near-zero cached path rather than silently
+ * disappearing from the report.
+ */
+internal class VadReusingStage9DiarizationEngineProvider(
+    private val delegate: Stage9DiarizationEngineProvider,
+    private val diarizationDao: DiarizationDao,
+    private val transcriptionRepository: TranscriptionRepository,
+) : Stage9DiarizationEngineProvider {
+    override fun vadFactory(
+        model: ActiveModel,
+        numThreads: Int,
+        vadSettings: LocalVadSettings,
+    ): VadEngineFactory {
+        val fallbackFactory = delegate.vadFactory(model, numThreads, vadSettings)
+        return VadEngineFactory {
+            val candidate =
+                resolveReusableVad(
+                    model = model,
+                    numThreads = numThreads,
+                    vadSettings = vadSettings,
+                )
+            if (candidate == null) {
+                fallbackFactory.open()
+            } else {
+                ReusedOrFallbackVadEngine(
+                    model = model.descriptor,
+                    expectedTotalSampleCount = candidate.totalSampleCount,
+                    reusedSegments = candidate.segments,
+                    fallbackFactory = fallbackFactory,
+                )
+            }
+        }
+    }
+
+    override suspend fun validateBundle(
+        segmentation: ActiveModel,
+        embedding: ActiveModel,
+    ) = delegate.validateBundle(segmentation, embedding)
+
+    override fun diarizationEngine(
+        segmentation: ActiveModel,
+        embedding: ActiveModel,
+        numThreads: Int,
+    ): DiarizationEngine =
+        delegate.diarizationEngine(
+            segmentation = segmentation,
+            embedding = embedding,
+            numThreads = numThreads,
+        )
+
+    override fun embeddingEngine(
+        model: ActiveModel,
+        numThreads: Int,
+    ): SpeakerEmbeddingEngine =
+        delegate.embeddingEngine(
+            model = model,
+            numThreads = numThreads,
+        )
+
+    private suspend fun resolveReusableVad(
+        model: ActiveModel,
+        numThreads: Int,
+        vadSettings: LocalVadSettings,
+    ): ReusableVadCandidate? {
+        val activeRuns = diarizationDao.loadActiveRuns(DiarizationStateValue.ACTIVE)
+        val run = activeRuns.singleOrNull() ?: return null
+        if (
+            run.state != DiarizationStateValue.PREPARING &&
+            run.state != DiarizationStateValue.VAD_ANALYZING
+        ) {
+            return null
+        }
+        if (run.runtimeId != SherpaRuntime.RUNTIME_ID) return null
+        if (run.runtimeVersion != SherpaRuntime.RUNTIME_VERSION) return null
+        if (run.vadModelId != model.descriptor.modelId) return null
+        if (run.vadModelVersion != model.descriptor.version) return null
+        if (run.vadModelRevision != model.descriptor.revision) return null
+
+        val context =
+            DiarizationVadReuseContext(
+                recordingId = run.recordingId,
+                canonicalSha256 = run.sourceCanonicalSha256,
+                canonicalProfileId = run.canonicalProfileId,
+                totalSampleCount = run.totalSampleCount,
+                vadModel = model,
+                vadSettings = vadSettings,
+                effectiveThreads = numThreads,
+            )
+        val segments =
+            loadReusableVadSegmentsOrNull(
+                transcriptionRepository = transcriptionRepository,
+                context = context,
+            ) ?: return null
+        return ReusableVadCandidate(
+            totalSampleCount = run.totalSampleCount,
+            segments = segments,
+        )
+    }
+}
 
 /**
  * Load the most recent completed transcription and reuse its persisted VAD boundaries only when
@@ -50,10 +159,6 @@ internal suspend fun loadReusableVadSegmentsOrNull(
 }
 
 /**
- * Reuses persisted transcription VAD boundaries only when their complete input lineage still
- * matches the diarization request. Any uncertainty returns null and the caller must run Silero
- * VAD normally.
- *
  * Transcription pipeline v2 persists one transcript segment for every VAD speech segment. The
  * pipeline version gate is deliberate: a future transcription pipeline must opt in explicitly
  * before its segment boundaries can be treated as VAD output.
@@ -125,12 +230,12 @@ internal fun reusableVadSegmentsOrNull(
     val modelArray = effective.optJSONArray("models") ?: return null
     var matchedModel = false
     for (index in 0 until modelArray.length()) {
-        val model = modelArray.optJSONObject(index) ?: continue
-        if (model.optString("id") != descriptor.modelId) continue
+        val effectiveModel = modelArray.optJSONObject(index) ?: continue
+        if (effectiveModel.optString("id") != descriptor.modelId) continue
         matchedModel =
-            model.optString("version") == descriptor.version &&
-                model.optLong("revision", Long.MIN_VALUE) == descriptor.revision &&
-                model.optString("manifestDigest")
+            effectiveModel.optString("version") == descriptor.version &&
+                effectiveModel.optLong("revision", Long.MIN_VALUE) == descriptor.revision &&
+                effectiveModel.optString("manifestDigest")
                     .equals(context.vadModel.manifestDigest, ignoreCase = true)
         break
     }
@@ -155,92 +260,22 @@ internal fun reusableVadSegmentsOrNull(
     return speechSegments
 }
 
-/**
- * One-shot handoff from the lineage gate in [DiarizationCoordinator] to the Stage 9 VAD engine.
- *
- * The profiler wraps the Stage 9 provider outside this engine. Returning cached segments from
- * analyze() therefore preserves the normal VAD phase, segment/speech workload counters and timing
- * while avoiding Silero model initialization and inference. The handoff is cleared after the
- * current VAD call and can never become a persistent cross-recording cache.
- */
-internal object DiarizationVadReuseRegistry {
-    private val lock = Any()
-    private var pending: Pending? = null
-
-    fun install(
-        context: DiarizationVadReuseContext,
-        segments: List<SpeechSegment>,
-    ) {
-        synchronized(lock) {
-            pending = Pending(context = context, segments = segments.toList())
-        }
-    }
-
-    fun clear() {
-        synchronized(lock) {
-            pending = null
-        }
-    }
-
-    fun consumeIfCompatible(
-        source: PcmSource,
-        model: ActiveModel,
-        numThreads: Int,
-        vadSettings: LocalVadSettings,
-    ): List<SpeechSegment>? =
-        synchronized(lock) {
-            val candidate = pending ?: return@synchronized null
-            val context = candidate.context
-            val descriptor = model.descriptor
-            val expected = context.vadModel.descriptor
-            val compatible =
-                source.sampleRateHz == CanonicalPcmProfile.SAMPLE_RATE_HZ &&
-                    source.channelCount == CanonicalPcmProfile.CHANNEL_COUNT &&
-                    source.totalSampleCount == context.totalSampleCount &&
-                    descriptor.modelId == expected.modelId &&
-                    descriptor.version == expected.version &&
-                    descriptor.revision == expected.revision &&
-                    model.manifestDigest.equals(context.vadModel.manifestDigest, ignoreCase = true) &&
-                    numThreads == context.effectiveThreads &&
-                    sameVadSettings(vadSettings, context.vadSettings)
-            pending = null
-            if (compatible) candidate.segments else null
-        }
-
-    private data class Pending(
-        val context: DiarizationVadReuseContext,
-        val segments: List<SpeechSegment>,
-    )
-}
+private data class ReusableVadCandidate(
+    val totalSampleCount: Long,
+    val segments: List<SpeechSegment>,
+)
 
 /**
- * Wrap the native Stage 9 VAD lazily. A valid one-shot reuse never opens the native Silero engine;
- * a cache miss creates and executes the unchanged delegate engine.
+ * A source mismatch is treated as a safe miss and lazily opens the unchanged native Silero
+ * factory. On a valid hit no native VAD model/session is opened.
  */
-internal fun reuseAwareVadFactory(
-    delegateFactory: VadEngineFactory,
-    model: ActiveModel,
-    numThreads: Int,
-    vadSettings: LocalVadSettings,
-): VadEngineFactory =
-    VadEngineFactory {
-        ReuseAwareVadEngine(
-            descriptor = model.descriptor,
-            delegateFactory = delegateFactory,
-            activeModel = model,
-            numThreads = numThreads,
-            vadSettings = vadSettings,
-        )
-    }
-
-private class ReuseAwareVadEngine(
+private class ReusedOrFallbackVadEngine(
     override val model: ModelDescriptor,
-    private val delegateFactory: VadEngineFactory,
-    private val activeModel: ActiveModel,
-    private val numThreads: Int,
-    private val vadSettings: LocalVadSettings,
+    private val expectedTotalSampleCount: Long,
+    private val reusedSegments: List<SpeechSegment>,
+    private val fallbackFactory: VadEngineFactory,
 ) : VadEngine {
-    private var delegate: VadEngine? = null
+    private var fallback: VadEngine? = null
     private var closed = false
 
     override suspend fun analyze(
@@ -248,14 +283,11 @@ private class ReuseAwareVadEngine(
         progressListener: ProgressListener?,
     ): List<SpeechSegment> {
         check(!closed) { "VAD engine is closed" }
-        val reused =
-            DiarizationVadReuseRegistry.consumeIfCompatible(
-                source = source,
-                model = activeModel,
-                numThreads = numThreads,
-                vadSettings = vadSettings,
-            )
-        if (reused != null) {
+        val sourceMatches =
+            source.sampleRateHz == CanonicalPcmProfile.SAMPLE_RATE_HZ &&
+                source.channelCount == CanonicalPcmProfile.CHANNEL_COUNT &&
+                source.totalSampleCount == expectedTotalSampleCount
+        if (sourceMatches) {
             progressListener?.onProgress(
                 TranscriptionProgress(
                     phase = TranscriptionPhase.VAD,
@@ -263,29 +295,20 @@ private class ReuseAwareVadEngine(
                     totalUnits = source.totalSampleCount,
                 ),
             )
-            return reused
+            return reusedSegments
         }
 
-        val engine = delegate ?: delegateFactory.open().also { delegate = it }
+        val engine = fallback ?: fallbackFactory.open().also { fallback = it }
         return engine.analyze(source, progressListener)
     }
 
     override fun close() {
         if (closed) return
         closed = true
-        delegate?.close()
-        delegate = null
+        fallback?.close()
+        fallback = null
     }
 }
-
-private fun sameVadSettings(
-    first: LocalVadSettings,
-    second: LocalVadSettings,
-): Boolean =
-    sameFloat(first.threshold.toDouble(), second.threshold) &&
-        sameFloat(first.minSilenceDurationSeconds.toDouble(), second.minSilenceDurationSeconds) &&
-        sameFloat(first.minSpeechDurationSeconds.toDouble(), second.minSpeechDurationSeconds) &&
-        sameFloat(first.maxSpeechDurationSeconds.toDouble(), second.maxSpeechDurationSeconds)
 
 private fun sameFloat(
     actual: Double,
