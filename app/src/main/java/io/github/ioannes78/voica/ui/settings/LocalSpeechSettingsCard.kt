@@ -193,9 +193,15 @@ internal fun LocalSpeechSettingsCard(
             )
             HorizontalDivider()
             Text(
-                "说话人数",
+                "默认说话人数",
                 style = MaterialTheme.typography.titleSmall,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+            )
+            Text(
+                "作为新文件的默认值；在录音详情中为某个文件选择人数，不会修改这里。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
             )
             speakerCountOptions().forEachIndexed { index, option ->
                 if (index > 0) HorizontalDivider()
@@ -696,9 +702,9 @@ private fun realtimeSummary(choice: RealtimeAsrModelChoice): String =
     }
 
 private fun speakerSummary(choice: SpeakerCountChoice): String =
-    "CAM++ · " +
+    "CAM++ · 默认" +
         when (choice) {
-            SpeakerCountChoice.AUTO -> "自动人数"
+            SpeakerCountChoice.AUTO -> "自动"
             SpeakerCountChoice.ONE -> "1 人"
             SpeakerCountChoice.TWO -> "2 人"
             SpeakerCountChoice.THREE -> "3 人"
