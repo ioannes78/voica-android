@@ -62,7 +62,7 @@ jobs:
       # schema before the migration test starts requiring it. Remove this pair after 10.json
       # is committed to the repository.
       - name: Generate Room v10 schema bootstrap
-        run: gradle :core:database:kspDebugKotlin --stacktrace
+        run: gradle :core:database:kspDebugKotlin --rerun-tasks --stacktrace
 
       - name: Upload Room v10 schema bootstrap
         uses: actions/upload-artifact@v4
