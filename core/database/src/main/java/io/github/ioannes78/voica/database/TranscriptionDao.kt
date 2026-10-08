@@ -37,31 +37,31 @@ interface TranscriptionDao {
 
     @Query(
         """
-        SELECT current.* FROM transcriptions AS current
-        WHERE current.state IN (:states)
-          AND current.terminalAcknowledgedAtMs IS NULL
+        SELECT attention.* FROM transcriptions AS attention
+        WHERE attention.state IN (:states)
+          AND attention.terminalAcknowledgedAtMs IS NULL
           AND NOT EXISTS (
               SELECT 1 FROM transcriptions AS newer
-              WHERE newer.recordingId = current.recordingId
-                AND newer.createdAtMs > current.createdAtMs
+              WHERE newer.recordingId = attention.recordingId
+                AND newer.createdAtMs > attention.createdAtMs
           )
-        ORDER BY current.updatedAtMs DESC, current.createdAtMs DESC
+        ORDER BY attention.updatedAtMs DESC, attention.createdAtMs DESC
         """,
     )
     fun observeDurableAttention(states: List<String>): Flow<List<TranscriptionEntity>>
 
     @Query(
         """
-        SELECT current.* FROM transcriptions AS current
-        WHERE current.recordingId = :recordingId
-          AND current.state IN (:states)
-          AND current.terminalAcknowledgedAtMs IS NULL
+        SELECT attention.* FROM transcriptions AS attention
+        WHERE attention.recordingId = :recordingId
+          AND attention.state IN (:states)
+          AND attention.terminalAcknowledgedAtMs IS NULL
           AND NOT EXISTS (
               SELECT 1 FROM transcriptions AS newer
-              WHERE newer.recordingId = current.recordingId
-                AND newer.createdAtMs > current.createdAtMs
+              WHERE newer.recordingId = attention.recordingId
+                AND newer.createdAtMs > attention.createdAtMs
           )
-        ORDER BY current.updatedAtMs DESC, current.createdAtMs DESC
+        ORDER BY attention.updatedAtMs DESC, attention.createdAtMs DESC
         LIMIT 1
         """,
     )
