@@ -152,6 +152,23 @@ class ModelUpdateController(
             return emptyList()
         }
 
+        val durable = modelManager as? DurableModelInstallController
+        if (durable != null) {
+            try {
+                durable.installAndActivate(
+                    modelId = descriptor.modelId,
+                    version = descriptor.version,
+                    revision = descriptor.revision,
+                    origin = ModelInstallOrigin.AUTO_SMALL,
+                )
+            } catch (_: ModelInstallUserResumeRequiredException) {
+                // A user-visible durable operation is waiting for explicit recovery.
+                // Automatic checks must not silently restart or replace it.
+                return emptyList()
+            }
+            return listOf(descriptor.modelId)
+        }
+
         val candidateAlreadyInstalled =
             availability.installedVersion == descriptor.version &&
                 availability.installedRevision == descriptor.revision

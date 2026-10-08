@@ -44,6 +44,45 @@ interface AiSummaryDao {
     @Query(
         """
         SELECT * FROM ai_summaries
+        WHERE status IN (:activeStates)
+           OR (
+                executionGeneration > 0
+                AND status IN (:terminalAttentionStates)
+                AND (
+                    (
+                        status = 'AMBIGUOUS_REMOTE_RESULT'
+                        AND id NOT IN (
+                            SELECT retryOfSummaryId
+                            FROM ai_summaries
+                            WHERE retryOfSummaryId IS NOT NULL
+                        )
+                    )
+                    OR (
+                        status != 'AMBIGUOUS_REMOTE_RESULT'
+                        AND terminalAcknowledgedAtMs IS NULL
+                    )
+                )
+           )
+        ORDER BY updatedAtMs DESC, createdAtMs DESC
+        """,
+    )
+    fun observeDurableTasks(
+        activeStates: List<String>,
+        terminalAttentionStates: List<String>,
+    ): Flow<List<AiSummaryEntity>>
+
+    @Query(
+        """
+        SELECT * FROM ai_summaries
+        WHERE status IN (:activeStates)
+        ORDER BY updatedAtMs ASC, createdAtMs ASC
+        """,
+    )
+    suspend fun loadActiveSummaries(activeStates: List<String>): List<AiSummaryEntity>
+
+    @Query(
+        """
+        SELECT * FROM ai_summaries
         WHERE recordingId = :recordingId AND status = 'COMPLETED'
         ORDER BY completedAtMs DESC, createdAtMs DESC
         LIMIT 1
@@ -105,6 +144,193 @@ interface AiSummaryDao {
     @Query(
         """
         UPDATE ai_summaries
+        SET remoteDispatchState = 'READY_TO_SEND',
+            remoteRequestId = :requestId,
+            remoteStepKind = :stepKind,
+            remoteStepKey = :stepKey,
+            remoteStartedAtMs = NULL,
+            updatedAtMs = :nowMs
+        WHERE id = :summaryId
+          AND executionGeneration = :generation
+          AND status IN (:activeStates)
+          AND remoteDispatchState = 'NONE'
+        """,
+    )
+    suspend fun prepareRemoteCall(
+        summaryId: String,
+        generation: Long,
+        requestId: String,
+        stepKind: String,
+        stepKey: String,
+        nowMs: Long,
+        activeStates: List<String>,
+    ): Int
+
+    @Query(
+        """
+        UPDATE ai_summaries
+        SET remoteDispatchState = 'REQUEST_IN_FLIGHT',
+            remoteStartedAtMs = :nowMs,
+            remoteCallOrdinal = remoteCallOrdinal + 1,
+            updatedAtMs = :nowMs
+        WHERE id = :summaryId
+          AND executionGeneration = :generation
+          AND status IN (:activeStates)
+          AND remoteDispatchState = 'READY_TO_SEND'
+          AND remoteRequestId = :requestId
+          AND remoteStepKind = :stepKind
+          AND remoteStepKey = :stepKey
+        """,
+    )
+    suspend fun markRemoteRequestInFlight(
+        summaryId: String,
+        generation: Long,
+        requestId: String,
+        stepKind: String,
+        stepKey: String,
+        nowMs: Long,
+        activeStates: List<String>,
+    ): Int
+
+    @Query(
+        """
+        UPDATE ai_summaries
+        SET remoteRequestId = :newRequestId,
+            remoteStepKind = :stepKind,
+            remoteStepKey = :stepKey,
+            remoteStartedAtMs = :nowMs,
+            remoteCallOrdinal = remoteCallOrdinal + 1,
+            updatedAtMs = :nowMs
+        WHERE id = :summaryId
+          AND executionGeneration = :generation
+          AND status IN (:activeStates)
+          AND remoteDispatchState = 'REQUEST_IN_FLIGHT'
+          AND remoteRequestId = :expectedRequestId
+        """,
+    )
+    suspend fun replaceRemoteRequestInFlight(
+        summaryId: String,
+        generation: Long,
+        expectedRequestId: String,
+        newRequestId: String,
+        stepKind: String,
+        stepKey: String,
+        nowMs: Long,
+        activeStates: List<String>,
+    ): Int
+
+    @Query(
+        """
+        UPDATE ai_summaries
+        SET remoteDispatchState = 'NONE',
+            remoteRequestId = NULL,
+            remoteStepKind = NULL,
+            remoteStepKey = NULL,
+            remoteStartedAtMs = NULL,
+            updatedAtMs = :nowMs
+        WHERE id = :summaryId
+          AND executionGeneration = :generation
+          AND status IN (:activeStates)
+          AND remoteDispatchState = 'READY_TO_SEND'
+          AND remoteRequestId = :requestId
+        """,
+    )
+    suspend fun resetPreparedRemoteCall(
+        summaryId: String,
+        generation: Long,
+        requestId: String,
+        nowMs: Long,
+        activeStates: List<String>,
+    ): Int
+
+    @Query(
+        """
+        UPDATE ai_summaries
+        SET remoteDispatchState = 'NONE',
+            remoteRequestId = NULL,
+            remoteStepKind = NULL,
+            remoteStepKey = NULL,
+            remoteStartedAtMs = NULL,
+            updatedAtMs = :nowMs
+        WHERE id = :summaryId
+          AND executionGeneration = :generation
+          AND status IN (:resolvableStates)
+          AND remoteDispatchState = 'REQUEST_IN_FLIGHT'
+          AND remoteRequestId = :requestId
+        """,
+    )
+    suspend fun clearRemoteDispatch(
+        summaryId: String,
+        generation: Long,
+        requestId: String,
+        nowMs: Long,
+        resolvableStates: List<String>,
+    ): Int
+
+    @Query(
+        """
+        UPDATE ai_summaries
+        SET status = 'AMBIGUOUS_REMOTE_RESULT',
+            updatedAtMs = :nowMs,
+            completedAtMs = :nowMs,
+            errorCode = 'REMOTE_RESULT_UNKNOWN',
+            sanitizedErrorMessage = :sanitizedErrorMessage
+        WHERE id = :summaryId
+          AND executionGeneration = :generation
+          AND status IN (:activeStates)
+          AND remoteDispatchState = 'REQUEST_IN_FLIGHT'
+          AND remoteRequestId = :requestId
+        """,
+    )
+    suspend fun markAmbiguousRemoteResult(
+        summaryId: String,
+        generation: Long,
+        requestId: String,
+        nowMs: Long,
+        sanitizedErrorMessage: String,
+        activeStates: List<String>,
+    ): Int
+
+    @Query(
+        """
+        UPDATE ai_summaries
+        SET status = 'CANCELLED',
+            updatedAtMs = :nowMs,
+            completedAtMs = :nowMs,
+            errorCode = 'USER_CANCELLED',
+            sanitizedErrorMessage = :sanitizedErrorMessage
+        WHERE id = :summaryId
+          AND executionGeneration = :generation
+          AND status IN (:activeStates)
+        """,
+    )
+    suspend fun cancelForGeneration(
+        summaryId: String,
+        generation: Long,
+        nowMs: Long,
+        sanitizedErrorMessage: String,
+        activeStates: List<String>,
+    ): Int
+
+    @Query(
+        """
+        UPDATE ai_summaries
+        SET terminalAcknowledgedAtMs = :nowMs,
+            updatedAtMs = :nowMs
+        WHERE id = :summaryId
+          AND status IN (:terminalStates)
+          AND terminalAcknowledgedAtMs IS NULL
+        """,
+    )
+    suspend fun acknowledgeTerminal(
+        summaryId: String,
+        nowMs: Long,
+        terminalStates: List<String>,
+    ): Int
+
+    @Query(
+        """
+        UPDATE ai_summaries
         SET status = :status,
             startedAtMs = COALESCE(startedAtMs, :startedAtMs),
             updatedAtMs = :updatedAtMs,
@@ -116,6 +342,32 @@ interface AiSummaryDao {
     )
     suspend fun updateState(
         summaryId: String,
+        status: String,
+        startedAtMs: Long?,
+        updatedAtMs: Long,
+        completedAtMs: Long?,
+        errorCode: String?,
+        sanitizedErrorMessage: String?,
+        activeStates: List<String>,
+    ): Int
+
+    @Query(
+        """
+        UPDATE ai_summaries
+        SET status = :status,
+            startedAtMs = COALESCE(startedAtMs, :startedAtMs),
+            updatedAtMs = :updatedAtMs,
+            completedAtMs = :completedAtMs,
+            errorCode = :errorCode,
+            sanitizedErrorMessage = :sanitizedErrorMessage
+        WHERE id = :summaryId
+          AND executionGeneration = :generation
+          AND status IN (:activeStates)
+        """,
+    )
+    suspend fun updateStateForGeneration(
+        summaryId: String,
+        generation: Long,
         status: String,
         startedAtMs: Long?,
         updatedAtMs: Long,
@@ -155,13 +407,49 @@ interface AiSummaryDao {
     @Query(
         """
         UPDATE ai_summaries
+        SET status = 'COMPLETED',
+            contentType = :contentType,
+            classificationConfidence = :classificationConfidence,
+            structuredPayloadJson = :structuredPayloadJson,
+            displayText = :displayText,
+            usageSnapshot = :usageSnapshot,
+            updatedAtMs = :completedAtMs,
+            completedAtMs = :completedAtMs,
+            errorCode = NULL,
+            sanitizedErrorMessage = NULL
+        WHERE id = :summaryId
+          AND executionGeneration = :generation
+          AND status IN (:activeStates)
+        """,
+    )
+    suspend fun completeForGeneration(
+        summaryId: String,
+        generation: Long,
+        contentType: String,
+        classificationConfidence: Double?,
+        structuredPayloadJson: String,
+        displayText: String,
+        usageSnapshot: String?,
+        completedAtMs: Long,
+        activeStates: List<String>,
+    ): Int
+
+    @Query(
+        """
+        UPDATE ai_summaries
         SET status = 'PREPARING',
             startedAtMs = :nowMs,
             updatedAtMs = :nowMs,
             completedAtMs = NULL,
             errorCode = NULL,
-            sanitizedErrorMessage = NULL
-        WHERE id = :summaryId AND status = 'INTERRUPTED'
+            sanitizedErrorMessage = NULL,
+            executionGeneration = CASE
+                WHEN executionGeneration < 1 THEN 1
+                ELSE executionGeneration + 1
+            END
+        WHERE id = :summaryId
+          AND status = 'INTERRUPTED'
+          AND remoteDispatchState = 'NONE'
         """,
     )
     suspend fun resumeInterrupted(

@@ -501,6 +501,17 @@ fun TranscriptEditorDialog(
             },
         )
     }
+    var arrangementUndo by remember(initialParagraphs) {
+        mutableStateOf<List<EditableTranscriptParagraph>?>(null)
+    }
+    var arrangementNotice by remember(initialParagraphs) {
+        mutableStateOf<String?>(null)
+    }
+
+    fun invalidateArrangementUndo() {
+        arrangementUndo = null
+        arrangementNotice = null
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -533,20 +544,20 @@ fun TranscriptEditorDialog(
                     TextButton(
                         enabled = items.isNotEmpty() && items.all { it.field.text.isNotBlank() },
                         onClick = {
-                            val arranged =
-                                TranscriptRevisionEditor.arrangeForReading(
-                                    items.map { it.draft.copy(text = it.field.text.trim()) },
-                                )
-                            items =
-                                arranged.mapIndexed { index, draft ->
-                                    EditableTranscriptParagraph(
-                                        localId =
-                                            items.getOrNull(index)?.localId
-                                                ?: UUID.randomUUID().toString(),
-                                        field = TextFieldValue(draft.text),
-                                        draft = draft,
-                                    )
+                            val before = items
+                            val drafts =
+                                before.map { item ->
+                                    item.draft.copy(text = item.field.text.trim())
                                 }
+                            val arranged = TranscriptRevisionEditor.arrangeForReading(drafts)
+                            if (arranged == drafts) {
+                                arrangementNotice = "当前段落无需整理"
+                            } else {
+                                arrangementUndo = before
+                                items = rebuildEditableAfterArrange(arranged)
+                                arrangementNotice =
+                                    "已整理：" + before.size + " 段 → " + arranged.size + " 段"
+                            }
                         },
                     ) {
                         Text("整理段落")
@@ -565,6 +576,35 @@ fun TranscriptEditorDialog(
                     }
                 }
                 HorizontalDivider()
+                if (arrangementNotice != null || arrangementUndo != null) {
+                    Row(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            arrangementNotice.orEmpty(),
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        arrangementUndo?.let { undo ->
+                            TextButton(
+                                onClick = {
+                                    items = undo
+                                    arrangementUndo = null
+                                    arrangementNotice = "已撤销本次整理"
+                                },
+                            ) {
+                                Text("撤销整理")
+                            }
+                        }
+                    }
+                    HorizontalDivider()
+                }
                 LazyColumn(
                     modifier = Modifier.weight(1f),
                     contentPadding =
@@ -599,6 +639,7 @@ fun TranscriptEditorDialog(
                                 OutlinedTextField(
                                     value = item.field,
                                     onValueChange = { next ->
+                                        invalidateArrangementUndo()
                                         val changed = next.text != item.draft.text
                                         val nextTiming =
                                             if (!changed) {
@@ -639,6 +680,7 @@ fun TranscriptEditorDialog(
                                                 items[index - 1].field.text.isNotBlank() &&
                                                 item.field.text.isNotBlank(),
                                         onClick = {
+                                            invalidateArrangementUndo()
                                             val drafts =
                                                 items.map { it.draft.copy(text = it.field.text.trim()) }
                                             val merged =
@@ -662,6 +704,7 @@ fun TranscriptEditorDialog(
                                                 item.field.text.isNotBlank() &&
                                                 items[index + 1].field.text.isNotBlank(),
                                         onClick = {
+                                            invalidateArrangementUndo()
                                             val drafts =
                                                 items.map { it.draft.copy(text = it.field.text.trim()) }
                                             val merged =
@@ -685,6 +728,7 @@ fun TranscriptEditorDialog(
                                                 item.field.selection.start in
                                                     1 until item.field.text.length,
                                         onClick = {
+                                            invalidateArrangementUndo()
                                             val drafts =
                                                 items.map { it.draft.copy(text = it.field.text.trim()) }
                                             val split =
@@ -793,6 +837,17 @@ private fun TranscriptRevisionHistoryDialog(
         },
     )
 }
+
+private fun rebuildEditableAfterArrange(
+    drafts: List<RevisionParagraphDraft>,
+): List<EditableTranscriptParagraph> =
+    drafts.map { draft ->
+        EditableTranscriptParagraph(
+            localId = UUID.randomUUID().toString(),
+            field = TextFieldValue(draft.text),
+            draft = draft,
+        )
+    }
 
 private fun rebuildEditableAfterMerge(
     previous: List<EditableTranscriptParagraph>,

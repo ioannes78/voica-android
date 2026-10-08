@@ -37,7 +37,6 @@ class AndroidPlaybackController(
         sinkFactory = AndroidAudioTrackSinkFactory(),
         scope = scope,
     )
-    private var appForeground = true
     private val focusPolicy = PlaybackFocusPolicy()
     private var released = false
 
@@ -87,7 +86,6 @@ class AndroidPlaybackController(
     override suspend fun play() {
         environmentMutex.withLock {
             if (released) return
-            if (!appForeground) return
             if (
                 core.snapshot.value.state !in
                     setOf(
@@ -152,18 +150,6 @@ class AndroidPlaybackController(
         }
     }
 
-    suspend fun setAppForeground(foreground: Boolean) {
-        environmentMutex.withLock {
-            if (released) return
-            appForeground = foreground
-            if (!foreground) {
-                focusPolicy.cancelResume()
-                core.pause()
-                audioFocus.abandon()
-            }
-        }
-    }
-
     private suspend fun handleNoisyOutput() {
         environmentMutex.withLock {
             if (released) return
@@ -178,7 +164,7 @@ class AndroidPlaybackController(
             if (released) return
             when (change) {
                 FocusChange.GAIN -> {
-                    if (focusPolicy.consumeResumeOnGain(appForeground)) {
+                    if (focusPolicy.consumeResumeOnGain()) {
                         core.play()
                     }
                 }

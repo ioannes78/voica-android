@@ -276,6 +276,186 @@ class SummaryPipelineTest {
             assertFalse(provider.requests[1].taskInstruction.contains("Repair"))
         }
 
+
+    @Test
+    fun durableRemoteGateRunsBeforeProviderAndLeavesDirectResultPendingUntilCommit() =
+        runTest {
+            val events = mutableListOf<String>()
+            val gate = RecordingRemoteCallGate(events)
+            val provider =
+                object : TextLlmProvider {
+                    override suspend fun capabilities(profile: ProviderProfile) =
+                        ProviderCapabilities(
+                            supportsJsonSchema = true,
+                            contextWindowTokens = 100_000,
+                            maxOutputTokens = 4_096,
+                        )
+
+                    override suspend fun discoverModels(profile: ProviderProfile) =
+                        Result.success(emptyList<ProviderModel>())
+
+                    override suspend fun testConnection(profile: ProviderProfile) =
+                        ConnectionTestResult(true, capabilities(profile))
+
+                    override suspend fun generate(
+                        profile: ProviderProfile,
+                        request: LlmGenerationRequest,
+                    ): Result<LlmGenerationResponse> {
+                        events += "provider:${request.requestId}"
+                        return Result.success(
+                            LlmGenerationResponse(
+                                requestId = request.requestId,
+                                content = validJson("S00001"),
+                                usage = null,
+                            ),
+                        )
+                    }
+
+                    override fun cancel(requestId: String) = Unit
+                }
+            val engine = AiSummaryEngine(idFactory = { "durable-1" }, sleeper = {})
+
+            val output =
+                engine.generate(
+                    provider,
+                    AiSummaryEngineRequest(
+                        input = transcriptInput(),
+                        profile = profile(),
+                        mode = AiSummaryMode.SMART,
+                        template = SummaryTemplateCatalog.smart(),
+                        remoteCallGate = gate,
+                    ),
+                )
+
+            assertEquals(
+                listOf(
+                    "begin:durable-1:DIRECT:direct:replaces=null",
+                    "provider:durable-1",
+                ),
+                events,
+            )
+            assertEquals("durable-1", output.pendingRemoteRequestId)
+        }
+
+    @Test
+    fun generationFailureIsNotAutomaticallyReplayedAfterDurableDispatch() =
+        runTest {
+            var providerCalls = 0
+            val gate = RecordingRemoteCallGate(mutableListOf())
+            val timeout =
+                ProviderFailure(
+                    code = ProviderErrorCode.TIMEOUT,
+                    sanitizedMessage = "timeout",
+                    retryable = true,
+                )
+            val provider =
+                object : TextLlmProvider {
+                    override suspend fun capabilities(profile: ProviderProfile) =
+                        ProviderCapabilities(
+                            supportsJsonSchema = true,
+                            contextWindowTokens = 100_000,
+                            maxOutputTokens = 4_096,
+                        )
+
+                    override suspend fun discoverModels(profile: ProviderProfile) =
+                        Result.success(emptyList<ProviderModel>())
+
+                    override suspend fun testConnection(profile: ProviderProfile) =
+                        ConnectionTestResult(true, capabilities(profile))
+
+                    override suspend fun generate(
+                        profile: ProviderProfile,
+                        request: LlmGenerationRequest,
+                    ): Result<LlmGenerationResponse> {
+                        providerCalls++
+                        return Result.failure(TestProviderFailure(timeout))
+                    }
+
+                    override fun cancel(requestId: String) = Unit
+                }
+            var requestOrdinal = 0
+            val engine =
+                AiSummaryEngine(
+                    idFactory = { "no-replay-${++requestOrdinal}" },
+                    sleeper = {},
+                )
+
+            val result =
+                runCatching {
+                    engine.generate(
+                        provider,
+                        AiSummaryEngineRequest(
+                            input = transcriptInput(),
+                            profile = profile(),
+                            mode = AiSummaryMode.SMART,
+                            template = SummaryTemplateCatalog.smart(),
+                            remoteCallGate = gate,
+                        ),
+                    )
+                }
+
+            assertTrue(result.isFailure)
+            assertEquals(1, providerCalls)
+            assertEquals(1, requestOrdinal)
+        }
+
+    @Test
+    fun structuredRepairReplacesPreviousInFlightRequestWithoutSafeReplayGap() =
+        runTest {
+            val events = mutableListOf<String>()
+            val gate = RecordingRemoteCallGate(events)
+            val provider =
+                QueueProvider(
+                    capabilities =
+                        ProviderCapabilities(
+                            supportsJsonSchema = true,
+                            contextWindowTokens = 100_000,
+                            maxOutputTokens = 4_096,
+                        ),
+                    responses =
+                        ArrayDeque(
+                            listOf(
+                                Result.success(LlmGenerationResponse("first", "not-json", null)),
+                                Result.success(
+                                    LlmGenerationResponse(
+                                        "second",
+                                        validJson("S00001"),
+                                        null,
+                                    ),
+                                ),
+                            ),
+                        ),
+                )
+            var requestOrdinal = 0
+            val engine =
+                AiSummaryEngine(
+                    idFactory = { "repair-${++requestOrdinal}" },
+                    sleeper = {},
+                )
+
+            val output =
+                engine.generate(
+                    provider,
+                    AiSummaryEngineRequest(
+                        input = transcriptInput(),
+                        profile = profile(),
+                        mode = AiSummaryMode.SMART,
+                        template = SummaryTemplateCatalog.smart(),
+                        remoteCallGate = gate,
+                    ),
+                )
+
+            assertEquals(
+                listOf(
+                    "begin:repair-1:DIRECT:direct:replaces=null",
+                    "begin:repair-2:REPAIR:direct:repair:1:replaces=repair-1",
+                ),
+                events,
+            )
+            assertEquals("repair-2", output.pendingRemoteRequestId)
+            assertEquals(2, provider.requests.size)
+        }
+
     @Test
     fun retryPolicyOnlyRetriesDeclaredTransientFailures() {
         val policy = ProviderRetryPolicy(maxAttempts = 3, baseDelayMs = 100)
@@ -388,6 +568,27 @@ class SummaryPipelineTest {
     private class CharacterEstimator : TokenEstimator {
         override fun estimate(text: String): Int = text.length
     }
+
+
+    private class RecordingRemoteCallGate(
+        private val events: MutableList<String>,
+    ) : SummaryRemoteCallGate {
+        override suspend fun begin(
+            call: SummaryRemoteCallDescriptor,
+            replacesRequestId: String?,
+        ) {
+            events +=
+                "begin:${call.requestId}:${call.stepKind}:${call.stepKey}:replaces=$replacesRequestId"
+        }
+
+        override suspend fun resolve(requestId: String) {
+            events += "resolve:$requestId"
+        }
+    }
+
+    private class TestProviderFailure(
+        override val failure: ProviderFailure,
+    ) : RuntimeException(), ProviderFailureCarrier
 
     private class QueueProvider(
         private val capabilities: ProviderCapabilities,

@@ -35,11 +35,12 @@ import androidx.room.RoomDatabase
         AiSummaryUserMetadataEntity::class,
         AiSummaryRevisionEntity::class,
         RecordingContentSelectionEntity::class,
+        RecordingCandidateAttentionEntity::class,
         SearchDocumentEntity::class,
         SearchDocumentFtsEntity::class,
         SearchIndexStateEntity::class,
     ],
-    version = 7,
+    version = 11,
     exportSchema = true,
 )
 abstract class VoicaDatabase : RoomDatabase() {
@@ -51,7 +52,11 @@ abstract class VoicaDatabase : RoomDatabase() {
 
     abstract fun aiSummaryDao(): AiSummaryDao
 
+    abstract fun aiSummaryOwnershipDao(): AiSummaryOwnershipDao
+
     abstract fun stage12cContentDao(): Stage12CContentDao
+
+    abstract fun stage13B5Qa4Dao(): Stage13B5Qa4Dao
 
     abstract fun searchDao(): SearchDao
 
@@ -71,6 +76,10 @@ abstract class VoicaDatabase : RoomDatabase() {
                     MIGRATION_4_5,
                     MIGRATION_5_6,
                     MIGRATION_6_7,
+                    MIGRATION_7_8,
+                    MIGRATION_8_9,
+                    MIGRATION_9_10,
+                    MIGRATION_10_11,
                 )
                 .build()
     }

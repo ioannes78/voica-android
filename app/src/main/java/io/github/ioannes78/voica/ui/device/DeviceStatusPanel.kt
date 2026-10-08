@@ -249,7 +249,11 @@ private fun connectionSummary(state: DeviceConnectionState): String =
         is DeviceConnectionState.Disconnecting -> stringResource(R.string.state_disconnecting)
         is DeviceConnectionState.Disconnected -> stringResource(R.string.state_disconnected)
         is DeviceConnectionState.ReconnectWaiting ->
-            stringResource(R.string.state_reconnect, state.attempt, state.delayMs / 1000)
+            if (state.attempt <= FAST_RECONNECT_VISIBLE_ATTEMPTS) {
+                stringResource(R.string.state_reconnect, state.attempt, state.delayMs / 1000)
+            } else {
+                "等待设备重新连接"
+            }
         is DeviceConnectionState.Error -> stringResource(R.string.state_error)
     }
 
@@ -269,3 +273,5 @@ private fun formatCapacity(kb: Long?): String {
         else -> "$kb KB"
     }
 }
+
+private const val FAST_RECONNECT_VISIBLE_ATTEMPTS = 3

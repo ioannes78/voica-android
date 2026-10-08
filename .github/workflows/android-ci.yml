@@ -55,10 +55,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v5.0.2
         with:
           gradle-version: "9.6.0"
-          # Same-repository PRs and manual runs may populate the Gradle cache.
-          # External fork PRs stay read-only so untrusted contributors cannot write shared cache state.
           cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
-          # Encrypt persisted Configuration Cache state so it can be safely reused across hosted runners.
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
 
       - name: Unit test and debug build
@@ -82,6 +79,7 @@ jobs:
           :engine:sherpa:assembleDebug
           :app:testDebugUnitTest
           :app:assembleQa
+          --no-configuration-cache
           --stacktrace
 
       - name: Verify stable QA signing identity
@@ -97,18 +95,14 @@ jobs:
             tr '[:upper:]' '[:lower:]')"
           test "$actual_cert_sha256" = "$expected_cert_sha256"
 
-      # Stage 13A migration gate: committed Room v1-v7 schemas must stay in sync.
+      # Stage 13B.5 QA4-R1 migration gate: committed Room v1-v11 schemas must stay in sync.
       - name: Verify committed Room schemas
         shell: bash
         run: |
           schema_dir="core/database/schemas"
-          test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/1.json"
-          test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/2.json"
-          test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/3.json"
-          test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/4.json"
-          test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/5.json"
-          test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/6.json"
-          test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/7.json"
+          for version in 1 2 3 4 5 6 7 8 9 10 11; do
+            test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/${version}.json"
+          done
           git diff --exit-code -- "$schema_dir"
           test -z "$(git status --porcelain --untracked-files=all -- "$schema_dir")"
 
@@ -151,7 +145,9 @@ jobs:
 
           for artifact_id in "${artifact_ids[@]}"; do
             echo "Deleting older artifact ${artifact_id} from branch ${TARGET_BRANCH}."
-            gh api --method DELETE \
+            if ! gh api --silent --method DELETE \
               -H "Accept: application/vnd.github+json" \
-              "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}"
+              "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}"; then
+              echo "::warning::Failed to delete older artifact ${artifact_id}; continuing cleanup."
+            fi
           done

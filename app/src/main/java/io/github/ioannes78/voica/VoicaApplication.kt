@@ -4,9 +4,6 @@ import android.app.ActivityManager
 import android.app.Application
 import android.os.Build
 import android.os.Process
-import androidx.lifecycle.DefaultLifecycleObserver
-import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.ProcessLifecycleOwner
 import io.github.ioannes78.voica.ai.AiSummaryEngine
 import io.github.ioannes78.voica.audio.AudioSourceResolver
 import io.github.ioannes78.voica.audio.PcmSourceResolver
@@ -15,10 +12,11 @@ import io.github.ioannes78.voica.ble.DeviceRepository
 import io.github.ioannes78.voica.database.AiSummaryRepository
 import io.github.ioannes78.voica.database.DiarizationRepository
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
+import io.github.ioannes78.voica.database.SearchIndexRebuilder
 import io.github.ioannes78.voica.database.Stage12CContentRepository
+import io.github.ioannes78.voica.database.Stage13B5Qa4Repository
 import io.github.ioannes78.voica.database.StructuredTranscriptInputBuilder
 import io.github.ioannes78.voica.database.TranscriptionRepository
-import io.github.ioannes78.voica.database.SearchIndexRebuilder
 import io.github.ioannes78.voica.database.UnifiedSearchRepository
 import io.github.ioannes78.voica.database.VoicaDatabase
 import io.github.ioannes78.voica.llm.AndroidKeystoreCredentialStore
@@ -26,9 +24,9 @@ import io.github.ioannes78.voica.llm.AppPrivateProviderProfileStore
 import io.github.ioannes78.voica.llm.ProviderAdapterRegistry
 import io.github.ioannes78.voica.llm.ProviderConfigurationRepository
 import io.github.ioannes78.voica.llm.UrlConnectionLlmHttpTransport
+import io.github.ioannes78.voica.model.ModelUseRegistry
 import io.github.ioannes78.voica.playback.AndroidPlaybackController
 import io.github.ioannes78.voica.ui.theme.SharedPreferencesThemeSettingsStore
-import io.github.ioannes78.voica.model.ModelUseRegistry
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -136,29 +134,28 @@ class AppContainer(
             settingsStore = modelUpdateSettingsStore,
         )
 
-    val transcriptionRepository =
-        TranscriptionRepository(recordingDatabase)
-    val stage12CContentRepository =
-        Stage12CContentRepository(recordingDatabase)
-    val unifiedSearchRepository =
-        UnifiedSearchRepository(recordingDatabase)
+    val transcriptionRepository = TranscriptionRepository(recordingDatabase)
+    val stage12CContentRepository = Stage12CContentRepository(recordingDatabase)
+    val stage13B5Qa4Repository = Stage13B5Qa4Repository(recordingDatabase)
+    val unifiedSearchRepository = UnifiedSearchRepository(recordingDatabase)
     val searchIndexRebuilder =
         SearchIndexRebuilder(
             database = recordingDatabase,
             searchRepository = unifiedSearchRepository,
         )
 
-    val diarizationRepository =
-        DiarizationRepository(recordingDatabase)
+    val diarizationRepository = DiarizationRepository(recordingDatabase)
 
+    private val aiSummaryTaskOwnershipStore = AiSummaryTaskOwnershipStore(application)
     val aiSummaryRepository =
-        AiSummaryRepository(recordingDatabase)
-    val structuredTranscriptInputBuilder =
-        StructuredTranscriptInputBuilder(recordingDatabase)
-    val providerCredentialStore =
-        AndroidKeystoreCredentialStore(application)
-    val providerProfileStore =
-        AppPrivateProviderProfileStore(application)
+        AiSummaryRepository(
+            database = recordingDatabase,
+            currentOwnerTaskId = aiSummaryTaskOwnershipStore::currentTaskId,
+            isOwnerTaskActive = aiSummaryTaskOwnershipStore::isTaskActive,
+        )
+    val structuredTranscriptInputBuilder = StructuredTranscriptInputBuilder(recordingDatabase)
+    val providerCredentialStore = AndroidKeystoreCredentialStore(application)
+    val providerProfileStore = AppPrivateProviderProfileStore(application)
     val providerConfigurationRepository =
         ProviderConfigurationRepository(
             profileStore = providerProfileStore,
@@ -169,6 +166,7 @@ class AppContainer(
             transport = UrlConnectionLlmHttpTransport(),
             credentials = providerCredentialStore,
         )
+    private val aiSummaryWorkScheduler = AndroidAiSummaryWorkScheduler(application)
     val aiSummaryCoordinator =
         AiSummaryCoordinator(
             scope = applicationScope,
@@ -176,6 +174,7 @@ class AppContainer(
             inputBuilder = structuredTranscriptInputBuilder,
             profileStore = providerProfileStore,
             providerRegistry = providerAdapterRegistry,
+            workScheduler = aiSummaryWorkScheduler,
             engine = AiSummaryEngine(),
             isRecordingActive = recordingLibraryRepository::isRecordingActive,
         )
@@ -238,11 +237,43 @@ class AppContainer(
             localSpeechSettings = { localSpeechSettingsStore.settings.value },
         )
 
-    val playbackController =
+    val stage13B5Qa4AttentionReconciler =
+        Stage13B5Qa4AttentionReconciler(
+            scope = applicationScope,
+            aiSummaryRepository = aiSummaryRepository,
+        )
+
+    val longTaskNotificationController =
+        LongTaskNotificationController(
+            context = application,
+            scope = applicationScope,
+            recordingRepository = recordingLibraryRepository,
+            transcriptionCoordinator = transcriptionCoordinator,
+            diarizationCoordinator = diarizationCoordinator,
+            aiSummaryCoordinator = aiSummaryCoordinator,
+            aiSummaryRepository = aiSummaryRepository,
+            stage13B5Qa4Repository = stage13B5Qa4Repository,
+        )
+
+    val stage13B5Qa4CandidateNotificationController =
+        Stage13B5Qa4CandidateNotificationController(
+            context = application,
+            scope = applicationScope,
+            recordingRepository = recordingLibraryRepository,
+            qa4Repository = stage13B5Qa4Repository,
+        )
+
+    internal val playbackRuntime =
         AndroidPlaybackController(
             context = application,
             sourceResolver = audioSourceResolver,
             scope = applicationScope,
+        )
+
+    val playbackController =
+        ServiceBackedPlaybackController(
+            context = application,
+            delegate = playbackRuntime,
         )
 
     val localRecordingDeleteCoordinator =
@@ -269,21 +300,6 @@ class AppContainer(
             playbackController = playbackController,
         )
 
-    private val processLifecycleObserver =
-        object : DefaultLifecycleObserver {
-            override fun onStart(owner: LifecycleOwner) {
-                applicationScope.launch {
-                    playbackController.setAppForeground(true)
-                }
-            }
-
-            override fun onStop(owner: LifecycleOwner) {
-                applicationScope.launch {
-                    playbackController.setAppForeground(false)
-                }
-            }
-        }
-
     private val deviceAudioAssetValidator =
         DeviceAudioAssetValidator(
             repository = recordingLibraryRepository,
@@ -298,16 +314,21 @@ class AppContainer(
             onRegistered = canonicalAudioCoordinator::requestAutomatic,
         )
 
-    val deviceRepository: DeviceRepository =
+    private val deviceRuntime: DeviceRepository =
         DefaultDeviceRepository(
             context = application,
             parentScope = applicationScope,
             downloadedAssetRegistry = downloadedAssetRegistry,
         )
 
-    init {
-        ProcessLifecycleOwner.get().lifecycle.addObserver(processLifecycleObserver)
+    val deviceRepository: DeviceRepository =
+        ServiceBackedDeviceRepository(
+            context = application,
+            delegate = deviceRuntime,
+            scope = applicationScope,
+        )
 
+    init {
         applicationScope.launch {
             combine(
                 deviceRepository.recordingState,
@@ -344,7 +365,7 @@ class AppContainer(
             transcriptionCoordinator.reconcileOnStartup()
             diarizationCoordinator.reconcileOnStartup()
             autoDiarizationPostProcessor.recoverPendingOnStartup()
-            aiSummaryRepository.reconcileInterruptedOnStartup()
+            recoverAiSummaryWorkOnStartup(aiSummaryRepository, aiSummaryWorkScheduler)
             searchIndexRebuilder.rebuildIfRequired()
         }
     }

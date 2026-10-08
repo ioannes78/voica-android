@@ -37,6 +37,41 @@ interface TranscriptionDao {
 
     @Query(
         """
+        SELECT attention.* FROM transcriptions AS attention
+        WHERE attention.state IN (:states)
+          AND attention.terminalAcknowledgedAtMs IS NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM transcriptions AS newer
+              WHERE newer.recordingId = attention.recordingId
+                AND newer.createdAtMs > attention.createdAtMs
+          )
+        ORDER BY attention.updatedAtMs DESC, attention.createdAtMs DESC
+        """,
+    )
+    fun observeDurableAttention(states: List<String>): Flow<List<TranscriptionEntity>>
+
+    @Query(
+        """
+        SELECT attention.* FROM transcriptions AS attention
+        WHERE attention.recordingId = :recordingId
+          AND attention.state IN (:states)
+          AND attention.terminalAcknowledgedAtMs IS NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM transcriptions AS newer
+              WHERE newer.recordingId = attention.recordingId
+                AND newer.createdAtMs > attention.createdAtMs
+          )
+        ORDER BY attention.updatedAtMs DESC, attention.createdAtMs DESC
+        LIMIT 1
+        """,
+    )
+    fun observeDurableAttentionForRecording(
+        recordingId: String,
+        states: List<String>,
+    ): Flow<TranscriptionEntity?>
+
+    @Query(
+        """
         SELECT * FROM transcriptions
         WHERE recordingId = :recordingId AND state = 'COMPLETED'
         ORDER BY completedAtMs DESC, createdAtMs DESC
@@ -132,6 +167,40 @@ interface TranscriptionDao {
         completedAtMs: Long?,
         errorCode: String?,
         errorMessage: String?,
+    ): Int
+
+    @Query(
+        """
+        UPDATE transcriptions
+        SET terminalAcknowledgedAtMs = :nowMs,
+            updatedAtMs = :nowMs
+        WHERE id = :transcriptionId
+          AND state IN (:states)
+          AND terminalAcknowledgedAtMs IS NULL
+        """,
+    )
+    suspend fun acknowledgeTerminal(
+        transcriptionId: String,
+        states: List<String>,
+        nowMs: Long,
+    ): Int
+
+    @Query(
+        """
+        UPDATE transcriptions
+        SET terminalAcknowledgedAtMs = :nowMs,
+            updatedAtMs = :nowMs
+        WHERE recordingId = :recordingId
+          AND id != :exceptTranscriptionId
+          AND state IN (:states)
+          AND terminalAcknowledgedAtMs IS NULL
+        """,
+    )
+    suspend fun acknowledgePreviousAttention(
+        recordingId: String,
+        exceptTranscriptionId: String,
+        states: List<String>,
+        nowMs: Long,
     ): Int
 
     @Query(

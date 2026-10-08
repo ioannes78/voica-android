@@ -5,6 +5,7 @@ import android.content.pm.ApplicationInfo
 import android.os.Build
 import androidx.core.content.pm.PackageInfoCompat
 import io.github.ioannes78.voica.model.DecodingModelCatalogProvider
+import io.github.ioannes78.voica.model.DefaultModelInstallBackend
 import io.github.ioannes78.voica.model.DefaultModelManager
 import io.github.ioannes78.voica.model.HttpsModelCatalogTextSource
 import io.github.ioannes78.voica.model.ModelCatalogCodec
@@ -21,10 +22,6 @@ object VoicaModelChannel {
     const val BOOTSTRAP_CATALOG_ASSET = "model-catalog-v1.json"
     const val PRODUCTION_MANIFEST_URL =
         "https://raw.githubusercontent.com/ioannes78/voica-model-channel/main/manifests/production.json"
-    const val STAGE13A_STREAMING_CANDIDATE_MANIFEST_URL =
-        "https://github.com/ioannes78/voica-model-channel/releases/download/candidate-stage13a-streaming-asr-r1/production.json"
-    const val STAGE13A_ALL_CANDIDATE_MANIFEST_URL =
-        "https://github.com/ioannes78/voica-model-channel/releases/download/candidate-stage13a-all-r1/production.json"
 
     private const val PREFERENCES_NAME = "voica-model-channel"
     private const val KEY_DEBUG_MANIFEST_URL = "debug-manifest-url"
@@ -36,12 +33,19 @@ object VoicaModelChannel {
 
     fun configuredDebugManifestUrl(application: Application): String? {
         if (!isDebuggable(application)) return null
-        return application
-            .getSharedPreferences(PREFERENCES_NAME, Application.MODE_PRIVATE)
-            .getString(KEY_DEBUG_MANIFEST_URL, null)
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() }
-            ?.takeIf(::isAllowedDebugManifestUrl)
+        val preferences =
+            application.getSharedPreferences(PREFERENCES_NAME, Application.MODE_PRIVATE)
+        val configured =
+            preferences
+                .getString(KEY_DEBUG_MANIFEST_URL, null)
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?: return null
+        if (isPromotedStage13aDebugManifestUrl(configured)) {
+            preferences.edit().remove(KEY_DEBUG_MANIFEST_URL).apply()
+            return null
+        }
+        return configured.takeIf(::isAllowedDebugManifestUrl)
     }
 
     fun resolveManifestUrl(application: Application): String =
@@ -82,7 +86,23 @@ object VoicaModelChannel {
         }.getOrDefault(false)
 }
 
-private val STAGE13A_QA5_PRODUCT_MODEL_IDS =
+internal fun isPromotedStage13aDebugManifestUrl(value: String): Boolean =
+    runCatching {
+        val url = URL(value)
+        url.protocol.equals("https", ignoreCase = true) &&
+            url.host.equals("github.com", ignoreCase = true) &&
+            url.query.isNullOrEmpty() &&
+            url.ref.isNullOrEmpty() &&
+            url.path in PROMOTED_STAGE13A_CANDIDATE_PATHS
+    }.getOrDefault(false)
+
+private val PROMOTED_STAGE13A_CANDIDATE_PATHS =
+    setOf(
+        "/ioannes78/voica-model-channel/releases/download/candidate-stage13a-all-r1/production.json",
+        "/ioannes78/voica-model-channel/releases/download/candidate-stage13a-streaming-asr-r1/production.json",
+    )
+
+private val PRODUCT_MODEL_IDS =
     setOf(
         Stage8ModelIds.VAD,
         Stage8ModelIds.PUNCTUATION,
@@ -124,25 +144,75 @@ fun createVoicaModelManager(
             catalog.copy(
                 models =
                     catalog.models.filter { descriptor ->
-                        descriptor.modelId in STAGE13A_QA5_PRODUCT_MODEL_IDS
+                        descriptor.modelId in PRODUCT_MODEL_IDS
                     },
             )
         }
 
-    return DefaultModelManager(
-        bundledCatalog = bundledCatalog,
-        remoteCatalogProvider = productCatalogProvider,
-        environment =
-            ModelEnvironment(
-                runtimeId = SherpaRuntime.RUNTIME_ID,
-                runtimeVersion = SherpaRuntime.RUNTIME_VERSION,
-                abi = Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a",
-                sdkInt = Build.VERSION.SDK_INT,
-                appVersionCode = appVersionCode,
-            ),
-        storage = ModelStorage(File(application.noBackupFilesDir, "models")),
-        packageDirectory = File(application.cacheDir, "model-packages"),
-        useRegistry = useRegistry,
-        candidateValidator = AndroidIsolatedModelCandidateValidator(application),
+    val environment =
+        ModelEnvironment(
+            runtimeId = SherpaRuntime.RUNTIME_ID,
+            runtimeVersion = SherpaRuntime.RUNTIME_VERSION,
+            abi = Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a",
+            sdkInt = Build.VERSION.SDK_INT,
+            appVersionCode = appVersionCode,
+        )
+    val storage = ModelStorage(File(application.noBackupFilesDir, "models"))
+    val packageDirectory = File(application.cacheDir, "model-packages")
+    val candidateValidator = AndroidIsolatedModelCandidateValidator(application)
+
+    val baseManager =
+        DefaultModelManager(
+            bundledCatalog = bundledCatalog,
+            remoteCatalogProvider = productCatalogProvider,
+            environment = environment,
+            storage = storage,
+            packageDirectory = packageDirectory,
+            useRegistry = useRegistry,
+            candidateValidator = candidateValidator,
+        )
+    val installBackend =
+        DefaultModelInstallBackend(
+            modelManager = baseManager,
+            environment = environment,
+            storage = storage,
+            packageDirectory = packageDirectory,
+            useRegistry = useRegistry,
+            candidateValidator = candidateValidator,
+        )
+    val journalStore =
+        ModelInstallJournalStore(
+            File(application.noBackupFilesDir, "model-install-journal"),
+        )
+    val startupInterruptedOperationIds =
+        ModelInstallStartupRecoveryPolicy(
+            application = application,
+            journalStore = journalStore,
+        ).interruptManualInstallsAfterUserRequestedExit()
+    val scheduler = AndroidModelInstallScheduler(application)
+    val orchestrator =
+        ModelInstallOrchestrator(
+            backend = installBackend,
+            journalStore = journalStore,
+            scheduler = scheduler,
+        )
+    val durableManager =
+        DurableAwareModelManager(
+            delegate = baseManager,
+            orchestrator = orchestrator,
+            backend = installBackend,
+            journalStore = journalStore,
+            scheduler = scheduler,
+            scope = ModelInstallRuntime.processScope,
+        )
+
+    ModelInstallRuntime.register(
+        application = application,
+        manager = durableManager,
+        orchestrator = orchestrator,
+        journalStore = journalStore,
+        scheduler = scheduler,
+        startupInterruptedOperationIds = startupInterruptedOperationIds,
     )
+    return durableManager
 }

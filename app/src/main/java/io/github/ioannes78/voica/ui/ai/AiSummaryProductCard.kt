@@ -47,6 +47,7 @@ import io.github.ioannes78.voica.TextExportFormat
 import io.github.ioannes78.voica.TextShareOutcome
 import io.github.ioannes78.voica.ai.AiSummaryEnginePhase
 import io.github.ioannes78.voica.ai.SummaryTemplateCatalog
+import io.github.ioannes78.voica.database.AiSummaryEntity
 import io.github.ioannes78.voica.database.AiSummaryStateValue
 import kotlinx.coroutines.launch
 
@@ -59,11 +60,18 @@ fun AiSummaryProductCard(
     contentViewModel: AiSummaryContentViewModel,
     onOpenSettings: () -> Unit,
     onSeekEvidence: (Long) -> Unit,
+    showTransientHeader: Boolean = true,
+    attentionOverride: AiSummaryEntity? = null,
+    dismissedStaleSummaryFingerprint: String? = null,
+    onIgnoreStale: (String) -> Unit = {},
 ) {
     val runState by viewModel.runState.collectAsState()
     val selected by viewModel.selected.collectAsState()
     val candidateId by viewModel.candidateId.collectAsState()
+    val internalAttention by viewModel.attention.collectAsState()
+    val attention = attentionOverride ?: internalAttention
     val stale by viewModel.stale.collectAsState()
+    val staleFingerprint by viewModel.staleFingerprint.collectAsState()
     val provider by viewModel.provider.collectAsState()
     val providers by viewModel.providers.collectAsState()
     val generationModels by viewModel.generationModels.collectAsState()
@@ -89,6 +97,12 @@ fun AiSummaryProductCard(
 
     LaunchedEffect(transcriptionId) {
         viewModel.bind(transcriptionId)
+    }
+    LaunchedEffect(runState, transcriptionId) {
+        val state = runState
+        if (state is AiSummaryRunState.Completed && state.transcriptionId == transcriptionId) {
+            viewModel.acknowledgeTerminal(state.summaryId)
+        }
     }
     LaunchedEffect(Unit) {
         viewModel.refreshProvider()
@@ -173,7 +187,28 @@ fun AiSummaryProductCard(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        if (stale && selected?.entity?.status == AiSummaryStateValue.COMPLETED) {
+        attention?.let { attentionEntity ->
+            AiSummaryAttentionBanner(
+                entity = attentionEntity,
+                actionEnabled = running == null,
+                onPrimaryAction = {
+                    if (attentionEntity.status == AiSummaryStateValue.FAILED) {
+                        generationOpen = true
+                    } else {
+                        viewModel.retryAttention(attentionEntity.id)
+                    }
+                },
+                onIgnore = { viewModel.ignoreAttention(attentionEntity.id) },
+            )
+        }
+
+        val visibleStaleFingerprint =
+            staleFingerprint?.takeUnless { it == dismissedStaleSummaryFingerprint }
+        if (
+            stale &&
+            visibleStaleFingerprint != null &&
+            selected?.entity?.status == AiSummaryStateValue.COMPLETED
+        ) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = MaterialTheme.shapes.medium,
@@ -191,35 +226,42 @@ fun AiSummaryProductCard(
                     )
                     TextButton(
                         enabled = running == null,
-                        onClick = { viewModel.regenerateSelected() },
+                        onClick = { generationOpen = true },
                     ) {
-                        Text("重新生成总结")
+                        Text("生成新总结")
+                    }
+                    TextButton(
+                        onClick = { onIgnoreStale(visibleStaleFingerprint) },
+                    ) {
+                        Text("忽略")
                     }
                 }
             }
         }
 
-        candidateId?.let { newSummaryId ->
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.medium,
-                tonalElevation = 1.dp,
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+        if (showTransientHeader) {
+            candidateId?.let { newSummaryId ->
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.medium,
+                    tonalElevation = 1.dp,
                 ) {
-                    Text(
-                        "新的总结结果已生成",
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    TextButton(onClick = { viewModel.selectSummary(newSummaryId) }) {
-                        Text("查看")
-                    }
-                    Button(onClick = { viewModel.adoptSummaryResult(newSummaryId) }) {
-                        Text("使用新结果")
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(
+                            "新的总结结果已生成",
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        TextButton(onClick = { viewModel.selectSummary(newSummaryId) }) {
+                            Text("查看")
+                        }
+                        Button(onClick = { viewModel.adoptSummaryResult(newSummaryId) }) {
+                            Text("使用新结果")
+                        }
                     }
                 }
             }
@@ -387,7 +429,7 @@ fun AiSummaryProductCard(
             OutlinedButton(onClick = onOpenSettings) { Text("前往 AI 设置") }
         }
 
-        if (running != null) {
+        if (showTransientHeader && running != null) {
             Text(
                 productProgressText(running),
                 style = MaterialTheme.typography.bodySmall,
@@ -418,11 +460,13 @@ fun AiSummaryProductCard(
                     Text(current.entity.displayText.orEmpty())
 
                 current.entity.status == AiSummaryStateValue.INTERRUPTED -> {
-                    Text("上次生成已中断，可继续生成。")
-                    Button(
-                        enabled = running == null,
-                        onClick = { viewModel.resumeSelected() },
-                    ) { Text("继续生成") }
+                    if (attention?.id != current.entity.id) {
+                        Text("上次生成已中断，可继续生成。")
+                        Button(
+                            enabled = running == null,
+                            onClick = { viewModel.resumeSelected() },
+                        ) { Text("继续生成") }
+                    }
                 }
 
                 !current.entity.sanitizedErrorMessage.isNullOrBlank() ->
@@ -611,6 +655,95 @@ fun AiSummaryProductCard(
             }
         }
     }
+}
+
+@Composable
+private fun AiSummaryAttentionBanner(
+    entity: AiSummaryEntity,
+    actionEnabled: Boolean,
+    onPrimaryAction: () -> Unit,
+    onIgnore: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        tonalElevation = 2.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                aiSummaryAttentionTitle(entity),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                aiSummaryAttentionMessage(entity),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            aiSummaryAttentionDiagnostic(entity)?.let { diagnostic ->
+                Text(
+                    diagnostic,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Button(
+                    enabled = actionEnabled,
+                    onClick = onPrimaryAction,
+                ) {
+                    Text(
+                        when (entity.status) {
+                            AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT -> "手动重试"
+                            AiSummaryStateValue.INTERRUPTED -> "继续生成"
+                            else -> "生成新总结"
+                        },
+                    )
+                }
+                TextButton(onClick = onIgnore) {
+                    Text("忽略")
+                }
+            }
+        }
+    }
+}
+
+internal fun aiSummaryAttentionTitle(entity: AiSummaryEntity): String =
+    when (entity.status) {
+        AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT -> "上一次总结请求状态无法确认"
+        AiSummaryStateValue.INTERRUPTED -> "AI 总结已中断"
+        else -> "AI 总结生成失败"
+    }
+
+internal fun aiSummaryAttentionMessage(entity: AiSummaryEntity): String =
+    when (entity.status) {
+        AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT ->
+            "为避免重复生成或重复计费，Voica 不会自动重新发送该请求。"
+        AiSummaryStateValue.INTERRUPTED ->
+            "上次生成在远端请求确认前中断，可以继续生成或忽略本次提醒。"
+        else ->
+            "AI 服务请求失败，请选择 AI 服务或模型重新生成。"
+    }
+
+internal fun aiSummaryAttentionDiagnostic(entity: AiSummaryEntity): String? {
+    val raw = listOfNotNull(entity.sanitizedErrorMessage, entity.errorCode).joinToString(" ")
+    val httpStatus = Regex("""HTTP\s*\d{3}""", RegexOption.IGNORE_CASE).find(raw)?.value?.uppercase()
+    val technical =
+        when {
+            httpStatus != null -> httpStatus
+            entity.status == AiSummaryStateValue.FAILED -> entity.errorCode
+            else -> null
+        }
+    return listOfNotNull(
+        entity.providerNameSnapshot.takeIf { it.isNotBlank() },
+        entity.model.takeIf { it.isNotBlank() },
+        technical?.takeIf { it.isNotBlank() },
+    ).takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }
 
 private fun productProgressText(state: AiSummaryRunState.Running): String =

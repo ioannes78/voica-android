@@ -20,7 +20,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -41,23 +40,30 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import io.github.ioannes78.voica.AiSummaryRunState
 import io.github.ioannes78.voica.DiarizationBenchmarkRunner
 import io.github.ioannes78.voica.DiarizationRunState
 import io.github.ioannes78.voica.SpeechBenchmarkRunner
+import io.github.ioannes78.voica.Stage13B5Qa4LifecycleViewModel
 import io.github.ioannes78.voica.TranscriptionRunState
+import io.github.ioannes78.voica.VoicaApplication
 import io.github.ioannes78.voica.database.AudioAssetRole
 import io.github.ioannes78.voica.database.AudioIntegrityState
 import io.github.ioannes78.voica.database.AudioValidationState
 import io.github.ioannes78.voica.database.RecordingLibraryItem
 import io.github.ioannes78.voica.database.SearchDocumentEntity
+import io.github.ioannes78.voica.database.TranscriptionEntity
+import io.github.ioannes78.voica.database.TranscriptionStateValue
 import io.github.ioannes78.voica.ui.ai.AiSummaryContentViewModel
 import io.github.ioannes78.voica.ui.ai.AiSummaryProductCard
+import io.github.ioannes78.voica.ui.ai.AiSummaryTransientHeader
 import io.github.ioannes78.voica.ui.ai.AiSummaryViewModel
 import io.github.ioannes78.voica.ui.diarization.DiarizationStatusCard
 import io.github.ioannes78.voica.ui.diarization.DiarizationViewModel
-import io.github.ioannes78.voica.ui.playback.MiniPlaybackBar
 import io.github.ioannes78.voica.ui.playback.PlaybackViewModel
 import io.github.ioannes78.voica.ui.playback.RecordingPlaybackCard
 import io.github.ioannes78.voica.ui.transcript.TranscriptContinuousReading
@@ -105,11 +111,29 @@ internal fun RecordingDetailProductScreen(
     onCancelCanonical: (String) -> Unit,
     deviceRecordingActive: Boolean,
     initialDestination: RecordingDetailDestination,
+    navigationRequestToken: Int,
     onDestinationChanged: (RecordingDetailDestination?) -> Unit,
 ) {
     @Suppress("UNUSED_VARIABLE") val ignoredSpeechBenchmarkRunner = speechBenchmarkRunner
     @Suppress("UNUSED_VARIABLE") val ignoredDiarizationBenchmarkRunner = diarizationBenchmarkRunner
     @Suppress("UNUSED_VARIABLE") val ignoredSearchTarget = initialSearchTarget
+
+    val application = LocalContext.current.applicationContext as VoicaApplication
+    val qa4LifecycleViewModel: Stage13B5Qa4LifecycleViewModel =
+        viewModel(
+            factory =
+                remember(
+                    application.container.stage13B5Qa4Repository,
+                    application.container.aiSummaryRepository,
+                    application.container.stage12CContentRepository,
+                ) {
+                    Stage13B5Qa4LifecycleViewModel.Factory(
+                        qa4Repository = application.container.stage13B5Qa4Repository,
+                        aiSummaryRepository = application.container.aiSummaryRepository,
+                        contentRepository = application.container.stage12CContentRepository,
+                    )
+                },
+        )
 
     var selectedTab by rememberSaveable(recording.id, initialDestination) {
         mutableStateOf(initialDestination.toProductTab())
@@ -133,16 +157,35 @@ internal fun RecordingDetailProductScreen(
     val transcriptContentState by transcriptContentViewModel.state.collectAsState()
     val diarizationState by diarizationViewModel.runState.collectAsState()
     val diarizationNotice by diarizationViewModel.notice.collectAsState()
+    val aiSummaryRunState by aiSummaryViewModel.runState.collectAsState()
+    val aiSummaryCandidateId by aiSummaryViewModel.candidateId.collectAsState()
+    val selectedAiSummary by aiSummaryViewModel.selected.collectAsState()
+    val candidateAttention by qa4LifecycleViewModel.candidateAttention.collectAsState()
+    val transcriptionAttention by qa4LifecycleViewModel.transcriptionAttention.collectAsState()
+    val currentAiSummaryId by qa4LifecycleViewModel.currentAiSummaryId.collectAsState()
     val syncState by transcriptPlaybackSyncViewModel.state.collectAsState()
     val playbackSnapshot by playbackViewModel.snapshot.collectAsState()
 
+    val visibleTranscriptionCandidateId =
+        candidateId?.takeUnless { it == candidateAttention?.dismissedTranscriptionCandidateId }
+    val visibleAiSummaryCandidateId =
+        aiSummaryCandidateId?.takeUnless { it == candidateAttention?.dismissedAiSummaryCandidateId }
     val recordingDocument = document?.takeIf { it.recordingId == recording.id }
     val candidatePreview =
-        candidateId != null && recordingDocument?.transcriptionId == candidateId
+        visibleTranscriptionCandidateId != null &&
+            recordingDocument?.transcriptionId == visibleTranscriptionCandidateId
+    val aiSummaryCandidatePreview =
+        visibleAiSummaryCandidateId != null &&
+            selectedAiSummary?.entity?.id == visibleAiSummaryCandidateId
     val transcriptionBusy =
         (transcriptionState as? TranscriptionRunState.Running)?.recordingId == recording.id
     val diarizationBusy =
         (diarizationState as? DiarizationRunState.Running)?.recordingId == recording.id
+    val summaryRunning =
+        (aiSummaryRunState as? AiSummaryRunState.Running)
+            ?.takeIf { running ->
+                recordingDocument?.transcriptionId == running.transcriptionId
+            }
     val canonicalReady =
         recording.assets.any { asset ->
             asset.role == AudioAssetRole.CANONICAL_WAV &&
@@ -153,6 +196,16 @@ internal fun RecordingDetailProductScreen(
 
     LaunchedEffect(recording.id) {
         transcriptionViewModel.viewVersions(recording.id)
+        qa4LifecycleViewModel.bind(recording.id)
+    }
+    LaunchedEffect(recording.id, navigationRequestToken) {
+        if (navigationRequestToken > 0) {
+            val target = initialDestination.toProductTab()
+            if (target != ProductDetailTab.TRANSCRIPT && candidatePreview) {
+                transcriptionViewModel.showCurrent(recording.id)
+            }
+            selectedTab = target
+        }
     }
     LaunchedEffect(recordingDocument?.transcriptionId, recordingDocument?.alignmentId) {
         transcriptContentViewModel.bind(recordingDocument)
@@ -254,6 +307,98 @@ internal fun RecordingDetailProductScreen(
             }
         }
 
+        when (selectedTab) {
+            ProductDetailTab.TRANSCRIPT -> {
+                if (
+                    shouldShowTranscriptionStatus(transcriptionState, recording.id) ||
+                    shouldShowDiarizationStatus(diarizationState, recording.id) ||
+                    visibleTranscriptionCandidateId != null ||
+                    transcriptionAttention != null
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        if (shouldShowTranscriptionStatus(transcriptionState, recording.id)) {
+                            TranscriptionStatusCard(
+                                state = transcriptionState,
+                                recordingName = recording.displayName,
+                                notice = transcriptionNotice,
+                                onCancel = transcriptionViewModel::cancel,
+                            )
+                        }
+                        transcriptionAttention?.let { attention ->
+                            TranscriptionAttentionBanner(
+                                entity = attention,
+                                actionEnabled = !transcriptionBusy,
+                                onRestart = { transcriptionViewModel.startOffline(recording.id) },
+                                onIgnore = {
+                                    qa4LifecycleViewModel.ignoreTranscriptionAttention(attention.id)
+                                },
+                            )
+                        }
+                        if (shouldShowDiarizationStatus(diarizationState, recording.id)) {
+                            DiarizationStatusCard(
+                                state = diarizationState,
+                                recordingName = recording.displayName,
+                                notice = diarizationNotice,
+                                onCancel = diarizationViewModel::cancel,
+                                onRetry = diarizationViewModel::retry,
+                                onOpenSettings = onOpenSettings,
+                            )
+                        }
+                        visibleTranscriptionCandidateId?.let { newResultId ->
+                            CandidateTranscriptionBanner(
+                                previewing = candidatePreview,
+                                onPreview = {
+                                    transcriptViewMode = TranscriptViewMode.READING
+                                    transcriptionViewModel.previewCandidate(newResultId)
+                                },
+                                onReturnCurrent = {
+                                    transcriptionViewModel.showCurrent(recording.id)
+                                },
+                                onAdopt = {
+                                    transcriptViewMode = TranscriptViewMode.READING
+                                    transcriptionViewModel.adoptCandidate(newResultId)
+                                },
+                                onIgnore = {
+                                    if (candidatePreview) {
+                                        transcriptionViewModel.showCurrent(recording.id)
+                                    }
+                                    qa4LifecycleViewModel.dismissTranscriptionCandidate(newResultId)
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+
+            ProductDetailTab.SUMMARY -> {
+                if (recordingDocument != null) {
+                    AiSummaryTransientHeader(
+                        running = summaryRunning,
+                        candidateId = visibleAiSummaryCandidateId,
+                        candidatePreviewing = aiSummaryCandidatePreview,
+                        recordingName = recording.displayName,
+                        onCancel = aiSummaryViewModel::cancel,
+                        onViewCandidate = aiSummaryViewModel::selectSummary,
+                        onReturnCurrent = {
+                            currentAiSummaryId?.let(aiSummaryViewModel::selectSummary)
+                        },
+                        onAdoptCandidate = aiSummaryViewModel::adoptSummaryResult,
+                        onIgnoreCandidate = { candidate ->
+                            if (aiSummaryCandidatePreview) {
+                                currentAiSummaryId?.let(aiSummaryViewModel::selectSummary)
+                            }
+                            qa4LifecycleViewModel.dismissAiSummaryCandidate(candidate)
+                        },
+                    )
+                }
+            }
+
+            ProductDetailTab.RECORDING -> Unit
+        }
+
         Box(
             modifier =
                 Modifier
@@ -318,48 +463,6 @@ internal fun RecordingDetailProductScreen(
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        if (shouldShowTranscriptionStatus(transcriptionState, recording.id)) {
-                            item(key = "transcription-status") {
-                                TranscriptionStatusCard(
-                                    state = transcriptionState,
-                                    recordingName = recording.displayName,
-                                    notice = transcriptionNotice,
-                                    onCancel = transcriptionViewModel::cancel,
-                                )
-                            }
-                        }
-                        if (shouldShowDiarizationStatus(diarizationState, recording.id)) {
-                            item(key = "diarization-status") {
-                                DiarizationStatusCard(
-                                    state = diarizationState,
-                                    recordingName = recording.displayName,
-                                    notice = diarizationNotice,
-                                    onCancel = diarizationViewModel::cancel,
-                                    onRetry = diarizationViewModel::retry,
-                                    onOpenSettings = onOpenSettings,
-                                )
-                            }
-                        }
-
-                        candidateId?.let { newResultId ->
-                            item(key = "transcription-candidate") {
-                                CandidateTranscriptionBanner(
-                                    previewing = candidatePreview,
-                                    onPreview = {
-                                        transcriptViewMode = TranscriptViewMode.READING
-                                        transcriptionViewModel.previewCandidate(newResultId)
-                                    },
-                                    onReturnCurrent = {
-                                        transcriptionViewModel.showCurrent(recording.id)
-                                    },
-                                    onAdopt = {
-                                        transcriptViewMode = TranscriptViewMode.READING
-                                        transcriptionViewModel.adoptCandidate(newResultId)
-                                    },
-                                )
-                            }
-                        }
-
                         if (recordingDocument == null) {
                             item(key = "transcription-empty") {
                                 EmptyTranscriptionPanel(
@@ -523,30 +626,22 @@ internal fun RecordingDetailProductScreen(
                                         onSeekEvidence = { sampleIndex ->
                                             playbackViewModel.seekAndPlay(recording.id, sampleIndex)
                                         },
+                                        showTransientHeader = false,
+                                        dismissedStaleSummaryFingerprint =
+                                            candidateAttention?.dismissedStaleSummaryFingerprint,
+                                        onIgnoreStale = qa4LifecycleViewModel::dismissStaleSummary,
                                     )
                             }
                         }
                     }
             }
         }
-
-        if (selectedTab != ProductDetailTab.RECORDING) {
-            MiniPlaybackBar(
-                recordingId = recording.id,
-                recordingName = recording.displayName,
-                durationMs = recording.mediaDurationMs ?: recording.deviceReportedDurationMs,
-                canonicalReady = canonicalReady,
-                deviceRecordingActive = deviceRecordingActive,
-                playbackViewModel = playbackViewModel,
-                onOpenFullPlayer = { selectedTab = ProductDetailTab.RECORDING },
-            )
-        }
     }
 
     if (renameOpen) {
         AlertDialog(
             onDismissRequest = { renameOpen = false },
-            title = { Text("重命名录音") },
+            title = { Text("重命名录音？") },
             text = {
                 OutlinedTextField(
                     value = renameValue,
@@ -598,11 +693,60 @@ internal fun RecordingDetailProductScreen(
 }
 
 @Composable
+private fun TranscriptionAttentionBanner(
+    entity: TranscriptionEntity,
+    actionEnabled: Boolean,
+    onRestart: () -> Unit,
+    onIgnore: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        tonalElevation = 2.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                if (entity.state == TranscriptionStateValue.INTERRUPTED) {
+                    "上一次转写已中断"
+                } else {
+                    "转写失败"
+                },
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                if (entity.state == TranscriptionStateValue.INTERRUPTED) {
+                    "应用进程在转写完成前结束，需要重新进行转写。"
+                } else {
+                    "上一次转写没有完成，请重新进行转写。"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Button(enabled = actionEnabled, onClick = onRestart) {
+                    Text("重新转写")
+                }
+                TextButton(onClick = onIgnore) {
+                    Text("忽略")
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun CandidateTranscriptionBanner(
     previewing: Boolean,
     onPreview: () -> Unit,
     onReturnCurrent: () -> Unit,
     onAdopt: () -> Unit,
+    onIgnore: () -> Unit,
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -615,7 +759,11 @@ private fun CandidateTranscriptionBanner(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
-                "新的转写结果已生成",
+                if (previewing) {
+                    "新结果预览 · 当前转写尚未切换"
+                } else {
+                    "新的转写结果已生成"
+                },
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -623,6 +771,7 @@ private fun CandidateTranscriptionBanner(
                 Text(if (previewing) "返回当前" else "查看")
             }
             Button(onClick = onAdopt) { Text("使用新结果") }
+            TextButton(onClick = onIgnore) { Text("忽略") }
         }
     }
 }

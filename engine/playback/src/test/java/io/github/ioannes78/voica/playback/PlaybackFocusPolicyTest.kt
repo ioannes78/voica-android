@@ -10,10 +10,10 @@ class PlaybackFocusPolicyTest {
         val policy = PlaybackFocusPolicy()
 
         policy.onTransientLoss(wasPlaying = true)
-        assertTrue(policy.consumeResumeOnGain(appForeground = true))
+        assertTrue(policy.consumeResumeOnGain())
 
         policy.onTransientLoss(wasPlaying = false)
-        assertFalse(policy.consumeResumeOnGain(appForeground = true))
+        assertFalse(policy.consumeResumeOnGain())
     }
 
     @Test
@@ -23,15 +23,15 @@ class PlaybackFocusPolicyTest {
 
         policy.cancelResume()
 
-        assertFalse(policy.consumeResumeOnGain(appForeground = true))
+        assertFalse(policy.consumeResumeOnGain())
     }
 
     @Test
-    fun gainWhileBackgroundDoesNotResumeLater() {
+    fun focusGainCanResumeWhileAppIsBackgrounded() {
         val policy = PlaybackFocusPolicy()
         policy.onTransientLoss(wasPlaying = true)
 
-        assertFalse(policy.consumeResumeOnGain(appForeground = false))
-        assertFalse(policy.consumeResumeOnGain(appForeground = true))
+        assertTrue(policy.consumeResumeOnGain())
+        assertFalse(policy.consumeResumeOnGain())
     }
 }

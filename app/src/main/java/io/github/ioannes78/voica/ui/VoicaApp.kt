@@ -22,6 +22,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PauseCircle
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Bluetooth
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Settings
@@ -29,6 +31,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -56,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.ioannes78.voica.AiSummaryCoordinator
 import io.github.ioannes78.voica.AiSummaryRunState
+import io.github.ioannes78.voica.AppRecordingNavigation
 import io.github.ioannes78.voica.CanonicalAudioCoordinator
 import io.github.ioannes78.voica.DiarizationBenchmarkRunner
 import io.github.ioannes78.voica.DiarizationCoordinator
@@ -121,6 +125,7 @@ import io.github.ioannes78.voica.ui.library.RecordingDetailDestination
 import io.github.ioannes78.voica.ui.library.RecordingDetailScreen
 import io.github.ioannes78.voica.ui.library.RecordingLibraryRoute
 import io.github.ioannes78.voica.ui.library.RecordingLibraryViewModel
+import io.github.ioannes78.voica.ui.playback.GlobalMiniPlaybackBar
 import io.github.ioannes78.voica.ui.playback.PlaybackCard
 import io.github.ioannes78.voica.ui.playback.PlaybackViewModel
 import io.github.ioannes78.voica.ui.playback.formatPlaybackTime
@@ -330,11 +335,13 @@ fun VoicaApp(
     val globalDiarization by diarizationViewModel.runState.collectAsState()
     val globalAiSummary by aiSummaryViewModel.runState.collectAsState()
     val globalPlayback by playbackViewModel.snapshot.collectAsState()
+    val externalOpenRequest by AppRecordingNavigation.request.collectAsState()
     var openRequestToken by rememberSaveable { mutableIntStateOf(0) }
     var libraryOpenRequest by remember { mutableStateOf<GlobalRecordingOpenRequest?>(null) }
     var activeDetailContext by remember { mutableStateOf<GlobalDetailContext?>(null) }
     var dismissedTaskKeys by remember { mutableStateOf(setOf<String>()) }
     var terminalTaskNotices by remember { mutableStateOf<List<GlobalTaskItem>>(emptyList()) }
+    var lastExternalOpenToken by rememberSaveable { mutableStateOf<Long?>(null) }
 
     val liveGlobalTasks =
         buildGlobalTaskItems(
@@ -344,7 +351,10 @@ fun VoicaApp(
             recordings = libraryRecordings,
         )
     val liveRunningTasks = liveGlobalTasks.filterNot { it.terminal }
-    val liveTerminalTasks = liveGlobalTasks.filter { it.terminal }
+    val liveTerminalTasks =
+        liveGlobalTasks.filter { task ->
+            task.terminal && task.key.startsWith("diarization-")
+        }
 
     LaunchedEffect(activeDetailContext, liveTerminalTasks.map { it.key }) {
         val current = activeDetailContext
@@ -406,9 +416,18 @@ fun VoicaApp(
                     recordingId = recordingId,
                     destination = destination,
                 )
-            secondaryPageActive = false
+            activeDetailContext = GlobalDetailContext(recordingId, destination)
+            secondaryPageActive = true
             selectedTab = 1
         }
+
+    LaunchedEffect(externalOpenRequest?.token) {
+        val request = externalOpenRequest ?: return@LaunchedEffect
+        if (lastExternalOpenToken != request.token) {
+            lastExternalOpenToken = request.token
+            requestOpenRecording(request.recordingId, request.destination)
+        }
+    }
 
     val navigationColors =
         NavigationBarItemDefaults.colors(
@@ -449,62 +468,68 @@ fun VoicaApp(
             }
         },
         bottomBar = {
-            if (!secondaryPageActive) {
-                Column {
-                    if (shouldShowGlobalPlayback(globalPlayback)) {
-                        GlobalPlaybackStatusBar(
-                            snapshot = globalPlayback,
-                            recordingName =
-                                libraryRecordings.firstOrNull {
-                                    it.id == globalPlayback.recordingId
-                                }?.displayName,
-                            onPlay = playbackViewModel::play,
-                            onPause = playbackViewModel::pause,
-                            onOpen = {
-                                globalPlayback.recordingId?.let { id ->
-                                    requestOpenRecording(
-                                        id,
-                                        RecordingDetailDestination.PLAYBACK,
-                                    )
-                                }
-                            },
-                        )
-                    }
+            Column {
+                val suppressForFullPlayer =
+                    activeDetailContext?.let { detail ->
+                        detail.destination == RecordingDetailDestination.PLAYBACK &&
+                            detail.recordingId == globalPlayback.recordingId
+                    } == true
+                if (shouldShowGlobalPlayback(globalPlayback) && !suppressForFullPlayer) {
+                    GlobalMiniPlaybackBar(
+                        snapshot = globalPlayback,
+                        recordingName =
+                            libraryRecordings.firstOrNull {
+                                it.id == globalPlayback.recordingId
+                            }?.displayName,
+                        onPlay = playbackViewModel::play,
+                        onPause = playbackViewModel::pause,
+                        onStop = playbackViewModel::closePlayer,
+                        onOpen = {
+                            globalPlayback.recordingId?.let { id ->
+                                requestOpenRecording(
+                                    id,
+                                    RecordingDetailDestination.PLAYBACK,
+                                )
+                            }
+                        },
+                    )
+                }
+                if (!secondaryPageActive) {
                     NavigationBar(modifier = Modifier.height(64.dp)) {
-                    NavigationBarItem(
-                        selected = selectedTab == 0,
-                        onClick = {
-                            activeDetailContext = null
-                            secondaryPageActive = false
-                            selectedTab = 0
-                            deviceHomeRequest += 1
-                        },
-                        icon = { Icon(Icons.Outlined.Bluetooth, contentDescription = null) },
-                        label = { Text(stringResource(R.string.tab_device)) },
-                        colors = navigationColors,
-                    )
-                    NavigationBarItem(
-                        selected = selectedTab == 1,
-                        onClick = {
-                            activeDetailContext = null
-                            secondaryPageActive = false
-                            selectedTab = 1
-                        },
-                        icon = { Icon(Icons.Outlined.Folder, contentDescription = null) },
-                        label = { Text(stringResource(R.string.tab_library)) },
-                        colors = navigationColors,
-                    )
-                    NavigationBarItem(
-                        selected = selectedTab == 2,
-                        onClick = {
-                            activeDetailContext = null
-                            secondaryPageActive = false
-                            selectedTab = 2
-                        },
-                        icon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
-                        label = { Text(stringResource(R.string.tab_settings)) },
-                        colors = navigationColors,
-                    )
+                        NavigationBarItem(
+                            selected = selectedTab == 0,
+                            onClick = {
+                                activeDetailContext = null
+                                secondaryPageActive = false
+                                selectedTab = 0
+                                deviceHomeRequest += 1
+                            },
+                            icon = { Icon(Icons.Outlined.Bluetooth, contentDescription = null) },
+                            label = { Text(stringResource(R.string.tab_device)) },
+                            colors = navigationColors,
+                        )
+                        NavigationBarItem(
+                            selected = selectedTab == 1,
+                            onClick = {
+                                activeDetailContext = null
+                                secondaryPageActive = false
+                                selectedTab = 1
+                            },
+                            icon = { Icon(Icons.Outlined.Folder, contentDescription = null) },
+                            label = { Text(stringResource(R.string.tab_library)) },
+                            colors = navigationColors,
+                        )
+                        NavigationBarItem(
+                            selected = selectedTab == 2,
+                            onClick = {
+                                activeDetailContext = null
+                                secondaryPageActive = false
+                                selectedTab = 2
+                            },
+                            icon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
+                            label = { Text(stringResource(R.string.tab_settings)) },
+                            colors = navigationColors,
+                        )
                     }
                 }
             }
@@ -766,6 +791,7 @@ private fun LocalFilesScreen(
     var requestedDestination by remember {
         mutableStateOf(RecordingDetailDestination.PLAYBACK)
     }
+    var detailNavigationToken by rememberSaveable { mutableIntStateOf(0) }
     val selectedRecording =
         selectedRecordingId?.let { id ->
             recordings.firstOrNull { it.id == id }
@@ -891,6 +917,8 @@ private fun LocalFilesScreen(
         pendingSearchTarget = null
         unifiedSearchOpen = false
         selectedRecordingId = request.recordingId
+        detailNavigationToken = request.token
+        onSecondaryPageChanged(true)
         onOpenRequestConsumed(request)
     }
 
@@ -908,6 +936,7 @@ private fun LocalFilesScreen(
             onOpenRecording = {
                 pendingSearchTarget = null
                 requestedDestination = RecordingDetailDestination.PLAYBACK
+                detailNavigationToken += 1
                 selectedRecordingId = it
             },
             onOpenUnifiedSearch = {
@@ -947,6 +976,7 @@ private fun LocalFilesScreen(
                                     -> RecordingDetailDestination.SUMMARY
                                     else -> RecordingDetailDestination.PLAYBACK
                                 }
+                            detailNavigationToken += 1
                             unifiedSearchOpen = false
                             selectedRecordingId = recordingId
                         }
@@ -994,7 +1024,11 @@ private fun LocalFilesScreen(
                 deviceRecording.status == RecordingStatus.Recording ||
                     deviceRecording.status == RecordingStatus.Paused,
             initialDestination = requestedDestination,
+            navigationRequestToken = detailNavigationToken,
             onDestinationChanged = { destination ->
+                if (destination != null) {
+                    requestedDestination = destination
+                }
                 onDetailContextChanged(selectedRecording.id, destination)
             },
         )
@@ -1242,23 +1276,29 @@ private fun GlobalPlaybackStatusBar(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .clickable(onClick = onOpen)
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                    .padding(horizontal = 8.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            TextButton(
+            val playing = snapshot.state == PlaybackState.PLAYING
+            IconButton(
                 onClick = {
-                    if (snapshot.state == PlaybackState.PLAYING) {
-                        onPause()
-                    } else {
-                        onPlay()
-                    }
+                    if (playing) onPause() else onPlay()
                 },
             ) {
-                Text(if (snapshot.state == PlaybackState.PLAYING) "暂停" else "播放")
+                Icon(
+                    imageVector = if (playing) Icons.Filled.PauseCircle else Icons.Filled.PlayArrow,
+                    contentDescription = if (playing) "暂停" else "播放",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
             }
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .clickable(onClick = onOpen)
+                        .padding(vertical = 3.dp),
+            ) {
                 Text(
                     recordingName ?: "当前录音",
                     style = MaterialTheme.typography.bodyMedium,
@@ -1272,7 +1312,9 @@ private fun GlobalPlaybackStatusBar(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Text("›", style = MaterialTheme.typography.titleLarge)
+            TextButton(onClick = onOpen) {
+                Text("›", style = MaterialTheme.typography.titleLarge)
+            }
         }
     }
 }

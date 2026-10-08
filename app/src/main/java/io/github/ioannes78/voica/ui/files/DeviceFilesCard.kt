@@ -350,9 +350,10 @@ private fun DeviceFileRow(
                     } else {
                         R.string.device_file_download_failed
                     },
-                    failure.error.code.name,
+                    failure.error.code.toUserMessage(),
                 ),
                 style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
             )
         }
 

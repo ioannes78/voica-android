@@ -4,6 +4,7 @@ import androidx.room.withTransaction
 import java.util.UUID
 import java.util.concurrent.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 data class NewAiSummaryRequest(
     val recordingId: String,
@@ -20,6 +21,7 @@ data class NewAiSummaryRequest(
     val requestConfigSnapshot: String,
     val alignmentIdSnapshot: String?,
     val sourceLineageSnapshot: String,
+    val retryOfSummaryId: String? = null,
 )
 
 data class SaveAiCustomTemplateRequest(
@@ -46,15 +48,28 @@ class AiSummaryRepository(
     private val database: VoicaDatabase,
     private val nowMs: () -> Long = System::currentTimeMillis,
     private val idFactory: () -> String = { UUID.randomUUID().toString() },
+    private val currentOwnerTaskId: () -> Int? = { 0 },
+    private val isOwnerTaskActive: (Int) -> Boolean = { true },
 ) {
     private val dao = database.aiSummaryDao()
+    private val ownershipDao = database.aiSummaryOwnershipDao()
     private val transcriptionDao = database.transcriptionDao()
+    private val contentDao = database.stage12cContentDao()
 
     fun observeForRecording(recordingId: String): Flow<List<AiSummaryEntity>> =
         dao.observeForRecording(recordingId)
 
     fun observeForTranscription(transcriptionId: String): Flow<List<AiSummaryEntity>> =
         dao.observeForTranscription(transcriptionId)
+
+    fun observeDurableTasks(): Flow<List<AiSummaryEntity>> =
+        dao.observeDurableTasks(
+            activeStates = AiSummaryStateValue.ACTIVE,
+            terminalAttentionStates = ATTENTION_TERMINAL_STATES,
+        ).map(::filterResolvedDurableAttention)
+
+    suspend fun loadActiveSummaries(): List<AiSummaryEntity> =
+        dao.loadActiveSummaries(AiSummaryStateValue.ACTIVE)
 
     suspend fun find(summaryId: String): AiSummaryEntity? = dao.findSummary(summaryId)
 
@@ -105,6 +120,7 @@ class AiSummaryRepository(
         require(request.resultSchemaVersion >= 1)
         require(request.requestConfigSnapshot.isNotBlank())
         require(request.sourceLineageSnapshot.isNotBlank())
+        require(request.retryOfSummaryId == null || request.retryOfSummaryId.isNotBlank())
 
         val transcription =
             transcriptionDao.findTranscription(request.transcriptionId)
@@ -112,6 +128,9 @@ class AiSummaryRepository(
         require(transcription.recordingId == request.recordingId)
         require(transcription.state == TranscriptionStateValue.COMPLETED)
 
+        val ownerTaskId =
+            currentOwnerTaskId()?.takeIf { it >= 0 }
+                ?: error("AI summary owner task unavailable")
         val now = nowMs()
         val id = newId()
         dao.insertSummary(
@@ -144,6 +163,11 @@ class AiSummaryRepository(
                 usageSnapshot = null,
                 alignmentIdSnapshot = request.alignmentIdSnapshot,
                 sourceLineageSnapshot = request.sourceLineageSnapshot,
+                executionGeneration = 1L,
+                ownerTaskId = ownerTaskId,
+                remoteDispatchState = AiSummaryRemoteDispatchStateValue.NONE,
+                remoteCallOrdinal = 0,
+                retryOfSummaryId = request.retryOfSummaryId,
             ),
         )
         return id
@@ -174,6 +198,35 @@ class AiSummaryRepository(
         ) == 1
     }
 
+    suspend fun transitionForGeneration(
+        summaryId: String,
+        generation: Long,
+        status: String,
+        errorCode: String? = null,
+        sanitizedErrorMessage: String? = null,
+    ): Boolean {
+        require(generation >= 1L)
+        require(status in ALL_STATES)
+        val current = dao.findSummary(summaryId) ?: return false
+        if (current.executionGeneration != generation) return false
+        if (current.status == status) return true
+        if (current.status !in AiSummaryStateValue.ACTIVE) return false
+
+        val now = nowMs()
+        val terminal = status in TERMINAL_STATES
+        return dao.updateStateForGeneration(
+            summaryId = summaryId,
+            generation = generation,
+            status = status,
+            startedAtMs = current.startedAtMs ?: now,
+            updatedAtMs = now,
+            completedAtMs = if (terminal) now else null,
+            errorCode = errorCode,
+            sanitizedErrorMessage = sanitizedErrorMessage,
+            activeStates = AiSummaryStateValue.ACTIVE,
+        ) == 1
+    }
+
     suspend fun persistCompleted(
         summaryId: String,
         contentType: String,
@@ -183,12 +236,7 @@ class AiSummaryRepository(
         usageSnapshot: String?,
         evidence: List<AiSummaryEvidenceWrite>,
     ): Boolean {
-        require(contentType.isNotBlank())
-        require(classificationConfidence == null || classificationConfidence in 0.0..1.0)
-        require(structuredPayloadJson.isNotBlank())
-        require(displayText.isNotBlank())
-        validateEvidence(evidence)
-
+        validateCompletion(contentType, classificationConfidence, structuredPayloadJson, displayText, evidence)
         val now = nowMs()
         val completed =
             database.withTransaction {
@@ -204,48 +252,256 @@ class AiSummaryRepository(
                         activeStates = AiSummaryStateValue.ACTIVE,
                     )
                 if (updated != 1) return@withTransaction false
-                if (evidence.isNotEmpty()) {
-                    dao.insertEvidence(
-                        evidence.map { item ->
-                            AiSummaryEvidenceEntity(
-                                id = newId(),
-                                aiSummaryId = summaryId,
-                                summaryItemId = item.summaryItemId,
-                                sourceRef = item.sourceRef,
-                                sourceKind = item.sourceKind,
-                                sourceId = item.sourceId,
-                                startSampleIndex = item.startSampleIndex,
-                                endSampleIndexExclusive = item.endSampleIndexExclusive,
-                                speakerId = item.speakerId,
-                                assignmentQuality = item.assignmentQuality,
-                            )
-                        },
-                    )
-                }
+                insertEvidence(summaryId, evidence)
                 true
             }
-        if (completed) {
-            try {
-                val summary = dao.findSummary(summaryId)
-                if (summary != null) {
-                    Stage12CContentRepository(database).onAiSummaryCompleted(
-                        recordingId = summary.recordingId,
+        if (completed) onCompleted(summaryId)
+        return completed
+    }
+
+    suspend fun persistCompletedForGeneration(
+        summaryId: String,
+        generation: Long,
+        contentType: String,
+        classificationConfidence: Double?,
+        structuredPayloadJson: String,
+        displayText: String,
+        usageSnapshot: String?,
+        evidence: List<AiSummaryEvidenceWrite>,
+    ): Boolean {
+        require(generation >= 1L)
+        validateCompletion(contentType, classificationConfidence, structuredPayloadJson, displayText, evidence)
+        val now = nowMs()
+        val completed =
+            database.withTransaction {
+                val updated =
+                    dao.completeForGeneration(
                         summaryId = summaryId,
+                        generation = generation,
+                        contentType = contentType,
+                        classificationConfidence = classificationConfidence,
+                        structuredPayloadJson = structuredPayloadJson,
+                        displayText = displayText,
+                        usageSnapshot = usageSnapshot,
+                        completedAtMs = now,
+                        activeStates = AiSummaryStateValue.ACTIVE,
                     )
-                }
-            } catch (_: CancellationException) {
-                // Completion is already committed atomically. Current-selection/search maintenance
-                // is rebuildable and must not turn a completed summary back into a cancellation race.
+                if (updated != 1) return@withTransaction false
+                insertEvidence(summaryId, evidence)
+                true
             }
-        }
+        if (completed) onCompleted(summaryId)
         return completed
     }
 
     suspend fun loadEvidence(summaryId: String): List<AiSummaryEvidenceEntity> =
         dao.loadEvidence(summaryId)
 
-    suspend fun resumeInterrupted(summaryId: String): Boolean =
-        dao.resumeInterrupted(summaryId, nowMs()) == 1
+    suspend fun ensureOwnerTaskActive(
+        summaryId: String,
+        generation: Long,
+    ): Boolean {
+        require(summaryId.isNotBlank())
+        require(generation >= 1L)
+        val snapshot = dao.findSummary(summaryId) ?: return false
+        if (snapshot.executionGeneration != generation || snapshot.status !in AiSummaryStateValue.ACTIVE) {
+            return false
+        }
+        val ownerTaskId = snapshot.ownerTaskId
+        if (ownerTaskId != null && ownerTaskId >= 0 && isOwnerTaskActive(ownerTaskId)) {
+            return true
+        }
+
+        return database.withTransaction {
+            val current = dao.findSummary(summaryId) ?: return@withTransaction false
+            if (current.executionGeneration != generation || current.status !in AiSummaryStateValue.ACTIVE) {
+                return@withTransaction false
+            }
+            when (current.remoteDispatchState) {
+                AiSummaryRemoteDispatchStateValue.REQUEST_IN_FLIGHT -> {
+                    val requestId = current.remoteRequestId
+                    if (!requestId.isNullOrBlank()) {
+                        dao.markAmbiguousRemoteResult(
+                            summaryId = summaryId,
+                            generation = generation,
+                            requestId = requestId,
+                            nowMs = nowMs(),
+                            sanitizedErrorMessage = AMBIGUOUS_REMOTE_MESSAGE,
+                            activeStates = AiSummaryStateValue.ACTIVE,
+                        )
+                    }
+                }
+                AiSummaryRemoteDispatchStateValue.NONE,
+                AiSummaryRemoteDispatchStateValue.READY_TO_SEND,
+                -> {
+                    ownershipDao.interruptMissingOwnerBeforeSend(
+                        summaryId = summaryId,
+                        generation = generation,
+                        nowMs = nowMs(),
+                        sanitizedErrorMessage = OWNER_TASK_INTERRUPTED_MESSAGE,
+                        activeStates = AiSummaryStateValue.ACTIVE,
+                    )
+                }
+            }
+            false
+        }
+    }
+
+    suspend fun prepareRemoteCall(
+        summaryId: String,
+        generation: Long,
+        requestId: String,
+        stepKind: String,
+        stepKey: String,
+    ): Boolean {
+        require(generation >= 1L)
+        require(requestId.isNotBlank())
+        require(stepKind.isNotBlank())
+        require(stepKey.isNotBlank())
+        if (!ensureOwnerTaskActive(summaryId, generation)) return false
+        return dao.prepareRemoteCall(
+            summaryId = summaryId,
+            generation = generation,
+            requestId = requestId,
+            stepKind = stepKind,
+            stepKey = stepKey,
+            nowMs = nowMs(),
+            activeStates = AiSummaryStateValue.ACTIVE,
+        ) == 1
+    }
+
+    suspend fun markRemoteRequestInFlight(
+        summaryId: String,
+        generation: Long,
+        requestId: String,
+        stepKind: String,
+        stepKey: String,
+    ): Boolean {
+        require(generation >= 1L)
+        require(requestId.isNotBlank())
+        require(stepKind.isNotBlank())
+        require(stepKey.isNotBlank())
+        if (!ensureOwnerTaskActive(summaryId, generation)) return false
+        return dao.markRemoteRequestInFlight(
+            summaryId = summaryId,
+            generation = generation,
+            requestId = requestId,
+            stepKind = stepKind,
+            stepKey = stepKey,
+            nowMs = nowMs(),
+            activeStates = AiSummaryStateValue.ACTIVE,
+        ) == 1
+    }
+
+    suspend fun replaceRemoteRequestInFlight(
+        summaryId: String,
+        generation: Long,
+        expectedRequestId: String,
+        newRequestId: String,
+        stepKind: String,
+        stepKey: String,
+    ): Boolean {
+        require(generation >= 1L)
+        require(expectedRequestId.isNotBlank())
+        require(newRequestId.isNotBlank())
+        require(stepKind.isNotBlank())
+        require(stepKey.isNotBlank())
+        if (!ensureOwnerTaskActive(summaryId, generation)) return false
+        return dao.replaceRemoteRequestInFlight(
+            summaryId = summaryId,
+            generation = generation,
+            expectedRequestId = expectedRequestId,
+            newRequestId = newRequestId,
+            stepKind = stepKind,
+            stepKey = stepKey,
+            nowMs = nowMs(),
+            activeStates = AiSummaryStateValue.ACTIVE,
+        ) == 1
+    }
+
+    suspend fun resetPreparedRemoteCall(
+        summaryId: String,
+        generation: Long,
+        requestId: String,
+    ): Boolean {
+        require(generation >= 1L)
+        require(requestId.isNotBlank())
+        return dao.resetPreparedRemoteCall(
+            summaryId = summaryId,
+            generation = generation,
+            requestId = requestId,
+            nowMs = nowMs(),
+            activeStates = AiSummaryStateValue.ACTIVE,
+        ) == 1
+    }
+
+    suspend fun clearRemoteDispatch(
+        summaryId: String,
+        generation: Long,
+        requestId: String,
+    ): Boolean {
+        require(generation >= 1L)
+        require(requestId.isNotBlank())
+        return dao.clearRemoteDispatch(
+            summaryId = summaryId,
+            generation = generation,
+            requestId = requestId,
+            nowMs = nowMs(),
+            resolvableStates = REMOTE_RESOLVABLE_STATES,
+        ) == 1
+    }
+
+    suspend fun markAmbiguousRemoteResult(
+        summaryId: String,
+        generation: Long,
+        requestId: String,
+    ): Boolean {
+        require(generation >= 1L)
+        require(requestId.isNotBlank())
+        return dao.markAmbiguousRemoteResult(
+            summaryId = summaryId,
+            generation = generation,
+            requestId = requestId,
+            nowMs = nowMs(),
+            sanitizedErrorMessage = AMBIGUOUS_REMOTE_MESSAGE,
+            activeStates = AiSummaryStateValue.ACTIVE,
+        ) == 1
+    }
+
+    suspend fun markAmbiguousRemoteResult(
+        summaryId: String,
+        generation: Long,
+    ): Boolean {
+        val current = dao.findSummary(summaryId) ?: return false
+        val requestId = current.remoteRequestId ?: return false
+        return markAmbiguousRemoteResult(summaryId, generation, requestId)
+    }
+
+    suspend fun cancelForGeneration(
+        summaryId: String,
+        generation: Long,
+    ): Boolean {
+        require(generation >= 1L)
+        return dao.cancelForGeneration(
+            summaryId = summaryId,
+            generation = generation,
+            nowMs = nowMs(),
+            sanitizedErrorMessage = "AI 总结生成已取消。",
+            activeStates = AiSummaryStateValue.ACTIVE,
+        ) == 1
+    }
+
+    suspend fun acknowledgeTerminal(summaryId: String): Boolean =
+        dao.acknowledgeTerminal(
+            summaryId = summaryId,
+            nowMs = nowMs(),
+            terminalStates = ACKNOWLEDGEABLE_ATTENTION_STATES,
+        ) == 1
+
+    suspend fun resumeInterrupted(summaryId: String): Boolean {
+        val ownerTaskId = currentOwnerTaskId()?.takeIf { it >= 0 } ?: return false
+        return ownershipDao.resumeInterrupted(summaryId, ownerTaskId, nowMs()) == 1
+    }
 
     suspend fun findChunk(
         summaryId: String,
@@ -254,10 +510,129 @@ class AiSummaryRepository(
     ): AiSummaryChunkEntity? =
         dao.findChunk(summaryId, level, chunkIndex)
 
+    suspend fun findChunkForGeneration(
+        summaryId: String,
+        generation: Long,
+        level: Int,
+        chunkIndex: Int,
+    ): AiSummaryChunkEntity? =
+        database.withTransaction {
+            val summary = dao.findSummary(summaryId) ?: return@withTransaction null
+            if (summary.executionGeneration != generation || summary.status !in AiSummaryStateValue.ACTIVE) {
+                return@withTransaction null
+            }
+            dao.findChunk(summaryId, level, chunkIndex)
+        }
+
     suspend fun loadChunks(summaryId: String): List<AiSummaryChunkEntity> =
         dao.loadChunks(summaryId)
 
     suspend fun upsertChunk(chunk: AiSummaryChunkEntity) {
+        validateChunk(chunk)
+        dao.upsertChunk(chunk)
+    }
+
+    suspend fun upsertChunkForGeneration(
+        summaryId: String,
+        generation: Long,
+        chunk: AiSummaryChunkEntity,
+    ): Boolean {
+        require(generation >= 1L)
+        require(chunk.aiSummaryId == summaryId)
+        validateChunk(chunk)
+        return database.withTransaction {
+            val summary = dao.findSummary(summaryId) ?: return@withTransaction false
+            if (summary.executionGeneration != generation || summary.status !in AiSummaryStateValue.ACTIVE) {
+                return@withTransaction false
+            }
+            dao.upsertChunk(chunk)
+            true
+        }
+    }
+
+    suspend fun reconcileInterruptedOnStartup(): Int =
+        dao.markActiveInterrupted(
+            activeStates = AiSummaryStateValue.ACTIVE,
+            nowMs = nowMs(),
+        )
+
+    private suspend fun filterResolvedDurableAttention(
+        tasks: List<AiSummaryEntity>,
+    ): List<AiSummaryEntity> {
+        val retryParents = tasks.mapNotNullTo(mutableSetOf()) { it.retryOfSummaryId }
+        return tasks.filter { task ->
+            when {
+                task.status in AiSummaryStateValue.ACTIVE -> true
+                task.terminalAcknowledgedAtMs != null -> false
+                task.id in retryParents -> false
+                else -> !isResolvedByExplicitNewerSelection(task)
+            }
+        }
+    }
+
+    private suspend fun isResolvedByExplicitNewerSelection(task: AiSummaryEntity): Boolean {
+        val selectedId =
+            contentDao.findContentSelection(task.recordingId)?.currentAiSummaryId
+                ?: return false
+        val selected = dao.findSummary(selectedId) ?: return false
+        return selected.recordingId == task.recordingId &&
+            selected.status == AiSummaryStateValue.COMPLETED &&
+            selected.createdAtMs > task.createdAtMs
+    }
+
+    private fun validateCompletion(
+        contentType: String,
+        classificationConfidence: Double?,
+        structuredPayloadJson: String,
+        displayText: String,
+        evidence: List<AiSummaryEvidenceWrite>,
+    ) {
+        require(contentType.isNotBlank())
+        require(classificationConfidence == null || classificationConfidence in 0.0..1.0)
+        require(structuredPayloadJson.isNotBlank())
+        require(displayText.isNotBlank())
+        validateEvidence(evidence)
+    }
+
+    private suspend fun insertEvidence(
+        summaryId: String,
+        evidence: List<AiSummaryEvidenceWrite>,
+    ) {
+        if (evidence.isEmpty()) return
+        dao.insertEvidence(
+            evidence.map { item ->
+                AiSummaryEvidenceEntity(
+                    id = newId(),
+                    aiSummaryId = summaryId,
+                    summaryItemId = item.summaryItemId,
+                    sourceRef = item.sourceRef,
+                    sourceKind = item.sourceKind,
+                    sourceId = item.sourceId,
+                    startSampleIndex = item.startSampleIndex,
+                    endSampleIndexExclusive = item.endSampleIndexExclusive,
+                    speakerId = item.speakerId,
+                    assignmentQuality = item.assignmentQuality,
+                )
+            },
+        )
+    }
+
+    private suspend fun onCompleted(summaryId: String) {
+        try {
+            val summary = dao.findSummary(summaryId)
+            if (summary != null) {
+                Stage12CContentRepository(database).onAiSummaryCompleted(
+                    recordingId = summary.recordingId,
+                    summaryId = summaryId,
+                )
+            }
+        } catch (_: CancellationException) {
+            // Completion is already committed atomically. Current-selection/search maintenance
+            // is rebuildable and must not turn a completed summary back into a cancellation race.
+        }
+    }
+
+    private fun validateChunk(chunk: AiSummaryChunkEntity) {
         require(chunk.aiSummaryId.isNotBlank())
         require(chunk.level >= 0)
         require(chunk.chunkIndex >= 0)
@@ -267,14 +642,7 @@ class AiSummaryRepository(
         require(chunk.endSampleIndexExclusive > chunk.startSampleIndex)
         require(chunk.inputDigest.isNotBlank())
         require(chunk.attempt >= 1)
-        dao.upsertChunk(chunk)
     }
-
-    suspend fun reconcileInterruptedOnStartup(): Int =
-        dao.markActiveInterrupted(
-            activeStates = AiSummaryStateValue.ACTIVE,
-            nowMs = nowMs(),
-        )
 
     private fun validateEvidence(evidence: List<AiSummaryEvidenceWrite>) {
         val unique = mutableSetOf<Pair<String, String>>()
@@ -301,7 +669,22 @@ class AiSummaryRepository(
                 AiSummaryStateValue.FAILED,
                 AiSummaryStateValue.CANCELLED,
                 AiSummaryStateValue.INTERRUPTED,
+                AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT,
             )
+        val ATTENTION_TERMINAL_STATES =
+            listOf(
+                AiSummaryStateValue.COMPLETED,
+                AiSummaryStateValue.FAILED,
+                AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT,
+            )
+        val ACKNOWLEDGEABLE_ATTENTION_STATES =
+            ATTENTION_TERMINAL_STATES + AiSummaryStateValue.INTERRUPTED
+        val REMOTE_RESOLVABLE_STATES =
+            AiSummaryStateValue.ACTIVE + AiSummaryStateValue.COMPLETED
+        const val AMBIGUOUS_REMOTE_MESSAGE =
+            "上一次请求状态无法确认，需要手动重试。"
+        const val OWNER_TASK_INTERRUPTED_MESSAGE =
+            "应用任务已结束，AI 总结已中断。重新打开后可手动继续。"
         val ALL_STATES = AiSummaryStateValue.ACTIVE.toSet() + TERMINAL_STATES
     }
 }

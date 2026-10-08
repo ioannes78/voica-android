@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -85,8 +86,14 @@ class AiSummaryViewModel(
     private val mutableCandidateId = MutableStateFlow<String?>(null)
     val candidateId: StateFlow<String?> = mutableCandidateId.asStateFlow()
 
+    private val mutableAttention = MutableStateFlow<AiSummaryEntity?>(null)
+    val attention: StateFlow<AiSummaryEntity?> = mutableAttention.asStateFlow()
+
     private val mutableStale = MutableStateFlow(false)
     val stale: StateFlow<Boolean> = mutableStale.asStateFlow()
+
+    private val mutableStaleFingerprint = MutableStateFlow<String?>(null)
+    val staleFingerprint: StateFlow<String?> = mutableStaleFingerprint.asStateFlow()
 
     private val mutableProvider = MutableStateFlow<AiSummaryProviderPreview?>(null)
     val provider: StateFlow<AiSummaryProviderPreview?> = mutableProvider.asStateFlow()
@@ -134,11 +141,6 @@ class AiSummaryViewModel(
                             refreshCurrentSelection()
                         }
                     }
-                    is AiSummaryRunState.Failed -> {
-                        if (state.recordingId == boundRecordingId) {
-                            mutableNotice.value = state.message
-                        }
-                    }
                     is AiSummaryRunState.Cancelled -> {
                         if (state.transcriptionId == boundTranscriptionId) {
                             mutableNotice.value = "总结已取消。"
@@ -146,6 +148,7 @@ class AiSummaryViewModel(
                     }
                     AiSummaryRunState.Idle,
                     is AiSummaryRunState.Running,
+                    is AiSummaryRunState.Failed,
                     -> Unit
                 }
             }
@@ -162,7 +165,10 @@ class AiSummaryViewModel(
         mutableHistory.value = emptyList()
         mutableSelected.value = null
         mutableCandidateId.value = null
+        mutableAttention.value = null
         mutableStale.value = false
+        mutableStaleFingerprint.value = null
+        mutableNotice.value = null
         if (transcriptionId == null) return
 
         viewModelScope.launch {
@@ -171,13 +177,22 @@ class AiSummaryViewModel(
             boundRecordingId = recordingId
             historyJob =
                 viewModelScope.launch {
-                    repository.observeForRecording(recordingId)
-                        .collectLatest { summaries ->
-                            mutableHistory.value = summaries
-                            mutableCandidateId.value =
-                                contentRepository.resolveAiSummaryCandidateId(recordingId)
-                            refreshCurrentSelection()
-                        }
+                    combine(
+                        repository.observeForRecording(recordingId),
+                        contentRepository.observeContentSelection(recordingId),
+                    ) { summaries, selection ->
+                        summaries to selection?.currentAiSummaryId
+                    }.collectLatest { (summaries, persistedCurrentSummaryId) ->
+                        mutableHistory.value = summaries
+                        mutableAttention.value =
+                            resolveAiSummaryAttention(
+                                summaries = summaries,
+                                persistedCurrentSummaryId = persistedCurrentSummaryId,
+                            )
+                        mutableCandidateId.value =
+                            contentRepository.resolveAiSummaryCandidateId(recordingId)
+                        refreshCurrentSelection()
+                    }
                 }
             revisionJob =
                 viewModelScope.launch {
@@ -373,6 +388,13 @@ class AiSummaryViewModel(
             val entity = repository.find(summaryId) ?: return@launch
             if (entity.status != AiSummaryStateValue.COMPLETED) return@launch
             contentRepository.setCurrentAiSummaryVersion(entity.recordingId, entity.id)
+            mutableHistory.value
+                .asSequence()
+                .filter { it.recordingId == entity.recordingId }
+                .filter { it.createdAtMs < entity.createdAtMs }
+                .filter { it.status in AI_SUMMARY_ATTENTION_STATES }
+                .filter { it.terminalAcknowledgedAtMs == null }
+                .forEach { repository.acknowledgeTerminal(it.id) }
             mutableCandidateId.value = contentRepository.resolveAiSummaryCandidateId(entity.recordingId)
             loadDocument(entity)
             refreshStale()
@@ -415,21 +437,131 @@ class AiSummaryViewModel(
         }
     }
 
+    fun retryAmbiguous(summaryId: String) {
+        retryAttention(summaryId)
+    }
+
+    fun retryAttention(summaryId: String) {
+        if (summaryId.isBlank()) return
+        viewModelScope.launch {
+            val entity = repository.find(summaryId) ?: return@launch
+            when (entity.status) {
+                AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT -> retryAmbiguousFrozen(entity)
+                AiSummaryStateValue.FAILED -> regenerateFailed(entity)
+                AiSummaryStateValue.INTERRUPTED -> {
+                    mutableNotice.value = null
+                    if (!coordinator.resumeInterrupted(entity.id)) {
+                        mutableNotice.value = "该总结任务当前不能继续生成。"
+                    }
+                }
+                else -> mutableNotice.value = "该总结任务当前不需要处理。"
+            }
+        }
+    }
+
+    fun ignoreAttention(summaryId: String) {
+        if (summaryId.isBlank()) return
+        viewModelScope.launch {
+            val entity = repository.find(summaryId) ?: return@launch
+            if (entity.status !in AI_SUMMARY_ATTENTION_STATES) return@launch
+            if (repository.acknowledgeTerminal(summaryId)) {
+                if (mutableAttention.value?.id == summaryId) {
+                    mutableAttention.value = null
+                }
+                mutableNotice.value = "已忽略该总结状态提醒。"
+            }
+        }
+    }
+
+    fun acknowledgeTerminal(summaryId: String) {
+        if (summaryId.isBlank()) return
+        viewModelScope.launch {
+            val entity = repository.find(summaryId) ?: return@launch
+            if (entity.status != AiSummaryStateValue.COMPLETED) return@launch
+            mutableCandidateId.value =
+                contentRepository.resolveAiSummaryCandidateId(entity.recordingId)
+            if (mutableCandidateId.value == entity.id) {
+                mutableNotice.value = "新的总结结果已生成。"
+            }
+            refreshCurrentSelection()
+            repository.acknowledgeTerminal(summaryId)
+        }
+    }
+
     fun clearNotice() {
         mutableNotice.value = null
+    }
+
+    private suspend fun retryAmbiguousFrozen(entity: AiSummaryEntity) {
+        val transcriptionId = entity.transcriptionId ?: return
+        val mode =
+            when (entity.mode) {
+                AiSummaryModeValue.PRESET -> AiSummaryMode.PRESET
+                AiSummaryModeValue.CUSTOM -> AiSummaryMode.CUSTOM
+                else -> AiSummaryMode.SMART
+            }
+        val template =
+            entity.templateSnapshot
+                ?.let { runCatching { SummaryTemplateSnapshotCodec.decode(it) }.getOrNull() }
+                ?: entity.templateId?.let(SummaryTemplateCatalog::find)
+                ?: SummaryTemplateCatalog.smart()
+        mutableNotice.value = null
+        val started =
+            coordinator.start(
+                transcriptionId = transcriptionId,
+                mode = mode,
+                template = template,
+                providerProfileId = entity.providerProfileId,
+                modelOverride = entity.model,
+                retryOfSummaryId = entity.id,
+            )
+        if (!started) {
+            mutableNotice.value = "已有总结任务正在运行。"
+        }
+    }
+
+    private suspend fun regenerateFailed(entity: AiSummaryEntity) {
+        val transcriptionId = entity.transcriptionId ?: return
+        val mode =
+            when (entity.mode) {
+                AiSummaryModeValue.PRESET -> AiSummaryMode.PRESET
+                AiSummaryModeValue.CUSTOM -> AiSummaryMode.CUSTOM
+                else -> AiSummaryMode.SMART
+            }
+        val template =
+            entity.templateSnapshot
+                ?.let { runCatching { SummaryTemplateSnapshotCodec.decode(it) }.getOrNull() }
+                ?: entity.templateId?.let(SummaryTemplateCatalog::find)
+                ?: SummaryTemplateCatalog.smart()
+        mutableNotice.value = null
+        val started =
+            coordinator.start(
+                transcriptionId = transcriptionId,
+                mode = mode,
+                template = template,
+                providerProfileId = entity.providerProfileId,
+                modelOverride = entity.model,
+            )
+        if (!started) {
+            mutableNotice.value = "已有总结任务正在运行。"
+        }
     }
 
     private suspend fun refreshCurrentSelection() {
         val recordingId = boundRecordingId ?: return
         val summaries = mutableHistory.value
         val currentId = contentRepository.resolveCurrentAiSummaryId(recordingId)
+        // An interrupted candidate must remain discoverable after task removal without becoming
+        // Current Effective. Once it resumes, the normal current completed summary is shown again.
         val target =
-            summaries.firstOrNull {
-                it.id == currentId && it.status == AiSummaryStateValue.COMPLETED
-            } ?: summaries.firstOrNull { it.status == AiSummaryStateValue.INTERRUPTED }
+            summaries.firstOrNull { it.status == AiSummaryStateValue.INTERRUPTED }
+                ?: summaries.firstOrNull {
+                    it.id == currentId && it.status == AiSummaryStateValue.COMPLETED
+                }
         if (target == null) {
             mutableSelected.value = null
             mutableStale.value = false
+            mutableStaleFingerprint.value = null
         } else if (mutableSelected.value?.entity?.id != target.id) {
             loadDocument(target)
             refreshStale()
@@ -443,16 +575,20 @@ class AiSummaryViewModel(
         val summary = mutableSelected.value?.entity
         if (summary == null || summary.status != AiSummaryStateValue.COMPLETED) {
             mutableStale.value = false
+            mutableStaleFingerprint.value = null
             return
         }
         val effective = contentRepository.resolveEffectiveTranscription(recordingId)
         val lineage = parseSummaryLineage(summary.sourceLineageSnapshot)
-        mutableStale.value =
+        val stale =
             isSummaryStale(
                 lineageTranscriptionId = lineage.transcriptionId,
                 lineageRevisionId = lineage.revisionId,
                 effective = effective,
             )
+        mutableStale.value = stale
+        mutableStaleFingerprint.value =
+            if (stale) summaryStaleFingerprint(summary.id, effective) else null
     }
 
     private fun parseSummaryLineage(raw: String): SummaryLineageRef =
@@ -526,3 +662,30 @@ class AiSummaryViewModel(
             ) as T
     }
 }
+
+internal fun resolveAiSummaryAttention(
+    summaries: List<AiSummaryEntity>,
+    persistedCurrentSummaryId: String?,
+): AiSummaryEntity? {
+    val retryParents = summaries.mapNotNullTo(mutableSetOf()) { it.retryOfSummaryId }
+    val explicitCurrent =
+        persistedCurrentSummaryId?.let { currentId ->
+            summaries.firstOrNull {
+                it.id == currentId && it.status == AiSummaryStateValue.COMPLETED
+            }
+        }
+    return summaries.firstOrNull { summary ->
+        summary.status in AI_SUMMARY_ATTENTION_STATES &&
+            summary.executionGeneration > 0L &&
+            summary.terminalAcknowledgedAtMs == null &&
+            summary.id !in retryParents &&
+            !(explicitCurrent != null && explicitCurrent.createdAtMs > summary.createdAtMs)
+    }
+}
+
+private val AI_SUMMARY_ATTENTION_STATES =
+    setOf(
+        AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT,
+        AiSummaryStateValue.FAILED,
+        AiSummaryStateValue.INTERRUPTED,
+    )

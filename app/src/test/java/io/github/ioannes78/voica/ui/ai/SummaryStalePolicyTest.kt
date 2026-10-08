@@ -1,7 +1,9 @@
 package io.github.ioannes78.voica.ui.ai
 
 import io.github.ioannes78.voica.database.EffectiveTranscriptionRef
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -59,5 +61,19 @@ class SummaryStalePolicyTest {
                 effective = null,
             ),
         )
+    }
+
+    @Test
+    fun staleFingerprintChangesWithEffectiveTranscript() {
+        val first = summaryStaleFingerprint("summary", EffectiveTranscriptionRef("t1", null))
+        val same = summaryStaleFingerprint("summary", EffectiveTranscriptionRef("t1", null))
+        val changedRevision =
+            summaryStaleFingerprint("summary", EffectiveTranscriptionRef("t1", "r1"))
+        val changedTranscript =
+            summaryStaleFingerprint("summary", EffectiveTranscriptionRef("t2", null))
+
+        assertEquals(first, same)
+        assertNotEquals(first, changedRevision)
+        assertNotEquals(first, changedTranscript)
     }
 }
