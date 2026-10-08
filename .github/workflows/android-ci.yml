@@ -79,6 +79,7 @@ jobs:
           :engine:sherpa:assembleDebug
           :app:testDebugUnitTest
           :app:assembleQa
+          --no-configuration-cache
           --stacktrace
 
       - name: Verify stable QA signing identity
