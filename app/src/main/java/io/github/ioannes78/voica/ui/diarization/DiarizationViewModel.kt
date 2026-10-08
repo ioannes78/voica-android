@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import io.github.ioannes78.voica.DiarizationCoordinator
 import io.github.ioannes78.voica.DiarizationRunState
+import io.github.ioannes78.voica.RecordingSpeakerModeStore
 import io.github.ioannes78.voica.SpeakerCountChoice
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,7 +36,12 @@ class DiarizationViewModel(
     }
 
     fun retry(recordingId: String) {
-        start(recordingId)
+        val fileChoice = RecordingSpeakerModeStore.cached(recordingId)
+        if (fileChoice != null) {
+            start(recordingId, fileChoice)
+        } else {
+            start(recordingId)
+        }
     }
 
     fun cancel() {
