@@ -1,11 +1,11 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
-val buildGitSha = providers.environmentVariable("GITHUB_SHA").getOrElse("unknown")
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+val buildGitSha = providers.environmentVariable("GITHUB_SHA").getOrElse("unknown")
 
 android {
     namespace = "io.github.ioannes78.voica"
