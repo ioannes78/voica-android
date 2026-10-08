@@ -15,6 +15,7 @@ GitHub 当前仓库是唯一事实来源。
 - GitHub Actions
 - `AGENTS.md`
 - `docs/ROADMAP.md`
+- Stage 13C 起还必须读取 `docs/ROADMAP_STAGE_13C_PLUS.md`
 - `docs/ARCHITECTURE.md`
 - `docs/STAGE_12B_TEST.md`
 - `docs/STAGE_12B_FREEZE.md`
@@ -212,6 +213,8 @@ Stage 12C 不应为了文本编辑需求降低这些校验。
 
 Grok strict success path 已有回归测试；其它 Provider 的兼容逻辑继续通过统一适配层处理，不回到每家 Provider 随意特判。
 
+未来 Stage 19A 的本地 Gemma 4 Thinking 不得绕过这些结构化输出/evidence 校验；如 Thinking 与 constrained decoding 在当时 runtime 不兼容，应采用分析阶段 + 严格结构化阶段，而不是降低 schema。
+
 ## 12. 全局状态行为
 
 全局 Mini Player：
@@ -238,7 +241,9 @@ Stage 12C：
 - 可增加文本编辑、分享、导出、搜索所需页面
 - 继续使用当前高频效率工具风格
 - 不进行无功能必要的全局 redesign
-- 最终全部核心功能完成后再统一视觉精修
+- 最终全部主要核心功能完成后，在 **Stage 19D — 全 App UI / UX 最终精修** 统一进行视觉与交互收口
+
+Stage 19D 仍必须继承 Stage 12A/12B 已确认的方向：**简洁、便捷、交互自然、美观、高频效率工具**；Stage 19D 主要做一致性和体验精修，不重新引入大规模核心功能。
 
 ## 14. Stage 12C 开发起点
 
