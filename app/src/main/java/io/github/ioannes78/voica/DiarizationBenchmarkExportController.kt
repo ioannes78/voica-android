@@ -6,15 +6,17 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
+import io.github.ioannes78.voica.database.DiarizationRepository
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.Dispatchers
+import org.json.JSONObject
 
 /**
  * QA-only export surface for Stage 13C benchmark reports.
@@ -26,6 +28,7 @@ import kotlinx.coroutines.Dispatchers
 class DiarizationBenchmarkExportController(
     private val application: Application,
     private val runner: DiarizationBenchmarkRunner,
+    private val diarizationRepository: DiarizationRepository,
 ) {
     fun start(scope: CoroutineScope): Job =
         scope.launch {
@@ -49,13 +52,35 @@ class DiarizationBenchmarkExportController(
                 }
         }
 
-    private fun export(report: DiarizationBenchmarkReport): String {
+    private suspend fun export(report: DiarizationBenchmarkReport): String {
         val fileName = "diarization-benchmark-${report.benchmarkId}.json"
+        val json = enrichedJson(report)
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            exportWithMediaStore(fileName, report.toJson())
+            exportWithMediaStore(fileName, json)
         } else {
-            exportToAppExternalDownloads(fileName, report.toJson())
+            exportToAppExternalDownloads(fileName, json)
         }
+    }
+
+    private suspend fun enrichedJson(report: DiarizationBenchmarkReport): String {
+        val root = JSONObject(report.toJson())
+        val run = report.runId?.let { diarizationRepository.findRun(it) }
+        if (run != null) {
+            root.put(
+                "durableRunLineage",
+                JSONObject()
+                    .put("sourceCanonicalAssetId", run.sourceCanonicalAssetId)
+                    .put("sourceCanonicalSha256", run.sourceCanonicalSha256)
+                    .put("canonicalProfileId", run.canonicalProfileId)
+                    .put("totalSampleCount", run.totalSampleCount)
+                    .put("pipelineVersion", run.pipelineVersion)
+                    .put("runtimeId", run.runtimeId)
+                    .put("runtimeVersion", run.runtimeVersion)
+                    .put("modelManifestDigest", run.modelManifestDigest)
+                    .put("configSnapshot", run.configSnapshot),
+            )
+        }
+        return root.toString(2)
     }
 
     private fun exportWithMediaStore(

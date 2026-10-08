@@ -215,6 +215,7 @@ class AppContainer(
         DiarizationBenchmarkExportController(
             application = application,
             runner = diarizationBenchmarkRunner,
+            diarizationRepository = diarizationRepository,
         )
 
     private val stage9DiarizationEngineProvider =
