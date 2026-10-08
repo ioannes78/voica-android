@@ -61,11 +61,13 @@ fun AiSummaryProductCard(
     onOpenSettings: () -> Unit,
     onSeekEvidence: (Long) -> Unit,
     showTransientHeader: Boolean = true,
+    attentionOverride: AiSummaryEntity? = null,
 ) {
     val runState by viewModel.runState.collectAsState()
     val selected by viewModel.selected.collectAsState()
     val candidateId by viewModel.candidateId.collectAsState()
-    val attention by viewModel.attention.collectAsState()
+    val internalAttention by viewModel.attention.collectAsState()
+    val attention = attentionOverride ?: internalAttention
     val stale by viewModel.stale.collectAsState()
     val provider by viewModel.provider.collectAsState()
     val providers by viewModel.providers.collectAsState()
@@ -186,9 +188,14 @@ fun AiSummaryProductCard(
             AiSummaryAttentionBanner(
                 entity = attentionEntity,
                 actionEnabled = running == null,
-                onRetry = { viewModel.retryAttention(attentionEntity.id) },
+                onPrimaryAction = {
+                    if (attentionEntity.status == AiSummaryStateValue.FAILED) {
+                        generationOpen = true
+                    } else {
+                        viewModel.retryAttention(attentionEntity.id)
+                    }
+                },
                 onIgnore = { viewModel.ignoreAttention(attentionEntity.id) },
-                onOpenSettings = onOpenSettings,
             )
         }
 
@@ -210,9 +217,9 @@ fun AiSummaryProductCard(
                     )
                     TextButton(
                         enabled = running == null,
-                        onClick = { viewModel.regenerateSelected() },
+                        onClick = { generationOpen = true },
                     ) {
-                        Text("重新生成总结")
+                        Text("生成新总结")
                     }
                 }
             }
@@ -640,9 +647,8 @@ fun AiSummaryProductCard(
 private fun AiSummaryAttentionBanner(
     entity: AiSummaryEntity,
     actionEnabled: Boolean,
-    onRetry: () -> Unit,
+    onPrimaryAction: () -> Unit,
     onIgnore: () -> Unit,
-    onOpenSettings: () -> Unit,
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -675,20 +681,15 @@ private fun AiSummaryAttentionBanner(
             ) {
                 Button(
                     enabled = actionEnabled,
-                    onClick = onRetry,
+                    onClick = onPrimaryAction,
                 ) {
                     Text(
                         when (entity.status) {
                             AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT -> "手动重试"
                             AiSummaryStateValue.INTERRUPTED -> "继续生成"
-                            else -> "重新生成"
+                            else -> "生成新总结"
                         },
                     )
-                }
-                if (entity.status == AiSummaryStateValue.FAILED) {
-                    TextButton(onClick = onOpenSettings) {
-                        Text("AI 服务设置")
-                    }
                 }
                 TextButton(onClick = onIgnore) {
                     Text("忽略")
@@ -712,7 +713,7 @@ internal fun aiSummaryAttentionMessage(entity: AiSummaryEntity): String =
         AiSummaryStateValue.INTERRUPTED ->
             "上次生成在远端请求确认前中断，可以继续生成或忽略本次提醒。"
         else ->
-            "AI 服务请求失败，请检查服务或模型配置后重试。"
+            "AI 服务请求失败，请选择 AI 服务或模型重新生成。"
     }
 
 internal fun aiSummaryAttentionDiagnostic(entity: AiSummaryEntity): String? {
