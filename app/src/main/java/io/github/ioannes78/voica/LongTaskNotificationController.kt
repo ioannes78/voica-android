@@ -6,10 +6,14 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import io.github.ioannes78.voica.ai.AiSummaryEnginePhase
+import io.github.ioannes78.voica.database.AiSummaryEntity
 import io.github.ioannes78.voica.database.AiSummaryRepository
 import io.github.ioannes78.voica.database.AiSummaryStateValue
 import io.github.ioannes78.voica.database.RecordingLibraryItem
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
+import io.github.ioannes78.voica.database.Stage13B5Qa4Repository
+import io.github.ioannes78.voica.database.TranscriptionEntity
+import io.github.ioannes78.voica.database.TranscriptionStateValue
 import io.github.ioannes78.voica.transcript.DiarizationPhase
 import io.github.ioannes78.voica.transcript.TranscriptionPhase
 import io.github.ioannes78.voica.ui.library.RecordingDetailDestination
@@ -26,16 +30,22 @@ class LongTaskNotificationController(
     private val diarizationCoordinator: DiarizationCoordinator,
     private val aiSummaryCoordinator: AiSummaryCoordinator,
     private val aiSummaryRepository: AiSummaryRepository,
+    private val stage13B5Qa4Repository: Stage13B5Qa4Repository,
 ) {
     private val notificationManager = context.getSystemService(NotificationManager::class.java)
     private var transcriptionTaskId: String? = null
     private var diarizationTaskId: String? = null
+    private var transcriptionAttentionNotificationIds: Set<Int> = emptySet()
+    private var aiAttentionNotificationIds: Set<Int> = emptySet()
 
     init {
         createAiSummaryChannel()
+        createAttentionChannel()
         observeTranscription()
         observeDiarization()
         observeAiSummary()
+        observeTranscriptionAttention()
+        observeAiSummaryAttention()
     }
 
     private fun observeTranscription() {
@@ -191,6 +201,91 @@ class LongTaskNotificationController(
         }
     }
 
+    private fun observeTranscriptionAttention() {
+        scope.launch {
+            combine(
+                stage13B5Qa4Repository.observeTranscriptionAttention(),
+                recordingRepository.recordings,
+            ) { tasks, recordings -> tasks to recordings }
+                .collect { (tasks, recordings) ->
+                    val nextIds = mutableSetOf<Int>()
+                    tasks.forEach { task ->
+                        val notificationId = transcriptionAttentionNotificationId(task.id)
+                        nextIds += notificationId
+                        notificationManager.notify(
+                            notificationId,
+                            buildAttentionNotification(
+                                title = transcriptionAttentionTitle(task),
+                                text = transcriptionAttentionText(task),
+                                recordingId = task.recordingId,
+                                recordingName = recordingName(recordings, task.recordingId),
+                                destination = RecordingDetailDestination.TRANSCRIPT,
+                                requestCode = notificationId,
+                            ),
+                        )
+                    }
+                    (transcriptionAttentionNotificationIds - nextIds).forEach(notificationManager::cancel)
+                    transcriptionAttentionNotificationIds = nextIds
+                }
+        }
+    }
+
+    private fun observeAiSummaryAttention() {
+        scope.launch {
+            combine(
+                stage13B5Qa4Repository.observeAiSummaryAttention(),
+                recordingRepository.recordings,
+            ) { tasks, recordings -> tasks to recordings }
+                .collect { (tasks, recordings) ->
+                    val nextIds = mutableSetOf<Int>()
+                    tasks.forEach { task ->
+                        val notificationId = aiAttentionNotificationId(task.id)
+                        nextIds += notificationId
+                        notificationManager.notify(
+                            notificationId,
+                            buildAttentionNotification(
+                                title = aiAttentionTitle(task),
+                                text = aiAttentionText(task),
+                                recordingId = task.recordingId,
+                                recordingName = recordingName(recordings, task.recordingId),
+                                destination = RecordingDetailDestination.SUMMARY,
+                                requestCode = notificationId,
+                            ),
+                        )
+                    }
+                    (aiAttentionNotificationIds - nextIds).forEach(notificationManager::cancel)
+                    aiAttentionNotificationIds = nextIds
+                }
+        }
+    }
+
+    private fun buildAttentionNotification(
+        title: String,
+        text: String,
+        recordingId: String,
+        recordingName: String,
+        destination: RecordingDetailDestination,
+        requestCode: Int,
+    ): Notification =
+        Notification.Builder(context, ATTENTION_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_notify_error)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setSubText(recordingName)
+            .setContentIntent(
+                recordingOpenPendingIntent(
+                    context = context,
+                    requestCode = requestCode,
+                    recordingId = recordingId,
+                    destination = destination,
+                ),
+            )
+            .setOnlyAlertOnce(true)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .setCategory(Notification.CATEGORY_ERROR)
+            .build()
+
     private fun buildAiSummaryNotification(
         title: String,
         running: AiSummaryRunState.Running,
@@ -245,11 +340,27 @@ class LongTaskNotificationController(
         )
     }
 
+    private fun createAttentionChannel() {
+        notificationManager.createNotificationChannel(
+            NotificationChannel(
+                ATTENTION_CHANNEL_ID,
+                "任务需要处理",
+                NotificationManager.IMPORTANCE_DEFAULT,
+            ).apply {
+                description = "转写或 AI 总结中断、失败或状态无法确认时提醒"
+                setShowBadge(true)
+            },
+        )
+    }
+
     companion object {
         private const val AI_SUMMARY_CHANNEL_ID = "voica-ai-summary"
+        private const val ATTENTION_CHANNEL_ID = "voica-task-attention"
         private const val AI_SUMMARY_NOTIFICATION_ID = 13051
         private const val AI_SUMMARY_REQUEST_CONTENT = 13051
         private const val AI_SUMMARY_REQUEST_CANCEL = 13052
+        private const val TRANSCRIPTION_ATTENTION_BASE = 140_000_000
+        private const val AI_ATTENTION_BASE = 150_000_000
     }
 }
 
@@ -328,6 +439,41 @@ internal fun buildAiSummaryLabel(running: AiSummaryRunState.Running): String =
             }
         AiSummaryEnginePhase.VALIDATING -> "AI 总结 · 正在校验结果"
     }
+
+internal fun transcriptionAttentionTitle(entity: TranscriptionEntity): String =
+    when (entity.state) {
+        TranscriptionStateValue.INTERRUPTED -> "转写已中断"
+        else -> "转写失败"
+    }
+
+internal fun transcriptionAttentionText(entity: TranscriptionEntity): String =
+    when (entity.state) {
+        TranscriptionStateValue.INTERRUPTED -> "上一次转写未完成，请重新进行转写"
+        else -> "上一次转写没有完成，请返回 Voica 重新转写"
+    }
+
+internal fun aiAttentionTitle(entity: AiSummaryEntity): String =
+    when (entity.status) {
+        AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT -> "AI 总结需要处理"
+        AiSummaryStateValue.INTERRUPTED -> "AI 总结已中断"
+        else -> "AI 总结生成失败"
+    }
+
+internal fun aiAttentionText(entity: AiSummaryEntity): String =
+    when (entity.status) {
+        AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT -> "上一次总结请求状态无法确认"
+        AiSummaryStateValue.INTERRUPTED -> "上一次总结未完成，请返回 Voica 处理"
+        else -> "AI 服务请求失败，请选择 AI 服务或模型重新生成"
+    }
+
+private fun transcriptionAttentionNotificationId(id: String): Int =
+    TRANSCRIPTION_ATTENTION_BASE + stableNotificationOffset(id)
+
+private fun aiAttentionNotificationId(id: String): Int =
+    AI_ATTENTION_BASE + stableNotificationOffset(id)
+
+private fun stableNotificationOffset(id: String): Int =
+    (id.hashCode() and Int.MAX_VALUE) % 9_000_000
 
 private fun Double.toPercent(): Int =
     (this * 100.0).roundToInt().coerceIn(0, 100)
