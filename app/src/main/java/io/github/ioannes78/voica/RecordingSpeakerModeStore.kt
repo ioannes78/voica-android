@@ -1,6 +1,7 @@
 package io.github.ioannes78.voica
 
 import android.app.Application
+import java.util.concurrent.ConcurrentHashMap
 import org.json.JSONObject
 
 /**
@@ -21,8 +22,14 @@ class RecordingSpeakerModeStore(
 
     fun get(recordingId: String): SpeakerCountChoice? {
         require(recordingId.isNotBlank())
-        val raw = preferences.getString(KEY_PREFIX + recordingId, null) ?: return null
-        return runCatching { SpeakerCountChoice.valueOf(raw) }.getOrNull()
+        val raw = preferences.getString(KEY_PREFIX + recordingId, null)
+        val choice = raw?.let { value -> runCatching { SpeakerCountChoice.valueOf(value) }.getOrNull() }
+        if (choice != null) {
+            cachedChoices[recordingId] = choice
+        } else {
+            cachedChoices.remove(recordingId)
+        }
+        return choice
     }
 
     fun set(
@@ -33,16 +40,26 @@ class RecordingSpeakerModeStore(
         preferences.edit()
             .putString(KEY_PREFIX + recordingId, choice.name)
             .commit()
+        cachedChoices[recordingId] = choice
     }
 
     fun clear(recordingId: String) {
         if (recordingId.isBlank()) return
         preferences.edit().remove(KEY_PREFIX + recordingId).commit()
+        cachedChoices.remove(recordingId)
     }
 
-    private companion object {
-        const val PREFERENCES_NAME = "voica-recording-speaker-mode"
-        const val KEY_PREFIX = "recording."
+    companion object {
+        private const val PREFERENCES_NAME = "voica-recording-speaker-mode"
+        private const val KEY_PREFIX = "recording."
+        private val cachedChoices = ConcurrentHashMap<String, SpeakerCountChoice>()
+
+        /**
+         * The detail screen loads durable file preferences before a retry action can be shown.
+         * This process cache lets the shared ViewModel preserve that explicit file choice without
+         * depending on the mutable global default.
+         */
+        fun cached(recordingId: String): SpeakerCountChoice? = cachedChoices[recordingId]
     }
 }
 
