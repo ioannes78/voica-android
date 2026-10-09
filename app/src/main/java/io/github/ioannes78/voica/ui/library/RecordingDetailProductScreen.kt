@@ -55,6 +55,7 @@ import io.github.ioannes78.voica.RecordingSpeakerModeStore
 import io.github.ioannes78.voica.SpeakerCountChoice
 import io.github.ioannes78.voica.SpeechBenchmarkRunner
 import io.github.ioannes78.voica.Stage13B5Qa4LifecycleViewModel
+import io.github.ioannes78.voica.Stage13CDiarizationAttentionRuntime
 import io.github.ioannes78.voica.TranscriptionRunState
 import io.github.ioannes78.voica.VoicaApplication
 import io.github.ioannes78.voica.productLabel
@@ -70,6 +71,7 @@ import io.github.ioannes78.voica.ui.ai.AiSummaryContentViewModel
 import io.github.ioannes78.voica.ui.ai.AiSummaryProductCard
 import io.github.ioannes78.voica.ui.ai.AiSummaryTransientHeader
 import io.github.ioannes78.voica.ui.ai.AiSummaryViewModel
+import io.github.ioannes78.voica.ui.diarization.DiarizationAttentionBanner
 import io.github.ioannes78.voica.ui.diarization.DiarizationStatusCard
 import io.github.ioannes78.voica.ui.diarization.DiarizationViewModel
 import io.github.ioannes78.voica.ui.playback.PlaybackViewModel
@@ -133,6 +135,10 @@ internal fun RecordingDetailProductScreen(
         application.container.diarizationRepository
             .observeLatestCompletedRun(recording.id)
             .collectAsState(initial = null)
+    val diarizationAttention by
+        Stage13CDiarizationAttentionRuntime.repository
+            .observeForRecording(recording.id)
+            .collectAsState(initial = emptyList())
     val qa4LifecycleViewModel: Stage13B5Qa4LifecycleViewModel =
         viewModel(
             factory =
@@ -229,6 +235,7 @@ internal fun RecordingDetailProductScreen(
         pendingSpeakerModeName
             ?.let { raw -> runCatching { SpeakerCountChoice.valueOf(raw) }.getOrNull() }
             ?: displayedSpeakerMode
+    val visibleDiarizationAttention = diarizationAttention.firstOrNull().takeUnless { diarizationBusy }
 
     val startInitialTranscription = {
         application.container.autoDiarizationPostProcessor.prepareInitialTranscription(
@@ -340,6 +347,7 @@ internal fun RecordingDetailProductScreen(
                 if (
                     shouldShowTranscriptionStatus(transcriptionState, recording.id) ||
                     shouldShowDiarizationStatus(diarizationState, recording.id) ||
+                    visibleDiarizationAttention != null ||
                     visibleTranscriptionCandidateId != null ||
                     transcriptionAttention != null
                 ) {
@@ -379,6 +387,21 @@ internal fun RecordingDetailProductScreen(
                                 onCancel = diarizationViewModel::cancel,
                                 onRetry = diarizationViewModel::retry,
                                 onOpenSettings = onOpenSettings,
+                            )
+                        }
+                        visibleDiarizationAttention?.let { attention ->
+                            DiarizationAttentionBanner(
+                                attention = attention,
+                                actionEnabled = !transcriptionBusy && !diarizationBusy,
+                                onRetry = {
+                                    diarizationViewModel.retryAttention(
+                                        attention = attention,
+                                        fallbackSpeakerCount = displayedSpeakerMode,
+                                    )
+                                },
+                                onIgnore = {
+                                    diarizationViewModel.ignoreAttention(attention)
+                                },
                             )
                         }
                         visibleTranscriptionCandidateId?.let { newResultId ->
@@ -818,7 +841,7 @@ private fun SpeakerCountBottomSheet(
                     },
                 )
             }
-            if (transcribed && selectedMode != currentMode) {
+            if (transcribed) {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 Button(
                     modifier =
