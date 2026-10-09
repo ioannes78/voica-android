@@ -2,16 +2,23 @@ package io.github.ioannes78.voica.ui.diarization
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
 import io.github.ioannes78.voica.DiarizationCoordinator
 import io.github.ioannes78.voica.DiarizationRunState
 import io.github.ioannes78.voica.RecordingSpeakerModeStore
 import io.github.ioannes78.voica.SpeakerCountChoice
+import io.github.ioannes78.voica.speakerCountChoiceFromConfigSnapshot
+import io.github.ioannes78.voica.database.DiarizationAttentionItem
+import io.github.ioannes78.voica.database.DiarizationAttentionKind
+import io.github.ioannes78.voica.database.DiarizationAttentionRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 class DiarizationViewModel(
     private val coordinator: DiarizationCoordinator,
+    private val attentionRepository: DiarizationAttentionRepository,
 ) : ViewModel() {
     val runState: StateFlow<DiarizationRunState> = coordinator.state
 
@@ -44,6 +51,39 @@ class DiarizationViewModel(
         }
     }
 
+    fun retryAttention(
+        attention: DiarizationAttentionItem,
+        fallbackSpeakerCount: SpeakerCountChoice,
+    ) {
+        mutableNotice.value = null
+        val started =
+            when (attention.kind) {
+                DiarizationAttentionKind.DIARIZATION -> {
+                    val exactChoice =
+                        speakerCountChoiceFromConfigSnapshot(attention.configSnapshot)
+                            ?: RecordingSpeakerModeStore.cached(attention.recordingId)
+                            ?: fallbackSpeakerCount
+                    coordinator.start(attention.recordingId, exactChoice)
+                }
+                DiarizationAttentionKind.ALIGNMENT -> {
+                    val transcriptionId = attention.transcriptionId
+                    val diarizationRunId = attention.diarizationRunId
+                    transcriptionId != null &&
+                        diarizationRunId != null &&
+                        coordinator.alignTranscription(transcriptionId, diarizationRunId)
+                }
+            }
+        if (!started) {
+            mutableNotice.value = "已有说话人分离或对齐任务正在运行，请先完成或取消当前任务"
+        }
+    }
+
+    fun ignoreAttention(attention: DiarizationAttentionItem) {
+        viewModelScope.launch {
+            attentionRepository.acknowledge(attention)
+        }
+    }
+
     fun cancel() {
         coordinator.cancel()
     }
@@ -54,9 +94,10 @@ class DiarizationViewModel(
 
     class Factory(
         private val coordinator: DiarizationCoordinator,
+        private val attentionRepository: DiarizationAttentionRepository,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            DiarizationViewModel(coordinator) as T
+            DiarizationViewModel(coordinator, attentionRepository) as T
     }
 }
