@@ -44,6 +44,9 @@ interface SearchDao {
     @Query("SELECT documentId FROM search_documents WHERE tagId = :tagId")
     suspend fun findDocumentIdsForTag(tagId: String): List<String>
 
+    @Query("SELECT DISTINCT recordingId FROM search_documents WHERE documentType = 'RECORDING' AND recordingId IS NOT NULL")
+    suspend fun findIndexedRecordingIds(): List<String>
+
     @Query("SELECT DISTINCT transcriptionId FROM search_documents WHERE documentType = 'TRANSCRIPT_UNIT' AND transcriptionId IS NOT NULL")
     suspend fun findIndexedTranscriptionIds(): List<String>
 
