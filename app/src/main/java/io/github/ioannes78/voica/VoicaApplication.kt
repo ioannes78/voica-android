@@ -210,20 +210,6 @@ class AppContainer(
             localSpeechSettings = { localSpeechSettingsStore.settings.value },
         )
 
-    val diarizationBenchmarkRunner =
-        DiarizationBenchmarkRunner(
-            application = application,
-            pcmSourceResolver = pcmSourceResolver,
-            modelManager = modelManager,
-            modelUseRegistry = modelUseRegistry,
-            engineProvider = stage9VadReusingDiarizationEngineProvider,
-            localSpeechSettings = { localSpeechSettingsStore.settings.value },
-        )
-
-    // C7-R1: profiling remains available as dormant tooling, but normal debug/QA/runtime
-    // diarization no longer passes through benchmark/boundary decorators or writes JSON reports.
-    private val stage9DiarizationEngineProvider = stage9VadReusingDiarizationEngineProvider
-
     val diarizationCoordinator =
         DiarizationCoordinator(
             scope = applicationScope,
@@ -233,7 +219,7 @@ class AppContainer(
             loadCanonicalLineage = recordingLibraryRepository::loadCanonicalTranscriptionLineage,
             modelManager = modelManager,
             modelUseRegistry = modelUseRegistry,
-            engineProvider = stage9DiarizationEngineProvider,
+            engineProvider = stage9VadReusingDiarizationEngineProvider,
             localSpeechSettings = { localSpeechSettingsStore.settings.value },
             isRecordingActive = recordingLibraryRepository::isRecordingActive,
         )
