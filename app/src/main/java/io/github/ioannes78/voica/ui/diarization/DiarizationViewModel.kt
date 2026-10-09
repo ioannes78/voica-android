@@ -7,6 +7,7 @@ import io.github.ioannes78.voica.DiarizationCoordinator
 import io.github.ioannes78.voica.DiarizationRunState
 import io.github.ioannes78.voica.RecordingSpeakerModeStore
 import io.github.ioannes78.voica.SpeakerCountChoice
+import io.github.ioannes78.voica.Stage13CDiarizationAttentionRuntime
 import io.github.ioannes78.voica.speakerCountChoiceFromConfigSnapshot
 import io.github.ioannes78.voica.database.DiarizationAttentionItem
 import io.github.ioannes78.voica.database.DiarizationAttentionKind
@@ -96,6 +97,9 @@ class DiarizationViewModel(
         private val coordinator: DiarizationCoordinator,
         private val attentionRepository: DiarizationAttentionRepository,
     ) : ViewModelProvider.Factory {
+        constructor(coordinator: DiarizationCoordinator) :
+            this(coordinator, Stage13CDiarizationAttentionRuntime.repository)
+
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
             DiarizationViewModel(coordinator, attentionRepository) as T
