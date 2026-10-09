@@ -54,8 +54,8 @@ android {
         applicationId = "io.github.ioannes78.voica"
         minSdk = 26
         targetSdk = 37
-        versionCode = 81
-        versionName = "1.0.0-rc1"
+        versionCode = 82
+        versionName = "1.0.0-rc2"
         buildConfigField("String", "GIT_SHA", "\"$buildGitSha\"")
         ndk {
             abiFilters += "arm64-v8a"
@@ -104,10 +104,22 @@ android {
         }
         getByName("release") {
             isDebuggable = false
-            // Stage 14.3 owns R8/resource shrinking. Keep 14.2 focused on build identity/signing.
-            isMinifyEnabled = false
-            isShrinkResources = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
             productionSigningConfig?.let { signingConfig = it }
+        }
+        create("releaseQa") {
+            // Production-like, minified/shrunk candidate signed only with the public QA identity.
+            // Same QA application ID allows an in-place upgrade from earlier Stage 14 QA builds.
+            initWith(getByName("release"))
+            applicationIdSuffix = ".qa"
+            versionNameSuffix = "-shrink-qa"
+            signingConfig = signingConfigs.getByName("qa")
+            matchingFallbacks += listOf("release")
         }
     }
 
