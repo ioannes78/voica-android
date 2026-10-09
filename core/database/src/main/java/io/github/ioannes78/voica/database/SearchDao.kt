@@ -50,8 +50,14 @@ interface SearchDao {
     @Query("SELECT DISTINCT aiSummaryId FROM search_documents WHERE aiSummaryId IS NOT NULL")
     suspend fun findIndexedAiSummaryIds(): List<String>
 
-    @Query("SELECT COUNT(*) FROM search_documents WHERE documentType NOT IN ('RECORDING', 'TRANSCRIPT_UNIT', 'SUMMARY_TITLE_OVERVIEW', 'SUMMARY_ITEM')")
-    suspend fun countLegacyProductSearchRows(): Int
+    @Query("SELECT DISTINCT folderId FROM search_documents WHERE documentType = 'FOLDER' AND folderId IS NOT NULL")
+    suspend fun findIndexedFolderIds(): List<String>
+
+    @Query("SELECT DISTINCT tagId FROM search_documents WHERE documentType = 'TAG' AND tagId IS NOT NULL")
+    suspend fun findIndexedTagIds(): List<String>
+
+    @Query("SELECT COUNT(*) FROM search_documents WHERE documentType NOT IN ('RECORDING', 'FOLDER', 'TAG', 'TRANSCRIPT_UNIT', 'SUMMARY_TITLE_OVERVIEW', 'SUMMARY_ITEM')")
+    suspend fun countUnsupportedProductSearchRows(): Int
 
     @Query("SELECT * FROM search_documents WHERE documentType = 'RECORDING' AND recordingId IN (:recordingIds)")
     suspend fun findRecordingDocuments(recordingIds: List<String>): List<SearchDocumentEntity>
