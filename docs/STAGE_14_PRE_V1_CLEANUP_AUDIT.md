@@ -60,6 +60,51 @@ The following were audited and are not pre-V1 app-version compatibility baggage:
 - Room remains schema 12;
 - the V1 production database builder does not register pre-V1 migrations.
 
+## Stage 14.1B R1 — Search deep-link correction
+
+The first Stage 14.1A implementation incorrectly compared the persisted search anchor (the durable source transcript segment id) with the timeline presentation row id. Timeline row ids are `segment:<id>` before diarization and `span:<id>` after diarization, so the two id spaces are intentionally different.
+
+R1 keeps the persisted search index contract unchanged and resolves the anchor through `TranscriptDisplaySegment.sourceSegmentId` instead. When diarization splits one source segment into multiple speaker spans, navigation scrolls to the first matching span and all spans derived from that source segment receive the temporary search highlight.
+
+Revision/edited transcript navigation remains paragraph-id based and requires an exact current `revisionId` match.
+
+Search highlighting is now independent from playback-active state: the temporary search highlight no longer replaces the playback row state or suppresses the active token/cue highlight.
+
+`TranscriptSearchAnchorResolverTest` covers:
+
+- model-original segment navigation;
+- diarization one-source-segment-to-multiple-span navigation/highlighting;
+- current Revision paragraph navigation;
+- mismatched Revision rejection;
+- mismatched transcription rejection.
+
+## Notification / prompt / durable-attention regression audit
+
+Stage 13B/13C notification and durable-attention behavior remains a release-freeze invariant. A direct diff from the Stage 14.1B v79 candidate to R1 changes only:
+
+- `app/build.gradle.kts`;
+- `RecordingDetailProductScreen.kt`;
+- `TranscriptSearchAnchorResolver.kt`;
+- `TranscriptionCards.kt`;
+- `TranscriptSearchAnchorResolverTest.kt`;
+- this audit document.
+
+No notification controller, foreground service, global-attention host, task state ViewModel, model-install state machine, playback service, or durable-attention repository is modified by R1.
+
+The following frozen behavior remains intentionally unchanged:
+
+- transcription and diarization running work keeps its media-processing foreground-service ownership and ongoing notification;
+- AI Summary running notification and explicit cancel semantics remain unchanged;
+- model download/install durable state and notification behavior remain unchanged;
+- playback foreground/MediaSession notification behavior remains unchanged;
+- Transcription / AI Summary Candidate notifications remain projections of durable candidate state;
+- FAILED / INTERRUPTED / AMBIGUOUS_REMOTE_RESULT attention is not acknowledged merely by opening a page or notification;
+- Stage 13C diarization/alignment failure attention remains durable;
+- entering the matching Recording detail temporarily hides the same App-internal global attention, but leaving the page restores it while durable state remains unresolved;
+- page visibility never writes a Room acknowledgement.
+
+Android PR CI run #1081 (`37957787616`) completed successfully after R1, including the full existing unit-test suite, QA build/signing checks, and Room v1–v12 schema gate.
+
 ## Upgrade expectation for QA
 
 For this Stage 14.1B candidate:
