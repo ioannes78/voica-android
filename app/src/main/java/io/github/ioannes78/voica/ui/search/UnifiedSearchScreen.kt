@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -25,9 +26,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -37,6 +41,7 @@ import io.github.ioannes78.voica.database.SearchDocumentEntity
 import io.github.ioannes78.voica.database.SearchDocumentTypeValue
 import io.github.ioannes78.voica.database.SearchIndexStatusValue
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 @Composable
 fun UnifiedSearchScreen(
@@ -44,8 +49,24 @@ fun UnifiedSearchScreen(
     viewModel: UnifiedSearchViewModel,
     onBack: () -> Unit,
     onOpen: (SearchDocumentEntity) -> Unit,
+    onOpenRecording: (String) -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
+    val listState =
+        rememberLazyListState(
+            initialFirstVisibleItemIndex = state.firstVisibleItemIndex,
+            initialFirstVisibleItemScrollOffset = state.firstVisibleItemScrollOffset,
+        )
+    val scope = rememberCoroutineScope()
+
+    DisposableEffect(listState) {
+        onDispose {
+            viewModel.rememberListPosition(
+                listState.firstVisibleItemIndex,
+                listState.firstVisibleItemScrollOffset,
+            )
+        }
+    }
 
     Column(
         modifier =
@@ -84,7 +105,10 @@ fun UnifiedSearchScreen(
 
         OutlinedTextField(
             value = state.query,
-            onValueChange = viewModel::setQuery,
+            onValueChange = { value ->
+                viewModel.setQuery(value)
+                scope.launch { listState.scrollToItem(0) }
+            },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             leadingIcon = {
@@ -92,7 +116,12 @@ fun UnifiedSearchScreen(
             },
             trailingIcon = {
                 if (state.query.isNotEmpty()) {
-                    IconButton(onClick = { viewModel.setQuery("") }) {
+                    IconButton(
+                        onClick = {
+                            viewModel.setQuery("")
+                            scope.launch { listState.scrollToItem(0) }
+                        },
+                    ) {
                         Icon(Icons.Outlined.Close, contentDescription = "清除搜索")
                     }
                 }
@@ -111,7 +140,10 @@ fun UnifiedSearchScreen(
             UnifiedSearchFilter.entries.forEach { filter ->
                 FilterChip(
                     selected = state.filter == filter,
-                    onClick = { viewModel.setFilter(filter) },
+                    onClick = {
+                        viewModel.setFilter(filter)
+                        scope.launch { listState.scrollToItem(0) }
+                    },
                     label = { Text(filter.label) },
                 )
             }
@@ -170,36 +202,147 @@ fun UnifiedSearchScreen(
         HorizontalDivider()
 
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(
-                items = state.results,
-                key = { it.documentId },
-            ) { result ->
-                UnifiedSearchResultRow(
-                    result = result,
-                    query = state.query,
-                    onClick = { onOpen(result) },
-                )
+            if (state.filter == UnifiedSearchFilter.ALL) {
+                items(
+                    items = state.recordingGroups,
+                    key = { "recording-group:" + it.recordingId },
+                ) { group ->
+                    UnifiedSearchRecordingGroupRow(
+                        group = group,
+                        query = state.query,
+                        expanded = group.recordingId in state.expandedRecordingIds,
+                        onToggleExpanded = { expanded ->
+                            viewModel.setRecordingExpanded(group.recordingId, expanded)
+                        },
+                        onOpenRecording = { onOpenRecording(group.recordingId) },
+                        onOpen = onOpen,
+                    )
+                }
+                items(
+                    items = state.unlinkedResults,
+                    key = { "unlinked:" + it.documentId },
+                ) { result ->
+                    UnifiedSearchResultRow(
+                        result = result,
+                        query = state.query,
+                        onClick = { onOpen(result) },
+                    )
+                }
+            } else {
+                items(
+                    items = state.results,
+                    key = { it.documentId },
+                ) { result ->
+                    UnifiedSearchResultRow(
+                        result = result,
+                        query = state.query,
+                        onClick = { onOpen(result) },
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
+private fun UnifiedSearchRecordingGroupRow(
+    group: UnifiedSearchRecordingGroup,
+    query: String,
+    expanded: Boolean,
+    onToggleExpanded: (Boolean) -> Unit,
+    onOpenRecording: () -> Unit,
+    onOpen: (SearchDocumentEntity) -> Unit,
+) {
+    val transcriptHits = if (expanded) group.transcriptHits else group.transcriptHits.take(2)
+    val summaryHits = if (expanded) group.summaryHits else group.summaryHits.take(2)
+    val visibleHits = transcriptHits + summaryHits
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        tonalElevation = 1.dp,
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onOpenRecording)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                HighlightedSearchText(
+                    text = group.recordingTitle,
+                    query = query,
+                    modifier = Modifier.fillMaxWidth(),
+                    fontWeight = FontWeight.SemiBold,
+                )
+                val summary = groupMatchSummary(group)
+                if (summary.isNotBlank()) {
+                    Text(
+                        summary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            visibleHits.forEach { hit ->
+                HorizontalDivider()
+                UnifiedSearchResultRow(
+                    result = hit,
+                    query = query,
+                    onClick = { onOpen(hit) },
+                    compact = true,
+                )
+            }
+
+            if (group.contentHitCount > 4 || (expanded && group.contentHitCount > 0)) {
+                TextButton(
+                    modifier = Modifier.padding(horizontal = 6.dp),
+                    onClick = { onToggleExpanded(!expanded) },
+                ) {
+                    Text(
+                        if (expanded) {
+                            "收起"
+                        } else {
+                            "查看全部 ${group.contentHitCount} 个内容命中"
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun groupMatchSummary(group: UnifiedSearchRecordingGroup): String =
+    buildList {
+        if (group.fileNameMatched) add("文件名命中")
+        if (group.transcriptHits.isNotEmpty()) add("转写 ${group.transcriptHits.size} 处")
+        if (group.summaryHits.isNotEmpty()) add("AI 总结 ${group.summaryHits.size} 处")
+    }.joinToString(" · ")
+
+@Composable
 private fun UnifiedSearchResultRow(
     result: SearchDocumentEntity,
     query: String,
     onClick: () -> Unit,
+    compact: Boolean = false,
 ) {
     Column(
         modifier =
             Modifier
                 .fillMaxWidth()
                 .clickable(onClick = onClick)
-                .padding(horizontal = 6.dp, vertical = 10.dp),
+                .padding(
+                    horizontal = if (compact) 12.dp else 6.dp,
+                    vertical = if (compact) 8.dp else 10.dp,
+                ),
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         Row(
