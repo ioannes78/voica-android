@@ -54,8 +54,8 @@ android {
         applicationId = "io.github.ioannes78.voica"
         minSdk = 26
         targetSdk = 37
-        versionCode = 83
-        versionName = "1.0.0-rc2-r1"
+        versionCode = 84
+        versionName = "1.0.0-rc2-r2"
         buildConfigField("String", "GIT_SHA", "\"$buildGitSha\"")
         ndk {
             abiFilters += "arm64-v8a"
@@ -126,6 +126,15 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+        jniLibs {
+            // sherpa-onnx's Android artifact also ships standalone C/C++ API libraries.
+            // Voica uses the Java/Kotlin JNI bridge only; libsherpa-onnx-jni.so does not
+            // DT_NEEDED either standalone API library. Keep the pair excluded together.
+            excludes += setOf(
+                "**/libsherpa-onnx-c-api.so",
+                "**/libsherpa-onnx-cxx-api.so",
+            )
         }
     }
 }
