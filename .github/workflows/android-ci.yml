@@ -95,9 +95,17 @@ jobs:
             tr '[:upper:]' '[:lower:]')"
           test "$actual_cert_sha256" = "$expected_cert_sha256"
 
-      # Temporary C7-R1 bootstrap: capture the compiler-generated v12 schema before the
-      # committed-schema gate intentionally rejects the new untracked file. Remove this step
-      # immediately after 12.json is committed.
+      # Temporary C7-R1 bootstrap: Room's schema file is a compiler side effect and is not restored
+      # when kspDebugKotlin comes FROM-CACHE. Force this one KSP task once so the exact v12 compiler
+      # schema can be captured, then remove this step after 12.json is committed.
+      - name: Generate Room v12 schema bootstrap
+        run: >
+          gradle
+          :core:database:kspDebugKotlin
+          --rerun-tasks
+          --no-configuration-cache
+          --stacktrace
+
       - name: Upload generated Room v12 schema bootstrap
         uses: actions/upload-artifact@v4
         with:
