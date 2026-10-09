@@ -218,7 +218,10 @@ fun UnifiedSearchScreen(
                         onToggleExpanded = { expanded ->
                             viewModel.setRecordingExpanded(group.recordingId, expanded)
                         },
-                        onOpenRecording = { onOpen(recordingOpenTarget(group)) },
+                        onOpenRecording = {
+                            SearchReturnRuntime.markDetailOpen()
+                            onOpen(recordingOpenTarget(group))
+                        },
                         onOpen = onOpen,
                     )
                 }
@@ -359,7 +362,12 @@ private fun UnifiedSearchResultRow(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .clickable(onClick = onClick)
+                .clickable {
+                    if (result.opensRecordingDetail()) {
+                        SearchReturnRuntime.markDetailOpen()
+                    }
+                    onClick()
+                }
                 .padding(
                     horizontal = if (compact) 12.dp else 6.dp,
                     vertical = if (compact) 8.dp else 10.dp,
@@ -392,6 +400,16 @@ private fun UnifiedSearchResultRow(
         }
     }
 }
+
+private fun SearchDocumentEntity.opensRecordingDetail(): Boolean =
+    recordingId != null &&
+        documentType in
+        setOf(
+            SearchDocumentTypeValue.RECORDING,
+            SearchDocumentTypeValue.TRANSCRIPT_UNIT,
+            SearchDocumentTypeValue.SUMMARY_TITLE_OVERVIEW,
+            SearchDocumentTypeValue.SUMMARY_ITEM,
+        )
 
 @Composable
 private fun HighlightedSearchText(
