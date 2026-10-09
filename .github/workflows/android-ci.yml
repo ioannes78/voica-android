@@ -98,9 +98,9 @@ jobs:
             tr '[:upper:]' '[:lower:]')"
           test "$actual_cert_sha256" = "$expected_cert_sha256"
 
-      # Stage 14.3 keeps PR Release artifacts unsigned but now validates the real minified/shrunk
+      # Stage 14.3 keeps PR Release artifacts unsigned while validating the real minified/shrunk
       # Release configuration and a production-like QA-signed variant for device testing.
-      - name: Verify V1 RC2 release identity and shrink boundary
+      - name: Verify V1 RC2-R1 release identity and shrink boundary
         shell: bash
         run: |
           set -euo pipefail
@@ -117,16 +117,16 @@ jobs:
           test -n "$analyzer"
 
           test "$("$analyzer" manifest application-id "$release_qa_apk")" = "io.github.ioannes78.voica.qa"
-          test "$("$analyzer" manifest version-code "$release_qa_apk")" = "82"
-          test "$("$analyzer" manifest version-name "$release_qa_apk")" = "1.0.0-rc2-shrink-qa"
+          test "$("$analyzer" manifest version-code "$release_qa_apk")" = "83"
+          test "$("$analyzer" manifest version-name "$release_qa_apk")" = "1.0.0-rc2-r1-shrink-qa"
           if "$analyzer" manifest print "$release_qa_apk" | grep -q 'android:debuggable="true"'; then
             echo "::error::Production-like QA manifest is debuggable."
             exit 1
           fi
 
           test "$("$analyzer" manifest application-id "$release_apk")" = "io.github.ioannes78.voica"
-          test "$("$analyzer" manifest version-code "$release_apk")" = "82"
-          test "$("$analyzer" manifest version-name "$release_apk")" = "1.0.0-rc2"
+          test "$("$analyzer" manifest version-code "$release_apk")" = "83"
+          test "$("$analyzer" manifest version-name "$release_apk")" = "1.0.0-rc2-r1"
           if "$analyzer" manifest print "$release_apk" | grep -q 'android:debuggable="true"'; then
             echo "::error::Release manifest is debuggable."
             exit 1
@@ -161,9 +161,9 @@ jobs:
           aab_bytes="$(stat -c %s "$release_aab")"
 
           echo "Stage 14.2 QA baseline APK: ${baseline_qa_apk_bytes} bytes"
-          echo "Stage 14.3 shrunk releaseQa APK: ${release_qa_bytes} bytes"
-          echo "Stage 14.3 shrunk unsigned Release APK: ${release_bytes} bytes"
-          echo "Stage 14.3 shrunk Release AAB: ${aab_bytes} bytes"
+          echo "Stage 14.3 R1 shrunk releaseQa APK: ${release_qa_bytes} bytes"
+          echo "Stage 14.3 R1 shrunk unsigned Release APK: ${release_bytes} bytes"
+          echo "Stage 14.3 R1 shrunk Release AAB: ${aab_bytes} bytes"
 
           if (( release_qa_bytes >= baseline_qa_apk_bytes )); then
             echo "::error::R8/resource shrink did not reduce the production-like QA APK below the accepted Stage 14.2 baseline."
@@ -190,12 +190,39 @@ jobs:
                   groups[key][0] += item.file_size
                   groups[key][1] += item.compress_size
           with open(summary, "a", encoding="utf-8") as out:
-              out.write("\n### Stage 14.3 shrunk APK composition\n\n")
+              out.write("\n### Stage 14.3 R1 shrunk APK composition\n\n")
               out.write("| Category | Uncompressed bytes | ZIP payload bytes |\n")
               out.write("| --- | ---: | ---: |\n")
               for key, (raw, compressed) in groups.items():
                   out.write(f"| {key} | {raw} | {compressed} |\n")
           PY
+
+      # sherpa-onnx JNI uses literal Java class/member names from native code. R8 must not
+      # rename or remove its wrapper ABI, otherwise ASR/VAD/diarization can abort the process.
+      - name: Verify Sherpa JNI ABI after R8
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_qa_apk="app/build/outputs/apk/releaseQa/app-releaseQa.apk"
+          dex_dump="$RUNNER_TEMP/releaseqa-classes.dex"
+
+          grep -Fq -- '-keep,allowoptimization class com.k2fsa.sherpa.onnx.** {' app/proguard-rules.pro
+          zipinfo -1 "$release_qa_apk" | grep -qx 'lib/arm64-v8a/libsherpa-onnx-jni.so'
+          unzip -p "$release_qa_apk" classes.dex > "$dex_dump"
+
+          for descriptor in \
+            'Lcom/k2fsa/sherpa/onnx/OfflineRecognizer;' \
+            'Lcom/k2fsa/sherpa/onnx/OfflineRecognizerResult;' \
+            'Lcom/k2fsa/sherpa/onnx/VoiceActivityDetector;' \
+            'Lcom/k2fsa/sherpa/onnx/SpeechSegment;' \
+            'Lcom/k2fsa/sherpa/onnx/OfflineSpeakerDiarization;' \
+            'Lcom/k2fsa/sherpa/onnx/OfflineSpeakerDiarizationSegment;'; do
+            if ! strings -a "$dex_dump" | grep -Fqx "$descriptor"; then
+              echo "::error::Sherpa JNI ABI descriptor missing after R8: $descriptor"
+              exit 1
+            fi
+          done
 
       - name: Verify production signing guardrails
         shell: bash
