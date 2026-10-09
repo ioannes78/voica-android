@@ -121,6 +121,7 @@ class AppContainer(
         SharedPreferencesThemeSettingsStore(application)
     val localSpeechSettingsStore =
         SharedPreferencesLocalSpeechSettingsStore(application)
+    val taskCompletionNoticeStore = TaskCompletionNoticeStore(application)
     private val stage8TranscriptionEngineProvider =
         SherpaStage8TranscriptionEngineProvider(
             assetManager = application.assets,
@@ -275,7 +276,9 @@ class AppContainer(
             diarizationCoordinator = diarizationCoordinator,
             aiSummaryCoordinator = aiSummaryCoordinator,
             aiSummaryRepository = aiSummaryRepository,
+            stage12CContentRepository = stage12CContentRepository,
             stage13B5Qa4Repository = stage13B5Qa4Repository,
+            taskCompletionNoticeStore = taskCompletionNoticeStore,
         )
 
     val stage13B5Qa4CandidateNotificationController =
