@@ -15,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import io.github.ioannes78.voica.ui.search.SearchReturnRuntime
 
 @Composable
 fun RecordingLibraryRoute(
@@ -34,6 +35,12 @@ fun RecordingLibraryRoute(
         rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
             uri?.let(viewModel::exportSelectedToTree)
         }
+
+    LaunchedEffect(Unit) {
+        if (SearchReturnRuntime.consumePendingReturn()) {
+            onOpenUnifiedSearch()
+        }
+    }
 
     LaunchedEffect(state.operationMessage) {
         val message = state.operationMessage ?: return@LaunchedEffect
