@@ -2,6 +2,8 @@ package io.github.ioannes78.voica.ui.library
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +33,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -150,7 +153,7 @@ internal fun RecordingDetailProductScreen(
         mutableStateOf(initialDestination.toProductTab())
     }
     var transcriptViewMode by rememberSaveable(recording.id) {
-        mutableStateOf(TranscriptViewMode.READING)
+        mutableStateOf(TranscriptViewMode.TIMELINE)
     }
     var renameOpen by rememberSaveable(recording.id) { mutableStateOf(false) }
     var renameValue by rememberSaveable(recording.displayName) {
@@ -382,14 +385,14 @@ internal fun RecordingDetailProductScreen(
                             CandidateTranscriptionBanner(
                                 previewing = candidatePreview,
                                 onPreview = {
-                                    transcriptViewMode = TranscriptViewMode.READING
+                                    transcriptViewMode = TranscriptViewMode.TIMELINE
                                     transcriptionViewModel.previewCandidate(newResultId)
                                 },
                                 onReturnCurrent = {
                                     transcriptionViewModel.showCurrent(recording.id)
                                 },
                                 onAdopt = {
-                                    transcriptViewMode = TranscriptViewMode.READING
+                                    transcriptViewMode = TranscriptViewMode.TIMELINE
                                     transcriptionViewModel.adoptCandidate(newResultId)
                                 },
                                 onIgnore = {
@@ -773,11 +776,17 @@ private fun SpeakerCountBottomSheet(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scrollState = rememberScrollState()
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+    ) {
         Column(
             modifier =
                 Modifier
                     .fillMaxWidth()
+                    .verticalScroll(scrollState)
                     .padding(bottom = 24.dp),
         ) {
             Column(
@@ -938,7 +947,7 @@ private fun EmptyTranscriptionPanel(
         ) {
             Text("转写", style = MaterialTheme.typography.titleLarge)
             Text(
-                "转写完成后会直接进入阅读模式；需要校对原音时可切换到时间轴。",
+                "转写完成后默认进入时间轴；需要连续阅读和复制时可切换到阅读模式。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
