@@ -30,7 +30,7 @@ class HighQualityTranscriptionPipeline(
 
     init {
         require(readChunkSamples > 0)
-        require(maxSecondPassSegmentSamples > 0L)
+        require(maxSecondPassSegmentSamples in 1L..Int.MAX_VALUE.toLong())
     }
 
     suspend fun transcribe(
@@ -73,13 +73,23 @@ class HighQualityTranscriptionPipeline(
             )
         }
 
-        val offlineSegments =
+        val offlinePartition =
+            partitionSpeechSegmentsForOfflineAsr(
+                speechSegments = speechSegments,
+                maxChunkSamples = maxSecondPassSegmentSamples,
+            )
+        val offlineChunkSegments =
             runOfflineAsr(
                 recordingId = recordingId,
                 totalSampleCount = totalSampleCount,
-                speechSegments = speechSegments,
+                speechSegments = offlinePartition.chunks,
                 speechSampleCount = speechSampleCount,
                 progressListener = progressListener,
+            )
+        val offlineSegments =
+            mergeOfflineAsrChunks(
+                partition = offlinePartition,
+                chunkResults = offlineChunkSegments,
             )
 
         var timelineFallbackError: String? = null
@@ -410,13 +420,6 @@ class HighQualityTranscriptionPipeline(
             engine?.close()
         }
     }
-
-    private data class OfflineSegment(
-        val segmentIndex: Int,
-        val speechSegment: SpeechSegment,
-        val hypothesis: AsrHypothesis,
-        val absoluteTokens: List<TranscriptToken>,
-    )
 
     private data class FinalizationBase(
         val segmentIndex: Int,
