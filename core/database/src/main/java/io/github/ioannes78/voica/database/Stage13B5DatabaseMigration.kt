@@ -49,6 +49,17 @@ val MIGRATION_10_11: Migration =
         }
     }
 
+val MIGRATION_11_12: Migration =
+    object : Migration(11, 12) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            MIGRATION_11_12_SQL.forEach(db::execSQL)
+        }
+
+        override fun migrate(connection: SQLiteConnection) {
+            MIGRATION_11_12_SQL.forEach(connection::execSQL)
+        }
+    }
+
 internal val MIGRATION_7_8_SQL =
     listOf(
         "ALTER TABLE ai_summaries ADD COLUMN executionGeneration INTEGER NOT NULL DEFAULT 0",
@@ -85,4 +96,10 @@ internal val MIGRATION_9_10_SQL =
 internal val MIGRATION_10_11_SQL =
     listOf(
         "ALTER TABLE recording_candidate_attention ADD COLUMN dismissedStaleSummaryFingerprint TEXT",
+    )
+
+internal val MIGRATION_11_12_SQL =
+    listOf(
+        "ALTER TABLE diarization_runs ADD COLUMN terminalAcknowledgedAtMs INTEGER",
+        "ALTER TABLE transcript_speaker_alignments ADD COLUMN terminalAcknowledgedAtMs INTEGER",
     )
