@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   actions: write
 
 concurrency:
@@ -97,7 +97,7 @@ jobs:
 
       # Temporary C7-R1 bootstrap: Room's schema file is a compiler side effect and is not restored
       # when kspDebugKotlin comes FROM-CACHE. Force this one KSP task once so the exact v12 compiler
-      # schema can be captured, then remove this step after 12.json is committed.
+      # schema can be captured, then remove these bootstrap steps after 12.json is committed.
       - name: Generate Room v12 schema bootstrap
         run: >
           gradle
@@ -105,6 +105,28 @@ jobs:
           --rerun-tasks
           --no-configuration-cache
           --stacktrace
+
+      - name: Commit compiler-generated Room v12 schema to PR branch
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_BRANCH: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          schema_path="core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/12.json"
+          test -f "$schema_path"
+          if gh api --silent "/repos/${GITHUB_REPOSITORY}/contents/${schema_path}?ref=${TARGET_BRANCH}" >/dev/null 2>&1; then
+            echo "Room v12 schema already exists on ${TARGET_BRANCH}; no bootstrap commit needed."
+            exit 0
+          fi
+          encoded="$(base64 -w0 "$schema_path")"
+          gh api --method PUT \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/contents/${schema_path}" \
+            -f message='chore(database): commit compiler-generated Room v12 schema' \
+            -f content="$encoded" \
+            -f branch="$TARGET_BRANCH" >/dev/null
 
       - name: Upload generated Room v12 schema bootstrap
         uses: actions/upload-artifact@v4
