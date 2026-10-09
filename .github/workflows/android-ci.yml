@@ -58,7 +58,7 @@ jobs:
           cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
 
-      - name: Unit test, QA and release structure build
+      - name: Unit test and shrunk release builds
         run: >
           gradle
           :core:protocol:test
@@ -78,17 +78,18 @@ jobs:
           :engine:llm:assembleDebug
           :engine:sherpa:assembleDebug
           :app:testDebugUnitTest
-          :app:assembleQa
+          :app:assembleReleaseQa
           :app:assembleRelease
           :app:bundleRelease
           --no-configuration-cache
           --stacktrace
 
-      - name: Verify stable QA signing identity
+      - name: Verify production-like QA signing identity
         shell: bash
         run: |
+          set -euo pipefail
           expected_cert_sha256="3df9c619ad0d06f2fabb24232420bf056ca2d8ea9413e7f776669a591974f288"
-          apk="app/build/outputs/apk/qa/app-qa.apk"
+          apk="app/build/outputs/apk/releaseQa/app-releaseQa.apk"
           signer="$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner"
 
           test -f "$apk"
@@ -97,43 +98,104 @@ jobs:
             tr '[:upper:]' '[:lower:]')"
           test "$actual_cert_sha256" = "$expected_cert_sha256"
 
-      # Stage 14.2 intentionally does not inject production signing credentials into PR CI.
-      # The release APK/AAB produced here are structure/identity gates only and must remain unsigned.
-      - name: Verify V1 release identity and unsigned boundary
+      # Stage 14.3 keeps PR Release artifacts unsigned but now validates the real minified/shrunk
+      # Release configuration and a production-like QA-signed variant for device testing.
+      - name: Verify V1 RC2 release identity and shrink boundary
         shell: bash
         run: |
           set -euo pipefail
 
-          qa_apk="app/build/outputs/apk/qa/app-qa.apk"
+          release_qa_apk="app/build/outputs/apk/releaseQa/app-releaseQa.apk"
           release_apk="app/build/outputs/apk/release/app-release-unsigned.apk"
           release_aab="app/build/outputs/bundle/release/app-release.aab"
           signer="$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner"
           analyzer="$(command -v apkanalyzer)"
 
-          test -f "$qa_apk"
+          test -f "$release_qa_apk"
           test -f "$release_apk"
           test -f "$release_aab"
           test -n "$analyzer"
 
-          test "$("$analyzer" manifest application-id "$qa_apk")" = "io.github.ioannes78.voica.qa"
-          test "$("$analyzer" manifest version-code "$qa_apk")" = "81"
-          test "$("$analyzer" manifest version-name "$qa_apk")" = "1.0.0-rc1-qa"
+          test "$("$analyzer" manifest application-id "$release_qa_apk")" = "io.github.ioannes78.voica.qa"
+          test "$("$analyzer" manifest version-code "$release_qa_apk")" = "82"
+          test "$("$analyzer" manifest version-name "$release_qa_apk")" = "1.0.0-rc2-shrink-qa"
+          if "$analyzer" manifest print "$release_qa_apk" | grep -q 'android:debuggable="true"'; then
+            echo "::error::Production-like QA manifest is debuggable."
+            exit 1
+          fi
 
           test "$("$analyzer" manifest application-id "$release_apk")" = "io.github.ioannes78.voica"
-          test "$("$analyzer" manifest version-code "$release_apk")" = "81"
-          test "$("$analyzer" manifest version-name "$release_apk")" = "1.0.0-rc1"
+          test "$("$analyzer" manifest version-code "$release_apk")" = "82"
+          test "$("$analyzer" manifest version-name "$release_apk")" = "1.0.0-rc2"
           if "$analyzer" manifest print "$release_apk" | grep -q 'android:debuggable="true"'; then
             echo "::error::Release manifest is debuggable."
             exit 1
           fi
 
           if "$signer" verify "$release_apk" >/dev/null 2>&1; then
-            echo "::error::PR release structure APK unexpectedly contains a signer. Production credentials must not be injected here."
+            echo "::error::PR release APK unexpectedly contains a signer. Production credentials must not be injected here."
             exit 1
           fi
 
           unzip -tq "$release_aab" >/dev/null
           zipinfo -1 "$release_aab" | grep -qx 'base/manifest/AndroidManifest.xml'
+
+      - name: Verify R8 outputs and package-size reduction
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapping_dir="app/build/outputs/mapping/release"
+          release_qa_apk="app/build/outputs/apk/releaseQa/app-releaseQa.apk"
+          release_apk="app/build/outputs/apk/release/app-release-unsigned.apk"
+          release_aab="app/build/outputs/bundle/release/app-release.aab"
+          baseline_qa_apk_bytes=56893276
+
+          test -s "$mapping_dir/mapping.txt"
+          test -s "$mapping_dir/configuration.txt"
+          test -f "$mapping_dir/seeds.txt"
+          test -f "$mapping_dir/usage.txt"
+
+          release_qa_bytes="$(stat -c %s "$release_qa_apk")"
+          release_bytes="$(stat -c %s "$release_apk")"
+          aab_bytes="$(stat -c %s "$release_aab")"
+
+          echo "Stage 14.2 QA baseline APK: ${baseline_qa_apk_bytes} bytes"
+          echo "Stage 14.3 shrunk releaseQa APK: ${release_qa_bytes} bytes"
+          echo "Stage 14.3 shrunk unsigned Release APK: ${release_bytes} bytes"
+          echo "Stage 14.3 shrunk Release AAB: ${aab_bytes} bytes"
+
+          if (( release_qa_bytes >= baseline_qa_apk_bytes )); then
+            echo "::error::R8/resource shrink did not reduce the production-like QA APK below the accepted Stage 14.2 baseline."
+            exit 1
+          fi
+
+          python3 - "$release_qa_apk" "$GITHUB_STEP_SUMMARY" <<'PY'
+          import sys, zipfile
+          apk, summary = sys.argv[1], sys.argv[2]
+          groups = {k: [0, 0] for k in ("dex", "native", "resources", "assets", "other")}
+          with zipfile.ZipFile(apk) as archive:
+              for item in archive.infolist():
+                  name = item.filename
+                  if name.endswith(".dex"):
+                      key = "dex"
+                  elif name.startswith("lib/") and name.endswith(".so"):
+                      key = "native"
+                  elif name.startswith("res/") or name == "resources.arsc":
+                      key = "resources"
+                  elif name.startswith("assets/"):
+                      key = "assets"
+                  else:
+                      key = "other"
+                  groups[key][0] += item.file_size
+                  groups[key][1] += item.compress_size
+          with open(summary, "a", encoding="utf-8") as out:
+              out.write("\n### Stage 14.3 shrunk APK composition\n\n")
+              out.write("| Category | Uncompressed bytes | ZIP payload bytes |\n")
+              out.write("| --- | ---: | ---: |\n")
+              for key, (raw, compressed) in groups.items():
+                  out.write(f"| {key} | {raw} | {compressed} |\n")
+          PY
 
       - name: Verify production signing guardrails
         shell: bash
@@ -173,7 +235,7 @@ jobs:
           fi
           grep -q "public QA key alias" /tmp/qa-alias-as-production.log
 
-      # Room migration gate: committed Room v1-v12 schemas must stay in sync.
+      # Room schema 12 remains the V1 baseline; historical schema JSON stays committed as provenance.
       - name: Verify committed Room schemas
         shell: bash
         run: |
@@ -184,20 +246,16 @@ jobs:
           git diff --exit-code -- "$schema_dir"
           test -z "$(git status --porcelain --untracked-files=all -- "$schema_dir")"
 
-      # Low-cost default: PR builds do not upload artifacts.
-      # Add [APK] to the PR title only when an explicit real-device candidate is needed.
-      - name: Upload debug APK
+      # Only the QA-signed, production-like minified candidate is exposed for real-device testing.
+      - name: Upload production-like QA APK
         if: ${{ success() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[APK]'))) }}
         uses: actions/upload-artifact@v4
         with:
-          name: Voica-qa-apk
-          path: app/build/outputs/apk/qa/app-qa.apk
+          name: Voica-releaseqa-apk
+          path: app/build/outputs/apk/releaseQa/app-releaseQa.apk
           if-no-files-found: error
           retention-days: 3
 
-      # Keep storage bounded during high-frequency device testing:
-      # after a new candidate is safely uploaded, remove older APK artifacts
-      # from the same source branch. Other branches are left untouched.
       - name: Remove older QA APK artifacts for this branch
         if: ${{ success() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[APK]'))) }}
         continue-on-error: true
@@ -209,23 +267,20 @@ jobs:
         run: |
           set -euo pipefail
 
-          mapfile -t artifact_ids < <(
-            gh api --paginate \
-              -H "Accept: application/vnd.github+json" \
-              "/repos/${GITHUB_REPOSITORY}/actions/artifacts?name=Voica-qa-apk&per_page=100" \
-              --jq ".artifacts[] | select((.workflow_run.head_branch == \"${TARGET_BRANCH}\") and (.workflow_run.id != ${CURRENT_RUN_ID})) | .id"
-          )
+          for artifact_name in Voica-releaseqa-apk Voica-qa-apk; do
+            mapfile -t artifact_ids < <(
+              gh api --paginate \
+                -H "Accept: application/vnd.github+json" \
+                "/repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${artifact_name}&per_page=100" \
+                --jq ".artifacts[] | select((.workflow_run.head_branch == \"${TARGET_BRANCH}\") and (.workflow_run.id != ${CURRENT_RUN_ID})) | .id"
+            )
 
-          if (( ${#artifact_ids[@]} == 0 )); then
-            echo "No older Voica-qa-apk artifacts to remove for branch ${TARGET_BRANCH}."
-            exit 0
-          fi
-
-          for artifact_id in "${artifact_ids[@]}"; do
-            echo "Deleting older artifact ${artifact_id} from branch ${TARGET_BRANCH}."
-            if ! gh api --silent --method DELETE \
-              -H "Accept: application/vnd.github+json" \
-              "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}"; then
-              echo "::warning::Failed to delete older artifact ${artifact_id}; continuing cleanup."
-            fi
+            for artifact_id in "${artifact_ids[@]}"; do
+              echo "Deleting older ${artifact_name} artifact ${artifact_id} from branch ${TARGET_BRANCH}."
+              if ! gh api --silent --method DELETE \
+                -H "Accept: application/vnd.github+json" \
+                "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}"; then
+                echo "::warning::Failed to delete older artifact ${artifact_id}; continuing cleanup."
+              fi
+            done
           done
