@@ -24,20 +24,22 @@ class DiarizationAttentionRepositoryTest {
     private var idCounter = 0
 
     @Before
-    fun setUp() = runBlocking {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        database =
-            Room.inMemoryDatabaseBuilder(context, VoicaDatabase::class.java)
-                .allowMainThreadQueries()
-                .build()
-        diarizationRepository =
-            DiarizationRepository(
-                database = database,
-                nowMs = { ++clock },
-                idFactory = { "dia-attention-${++idCounter}" },
-            )
-        attentionRepository = DiarizationAttentionRepository(database, nowMs = { ++clock })
-        database.recordingDao().insertRecordingIgnore(recording())
+    fun setUp() {
+        runBlocking {
+            val context = ApplicationProvider.getApplicationContext<Context>()
+            database =
+                Room.inMemoryDatabaseBuilder(context, VoicaDatabase::class.java)
+                    .allowMainThreadQueries()
+                    .build()
+            diarizationRepository =
+                DiarizationRepository(
+                    database = database,
+                    nowMs = { ++clock },
+                    idFactory = { "dia-attention-${++idCounter}" },
+                )
+            attentionRepository = DiarizationAttentionRepository(database, nowMs = { ++clock })
+            database.recordingDao().insertRecordingIgnore(recording())
+        }
     }
 
     @After
