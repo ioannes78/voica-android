@@ -18,11 +18,12 @@ class Stage13C7R1ContractTest {
 
         assertTrue(
             source.contains(
-                "private val stage9DiarizationEngineProvider = stage9VadReusingDiarizationEngineProvider",
+                "engineProvider = stage9VadReusingDiarizationEngineProvider",
             ),
         )
         assertFalse(source.contains("Stage13CBoundaryProfilingProvider("))
         assertFalse(source.contains("diarizationBenchmarkRunner.attach(diarizationCoordinator)"))
+        assertFalse(source.contains("DiarizationBenchmarkRunner("))
     }
 
     @Test
