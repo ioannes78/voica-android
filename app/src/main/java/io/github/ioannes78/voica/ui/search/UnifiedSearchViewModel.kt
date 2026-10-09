@@ -95,6 +95,14 @@ class UnifiedSearchViewModel(
                 }
             }
         }
+
+        viewModelScope.launch {
+            SearchReturnRuntime.launchQuery.collectLatest { launchQuery ->
+                val query = launchQuery ?: return@collectLatest
+                SearchReturnRuntime.consumeSearchLaunch(query)
+                setQuery(query)
+            }
+        }
     }
 
     fun setQuery(value: String) {
