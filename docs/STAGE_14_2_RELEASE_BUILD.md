@@ -79,16 +79,20 @@ The CI gate verifies that:
 
 An unsigned PR Release APK/AAB is **not** a production release artifact and must not be presented to users as one.
 
-Stage 14.2 release-structure gate result:
+Stage 14.2 release/signing-boundary gate result:
 
-- Android PR CI: `#1085`
-- run: `37961487016`
+- Android PR CI: `#1088`
+- run: `37962572449`
 - result: `SUCCESS`
 - QA signing verification: PASS
 - Release APK structure/identity: PASS
 - Release AAB structure: PASS
 - Release non-debuggable gate: PASS
 - PR unsigned-release boundary: PASS
+- missing-production-key negative gate: PASS
+- partial-production-signing negative gate: PASS
+- QA-keystore-as-production rejection gate: PASS
+- QA-alias-as-production rejection gate: PASS
 - Room v1-v12 schema gate: PASS
 
 ## Production signer fingerprint
