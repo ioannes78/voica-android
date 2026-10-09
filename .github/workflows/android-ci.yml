@@ -100,7 +100,7 @@ jobs:
 
       # Stage 14.3 keeps PR Release artifacts unsigned while validating the real minified/shrunk
       # Release configuration and a production-like QA-signed variant for device testing.
-      - name: Verify V1 RC2-R1 release identity and shrink boundary
+      - name: Verify V1 RC2-R2 release identity and native-trim boundary
         shell: bash
         run: |
           set -euo pipefail
@@ -117,16 +117,16 @@ jobs:
           test -n "$analyzer"
 
           test "$("$analyzer" manifest application-id "$release_qa_apk")" = "io.github.ioannes78.voica.qa"
-          test "$("$analyzer" manifest version-code "$release_qa_apk")" = "83"
-          test "$("$analyzer" manifest version-name "$release_qa_apk")" = "1.0.0-rc2-r1-shrink-qa"
+          test "$("$analyzer" manifest version-code "$release_qa_apk")" = "84"
+          test "$("$analyzer" manifest version-name "$release_qa_apk")" = "1.0.0-rc2-r2-shrink-qa"
           if "$analyzer" manifest print "$release_qa_apk" | grep -q 'android:debuggable="true"'; then
             echo "::error::Production-like QA manifest is debuggable."
             exit 1
           fi
 
           test "$("$analyzer" manifest application-id "$release_apk")" = "io.github.ioannes78.voica"
-          test "$("$analyzer" manifest version-code "$release_apk")" = "83"
-          test "$("$analyzer" manifest version-name "$release_apk")" = "1.0.0-rc2-r1"
+          test "$("$analyzer" manifest version-code "$release_apk")" = "84"
+          test "$("$analyzer" manifest version-name "$release_apk")" = "1.0.0-rc2-r2"
           if "$analyzer" manifest print "$release_apk" | grep -q 'android:debuggable="true"'; then
             echo "::error::Release manifest is debuggable."
             exit 1
@@ -149,7 +149,8 @@ jobs:
           release_qa_apk="app/build/outputs/apk/releaseQa/app-releaseQa.apk"
           release_apk="app/build/outputs/apk/release/app-release-unsigned.apk"
           release_aab="app/build/outputs/bundle/release/app-release.aab"
-          baseline_qa_apk_bytes=56893276
+          stage14_2_qa_baseline_bytes=56893276
+          rc2_r1_qa_apk_bytes=35565779
 
           test -s "$mapping_dir/mapping.txt"
           test -s "$mapping_dir/configuration.txt"
@@ -160,13 +161,14 @@ jobs:
           release_bytes="$(stat -c %s "$release_apk")"
           aab_bytes="$(stat -c %s "$release_aab")"
 
-          echo "Stage 14.2 QA baseline APK: ${baseline_qa_apk_bytes} bytes"
-          echo "Stage 14.3 R1 shrunk releaseQa APK: ${release_qa_bytes} bytes"
-          echo "Stage 14.3 R1 shrunk unsigned Release APK: ${release_bytes} bytes"
-          echo "Stage 14.3 R1 shrunk Release AAB: ${aab_bytes} bytes"
+          echo "Stage 14.2 QA baseline APK: ${stage14_2_qa_baseline_bytes} bytes"
+          echo "Stage 14.3 RC2-R1 accepted shrunk QA APK: ${rc2_r1_qa_apk_bytes} bytes"
+          echo "Stage 14.3 RC2-R2 native-trim releaseQa APK: ${release_qa_bytes} bytes"
+          echo "Stage 14.3 RC2-R2 native-trim unsigned Release APK: ${release_bytes} bytes"
+          echo "Stage 14.3 RC2-R2 native-trim Release AAB: ${aab_bytes} bytes"
 
-          if (( release_qa_bytes >= baseline_qa_apk_bytes )); then
-            echo "::error::R8/resource shrink did not reduce the production-like QA APK below the accepted Stage 14.2 baseline."
+          if (( release_qa_bytes >= rc2_r1_qa_apk_bytes )); then
+            echo "::error::Native trim did not reduce the production-like QA APK below the accepted RC2-R1 baseline."
             exit 1
           fi
 
@@ -190,7 +192,7 @@ jobs:
                   groups[key][0] += item.file_size
                   groups[key][1] += item.compress_size
           with open(summary, "a", encoding="utf-8") as out:
-              out.write("\n### Stage 14.3 R1 shrunk APK composition\n\n")
+              out.write("\n### Stage 14.3 RC2-R2 native-trim APK composition\n\n")
               out.write("| Category | Uncompressed bytes | ZIP payload bytes |\n")
               out.write("| --- | ---: | ---: |\n")
               for key, (raw, compressed) in groups.items():
@@ -231,6 +233,39 @@ jobs:
               exit 1
             fi
           done
+
+      - name: Verify Sherpa native trim after packaging
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_qa_apk="app/build/outputs/apk/releaseQa/app-releaseQa.apk"
+          release_aab="app/build/outputs/bundle/release/app-release.aab"
+          jni_so="$RUNNER_TEMP/libsherpa-onnx-jni.so"
+
+          for archive in "$release_qa_apk" "$release_aab"; do
+            listing="$RUNNER_TEMP/$(basename "$archive").files"
+            zipinfo -1 "$archive" > "$listing"
+
+            if grep -Eq '(^|/)libsherpa-onnx-(c-api|cxx-api)\.so$' "$listing"; then
+              echo "::error::Unused Sherpa standalone C/C++ API library is still packaged in $(basename "$archive")."
+              grep -E 'libsherpa-onnx-(c-api|cxx-api)\.so$' "$listing" || true
+              exit 1
+            fi
+          done
+
+          zipinfo -1 "$release_qa_apk" | grep -qx 'lib/arm64-v8a/libsherpa-onnx-jni.so'
+          zipinfo -1 "$release_qa_apk" | grep -qx 'lib/arm64-v8a/libonnxruntime.so'
+          zipinfo -1 "$release_aab" | grep -qx 'base/lib/arm64-v8a/libsherpa-onnx-jni.so'
+          zipinfo -1 "$release_aab" | grep -qx 'base/lib/arm64-v8a/libonnxruntime.so'
+
+          unzip -p "$release_qa_apk" 'lib/arm64-v8a/libsherpa-onnx-jni.so' > "$jni_so"
+          test -s "$jni_so"
+          if readelf -d "$jni_so" | grep -Eq 'libsherpa-onnx-(c-api|cxx-api)\.so'; then
+            echo "::error::Sherpa JNI unexpectedly DT_NEEDED a trimmed standalone API library."
+            readelf -d "$jni_so" | grep NEEDED || true
+            exit 1
+          fi
 
       - name: Verify production signing guardrails
         shell: bash
