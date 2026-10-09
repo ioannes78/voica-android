@@ -3,7 +3,6 @@ package io.github.ioannes78.voica.ui.library
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import io.github.ioannes78.voica.DiarizationBenchmarkRunner
 import io.github.ioannes78.voica.DiarizationRunState
 import io.github.ioannes78.voica.SpeechBenchmarkRunner
 import io.github.ioannes78.voica.Stage13B5Qa4PageVisibility
@@ -36,7 +35,6 @@ fun RecordingDetailScreen(
     aiSummaryViewModel: AiSummaryViewModel,
     aiSummaryContentViewModel: AiSummaryContentViewModel,
     speechBenchmarkRunner: SpeechBenchmarkRunner? = null,
-    diarizationBenchmarkRunner: DiarizationBenchmarkRunner? = null,
     initialSearchTarget: SearchDocumentEntity? = null,
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -68,7 +66,6 @@ fun RecordingDetailScreen(
         aiSummaryViewModel = aiSummaryViewModel,
         aiSummaryContentViewModel = aiSummaryContentViewModel,
         speechBenchmarkRunner = speechBenchmarkRunner,
-        diarizationBenchmarkRunner = diarizationBenchmarkRunner,
         initialSearchTarget = initialSearchTarget,
         onBack = onBack,
         onOpenSettings = onOpenSettings,
