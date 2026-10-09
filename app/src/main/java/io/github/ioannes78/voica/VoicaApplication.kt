@@ -364,7 +364,6 @@ class AppContainer(
         }
 
         applicationScope.launch(Dispatchers.IO) {
-            recordingLibraryRepository.normalizeStandardDeviceDisplayNames()
             recordingLibraryRepository.reconcilePendingDeletes()
             localAudioImportCoordinator.cleanupStaleStaging()
             localAudioExportCoordinator.cleanupStaleShareCache()
