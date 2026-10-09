@@ -58,7 +58,7 @@ jobs:
           cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
 
-      - name: Unit test and debug build
+      - name: Unit test, QA and release structure build
         run: >
           gradle
           :core:protocol:test
@@ -79,6 +79,8 @@ jobs:
           :engine:sherpa:assembleDebug
           :app:testDebugUnitTest
           :app:assembleQa
+          :app:assembleRelease
+          :app:bundleRelease
           --no-configuration-cache
           --stacktrace
 
@@ -94,6 +96,44 @@ jobs:
             sed -n 's/^Signer #1 certificate SHA-256 digest: //p' |
             tr '[:upper:]' '[:lower:]')"
           test "$actual_cert_sha256" = "$expected_cert_sha256"
+
+      # Stage 14.2 intentionally does not inject production signing credentials into PR CI.
+      # The release APK/AAB produced here are structure/identity gates only and must remain unsigned.
+      - name: Verify V1 release identity and unsigned boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          qa_apk="app/build/outputs/apk/qa/app-qa.apk"
+          release_apk="app/build/outputs/apk/release/app-release-unsigned.apk"
+          release_aab="app/build/outputs/bundle/release/app-release.aab"
+          signer="$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner"
+          analyzer="$(command -v apkanalyzer)"
+
+          test -f "$qa_apk"
+          test -f "$release_apk"
+          test -f "$release_aab"
+          test -n "$analyzer"
+
+          test "$("$analyzer" manifest application-id "$qa_apk")" = "io.github.ioannes78.voica.qa"
+          test "$("$analyzer" manifest version-code "$qa_apk")" = "81"
+          test "$("$analyzer" manifest version-name "$qa_apk")" = "1.0.0-rc1-qa"
+
+          test "$("$analyzer" manifest application-id "$release_apk")" = "io.github.ioannes78.voica"
+          test "$("$analyzer" manifest version-code "$release_apk")" = "81"
+          test "$("$analyzer" manifest version-name "$release_apk")" = "1.0.0-rc1"
+          if "$analyzer" manifest print "$release_apk" | grep -q 'android:debuggable="true"'; then
+            echo "::error::Release manifest is debuggable."
+            exit 1
+          fi
+
+          if "$signer" verify "$release_apk" >/dev/null 2>&1; then
+            echo "::error::PR release structure APK unexpectedly contains a signer. Production credentials must not be injected here."
+            exit 1
+          fi
+
+          unzip -tq "$release_aab" >/dev/null
+          zipinfo -1 "$release_aab" | grep -qx 'base/manifest/AndroidManifest.xml'
 
       # Room migration gate: committed Room v1-v12 schemas must stay in sync.
       - name: Verify committed Room schemas
