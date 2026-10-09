@@ -25,21 +25,23 @@ class Stage13C7SummarySnapshotContractTest {
     private val ids = AtomicInteger()
 
     @Before
-    fun setUp() = runBlocking {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        database =
-            Room.inMemoryDatabaseBuilder(context, VoicaDatabase::class.java)
-                .allowMainThreadQueries()
-                .build()
-        contentRepository = Stage12CContentRepository(database)
-        diarizationRepository =
-            DiarizationRepository(
-                database = database,
-                nowMs = { ++clock },
-                idFactory = { "c7-id-" + ids.incrementAndGet() },
-            )
-        seedCompletedTranscript()
-        contentRepository.onTranscriptionCompleted(RECORDING_ID, TRANSCRIPTION_ID)
+    fun setUp() {
+        runBlocking {
+            val context = ApplicationProvider.getApplicationContext<Context>()
+            database =
+                Room.inMemoryDatabaseBuilder(context, VoicaDatabase::class.java)
+                    .allowMainThreadQueries()
+                    .build()
+            contentRepository = Stage12CContentRepository(database)
+            diarizationRepository =
+                DiarizationRepository(
+                    database = database,
+                    nowMs = { ++clock },
+                    idFactory = { "c7-id-" + ids.incrementAndGet() },
+                )
+            seedCompletedTranscript()
+            contentRepository.onTranscriptionCompleted(RECORDING_ID, TRANSCRIPTION_ID)
+        }
     }
 
     @After
