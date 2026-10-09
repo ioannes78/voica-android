@@ -49,7 +49,6 @@ fun UnifiedSearchScreen(
     viewModel: UnifiedSearchViewModel,
     onBack: () -> Unit,
     onOpen: (SearchDocumentEntity) -> Unit,
-    onOpenRecording: (String) -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
     val listState =
@@ -219,7 +218,7 @@ fun UnifiedSearchScreen(
                         onToggleExpanded = { expanded ->
                             viewModel.setRecordingExpanded(group.recordingId, expanded)
                         },
-                        onOpenRecording = { onOpenRecording(group.recordingId) },
+                        onOpenRecording = { onOpen(recordingOpenTarget(group)) },
                         onOpen = onOpen,
                     )
                 }
@@ -247,6 +246,28 @@ fun UnifiedSearchScreen(
             }
         }
     }
+}
+
+private fun recordingOpenTarget(group: UnifiedSearchRecordingGroup): SearchDocumentEntity {
+    val source = group.hits.first()
+    return source.copy(
+        rowId = 0L,
+        documentId = "recording-open:" + group.recordingId,
+        documentType = SearchDocumentTypeValue.RECORDING,
+        recordingId = group.recordingId,
+        transcriptionId = null,
+        revisionId = null,
+        sourceAnchorId = null,
+        aiSummaryId = null,
+        sectionId = null,
+        itemId = null,
+        folderId = null,
+        tagId = null,
+        displayTitle = group.recordingTitle,
+        displayText = "",
+        indexTitle = "",
+        indexBody = "",
+    )
 }
 
 @Composable
