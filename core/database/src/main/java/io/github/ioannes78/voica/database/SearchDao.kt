@@ -62,6 +62,18 @@ interface SearchDao {
     @Query("SELECT * FROM search_documents WHERE documentType = 'RECORDING' AND recordingId IN (:recordingIds)")
     suspend fun findRecordingDocuments(recordingIds: List<String>): List<SearchDocumentEntity>
 
+    @Query("SELECT * FROM recording_folders ORDER BY name COLLATE NOCASE ASC")
+    suspend fun findAllFolders(): List<FolderEntity>
+
+    @Query("SELECT * FROM recording_folders WHERE folderId = :folderId LIMIT 1")
+    suspend fun findFolder(folderId: String): FolderEntity?
+
+    @Query("SELECT * FROM recording_tags ORDER BY name COLLATE NOCASE ASC")
+    suspend fun findAllTags(): List<TagEntity>
+
+    @Query("SELECT * FROM recording_tags WHERE tagId = :tagId LIMIT 1")
+    suspend fun findTag(tagId: String): TagEntity?
+
     @Query("DELETE FROM search_documents_fts")
     suspend fun clearFts(): Int
 
