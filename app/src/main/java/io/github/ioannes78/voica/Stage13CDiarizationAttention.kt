@@ -1,10 +1,10 @@
 package io.github.ioannes78.voica
 
+import android.app.Application
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
-import io.github.ioannes78.voica.database.DiarizationAlignmentAttentionRow
 import io.github.ioannes78.voica.database.DiarizationAttentionItem
 import io.github.ioannes78.voica.database.DiarizationAttentionKind
 import io.github.ioannes78.voica.database.DiarizationAttentionRepository
@@ -12,10 +12,50 @@ import io.github.ioannes78.voica.database.DiarizationStateValue
 import io.github.ioannes78.voica.database.RecordingLibraryItem
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.database.TranscriptSpeakerAlignmentStateValue
+import io.github.ioannes78.voica.database.VoicaDatabase
 import io.github.ioannes78.voica.ui.library.RecordingDetailDestination
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+
+internal object Stage13CDiarizationAttentionRuntime {
+    private var installed = false
+    private var reconciler: Stage13CDiarizationAttentionReconciler? = null
+    private var notificationController: Stage13CDiarizationAttentionNotificationController? = null
+    private lateinit var durableRepository: DiarizationAttentionRepository
+
+    val repository: DiarizationAttentionRepository
+        get() {
+            check(installed) { "Stage 13C diarization attention runtime is not installed" }
+            return durableRepository
+        }
+
+    @Synchronized
+    fun install(
+        application: Application,
+        scope: CoroutineScope,
+        database: VoicaDatabase,
+        recordingRepository: RecordingLibraryRepository,
+        coordinator: DiarizationCoordinator,
+    ) {
+        if (installed) return
+        durableRepository = DiarizationAttentionRepository(database)
+        reconciler =
+            Stage13CDiarizationAttentionReconciler(
+                scope = scope,
+                coordinator = coordinator,
+                repository = durableRepository,
+            )
+        notificationController =
+            Stage13CDiarizationAttentionNotificationController(
+                context = application,
+                scope = scope,
+                recordingRepository = recordingRepository,
+                attentionRepository = durableRepository,
+            )
+        installed = true
+    }
+}
 
 internal fun DiarizationAttentionItem.productLabel(): String =
     when (kind) {
@@ -67,9 +107,7 @@ internal fun buildDiarizationGlobalAttentionItems(
     }
 }
 
-/**
- * Resolves an older durable speaker attention only after a replacement durable row exists.
- */
+/** Resolves older durable speaker attention only after a replacement durable row exists. */
 class Stage13CDiarizationAttentionReconciler(
     scope: CoroutineScope,
     coordinator: DiarizationCoordinator,
