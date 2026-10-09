@@ -16,8 +16,8 @@ android {
         applicationId = "io.github.ioannes78.voica"
         minSdk = 26
         targetSdk = 37
-        versionCode = 72
-        versionName = "0.13.2-stage13c-c6b"
+        versionCode = 73
+        versionName = "0.13.2-stage13c-c7"
         buildConfigField("String", "GIT_SHA", "\"$buildGitSha\"")
         ndk {
             abiFilters += "arm64-v8a"
