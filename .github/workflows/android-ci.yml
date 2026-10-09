@@ -220,7 +220,7 @@ jobs:
           for class_name in \
             'com.k2fsa.sherpa.onnx.OfflineRecognizer' \
             'com.k2fsa.sherpa.onnx.OfflineRecognizerResult' \
-            'com.k2fsa.sherpa.onnx.VoiceActivityDetector' \
+            'com.k2fsa.sherpa.onnx.Vad' \
             'com.k2fsa.sherpa.onnx.SpeechSegment' \
             'com.k2fsa.sherpa.onnx.OfflineSpeakerDiarization' \
             'com.k2fsa.sherpa.onnx.OfflineSpeakerDiarizationSegment'; do
