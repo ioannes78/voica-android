@@ -549,7 +549,8 @@ class TranscriptionViewModel(
         mode: TranscriptionMode,
     ) {
         mutableNotice.value = null
-        // Existing effective content remains visible while a replacement result is generated.
+        // Existing effective content and its speaker enrichment remain visible while a replacement
+        // result is generated. The new completed ASR will decide whether it can reuse alignment.
         cancelDocumentLoad(clearCurrent = false)
         if (!coordinator.start(recordingId, mode)) {
             mutableNotice.value = "已有转写任务正在运行，请先完成或取消当前任务"
