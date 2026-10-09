@@ -1,5 +1,12 @@
 package io.github.ioannes78.voica.transcript
 
+internal data class OfflineSegment(
+    val segmentIndex: Int,
+    val speechSegment: SpeechSegment,
+    val hypothesis: AsrHypothesis,
+    val absoluteTokens: List<TranscriptToken>,
+)
+
 /**
  * Deterministically partitions VAD speech segments into bounded offline-ASR consumer chunks.
  *
