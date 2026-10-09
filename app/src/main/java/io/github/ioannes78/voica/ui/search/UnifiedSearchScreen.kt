@@ -1,5 +1,6 @@
 package io.github.ioannes78.voica.ui.search
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -57,6 +58,8 @@ fun UnifiedSearchScreen(
             initialFirstVisibleItemScrollOffset = state.firstVisibleItemScrollOffset,
         )
     val scope = rememberCoroutineScope()
+
+    BackHandler(onBack = onBack)
 
     DisposableEffect(listState) {
         onDispose {
