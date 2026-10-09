@@ -103,11 +103,20 @@ The signed Release APK must be checked with Android `apksigner` and match the pi
 
 The private keystore, private key, passwords, and raw secret values must never be committed to Git or emitted in CI logs.
 
-## Current blocker
+## Current signer-provisioning gate
 
-The repository does not contain and must not contain a production private key. Stage 14.2 can fully validate Release structure and secure signing injection, but a true signed Production APK/AAB remains blocked until the project owner provisions the production keystore/certificate through a secure local/CI secret path.
+The repository does not contain and must not contain a production private key. Stage 14.2 has completed the Release structure/identity side, but a true signed Production APK/AAB remains blocked until the project owner provisions the production keystore/certificate through a secure local/CI secret path.
 
-The public QA key is never an acceptable fallback.
+The production key should be generated or selected in an owner-controlled environment. It should not be created as a committed repository artifact and the public QA key is never an acceptable fallback.
+
+After provisioning, the next Stage 14.2 signing gate is:
+
+1. run `verifyProductionSigningConfiguration` with the production inputs;
+2. build signed `assembleRelease` and `bundleRelease`;
+3. derive the production certificate SHA-256 fingerprint;
+4. pin that fingerprint as release provenance;
+5. verify the APK signer and AAB signing identity against the pinned fingerprint;
+6. retain only artifact hashes/certificate fingerprint in Stage 14 documentation, never secret material.
 
 ## R8 boundary
 
