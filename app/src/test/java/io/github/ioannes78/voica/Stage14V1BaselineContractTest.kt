@@ -7,12 +7,16 @@ import org.junit.Test
 
 class Stage14V1BaselineContractTest {
     @Test
-    fun v1StartupDoesNotRunPreV1Stage5Import() {
+    fun v1StartupDoesNotRunPreV1DataRepairs() {
         val source = appProductionSource("VoicaApplication.kt")
 
         assertFalse(
             "V1.0 is the first supported install baseline; startup must not scan/import Stage 5 metadata",
             source.contains("importLegacyStage5IfNeeded()"),
+        )
+        assertFalse(
+            "V1.0 clean baseline must not scan existing recordings for pre-V1 display-name repair",
+            source.contains("normalizeStandardDeviceDisplayNames()"),
         )
     }
 
