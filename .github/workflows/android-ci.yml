@@ -205,21 +205,29 @@ jobs:
           set -euo pipefail
 
           release_qa_apk="app/build/outputs/apk/releaseQa/app-releaseQa.apk"
-          dex_dump="$RUNNER_TEMP/releaseqa-classes.dex"
+          analyzer="$(command -v apkanalyzer)"
+          dex_tree="$RUNNER_TEMP/releaseqa-defined-dex-tree.txt"
 
           grep -Fq -- '-keep,allowoptimization class com.k2fsa.sherpa.onnx.** {' app/proguard-rules.pro
           zipinfo -1 "$release_qa_apk" | grep -qx 'lib/arm64-v8a/libsherpa-onnx-jni.so'
-          unzip -p "$release_qa_apk" classes.dex > "$dex_dump"
+          test -n "$analyzer"
 
-          for descriptor in \
-            'Lcom/k2fsa/sherpa/onnx/OfflineRecognizer;' \
-            'Lcom/k2fsa/sherpa/onnx/OfflineRecognizerResult;' \
-            'Lcom/k2fsa/sherpa/onnx/VoiceActivityDetector;' \
-            'Lcom/k2fsa/sherpa/onnx/SpeechSegment;' \
-            'Lcom/k2fsa/sherpa/onnx/OfflineSpeakerDiarization;' \
-            'Lcom/k2fsa/sherpa/onnx/OfflineSpeakerDiarizationSegment;'; do
-            if ! strings -a "$dex_dump" | grep -Fqx "$descriptor"; then
-              echo "::error::Sherpa JNI ABI descriptor missing after R8: $descriptor"
+          # Use the Android SDK's DEX parser instead of treating the binary DEX string pool as
+          # newline-delimited text. `dex packages --defined-only` reports the actual post-R8
+          # class tree contained in the APK.
+          "$analyzer" dex packages --defined-only "$release_qa_apk" > "$dex_tree"
+
+          for class_name in \
+            'com.k2fsa.sherpa.onnx.OfflineRecognizer' \
+            'com.k2fsa.sherpa.onnx.OfflineRecognizerResult' \
+            'com.k2fsa.sherpa.onnx.VoiceActivityDetector' \
+            'com.k2fsa.sherpa.onnx.SpeechSegment' \
+            'com.k2fsa.sherpa.onnx.OfflineSpeakerDiarization' \
+            'com.k2fsa.sherpa.onnx.OfflineSpeakerDiarizationSegment'; do
+            if ! awk -v expected="$class_name" '$1 == "C" && $NF == expected { found=1 } END { exit found ? 0 : 1 }' "$dex_tree"; then
+              echo "::error::Sherpa JNI ABI class missing or renamed after R8: $class_name"
+              echo "Sherpa classes visible in post-R8 APK:"
+              grep -F 'com.k2fsa.sherpa.onnx' "$dex_tree" | head -80 || true
               exit 1
             fi
           done
