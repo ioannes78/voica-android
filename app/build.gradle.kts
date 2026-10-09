@@ -19,18 +19,31 @@ android {
         versionCode = 73
         versionName = "0.13.2-stage13c-c7"
         buildConfigField("String", "GIT_SHA", "\"$buildGitSha\"")
-        ndk { abiFilters += "arm64-v8a" }
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
-    buildFeatures { compose = true; buildConfig = true }
-    compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
+
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
     signingConfigs {
         create("qa") {
+            // Public, test-only QA signing identity. Never use this key for production.
             storeFile = rootProject.file("ci/voica-qa.jks")
             storePassword = "voica-qa-test"
             keyAlias = "voica-qa"
             keyPassword = "voica-qa-test"
         }
     }
+
     buildTypes {
         create("qa") {
             initWith(getByName("debug"))
@@ -40,7 +53,12 @@ android {
             matchingFallbacks += listOf("debug")
         }
     }
-    packaging { resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" } }
+
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
 }
 
 kotlin {
@@ -71,6 +89,7 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
@@ -79,6 +98,7 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     debugImplementation("androidx.compose.ui:ui-tooling")
+
     testImplementation(kotlin("test-junit"))
     testImplementation("junit:junit:4.13.2")
     testImplementation("androidx.test:core:1.7.0")
