@@ -77,6 +77,9 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
         container.stage13B5Qa4Repository.observeAiSummaryCandidates()
             .collectAsState(initial = emptyList())
     val completionNotices by container.taskCompletionNoticeStore.pending.collectAsState()
+    val diarizationAttention by
+        Stage13CDiarizationAttentionRuntime.repository.observeAll()
+            .collectAsState(initial = emptyList())
     val diarizationState by container.diarizationCoordinator.state.collectAsState()
     val recordings by
         container.recordingLibraryRepository.recordings
@@ -105,6 +108,11 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
                 },
             recordings = recordings,
         )
+    val speakerAttentionItems =
+        buildDiarizationGlobalAttentionItems(
+            attention = diarizationAttention,
+            recordings = recordings,
+        )
     val items =
         filterQa4GlobalAttentionItems(
             items =
@@ -114,7 +122,7 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
                     transcriptionCandidates = transcriptionCandidates,
                     aiSummaryCandidates = aiSummaryCandidates,
                     recordings = recordings,
-                ) + completionItems,
+                ) + completionItems + speakerAttentionItems,
             visibleDetail = visibleDetail,
         )
 
