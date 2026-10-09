@@ -1,38 +1,5 @@
 package io.github.ioannes78.voica.protocol
 
-@Deprecated("Stage 4 uses RawDeviceFileEntry/FileListDecoder for strict file-list decoding.")
-data class FileEntry(
-    val durationSeconds: Long,
-    val sizeBytes: Long,
-    val name: String,
-    val raw: ByteArray,
-) {
-    val candidateNames: List<String>
-        get() {
-            val resolved = DeviceFilenameResolver.resolve(name)
-            return listOfNotNull(resolved.resolvedFilename, name)
-                .filter { it.isNotBlank() }
-                .distinct()
-        }
-
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (other !is FileEntry) return false
-        return durationSeconds == other.durationSeconds &&
-            sizeBytes == other.sizeBytes &&
-            name == other.name &&
-            raw.contentEquals(other.raw)
-    }
-
-    override fun hashCode(): Int {
-        var result = durationSeconds.hashCode()
-        result = 31 * result + sizeBytes.hashCode()
-        result = 31 * result + name.hashCode()
-        result = 31 * result + raw.contentHashCode()
-        return result
-    }
-}
-
 enum class DeviceByteOrder {
     LITTLE_ENDIAN,
     BIG_ENDIAN,
@@ -46,20 +13,6 @@ data class StorageCapacity(
 
 object DeviceDecoders {
     private const val MAX_PLAUSIBLE_CAPACITY_KB = 0x0400_0000L
-
-    @Deprecated("Stage 4 uses FileListDecoder.decode and handles malformed payloads explicitly.")
-    fun decodeFileList(body: ByteArray): List<FileEntry> =
-        when (val result = FileListDecoder.decode(body)) {
-            is FileListDecodeResult.Success -> result.chunk.entries.map { entry ->
-                FileEntry(
-                    durationSeconds = entry.rawTimeValue,
-                    sizeBytes = entry.sizeBytes,
-                    name = entry.rawFilename,
-                    raw = entry.rawEntryBytes,
-                )
-            }
-            is FileListDecodeResult.Malformed -> emptyList()
-        }
 
     fun decodeCapacity(body: ByteArray): StorageCapacity {
         if (body.size < 8) {
