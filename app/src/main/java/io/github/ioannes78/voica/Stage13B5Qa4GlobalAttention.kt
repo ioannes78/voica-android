@@ -82,14 +82,13 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
         container.recordingLibraryRepository.recordings
             .collectAsState(initial = emptyList())
     val visibleDetail by Stage13B5Qa4PageVisibility.current.collectAsState()
+    val openRequest by AppRecordingNavigation.request.collectAsState()
 
-    LaunchedEffect(visibleDetail, completionNotices) {
-        val visible = visibleDetail ?: return@LaunchedEffect
-        container.taskCompletionNoticeStore.acknowledgeVisible(
-            recordingId = visible.recordingId,
-            includeTranscriptResults = visible.destination == RecordingDetailDestination.TRANSCRIPT,
-            includeSummaryResults = visible.destination == RecordingDetailDestination.SUMMARY,
-        )
+    LaunchedEffect(openRequest?.token) {
+        val request = openRequest ?: return@LaunchedEffect
+        val completionKind = request.completionKind ?: return@LaunchedEffect
+        val completionTaskId = request.completionTaskId ?: return@LaunchedEffect
+        container.taskCompletionNoticeStore.acknowledge(completionKind, completionTaskId)
     }
 
     val currentDiarizationCompletionId =
