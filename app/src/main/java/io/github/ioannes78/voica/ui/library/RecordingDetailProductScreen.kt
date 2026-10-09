@@ -255,24 +255,13 @@ internal fun RecordingDetailProductScreen(
                 )
         }
     val transcriptSearchRowIndex =
-        transcriptSearchTarget
-            ?.takeIf { target -> target.transcriptionId == recordingDocument?.transcriptionId }
-            ?.sourceAnchorId
-            ?.let { anchorId ->
-                if (transcriptContentState.currentRevisionId != null) {
-                    if (
-                        transcriptSearchTarget.revisionId != null &&
-                        transcriptSearchTarget.revisionId != transcriptContentState.currentRevisionId
-                    ) {
-                        -1
-                    } else {
-                        transcriptContentState.paragraphs.indexOfFirst { it.stableId == anchorId }
-                    }
-                } else {
-                    recordingDocument?.segments?.indexOfFirst { it.stableId == anchorId } ?: -1
-                }
-            }
-            ?: -1
+        resolveTranscriptSearchRowIndex(
+            target = transcriptSearchTarget,
+            displayedTranscriptionId = recordingDocument?.transcriptionId,
+            currentRevisionId = transcriptContentState.currentRevisionId,
+            paragraphs = transcriptContentState.paragraphs,
+            segments = recordingDocument?.segments.orEmpty(),
+        )
     val transcriptTimelinePrefixItems =
         if (recordingDocument != null && transcriptViewMode == TranscriptViewMode.TIMELINE) {
             2 +
@@ -715,22 +704,22 @@ internal fun RecordingDetailProductScreen(
                                         val syncEnabled =
                                             recordingDocument.compatiblePlaybackAssetId != null
                                         val searchHighlighted =
-                                            highlightedSearchDocumentId == transcriptSearchTarget?.documentId &&
-                                                segment.stableId == transcriptSearchTarget?.sourceAnchorId
+                                            isTranscriptSearchSegmentHighlighted(
+                                                target = transcriptSearchTarget,
+                                                highlightedSearchDocumentId = highlightedSearchDocumentId,
+                                                segment = segment,
+                                            )
                                         TranscriptSegmentCard(
                                             segment = segment,
                                             isActive =
-                                                searchHighlighted ||
-                                                    (
-                                                        syncState.playbackCompatible &&
-                                                            syncState.activeRowId == segment.stableId
-                                                    ),
+                                                syncState.playbackCompatible &&
+                                                    syncState.activeRowId == segment.stableId,
                                             activeCueId =
                                                 syncState.activeCueId.takeIf {
-                                                    !searchHighlighted &&
-                                                        syncState.playbackCompatible &&
+                                                    syncState.playbackCompatible &&
                                                         syncState.activeRowId == segment.stableId
                                                 },
+                                            searchHighlighted = searchHighlighted,
                                             syncEnabled = syncEnabled,
                                             onSeek = { sampleIndex ->
                                                 if (syncEnabled) {
