@@ -53,6 +53,9 @@ interface SearchDao {
     @Query("SELECT COUNT(*) FROM search_documents WHERE documentType NOT IN ('RECORDING', 'TRANSCRIPT_UNIT', 'SUMMARY_TITLE_OVERVIEW', 'SUMMARY_ITEM')")
     suspend fun countLegacyProductSearchRows(): Int
 
+    @Query("SELECT * FROM search_documents WHERE documentType = 'RECORDING' AND recordingId IN (:recordingIds)")
+    suspend fun findRecordingDocuments(recordingIds: List<String>): List<SearchDocumentEntity>
+
     @Query("DELETE FROM search_documents_fts")
     suspend fun clearFts(): Int
 
