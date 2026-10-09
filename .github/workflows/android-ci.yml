@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   actions: write
 
 concurrency:
@@ -94,51 +94,6 @@ jobs:
             sed -n 's/^Signer #1 certificate SHA-256 digest: //p' |
             tr '[:upper:]' '[:lower:]')"
           test "$actual_cert_sha256" = "$expected_cert_sha256"
-
-      # Temporary C7-R1 bootstrap: Room's schema file is a compiler side effect and is not restored
-      # when kspDebugKotlin comes FROM-CACHE. Force this one KSP task once so the exact v12 compiler
-      # schema can be committed, then remove these bootstrap steps after 12.json is tracked.
-      - name: Generate Room v12 schema bootstrap
-        run: >
-          gradle
-          :core:database:kspDebugKotlin
-          --rerun-tasks
-          --no-configuration-cache
-          --stacktrace
-
-      - name: Commit compiler-generated Room v12 schema to PR branch
-        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
-        shell: bash
-        env:
-          TARGET_BRANCH: ${{ github.head_ref }}
-        run: |
-          set -euo pipefail
-          schema_path="core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/12.json"
-          test -f "$schema_path"
-          cp "$schema_path" /tmp/voica-room-v12.json
-
-          git fetch origin "$TARGET_BRANCH"
-          git checkout -B "$TARGET_BRANCH" FETCH_HEAD
-          if git ls-tree -r --name-only HEAD -- "$schema_path" | grep -Fxq "$schema_path"; then
-            echo "Room v12 schema is already tracked on ${TARGET_BRANCH}; no bootstrap commit needed."
-            exit 0
-          fi
-
-          mkdir -p "$(dirname "$schema_path")"
-          cp /tmp/voica-room-v12.json "$schema_path"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "$schema_path"
-          git commit -m "chore(database): commit compiler-generated Room v12 schema"
-          git push origin HEAD:"$TARGET_BRANCH"
-
-      - name: Upload generated Room v12 schema bootstrap
-        uses: actions/upload-artifact@v4
-        with:
-          name: Voica-room-schema-v12-bootstrap
-          path: core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/12.json
-          if-no-files-found: error
-          retention-days: 1
 
       # Room migration gate: committed Room v1-v12 schemas must stay in sync.
       - name: Verify committed Room schemas
