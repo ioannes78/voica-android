@@ -4,18 +4,23 @@ import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -43,7 +48,9 @@ fun TranscriptProductActionBar(
     mode: TranscriptViewMode,
     state: TranscriptContentState,
     viewModel: TranscriptContentViewModel,
+    speakerModeLabel: String,
     onModeChange: (TranscriptViewMode) -> Unit,
+    onSpeakerModeClick: () -> Unit,
     onRetranscribe: () -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
@@ -106,27 +113,34 @@ fun TranscriptProductActionBar(
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            FilterChip(
-                selected = mode == TranscriptViewMode.READING,
-                onClick = { onModeChange(TranscriptViewMode.READING) },
-                label = { Text("阅读") },
-            )
-            FilterChip(
+            CompactTranscriptChip(
+                label = "时间轴",
                 selected = mode == TranscriptViewMode.TIMELINE,
                 onClick = { onModeChange(TranscriptViewMode.TIMELINE) },
-                label = { Text("时间轴") },
             )
-            androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
+            CompactTranscriptChip(
+                label = "阅读",
+                selected = mode == TranscriptViewMode.READING,
+                onClick = { onModeChange(TranscriptViewMode.READING) },
+            )
+            CompactTranscriptChip(
+                label = "说话人·$speakerModeLabel",
+                selected = false,
+                onClick = onSpeakerModeClick,
+            )
             Button(
+                modifier = Modifier.heightIn(min = 40.dp),
                 enabled = state.paragraphs.isNotEmpty(),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                 onClick = { editorOpen = true },
             ) {
-                Text("编辑")
+                Text("编辑", maxLines = 1)
             }
-            androidx.compose.foundation.layout.Box {
+            Box {
                 IconButton(
+                    modifier = Modifier.size(40.dp),
                     enabled = state.transcriptionId != null,
                     onClick = { menuExpanded = true },
                 ) {
@@ -262,6 +276,41 @@ fun TranscriptProductActionBar(
                 onModeChange(TranscriptViewMode.READING)
             },
         )
+    }
+}
+
+@Composable
+private fun CompactTranscriptChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val borderColor =
+        if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.outline
+    Surface(
+        modifier =
+            Modifier
+                .heightIn(min = 40.dp)
+                .clickable(onClick = onClick),
+        shape = MaterialTheme.shapes.medium,
+        color =
+            if (selected) {
+                MaterialTheme.colorScheme.secondaryContainer
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+        border = BorderStroke(1.dp, borderColor),
+    ) {
+        Box(
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 1,
+            )
+        }
     }
 }
 

@@ -12,6 +12,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -54,6 +55,8 @@ internal data class Qa4GlobalAttentionItem(
     val recordingName: String,
     val label: String,
     val destination: RecordingDetailDestination,
+    val completionKind: TaskCompletionKind? = null,
+    val completionTaskId: String? = null,
 )
 
 @Composable
@@ -73,10 +76,43 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
     val aiSummaryCandidates by
         container.stage13B5Qa4Repository.observeAiSummaryCandidates()
             .collectAsState(initial = emptyList())
+    val completionNotices by container.taskCompletionNoticeStore.pending.collectAsState()
+    val diarizationAttention by
+        Stage13CDiarizationAttentionRuntime.repository.observeAll()
+            .collectAsState(initial = emptyList())
+    val diarizationState by container.diarizationCoordinator.state.collectAsState()
     val recordings by
         container.recordingLibraryRepository.recordings
             .collectAsState(initial = emptyList())
     val visibleDetail by Stage13B5Qa4PageVisibility.current.collectAsState()
+    val openRequest by AppRecordingNavigation.request.collectAsState()
+
+    LaunchedEffect(openRequest?.token) {
+        val request = openRequest ?: return@LaunchedEffect
+        val completionKind = request.completionKind ?: return@LaunchedEffect
+        val completionTaskId = request.completionTaskId ?: return@LaunchedEffect
+        container.taskCompletionNoticeStore.acknowledge(completionKind, completionTaskId)
+    }
+
+    val currentDiarizationCompletionId =
+        (diarizationState as? DiarizationRunState.Completed)?.runId
+    val completionItems =
+        buildCompletionAttentionItems(
+            notices =
+                completionNotices.filterNot { notice ->
+                    // VoicaApp still carries the Stage 12B in-process diarization terminal bar.
+                    // Avoid a duplicate row while that exact completion is still live; the
+                    // persistent notice remains the fallback after process recreation.
+                    notice.kind == TaskCompletionKind.DIARIZATION &&
+                        notice.taskId == currentDiarizationCompletionId
+                },
+            recordings = recordings,
+        )
+    val speakerAttentionItems =
+        buildDiarizationGlobalAttentionItems(
+            attention = diarizationAttention,
+            recordings = recordings,
+        )
     val items =
         filterQa4GlobalAttentionItems(
             items =
@@ -86,7 +122,7 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
                     transcriptionCandidates = transcriptionCandidates,
                     aiSummaryCandidates = aiSummaryCandidates,
                     recordings = recordings,
-                ),
+                ) + completionItems + speakerAttentionItems,
             visibleDetail = visibleDetail,
         )
 
@@ -95,6 +131,14 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
             Qa4GlobalAttentionBar(
                 items = items,
                 onOpen = { item ->
+                    val completionKind = item.completionKind
+                    val completionTaskId = item.completionTaskId
+                    if (completionKind != null && completionTaskId != null) {
+                        container.taskCompletionNoticeStore.acknowledge(
+                            completionKind,
+                            completionTaskId,
+                        )
+                    }
                     AppRecordingNavigation.publish(
                         recordingId = item.recordingId,
                         destination = item.destination,
@@ -125,6 +169,39 @@ internal fun filterQa4GlobalAttentionItems(
                 item.destination == visibleDetail.destination
         }
     }
+
+internal fun buildCompletionAttentionItems(
+    notices: List<TaskCompletionNotice>,
+    recordings: List<RecordingLibraryItem>,
+): List<Qa4GlobalAttentionItem> {
+    fun recordingName(recordingId: String): String =
+        recordings.firstOrNull { it.id == recordingId }?.displayName ?: "录音"
+
+    return notices.map { notice ->
+        val destination =
+            when (notice.kind) {
+                TaskCompletionKind.TRANSCRIPTION,
+                TaskCompletionKind.DIARIZATION,
+                -> RecordingDetailDestination.TRANSCRIPT
+                TaskCompletionKind.AI_SUMMARY -> RecordingDetailDestination.SUMMARY
+            }
+        val label =
+            when (notice.kind) {
+                TaskCompletionKind.TRANSCRIPTION -> "转写完成"
+                TaskCompletionKind.DIARIZATION -> "说话人分离完成"
+                TaskCompletionKind.AI_SUMMARY -> "AI 总结完成"
+            }
+        Qa4GlobalAttentionItem(
+            key = "completion:${notice.kind.name}:${notice.taskId}",
+            recordingId = notice.recordingId,
+            recordingName = recordingName(notice.recordingId),
+            label = label,
+            destination = destination,
+            completionKind = notice.kind,
+            completionTaskId = notice.taskId,
+        )
+    }
+}
 
 internal fun buildQa4GlobalAttentionItems(
     transcriptionAttention: List<TranscriptionEntity>,

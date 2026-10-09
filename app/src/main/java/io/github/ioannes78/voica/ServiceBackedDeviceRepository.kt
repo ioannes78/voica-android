@@ -105,17 +105,7 @@ class ServiceBackedDeviceRepository(
                 delegate.fileOperationState,
                 delegate.deviceInfo,
             ) { connection, recording, operation, info ->
-                val resolvedName =
-                    info.name?.trim()?.takeIf { it.isNotEmpty() }
-                        ?: currentDeviceName
-                        ?: FALLBACK_DEVICE_NAME
-                DeviceSessionForegroundDecision(
-                    keep =
-                        !userDisconnectedThisProcess &&
-                            shouldKeepDeviceSession(connection),
-                    deviceName = resolvedName,
-                    label = deviceSessionLabel(connection, recording, operation),
-                )
+                decisionFor(connection, recording, operation, info)
             }.collect(::applyDecision)
         }
 
@@ -176,8 +166,6 @@ class ServiceBackedDeviceRepository(
         val requiresSettle: Boolean
         val previousJob: Job?
         synchronized(lock) {
-            // Advance ownership before cancelling the old job. Its finally block must see a stale
-            // generation and therefore cannot clear the settle state inherited by this request.
             connectGeneration += 1L
             generation = connectGeneration
             requiresSettle = scanWasActive || scanToConnectTransitionInFlight
@@ -199,9 +187,6 @@ class ServiceBackedDeviceRepository(
                                 !userDisconnectedThisProcess
                         }
                     if (shouldConnect) {
-                        // Foreground ownership is intentionally not requested from the row-click
-                        // call stack. When the delegate publishes Connecting, applyDecision() obtains
-                        // the connectedDevice FGS lease for that real connection generation.
                         delegate.connect(address)
                     }
                 } finally {
@@ -225,11 +210,7 @@ class ServiceBackedDeviceRepository(
     }
 
     override fun disconnect() {
-        // Cancel a scan-to-connect transition before latching the explicit disconnect. A delayed
-        // connect must never fire after the user has asked to disconnect.
         cancelPendingExplicitConnect()
-        // Latch before asking the delegate to disconnect so its transient Disconnecting state cannot
-        // reacquire the foreground service after an explicit user disconnect.
         userDisconnectedThisProcess = true
         foregroundStartFailedThisSession = false
         delegate.disconnect()
@@ -240,9 +221,6 @@ class ServiceBackedDeviceRepository(
     override fun setForeground(foreground: Boolean) {
         appForeground = foreground
         reconcileDelegateForeground()
-        // If a connected-device FGS lease is active, desired foreground ownership stays true even
-        // after the Activity stops. While an explicit scan is active, a previously-inactive delegate
-        // is not promoted solely by an Activity foreground callback; the scan-row transition owns it.
     }
 
     override suspend fun refreshDeviceInfo() = delegate.refreshDeviceInfo()
@@ -274,7 +252,14 @@ class ServiceBackedDeviceRepository(
         format: DeviceAudioFormat,
     ) {
         holdService(resolvedDeviceName(), "正在下载")
-        delegate.downloadDeviceFile(file, format)
+        try {
+            delegate.downloadDeviceFile(file, format)
+        } finally {
+            // The explicit pre-download foreground publish can race the delegate's terminal state
+            // emission on some OEMs. Re-project the latest terminal business state after the
+            // suspending operation returns so a stale 95%/100% "正在下载" label cannot survive.
+            reconcileCurrentDeviceSessionDecision()
+        }
     }
 
     override suspend fun cancelDeviceFileDownload() = delegate.cancelDeviceFileDownload()
@@ -295,6 +280,36 @@ class ServiceBackedDeviceRepository(
                 pendingConnectJob.also { pendingConnectJob = null }
             }
         pending?.cancel()
+    }
+
+    private fun reconcileCurrentDeviceSessionDecision() {
+        applyDecision(
+            decisionFor(
+                connection = delegate.connectionState.value,
+                recording = delegate.recordingState.value,
+                operation = delegate.fileOperationState.value,
+                info = delegate.deviceInfo.value,
+            ),
+        )
+    }
+
+    private fun decisionFor(
+        connection: DeviceConnectionState,
+        recording: RecordingDeviceState,
+        operation: FileOperationState,
+        info: DeviceInfo,
+    ): DeviceSessionForegroundDecision {
+        val resolvedName =
+            info.name?.trim()?.takeIf { it.isNotEmpty() }
+                ?: currentDeviceName
+                ?: FALLBACK_DEVICE_NAME
+        return DeviceSessionForegroundDecision(
+            keep =
+                !userDisconnectedThisProcess &&
+                    shouldKeepDeviceSession(connection),
+            deviceName = resolvedName,
+            label = deviceSessionLabel(connection, recording, operation),
+        )
     }
 
     private fun applyDecision(decision: DeviceSessionForegroundDecision) {
@@ -373,12 +388,6 @@ class ServiceBackedDeviceRepository(
         reconcileDelegateForeground()
     }
 
-    /**
-     * Collapse Activity visibility and connected-device FGS ownership into one lifecycle signal for
-     * the underlying repository. Re-emitting ReconnectWaiting/recording/download states may refresh
-     * the notification, but must never call delegate.setForeground(true) again while ownership is
-     * already active because DefaultDeviceRepository.setForeground(true) can schedule reconnect.
-     */
     private fun reconcileDelegateForeground() {
         val transition =
             synchronized(lock) {

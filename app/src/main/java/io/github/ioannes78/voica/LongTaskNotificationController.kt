@@ -11,6 +11,7 @@ import io.github.ioannes78.voica.database.AiSummaryRepository
 import io.github.ioannes78.voica.database.AiSummaryStateValue
 import io.github.ioannes78.voica.database.RecordingLibraryItem
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
+import io.github.ioannes78.voica.database.Stage12CContentRepository
 import io.github.ioannes78.voica.database.Stage13B5Qa4Repository
 import io.github.ioannes78.voica.database.TranscriptionEntity
 import io.github.ioannes78.voica.database.TranscriptionStateValue
@@ -30,22 +31,27 @@ class LongTaskNotificationController(
     private val diarizationCoordinator: DiarizationCoordinator,
     private val aiSummaryCoordinator: AiSummaryCoordinator,
     private val aiSummaryRepository: AiSummaryRepository,
+    private val stage12CContentRepository: Stage12CContentRepository,
     private val stage13B5Qa4Repository: Stage13B5Qa4Repository,
+    private val taskCompletionNoticeStore: TaskCompletionNoticeStore,
 ) {
     private val notificationManager = context.getSystemService(NotificationManager::class.java)
     private var transcriptionTaskId: String? = null
     private var diarizationTaskId: String? = null
     private var transcriptionAttentionNotificationIds: Set<Int> = emptySet()
     private var aiAttentionNotificationIds: Set<Int> = emptySet()
+    private var completionNotificationIds: Set<Int> = emptySet()
 
     init {
         createAiSummaryChannel()
         createAttentionChannel()
+        createResultChannel()
         observeTranscription()
         observeDiarization()
         observeAiSummary()
         observeTranscriptionAttention()
         observeAiSummaryAttention()
+        observeCompletionResults()
     }
 
     private fun observeTranscription() {
@@ -61,6 +67,19 @@ class LongTaskNotificationController(
                             MediaProcessingForegroundService.release(context, it)
                         }
                         transcriptionTaskId = null
+                        if (state is TranscriptionRunState.Completed) {
+                            val currentId =
+                                stage12CContentRepository.resolveCurrentTranscriptionId(
+                                    state.recordingId,
+                                )
+                            if (currentId == state.transcriptionId) {
+                                taskCompletionNoticeStore.publish(
+                                    kind = TaskCompletionKind.TRANSCRIPTION,
+                                    taskId = state.transcriptionId,
+                                    recordingId = state.recordingId,
+                                )
+                            }
+                        }
                         return@collect
                     }
 
@@ -112,6 +131,13 @@ class LongTaskNotificationController(
                             MediaProcessingForegroundService.release(context, it)
                         }
                         diarizationTaskId = null
+                        if (state is DiarizationRunState.Completed) {
+                            taskCompletionNoticeStore.publish(
+                                kind = TaskCompletionKind.DIARIZATION,
+                                taskId = state.runId,
+                                recordingId = state.recordingId,
+                            )
+                        }
                         return@collect
                     }
 
@@ -161,6 +187,19 @@ class LongTaskNotificationController(
                     val recordingId = running?.recordingId
                     if (running == null || recordingId == null) {
                         notificationManager.cancel(AI_SUMMARY_NOTIFICATION_ID)
+                        if (state is AiSummaryRunState.Completed) {
+                            val currentId =
+                                stage12CContentRepository.resolveCurrentAiSummaryId(
+                                    state.recordingId,
+                                )
+                            if (currentId == state.summaryId) {
+                                taskCompletionNoticeStore.publish(
+                                    kind = TaskCompletionKind.AI_SUMMARY,
+                                    taskId = state.summaryId,
+                                    recordingId = state.recordingId,
+                                )
+                            }
+                        }
                         return@collect
                     }
 
@@ -259,6 +298,32 @@ class LongTaskNotificationController(
         }
     }
 
+    private fun observeCompletionResults() {
+        scope.launch {
+            combine(
+                taskCompletionNoticeStore.pending,
+                recordingRepository.recordings,
+            ) { notices, recordings -> notices to recordings }
+                .collect { (notices, recordings) ->
+                    val nextIds = mutableSetOf<Int>()
+                    notices.forEach { notice ->
+                        val notificationId = completionNotificationId(notice)
+                        nextIds += notificationId
+                        notificationManager.notify(
+                            notificationId,
+                            buildCompletionNotification(
+                                notice = notice,
+                                recordingName = recordingName(recordings, notice.recordingId),
+                                notificationId = notificationId,
+                            ),
+                        )
+                    }
+                    (completionNotificationIds - nextIds).forEach(notificationManager::cancel)
+                    completionNotificationIds = nextIds
+                }
+        }
+    }
+
     private fun buildAttentionNotification(
         title: String,
         text: String,
@@ -285,6 +350,52 @@ class LongTaskNotificationController(
             .setAutoCancel(false)
             .setCategory(Notification.CATEGORY_ERROR)
             .build()
+
+    private fun buildCompletionNotification(
+        notice: TaskCompletionNotice,
+        recordingName: String,
+        notificationId: Int,
+    ): Notification {
+        val destination =
+            when (notice.kind) {
+                TaskCompletionKind.TRANSCRIPTION,
+                TaskCompletionKind.DIARIZATION,
+                -> RecordingDetailDestination.TRANSCRIPT
+                TaskCompletionKind.AI_SUMMARY -> RecordingDetailDestination.SUMMARY
+            }
+        val title =
+            when (notice.kind) {
+                TaskCompletionKind.TRANSCRIPTION -> "转写已完成"
+                TaskCompletionKind.DIARIZATION -> "说话人分离已完成"
+                TaskCompletionKind.AI_SUMMARY -> "AI 总结已完成"
+            }
+        val text =
+            when (notice.kind) {
+                TaskCompletionKind.TRANSCRIPTION -> "转写结果已生成"
+                TaskCompletionKind.DIARIZATION -> "说话人识别结果已生成"
+                TaskCompletionKind.AI_SUMMARY -> "总结结果已生成"
+            }
+        return Notification.Builder(context, RESULT_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setSubText(recordingName)
+            .setContentIntent(
+                recordingOpenPendingIntent(
+                    context = context,
+                    requestCode = notificationId,
+                    recordingId = notice.recordingId,
+                    destination = destination,
+                    completionKind = notice.kind,
+                    completionTaskId = notice.taskId,
+                ),
+            )
+            .setOnlyAlertOnce(true)
+            .setOngoing(false)
+            .setAutoCancel(true)
+            .setCategory(Notification.CATEGORY_STATUS)
+            .build()
+    }
 
     private fun buildAiSummaryNotification(
         title: String,
@@ -353,14 +464,31 @@ class LongTaskNotificationController(
         )
     }
 
+    private fun createResultChannel() {
+        notificationManager.createNotificationChannel(
+            NotificationChannel(
+                RESULT_CHANNEL_ID,
+                "任务结果",
+                NotificationManager.IMPORTANCE_LOW,
+            ).apply {
+                description = "转写、说话人分离或 AI 总结完成时提醒"
+                setShowBadge(true)
+            },
+        )
+    }
+
     companion object {
         private const val AI_SUMMARY_CHANNEL_ID = "voica-ai-summary"
         private const val ATTENTION_CHANNEL_ID = "voica-task-attention"
+        private const val RESULT_CHANNEL_ID = "voica-task-result"
         private const val AI_SUMMARY_NOTIFICATION_ID = 13051
         private const val AI_SUMMARY_REQUEST_CONTENT = 13051
         private const val AI_SUMMARY_REQUEST_CANCEL = 13052
         private const val TRANSCRIPTION_ATTENTION_BASE = 140_000_000
         private const val AI_ATTENTION_BASE = 150_000_000
+        private const val TRANSCRIPTION_COMPLETION_BASE = 180_000_000
+        private const val DIARIZATION_COMPLETION_BASE = 190_000_000
+        private const val AI_SUMMARY_COMPLETION_BASE = 200_000_000
     }
 }
 
@@ -471,6 +599,13 @@ private fun transcriptionAttentionNotificationId(id: String): Int =
 
 private fun aiAttentionNotificationId(id: String): Int =
     AI_ATTENTION_BASE + stableNotificationOffset(id)
+
+private fun completionNotificationId(notice: TaskCompletionNotice): Int =
+    when (notice.kind) {
+        TaskCompletionKind.TRANSCRIPTION -> TRANSCRIPTION_COMPLETION_BASE
+        TaskCompletionKind.DIARIZATION -> DIARIZATION_COMPLETION_BASE
+        TaskCompletionKind.AI_SUMMARY -> AI_SUMMARY_COMPLETION_BASE
+    } + stableNotificationOffset(notice.taskId)
 
 private fun stableNotificationOffset(id: String): Int =
     (id.hashCode() and Int.MAX_VALUE) % 9_000_000

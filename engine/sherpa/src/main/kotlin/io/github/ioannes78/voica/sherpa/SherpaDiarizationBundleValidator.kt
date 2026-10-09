@@ -10,7 +10,7 @@ class SherpaDiarizationBundleValidator {
         segmentationModel: ModelDescriptor,
         segmentationDirectory: File,
         embeddingModel: ModelDescriptor,
-        embeddingDirectory: File,
+        embeddingModelDirectory: File,
         smokeSamples: ShortArray = defaultSmokeSamples(),
     ) {
         require(smokeSamples.isNotEmpty())
@@ -19,7 +19,7 @@ class SherpaDiarizationBundleValidator {
                 segmentationModel = segmentationModel,
                 segmentationModelDirectory = segmentationDirectory,
                 embeddingModel = embeddingModel,
-                embeddingModelDirectory = embeddingDirectory,
+                embeddingModelDirectory = embeddingModelDirectory,
             )
         try {
             engine.diarize(

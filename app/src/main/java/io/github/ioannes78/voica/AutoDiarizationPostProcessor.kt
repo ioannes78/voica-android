@@ -35,7 +35,7 @@ class AutoDiarizationPostProcessor(
         )
     private val processMutex = Mutex()
     private var activeDecisionRecordingId: String? = null
-    private var activeDecisionEnabled = false
+    private var activeDecision: PendingDecision? = null
 
     init {
         scope.launch {
@@ -45,10 +45,12 @@ class AutoDiarizationPostProcessor(
                     is TranscriptionRunState.Completed -> onTranscriptionCompleted(state)
                     is TranscriptionRunState.Failed -> {
                         clearPending(state.recordingId)
+                        clearPrepared(state.recordingId)
                         clearActiveDecision(state.recordingId)
                     }
                     is TranscriptionRunState.Cancelled -> {
                         clearPending(state.recordingId)
+                        clearPrepared(state.recordingId)
                         clearActiveDecision(state.recordingId)
                     }
                     TranscriptionRunState.Idle -> Unit
@@ -107,6 +109,42 @@ class AutoDiarizationPostProcessor(
         }
     }
 
+    /**
+     * Snapshot the per-file speaker mode before the first transcription starts.
+     * Later global-setting changes must not change the diarization that follows this ASR run.
+     */
+    fun prepareInitialTranscription(
+        recordingId: String,
+        speakerCount: SpeakerCountChoice,
+    ) {
+        require(recordingId.isNotBlank())
+        writePrepared(
+            recordingId = recordingId,
+            decision =
+                PendingDecision(
+                    mode = PendingMode.AUTO_START,
+                    speakerCount = speakerCount,
+                ),
+        )
+    }
+
+    /**
+     * A re-transcription may reuse an already valid speaker timeline, but it must never create
+     * a new diarization task implicitly. The new transcript will only be realigned when a
+     * compatible completed diarization already exists (or an explicitly started one completes).
+     */
+    fun prepareRetranscription(recordingId: String) {
+        require(recordingId.isNotBlank())
+        writePrepared(
+            recordingId = recordingId,
+            decision =
+                PendingDecision(
+                    mode = PendingMode.REUSE_ONLY,
+                    speakerCount = null,
+                ),
+        )
+    }
+
     suspend fun recoverPendingOnStartup() {
         pendingRecordingIds().forEach { recordingId ->
             val transcriptionId = pendingTranscriptionId(recordingId)
@@ -127,19 +165,44 @@ class AutoDiarizationPostProcessor(
     private fun onTranscriptionRunning(state: TranscriptionRunState.Running) {
         if (activeDecisionRecordingId != state.recordingId) {
             activeDecisionRecordingId = state.recordingId
-            activeDecisionEnabled =
-                localSpeechSettings().diarization.autoAfterTranscription
-            if (activeDecisionEnabled) {
-                markPending(state.recordingId, state.transcriptionId)
+            val prepared = consumePrepared(state.recordingId)
+            val decision =
+                prepared ?: PendingDecision(
+                    mode = PendingMode.AUTO_START,
+                    speakerCount = localSpeechSettings().speakerCount,
+                )
+            val enabled =
+                decision.mode == PendingMode.REUSE_ONLY ||
+                    localSpeechSettings().diarization.autoAfterTranscription
+            activeDecision = decision.takeIf { enabled }
+            activeDecision?.let { active ->
+                markPending(
+                    recordingId = state.recordingId,
+                    transcriptionId = state.transcriptionId,
+                    decision = active,
+                )
             }
-        } else if (activeDecisionEnabled && state.transcriptionId != null) {
-            markPending(state.recordingId, state.transcriptionId)
+        } else if (state.transcriptionId != null) {
+            activeDecision?.let { active ->
+                markPending(
+                    recordingId = state.recordingId,
+                    transcriptionId = state.transcriptionId,
+                    decision = active,
+                )
+            }
         }
     }
 
     private fun onTranscriptionCompleted(state: TranscriptionRunState.Completed) {
         if (isPending(state.recordingId)) {
-            markPending(state.recordingId, state.transcriptionId)
+            val decision = pendingDecision(state.recordingId) ?: activeDecision
+            if (decision != null) {
+                markPending(
+                    recordingId = state.recordingId,
+                    transcriptionId = state.transcriptionId,
+                    decision = decision,
+                )
+            }
             scope.launch {
                 processPending(state.recordingId)
             }
@@ -150,7 +213,7 @@ class AutoDiarizationPostProcessor(
     private fun clearActiveDecision(recordingId: String) {
         if (activeDecisionRecordingId == recordingId) {
             activeDecisionRecordingId = null
-            activeDecisionEnabled = false
+            activeDecision = null
         }
     }
 
@@ -172,6 +235,11 @@ class AutoDiarizationPostProcessor(
                 return@withLock
             }
 
+            val decision =
+                pendingDecision(recordingId) ?: PendingDecision(
+                    mode = PendingMode.AUTO_START,
+                    speakerCount = localSpeechSettings().speakerCount,
+                )
             val runs = diarizationRepository.observeRuns(recordingId).first()
             val compatibleCompleted =
                 runs.firstOrNull { run ->
@@ -217,10 +285,18 @@ class AutoDiarizationPostProcessor(
                 }
             if (activeCompatibleRun) return@withLock
 
+            if (decision.mode == PendingMode.REUSE_ONLY) {
+                clearPending(recordingId)
+                return@withLock
+            }
+
             // start() is already globally idempotent with respect to the coordinator slot.
             // If another recording owns the slot, pending remains durable and is retried
             // when that operation reaches a terminal state.
-            diarizationCoordinator.start(recordingId)
+            diarizationCoordinator.start(
+                recordingId = recordingId,
+                speakerCountChoice = decision.speakerCount ?: localSpeechSettings().speakerCount,
+            )
         }
     }
 
@@ -233,13 +309,20 @@ class AutoDiarizationPostProcessor(
     private fun markPending(
         recordingId: String,
         transcriptionId: String?,
+        decision: PendingDecision,
     ) {
         val updated = pendingRecordingIds().toMutableSet().apply { add(recordingId) }
         preferences.edit()
             .putStringSet(KEY_PENDING_RECORDINGS, updated)
+            .putString(KEY_MODE_PREFIX + recordingId, decision.mode.name)
             .apply {
                 if (transcriptionId != null) {
                     putString(KEY_TRANSCRIPTION_PREFIX + recordingId, transcriptionId)
+                }
+                if (decision.speakerCount != null) {
+                    putString(KEY_SPEAKER_COUNT_PREFIX + recordingId, decision.speakerCount.name)
+                } else {
+                    remove(KEY_SPEAKER_COUNT_PREFIX + recordingId)
                 }
             }
             .commit()
@@ -250,7 +333,58 @@ class AutoDiarizationPostProcessor(
         preferences.edit()
             .putStringSet(KEY_PENDING_RECORDINGS, updated)
             .remove(KEY_TRANSCRIPTION_PREFIX + recordingId)
+            .remove(KEY_MODE_PREFIX + recordingId)
+            .remove(KEY_SPEAKER_COUNT_PREFIX + recordingId)
             .commit()
+    }
+
+    private fun writePrepared(
+        recordingId: String,
+        decision: PendingDecision,
+    ) {
+        preferences.edit()
+            .putString(KEY_PREPARED_MODE_PREFIX + recordingId, decision.mode.name)
+            .apply {
+                if (decision.speakerCount != null) {
+                    putString(
+                        KEY_PREPARED_SPEAKER_COUNT_PREFIX + recordingId,
+                        decision.speakerCount.name,
+                    )
+                } else {
+                    remove(KEY_PREPARED_SPEAKER_COUNT_PREFIX + recordingId)
+                }
+            }
+            .commit()
+    }
+
+    private fun consumePrepared(recordingId: String): PendingDecision? {
+        val mode =
+            preferences.getString(KEY_PREPARED_MODE_PREFIX + recordingId, null)
+                ?.let { raw -> runCatching { PendingMode.valueOf(raw) }.getOrNull() }
+                ?: return null
+        val speakerCount =
+            preferences.getString(KEY_PREPARED_SPEAKER_COUNT_PREFIX + recordingId, null)
+                ?.let { raw -> runCatching { SpeakerCountChoice.valueOf(raw) }.getOrNull() }
+        clearPrepared(recordingId)
+        return PendingDecision(mode = mode, speakerCount = speakerCount)
+    }
+
+    private fun clearPrepared(recordingId: String) {
+        preferences.edit()
+            .remove(KEY_PREPARED_MODE_PREFIX + recordingId)
+            .remove(KEY_PREPARED_SPEAKER_COUNT_PREFIX + recordingId)
+            .commit()
+    }
+
+    private fun pendingDecision(recordingId: String): PendingDecision? {
+        val mode =
+            preferences.getString(KEY_MODE_PREFIX + recordingId, null)
+                ?.let { raw -> runCatching { PendingMode.valueOf(raw) }.getOrNull() }
+                ?: return null
+        val speakerCount =
+            preferences.getString(KEY_SPEAKER_COUNT_PREFIX + recordingId, null)
+                ?.let { raw -> runCatching { SpeakerCountChoice.valueOf(raw) }.getOrNull() }
+        return PendingDecision(mode = mode, speakerCount = speakerCount)
     }
 
     private fun isPending(recordingId: String): Boolean =
@@ -266,9 +400,23 @@ class AutoDiarizationPostProcessor(
             .getString(KEY_TRANSCRIPTION_PREFIX + recordingId, null)
             ?.takeIf { it.isNotBlank() }
 
+    private data class PendingDecision(
+        val mode: PendingMode,
+        val speakerCount: SpeakerCountChoice?,
+    )
+
+    private enum class PendingMode {
+        AUTO_START,
+        REUSE_ONLY,
+    }
+
     private companion object {
         const val PREFERENCES_NAME = "voica-auto-diarization"
         const val KEY_PENDING_RECORDINGS = "pending-recordings"
         const val KEY_TRANSCRIPTION_PREFIX = "transcription."
+        const val KEY_MODE_PREFIX = "mode."
+        const val KEY_SPEAKER_COUNT_PREFIX = "speaker-count."
+        const val KEY_PREPARED_MODE_PREFIX = "prepared-mode."
+        const val KEY_PREPARED_SPEAKER_COUNT_PREFIX = "prepared-speaker-count."
     }
 }

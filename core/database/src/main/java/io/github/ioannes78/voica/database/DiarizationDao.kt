@@ -29,6 +29,16 @@ interface DiarizationDao {
     @Query(
         """
         SELECT * FROM diarization_runs
+        WHERE state IN (:activeStates)
+        ORDER BY createdAtMs DESC
+        LIMIT 2
+        """,
+    )
+    suspend fun loadActiveRuns(activeStates: List<String>): List<DiarizationRunEntity>
+
+    @Query(
+        """
+        SELECT * FROM diarization_runs
         WHERE recordingId = :recordingId
         ORDER BY createdAtMs DESC
         """,
@@ -44,6 +54,124 @@ interface DiarizationDao {
         """,
     )
     fun observeLatestCompletedRun(recordingId: String): Flow<DiarizationRunEntity?>
+
+    @Query(
+        """
+        SELECT id, recordingId, state, configSnapshot, completedAtMs, errorCode, errorMessage
+        FROM diarization_runs
+        WHERE state IN ('INTERRUPTED', 'FAILED_RECOVERABLE', 'FAILED_PERMANENT')
+          AND terminalAcknowledgedAtMs IS NULL
+        ORDER BY completedAtMs DESC, createdAtMs DESC
+        """,
+    )
+    fun observeRunAttention(): Flow<List<DiarizationRunAttentionRow>>
+
+    @Query(
+        """
+        SELECT id, recordingId, state, configSnapshot, completedAtMs, errorCode, errorMessage
+        FROM diarization_runs
+        WHERE recordingId = :recordingId
+          AND state IN ('INTERRUPTED', 'FAILED_RECOVERABLE', 'FAILED_PERMANENT')
+          AND terminalAcknowledgedAtMs IS NULL
+        ORDER BY completedAtMs DESC, createdAtMs DESC
+        """,
+    )
+    fun observeRunAttention(recordingId: String): Flow<List<DiarizationRunAttentionRow>>
+
+    @Query(
+        """
+        SELECT a.id AS id,
+               t.recordingId AS recordingId,
+               a.transcriptionId AS transcriptionId,
+               a.diarizationRunId AS diarizationRunId,
+               a.state AS state,
+               a.completedAtMs AS completedAtMs,
+               a.errorCode AS errorCode,
+               a.errorMessage AS errorMessage
+        FROM transcript_speaker_alignments a
+        INNER JOIN transcriptions t ON t.id = a.transcriptionId
+        WHERE a.state IN ('INTERRUPTED', 'FAILED_RECOVERABLE', 'FAILED_PERMANENT')
+          AND a.terminalAcknowledgedAtMs IS NULL
+        ORDER BY a.completedAtMs DESC, a.createdAtMs DESC
+        """,
+    )
+    fun observeAlignmentAttention(): Flow<List<DiarizationAlignmentAttentionRow>>
+
+    @Query(
+        """
+        SELECT a.id AS id,
+               t.recordingId AS recordingId,
+               a.transcriptionId AS transcriptionId,
+               a.diarizationRunId AS diarizationRunId,
+               a.state AS state,
+               a.completedAtMs AS completedAtMs,
+               a.errorCode AS errorCode,
+               a.errorMessage AS errorMessage
+        FROM transcript_speaker_alignments a
+        INNER JOIN transcriptions t ON t.id = a.transcriptionId
+        WHERE t.recordingId = :recordingId
+          AND a.state IN ('INTERRUPTED', 'FAILED_RECOVERABLE', 'FAILED_PERMANENT')
+          AND a.terminalAcknowledgedAtMs IS NULL
+        ORDER BY a.completedAtMs DESC, a.createdAtMs DESC
+        """,
+    )
+    fun observeAlignmentAttention(recordingId: String): Flow<List<DiarizationAlignmentAttentionRow>>
+
+    @Query(
+        """
+        UPDATE diarization_runs
+        SET terminalAcknowledgedAtMs = :nowMs
+        WHERE id = :runId
+          AND terminalAcknowledgedAtMs IS NULL
+          AND state IN ('INTERRUPTED', 'FAILED_RECOVERABLE', 'FAILED_PERMANENT')
+        """,
+    )
+    suspend fun acknowledgeRunAttention(runId: String, nowMs: Long): Int
+
+    @Query(
+        """
+        UPDATE transcript_speaker_alignments
+        SET terminalAcknowledgedAtMs = :nowMs
+        WHERE id = :alignmentId
+          AND terminalAcknowledgedAtMs IS NULL
+          AND state IN ('INTERRUPTED', 'FAILED_RECOVERABLE', 'FAILED_PERMANENT')
+        """,
+    )
+    suspend fun acknowledgeAlignmentAttention(alignmentId: String, nowMs: Long): Int
+
+    @Query(
+        """
+        UPDATE diarization_runs
+        SET terminalAcknowledgedAtMs = :nowMs
+        WHERE recordingId = :recordingId
+          AND id != :replacementRunId
+          AND terminalAcknowledgedAtMs IS NULL
+          AND state IN ('INTERRUPTED', 'FAILED_RECOVERABLE', 'FAILED_PERMANENT')
+        """,
+    )
+    suspend fun acknowledgeSupersededRunAttention(
+        recordingId: String,
+        replacementRunId: String,
+        nowMs: Long,
+    ): Int
+
+    @Query(
+        """
+        UPDATE transcript_speaker_alignments
+        SET terminalAcknowledgedAtMs = :nowMs
+        WHERE transcriptionId = :transcriptionId
+          AND diarizationRunId = :diarizationRunId
+          AND id != :replacementAlignmentId
+          AND terminalAcknowledgedAtMs IS NULL
+          AND state IN ('INTERRUPTED', 'FAILED_RECOVERABLE', 'FAILED_PERMANENT')
+        """,
+    )
+    suspend fun acknowledgeSupersededAlignmentAttention(
+        transcriptionId: String,
+        diarizationRunId: String,
+        replacementAlignmentId: String,
+        nowMs: Long,
+    ): Int
 
     @Query(
         """

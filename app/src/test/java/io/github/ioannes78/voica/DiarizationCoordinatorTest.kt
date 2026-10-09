@@ -139,6 +139,65 @@ class DiarizationCoordinatorTest {
     }
 
     @Test
+    fun explicitOneUsesVadSpeechRangesAndSkipsNativeDiarization() = runBlocking {
+        val descriptors = requiredDescriptors()
+        val provider =
+            FakeEngineProvider(
+                vadSegments =
+                    listOf(
+                        SpeechSegment(1_000L, 8_000L),
+                        SpeechSegment(12_000L, 20_000L),
+                    ),
+            )
+        val coordinator =
+            coordinator(
+                modelManager = FakeModelManager(descriptors.associate { it.modelId to active(it) }),
+                registry = ModelUseRegistry(),
+                provider = provider,
+            )
+
+        assertTrue(coordinator.start(RECORDING_ID, SpeakerCountChoice.ONE))
+        val completed = coordinator.state.filterIsInstance<DiarizationRunState.Completed>().first()
+        val run = checkNotNull(diarizationRepository.findRun(completed.runId))
+        val turns = diarizationRepository.loadTurns(completed.runId)
+
+        assertEquals(1, completed.speakerCount)
+        assertEquals(2, turns.size)
+        assertEquals(1_000L, turns[0].startSampleIndex)
+        assertEquals(8_000L, turns[0].endSampleIndexExclusive)
+        assertEquals(12_000L, turns[1].startSampleIndex)
+        assertEquals(20_000L, turns[1].endSampleIndexExclusive)
+        assertTrue(turns[0].endSampleIndexExclusive < turns[1].startSampleIndex)
+        assertEquals(0, provider.validateBundleCalls)
+        assertEquals(0, provider.diarizationEngineCalls)
+        assertEquals(0, provider.embeddingEngineCalls)
+        assertTrue(run.configSnapshot.contains("\"speakerCountPreset\":\"ONE\""))
+        assertTrue(run.configSnapshot.contains("\"singleSpeakerFastPath\":true"))
+    }
+
+    @Test
+    fun explicitAutoStillUsesFullDiarizationPipeline() = runBlocking {
+        val descriptors = requiredDescriptors()
+        val provider = FakeEngineProvider()
+        val coordinator =
+            coordinator(
+                modelManager = FakeModelManager(descriptors.associate { it.modelId to active(it) }),
+                registry = ModelUseRegistry(),
+                provider = provider,
+            )
+
+        assertTrue(coordinator.start(RECORDING_ID, SpeakerCountChoice.AUTO))
+        val completed = coordinator.state.filterIsInstance<DiarizationRunState.Completed>().first()
+        val run = checkNotNull(diarizationRepository.findRun(completed.runId))
+
+        assertTrue(provider.validateBundleCalls > 0)
+        assertTrue(provider.diarizationEngineCalls > 0)
+        assertTrue(provider.embeddingEngineCalls > 0)
+        assertTrue(run.configSnapshot.contains("\"speakerCountPreset\":\"AUTO\""))
+        assertTrue(run.configSnapshot.contains("\"singleSpeakerFastPath\":false"))
+    }
+
+    @Test
     fun missingSpeakerModelsReportCampPlusAndSegmentation() = runBlocking {
         val vad = descriptor(Stage8ModelIds.VAD, ModelKind.VAD, null)
         val coordinator =
@@ -247,7 +306,15 @@ class DiarizationCoordinatorTest {
 
     private class FakeEngineProvider(
         private val blockVad: Boolean = false,
+        private val vadSegments: List<SpeechSegment>? = null,
     ) : Stage9DiarizationEngineProvider {
+        var validateBundleCalls: Int = 0
+            private set
+        var diarizationEngineCalls: Int = 0
+            private set
+        var embeddingEngineCalls: Int = 0
+            private set
+
         override fun vadFactory(
             model: ActiveModel,
             numThreads: Int,
@@ -257,6 +324,7 @@ class DiarizationCoordinatorTest {
                 FakeVadEngine(
                     model = model.descriptor,
                     block = blockVad,
+                    vadSegments = vadSegments,
                 )
             }
 
@@ -264,6 +332,7 @@ class DiarizationCoordinatorTest {
             segmentation: ActiveModel,
             embedding: ActiveModel,
         ) {
+            validateBundleCalls += 1
             require(segmentation.descriptor.speakerRole == SpeakerModelRole.DIARIZATION_SEGMENTATION)
             require(embedding.descriptor.speakerRole == SpeakerModelRole.EMBEDDING)
             require(embedding.descriptor.modelId == Stage13ASpeakerEmbeddingModelIds.CAMP_PLUS)
@@ -273,21 +342,27 @@ class DiarizationCoordinatorTest {
             segmentation: ActiveModel,
             embedding: ActiveModel,
             numThreads: Int,
-        ): DiarizationEngine =
-            FakeDiarizationEngine(
+        ): DiarizationEngine {
+            diarizationEngineCalls += 1
+            return FakeDiarizationEngine(
                 segmentationModel = segmentation.descriptor,
                 embeddingModel = embedding.descriptor,
             )
+        }
 
         override fun embeddingEngine(
             model: ActiveModel,
             numThreads: Int,
-        ): SpeakerEmbeddingEngine = FakeEmbeddingEngine(model.descriptor)
+        ): SpeakerEmbeddingEngine {
+            embeddingEngineCalls += 1
+            return FakeEmbeddingEngine(model.descriptor)
+        }
     }
 
     private class FakeVadEngine(
         override val model: ModelDescriptor,
         private val block: Boolean,
+        private val vadSegments: List<SpeechSegment>?,
     ) : VadEngine {
         override suspend fun analyze(
             source: PcmSource,
@@ -314,7 +389,7 @@ class DiarizationCoordinatorTest {
                     totalUnits = source.totalSampleCount,
                 ),
             )
-            return listOf(SpeechSegment(0L, source.totalSampleCount))
+            return vadSegments ?: listOf(SpeechSegment(0L, source.totalSampleCount))
         }
 
         override fun close() = Unit

@@ -1,24 +1,14 @@
 package io.github.ioannes78.voica
 
-import android.app.Application
-import io.github.ioannes78.voica.audio.PcmSourceResolver
-import io.github.ioannes78.voica.model.ModelManager
-import io.github.ioannes78.voica.model.ModelUseRegistry
-
 /**
- * QA5 compatibility shell.
+ * Stage 13C profiling runtime was removed before the Final Candidate.
  *
- * The Stage 13A diarization benchmark product feature was removed after CAM++
- * was selected. This type remains temporarily only to keep existing QA5
- * navigation/composable signatures source-compatible until Recording Detail V2
- * is reworked in QA6. It intentionally exposes no benchmark API and performs no work.
+ * The null-only alias temporarily preserves existing Compose function signatures while ensuring
+ * no diarization benchmark runner can be constructed or attached at runtime. It must not be used
+ * as a diagnostics surface in production or QA builds.
  */
-@Suppress("UNUSED_PARAMETER")
-class DiarizationBenchmarkRunner(
-    application: Application,
-    pcmSourceResolver: PcmSourceResolver,
-    modelManager: ModelManager,
-    modelUseRegistry: ModelUseRegistry,
-    engineProvider: Stage9DiarizationEngineProvider,
-    localSpeechSettings: () -> LocalSpeechSettings,
+@Deprecated(
+    message = "Stage 13C diarization profiling was retired before the Final Candidate",
+    level = DeprecationLevel.WARNING,
 )
+typealias DiarizationBenchmarkRunner = Nothing

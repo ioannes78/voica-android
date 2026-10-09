@@ -4,18 +4,23 @@
 
 当前 `ioannes78/voica-android` 仓库是 Voica 项目实现状态的唯一事实来源。
 
-当前已冻结基线：**Stage 13B**
+当前已冻结基线：**Stage 13C**
 
-Stage 13B Final Freeze/Handoff：
+Stage 13C Final Freeze/Handoff：
+
+- `docs/STAGE_13C_FREEZE.md`
+- `docs/STAGE_13C_HANDOFF.md`
+
+上一阶段 Stage 13B Final Freeze/Handoff：
 
 - `docs/STAGE_13B_FREEZE.md`
 - `docs/STAGE_13B_HANDOFF.md`
 - `docs/STAGE_13B_4_FREEZE.md`
 - `docs/STAGE_13B_4_HANDOFF.md`
 
-当前开发阶段：**Stage 13C — Diarization Performance**。
+当前下一开发阶段：**Stage 14 — Voica V1.0 Release Freeze**。
 
-Stage 13B 已完成真机验收、Final Freeze/Handoff 并合并到 `main`；任何 Stage 13C 接管都必须重新读取 GitHub 当前 `main`、HEAD、CI、Room schema、Stage 13B Final Freeze/Handoff 与 production model channel，不能把本文记录的某个历史 SHA 当成当前状态。
+Stage 13C 已完成 C0–C8、Final Candidate 真机验收、Final Freeze/Handoff；任何 Stage 14 接管都必须重新读取 GitHub 当前 `main`、HEAD、CI、Room schema、Stage 13C Final Freeze/Handoff 与 production model channel，不能把本文记录的某个历史 SHA 当成当前状态。
 
 从 **Stage 13C** 开始的后续权威增量规划：
 
@@ -80,7 +85,7 @@ Stage 13B 已完成真机验收、Final Freeze/Handoff 并合并到 `main`；任
 
 ## 五、Android 技术基线
 
-当前 `main`（Stage 13B Final Freeze/merge）技术基线：
+当前 Stage 13C Final Freeze / merge 目标技术基线：
 
 - Kotlin：2.4.20
 - Android Gradle Plugin：9.4.0
@@ -92,14 +97,14 @@ Stage 13B 已完成真机验收、Final Freeze/Handoff 并合并到 `main`；任
 - Compose BOM：2026.09.00
 - Application ID：`io.github.ioannes78.voica`
 - QA Application ID：`io.github.ioannes78.voica.qa`
-- versionCode：64
-- versionName：`0.13.1-stage13b-ai-summary-qa4-r2`
+- versionCode：75
+- versionName：`0.13.2-stage13c-c8`
 - sherpa-onnx：1.13.8
-- Room schema：11
+- Room schema：12
 - ABI：arm64-v8a
 - 默认产品语言：简体中文
 
-Stage 13C 开发分支后续可能提升 versionCode/versionName，但不得据此覆盖 `main` 的 Stage 13B 冻结事实；接管时必须重新读取当前分支真实配置。
+Stage 14 后续可能提升 versionCode/versionName 或 Room schema，但不得据此覆盖 Stage 13C 冻结事实；接管时必须重新读取当前 `main` 的真实配置。
 
 当前物理模块：
 
@@ -135,7 +140,7 @@ app
 
 后续 Stage 不得无明确需求和迁移设计改变：
 
-- Room schema 已由 Stage 12C 从 v5 additive migration 到 v6、Stage 13A 继续到 v7、Stage 13B 继续到 v11；后续必须保持完整 1..11 migration lineage
+- Room schema 已由 Stage 12C 从 v5 additive migration 到 v6、Stage 13A 继续到 v7、Stage 13B 继续到 v11、Stage 13C 继续到 v12；后续必须保持完整 1..12 migration lineage
 - Recording metadata 搜索/排序/筛选、收藏、逻辑文件夹、标签均复用现有 Recording Library，不建立第二套录音库
 - LOCAL_IMPORT + IMPORTED_ORIGINAL 保存导入 provenance；外部 content URI 不作为长期唯一音频事实
 - 手机导入支持 WAV / MP3 / M4A-AAC / ADTS AAC / FLAC / Ogg Opus；QS668 raw framed Opus 继续走专用链
@@ -147,13 +152,13 @@ app
 - AI Summary 历史版本显示实际 Provider/Model lineage
 - 每次 AI Summary 可临时选择 Provider/Model，不能修改全局默认
 - Structured Output Reliability 使用 strict schema 优先 + 有界 fallback/repair；不得降低 evidence validation
-- Stage 12C/13A/13B 已冻结：人工编辑不得直接覆盖原始 ASR / AI Summary 模型结果
+- Stage 12C/13A/13B/13C 已冻结：人工编辑不得直接覆盖原始 ASR / AI Summary 模型结果
 
 ## 六-A、Stage 12C 已冻结内容管理与搜索事实
 
 后续 Stage 不得无明确需求和 migration 设计改变：
 
-- Stage 12C 原始冻结 Room schema = 6，Stage 13A 继续演进到 v7，Stage 13B 最终演进到 v11；后续不得破坏 1..11 migration lineage。
+- Stage 12C 原始冻结 Room schema = 6，Stage 13A 继续演进到 v7，Stage 13B 最终演进到 v11，Stage 13C 最终演进到 v12；后续不得破坏 1..12 migration lineage。
 - 原始 ASR Transcription / Segment / Token / speaker/alignment / absolute canonical sample timeline 保持不可变。
 - 人工转写编辑保存为独立 TranscriptionRevision 全量快照；支持段落合并/拆分/整理、历史切换、删除与恢复模型原文。
 - 人工修改文本不得伪造 token timestamp；没有可靠 token 边界时只保留来源 sample range。
@@ -169,7 +174,7 @@ app
 - 搜索索引在 v6 migration 后标记 REBUILD_REQUIRED，由 SearchIndexRebuilder 启动重建，并在内容生命周期变化时增量刷新。
 - 搜索命中可定向打开 Recording / Transcription version / Summary version；Folder / Tag 命中回到录音库筛选。
 - Stage 12C 不包含 PDF/DOCX 验收、semantic/vector search、Audio LLM、云同步、后台 BLE/FGS 或 speaker voiceprint。
-- QA versionCode 40 / versionName `0.12.4-stage12c-qa1` 已真机验收通过；当前主线冻结事实已由 Stage 13B 的 versionCode 64 / Room v11 继续覆盖。
+- QA versionCode 40 / versionName `0.12.4-stage12c-qa1` 已真机验收通过；当前主线冻结事实已由 Stage 13C 的 versionCode 75 / Room v12 继续覆盖。
 
 ## 六-B、Stage 13A/13B/13C 路线门禁
 
@@ -179,13 +184,11 @@ Stage 13 当前顺序为：
 
 - Stage 13A：已完成并 Final Freeze/Handoff；本地 ASR / Diarization 模型矩阵、统一 capability、参数、内容生命周期已冻结。
 - Stage 13B：已完成真机验收并 Final Freeze/Handoff；后台执行、Durable Model Install、长任务恢复、Room durable attention / Candidate lifecycle、Android 通知与播放通知 Final Gate 已冻结。权威基线读取 `docs/STAGE_13B_FREEZE.md` 与 `docs/STAGE_13B_HANDOFF.md`。
-- Stage 13C：当前下一开发阶段，专门解决说话人分离处理时间过长问题，核心 KPI 是 total time / RTF / RAM/PSS / CPU / thermal / battery；准确率只作为不得明显退化的约束，不以重新选模提准确率为本阶段目标。
-- Stage 13C baseline 固定读取 Stage 13A 已冻结链：`Silero VAD → Pyannote Segmentation 3.0 INT8 → CAM++ → clustering/stitching → transcript alignment`。
-- Stage 13C 必须先做逐阶段 profiling，再做 VAD 复用、embedding cache、CAM++ bounded batching、overlap 去重、短 segment 策略、线程 benchmark、1-speaker fast path、ASR 完成与 diarization 完成解耦。
-- 只有上述优化后仍不满足性能目标，才允许 benchmark 跳过 Pyannote 的 Fast Diarization 实验链；未经 A/B benchmark 和用户确认不得替换正式链。
-- 若 Stage 13C 更换核心 diarization model/runtime/segmentation/embedding 路径，必须重新执行受影响的 Stage 13B 30/60/120min 稳定性验证。
-- Stage 13C 真机通过并 Freeze/Handoff 后才允许进入 Stage 14 V1.0 Release Freeze。
-- Stage 14 不再进行新的大规模模型选型。
+- Stage 13C：已完成 C0–C8、Final Candidate 真机验收并 Final Freeze/Handoff。权威基线读取 `docs/STAGE_13C_FREEZE.md` 与 `docs/STAGE_13C_HANDOFF.md`。
+- Stage 13C 正式产品说话人链继续为：`Silero VAD → Pyannote Segmentation 3.0 INT8 → CAM++ → clustering/stitching → transcript alignment`。
+- Stage 13C 已冻结 persisted VAD reuse、文件级 `AUTO / 1 / 2 / 3 / 4 / 5+`、显式 1 人 Fast Path、offline ASR 30 s consumer safety partition、ASR/diarization 生命周期解耦与 durable speaker attention。
+- Stage 13C 生产 diarization window/overlap 继续为 60 s / 10 s；C9 Fast Diarization 未启用。
+- Stage 14：当前下一开发阶段，负责 Voica V1.0 Release Freeze，不进行新的大规模模型选型。
 
 Stage 13C+ 详细规划统一读取：`docs/ROADMAP_STAGE_13C_PLUS.md`。
 
@@ -275,6 +278,25 @@ Stage 13B Final Freeze/Handoff 之后，后续阶段必须保护以下事实：
 - production model channel 在 Stage 13B 未提升；任何 promotion 继续需要独立核验与授权。
 
 Stage 13C 开始前必须重新读取 `docs/STAGE_13B_FREEZE.md`、`docs/STAGE_13B_HANDOFF.md` 与 `docs/ROADMAP_STAGE_13C_PLUS.md`。
+
+## 六-E、Stage 13C 最终冻结事实
+
+Stage 13C Final Freeze/Handoff 之后，后续阶段必须保护以下事实：
+
+- 最终功能 / 真机验收二进制基线：`2afa6b80e3add368c8c7768e6aac4d571c9fddd0`；versionCode 75，Room v12，最终代码 CI #1033 SUCCESS。
+- 正式 diarization 链继续为 Silero VAD → Pyannote Segmentation 3.0 INT8 → CAM++ → clustering/stitching → transcript alignment；生产 window/overlap 固定 60 s / 10 s。
+- persisted VAD reuse 必须 lineage-safe；不得复用不兼容 canonical/model/config 的 speech truth。
+- 文件级说话人数为 `AUTO / 1 / 2 / 3 / 4 / 5+`；同人数允许显式重跑；1 人 Fast Path 仅在用户明确选择 1 人时跳过多人重型链。
+- 重新转写保持 `REUSE_ONLY`；有兼容 diarization 时只 realign，无兼容结果时不得静默新跑重型 diarization。
+- offline ASR 对 >30 s 连续 speech 仅做 consumer 内部安全分块，原 VAD segment 与 canonical timeline 不变。
+- ASR COMPLETED 后正文必须立即可用；diarization/alignment 仅做同一 Transcription 的 speaker enrichment，不得阻塞/替换正文。
+- Transcription / Diarization / AI Summary 普通成功各自保留 Android + App 完成通知；speaker FAILED / INTERRUPTED 使用 Room durable attention；用户主动 Cancelled 不是 failure attention。
+- Room migration 必须保持 v1→v12；v12 diarization/alignment acknowledgement 不得退化为进程内状态。
+- Stage 13C 临时 diarization profiling/exporter 已退出 normal runtime；不得恢复自动 `Downloads/Voica/Diagnostics` JSON 或 app-private profiling JSON。
+- C2 exact-range embedding cache 已因真机 0 有效命中移除；C5 未实施；C9 Fast Diarization 未启用。
+- production model channel 在 Stage 13C 未提升；任何 promotion 继续需要独立核验与授权。
+
+Stage 14 开始前必须重新读取 `docs/STAGE_13C_FREEZE.md`、`docs/STAGE_13C_HANDOFF.md` 与 `docs/ROADMAP_STAGE_13C_PLUS.md`。
 
 ## 六、Stage 2 已冻结 BLE 事实
 
@@ -453,7 +475,7 @@ Stage 13C 开始前必须重新读取 `docs/STAGE_13B_FREEZE.md`、`docs/STAGE_1
 - transcript speaker alignment 优先 timed SECOND_PASS token，fallback timed FIRST_PASS；跨 speaker 边界必须拆 span。
 - overlap/ambiguous token 不得复制给多个 speaker；无法可靠归属时显式保存 unresolved / overlap ambiguous。
 - 同一 completed diarization run 可复用给同一 canonical lineage 的多个 transcription version。
-- **直接转写完成后默认可继续说话人分离并完成 Speaker 文本对齐；Stage 13C 将进一步把“正文已完成”和“speaker 后处理完成”在产品生命周期上解耦，避免 speaker 慢阻塞正文可用性。**
+- **直接转写完成后默认可继续说话人分离并完成 Speaker 文本对齐；Stage 13C 已进一步冻结“正文已完成”和“speaker 后处理完成”的产品生命周期解耦，正文不得被 speaker 后处理阻塞。**
 - 若同一 canonical lineage 已存在可复用 completed diarization run，则优先复用，只做必要 transcript/speaker alignment。
 - “单独说话人分离”保留给补做、重跑和模型专项测试；查看旧历史转写本身不得强制新跑重型 diarization。
 - 每次 diarization 重跑创建新的 run，不覆盖旧 run；Speaker 1/2/… 按本 run 首次全局出现顺序编号，局部重命名不跨 run 传播。

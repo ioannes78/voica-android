@@ -96,6 +96,7 @@ data class DiarizationRunEntity(
     val completedAtMs: Long?,
     val errorCode: String?,
     val errorMessage: String?,
+    val terminalAcknowledgedAtMs: Long? = null,
 )
 
 @Entity(
@@ -190,6 +191,7 @@ data class TranscriptSpeakerAlignmentEntity(
     val completedAtMs: Long?,
     val errorCode: String?,
     val errorMessage: String?,
+    val terminalAcknowledgedAtMs: Long? = null,
 )
 
 @Entity(

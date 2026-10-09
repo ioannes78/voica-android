@@ -2,6 +2,8 @@ package io.github.ioannes78.voica.ui.library
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,22 +16,24 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -47,10 +51,15 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.ioannes78.voica.AiSummaryRunState
 import io.github.ioannes78.voica.DiarizationBenchmarkRunner
 import io.github.ioannes78.voica.DiarizationRunState
+import io.github.ioannes78.voica.RecordingSpeakerModeStore
+import io.github.ioannes78.voica.SpeakerCountChoice
 import io.github.ioannes78.voica.SpeechBenchmarkRunner
 import io.github.ioannes78.voica.Stage13B5Qa4LifecycleViewModel
+import io.github.ioannes78.voica.Stage13CDiarizationAttentionRuntime
 import io.github.ioannes78.voica.TranscriptionRunState
 import io.github.ioannes78.voica.VoicaApplication
+import io.github.ioannes78.voica.productLabel
+import io.github.ioannes78.voica.speakerCountChoiceFromConfigSnapshot
 import io.github.ioannes78.voica.database.AudioAssetRole
 import io.github.ioannes78.voica.database.AudioIntegrityState
 import io.github.ioannes78.voica.database.AudioValidationState
@@ -62,6 +71,7 @@ import io.github.ioannes78.voica.ui.ai.AiSummaryContentViewModel
 import io.github.ioannes78.voica.ui.ai.AiSummaryProductCard
 import io.github.ioannes78.voica.ui.ai.AiSummaryTransientHeader
 import io.github.ioannes78.voica.ui.ai.AiSummaryViewModel
+import io.github.ioannes78.voica.ui.diarization.DiarizationAttentionBanner
 import io.github.ioannes78.voica.ui.diarization.DiarizationStatusCard
 import io.github.ioannes78.voica.ui.diarization.DiarizationViewModel
 import io.github.ioannes78.voica.ui.playback.PlaybackViewModel
@@ -119,6 +129,16 @@ internal fun RecordingDetailProductScreen(
     @Suppress("UNUSED_VARIABLE") val ignoredSearchTarget = initialSearchTarget
 
     val application = LocalContext.current.applicationContext as VoicaApplication
+    val speakerModeStore = remember(application) { RecordingSpeakerModeStore(application) }
+    val globalSpeechSettings by application.container.localSpeechSettingsStore.settings.collectAsState()
+    val latestCompletedDiarization by
+        application.container.diarizationRepository
+            .observeLatestCompletedRun(recording.id)
+            .collectAsState(initial = null)
+    val diarizationAttention by
+        Stage13CDiarizationAttentionRuntime.repository
+            .observeForRecording(recording.id)
+            .collectAsState(initial = emptyList())
     val qa4LifecycleViewModel: Stage13B5Qa4LifecycleViewModel =
         viewModel(
             factory =
@@ -139,14 +159,20 @@ internal fun RecordingDetailProductScreen(
         mutableStateOf(initialDestination.toProductTab())
     }
     var transcriptViewMode by rememberSaveable(recording.id) {
-        mutableStateOf(TranscriptViewMode.READING)
+        mutableStateOf(TranscriptViewMode.TIMELINE)
     }
     var renameOpen by rememberSaveable(recording.id) { mutableStateOf(false) }
     var renameValue by rememberSaveable(recording.displayName) {
         mutableStateOf(recording.displayName)
     }
     var deleteOpen by rememberSaveable(recording.id) { mutableStateOf(false) }
-    var transcriptMenuOpen by remember { mutableStateOf(false) }
+    var speakerSheetOpen by rememberSaveable(recording.id) { mutableStateOf(false) }
+    var fileSpeakerModeName by rememberSaveable(recording.id) {
+        mutableStateOf(speakerModeStore.get(recording.id)?.name)
+    }
+    var pendingSpeakerModeName by rememberSaveable(recording.id) {
+        mutableStateOf<String?>(null)
+    }
 
     BackHandler(onBack = onBack)
 
@@ -193,6 +219,35 @@ internal fun RecordingDetailProductScreen(
                 asset.formatValidationState == AudioValidationState.VALID
         }
     val canonicalBusy = recording.derivations.any { it.state in ACTIVE_DERIVATION_STATES }
+    val fileSpeakerMode =
+        fileSpeakerModeName
+            ?.let { raw -> runCatching { SpeakerCountChoice.valueOf(raw) }.getOrNull() }
+    val configuredSpeakerMode = fileSpeakerMode ?: globalSpeechSettings.speakerCount
+    val completedSpeakerMode =
+        speakerCountChoiceFromConfigSnapshot(latestCompletedDiarization?.configSnapshot)
+    val displayedSpeakerMode =
+        if (recordingDocument == null) {
+            configuredSpeakerMode
+        } else {
+            completedSpeakerMode ?: configuredSpeakerMode
+        }
+    val pendingSpeakerMode =
+        pendingSpeakerModeName
+            ?.let { raw -> runCatching { SpeakerCountChoice.valueOf(raw) }.getOrNull() }
+            ?: displayedSpeakerMode
+    val visibleDiarizationAttention = diarizationAttention.firstOrNull().takeUnless { diarizationBusy }
+
+    val startInitialTranscription = {
+        application.container.autoDiarizationPostProcessor.prepareInitialTranscription(
+            recordingId = recording.id,
+            speakerCount = configuredSpeakerMode,
+        )
+        transcriptionViewModel.startOffline(recording.id)
+    }
+    val startRetranscription = {
+        application.container.autoDiarizationPostProcessor.prepareRetranscription(recording.id)
+        transcriptionViewModel.startOffline(recording.id)
+    }
 
     LaunchedEffect(recording.id) {
         transcriptionViewModel.viewVersions(recording.id)
@@ -261,26 +316,6 @@ internal fun RecordingDetailProductScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (selectedTab == ProductDetailTab.TRANSCRIPT && canonicalReady) {
-                Box {
-                    IconButton(onClick = { transcriptMenuOpen = true }) {
-                        Icon(Icons.Outlined.MoreVert, contentDescription = "更多转写操作")
-                    }
-                    DropdownMenu(
-                        expanded = transcriptMenuOpen,
-                        onDismissRequest = { transcriptMenuOpen = false },
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("重新进行说话人分离") },
-                            enabled = !transcriptionBusy && !diarizationBusy,
-                            onClick = {
-                                transcriptMenuOpen = false
-                                diarizationViewModel.start(recording.id)
-                            },
-                        )
-                    }
-                }
-            }
         }
 
         val tabs = ProductDetailTab.entries
@@ -312,6 +347,7 @@ internal fun RecordingDetailProductScreen(
                 if (
                     shouldShowTranscriptionStatus(transcriptionState, recording.id) ||
                     shouldShowDiarizationStatus(diarizationState, recording.id) ||
+                    visibleDiarizationAttention != null ||
                     visibleTranscriptionCandidateId != null ||
                     transcriptionAttention != null
                 ) {
@@ -331,7 +367,13 @@ internal fun RecordingDetailProductScreen(
                             TranscriptionAttentionBanner(
                                 entity = attention,
                                 actionEnabled = !transcriptionBusy,
-                                onRestart = { transcriptionViewModel.startOffline(recording.id) },
+                                onRestart = {
+                                    if (recordingDocument == null) {
+                                        startInitialTranscription()
+                                    } else {
+                                        startRetranscription()
+                                    }
+                                },
                                 onIgnore = {
                                     qa4LifecycleViewModel.ignoreTranscriptionAttention(attention.id)
                                 },
@@ -347,18 +389,33 @@ internal fun RecordingDetailProductScreen(
                                 onOpenSettings = onOpenSettings,
                             )
                         }
+                        visibleDiarizationAttention?.let { attention ->
+                            DiarizationAttentionBanner(
+                                attention = attention,
+                                actionEnabled = !transcriptionBusy && !diarizationBusy,
+                                onRetry = {
+                                    diarizationViewModel.retryAttention(
+                                        attention = attention,
+                                        fallbackSpeakerCount = displayedSpeakerMode,
+                                    )
+                                },
+                                onIgnore = {
+                                    diarizationViewModel.ignoreAttention(attention)
+                                },
+                            )
+                        }
                         visibleTranscriptionCandidateId?.let { newResultId ->
                             CandidateTranscriptionBanner(
                                 previewing = candidatePreview,
                                 onPreview = {
-                                    transcriptViewMode = TranscriptViewMode.READING
+                                    transcriptViewMode = TranscriptViewMode.TIMELINE
                                     transcriptionViewModel.previewCandidate(newResultId)
                                 },
                                 onReturnCurrent = {
                                     transcriptionViewModel.showCurrent(recording.id)
                                 },
                                 onAdopt = {
-                                    transcriptViewMode = TranscriptViewMode.READING
+                                    transcriptViewMode = TranscriptViewMode.TIMELINE
                                     transcriptionViewModel.adoptCandidate(newResultId)
                                 },
                                 onIgnore = {
@@ -469,9 +526,14 @@ internal fun RecordingDetailProductScreen(
                                     canonicalReady = canonicalReady,
                                     canonicalBusy = canonicalBusy,
                                     transcriptionBusy = transcriptionBusy,
+                                    speakerMode = configuredSpeakerMode,
+                                    onSpeakerModeClick = {
+                                        pendingSpeakerModeName = configuredSpeakerMode.name
+                                        speakerSheetOpen = true
+                                    },
                                     onGenerateCanonical = { onGenerateCanonical(recording.id) },
                                     onCancelCanonical = { onCancelCanonical(recording.id) },
-                                    onStart = { transcriptionViewModel.startOffline(recording.id) },
+                                    onStart = startInitialTranscription,
                                 )
                             }
                         } else {
@@ -482,10 +544,13 @@ internal fun RecordingDetailProductScreen(
                                         mode = transcriptViewMode,
                                         state = transcriptContentState,
                                         viewModel = transcriptContentViewModel,
+                                        speakerModeLabel = displayedSpeakerMode.productLabel(),
                                         onModeChange = { transcriptViewMode = it },
-                                        onRetranscribe = {
-                                            transcriptionViewModel.startOffline(recording.id)
+                                        onSpeakerModeClick = {
+                                            pendingSpeakerModeName = displayedSpeakerMode.name
+                                            speakerSheetOpen = true
                                         },
+                                        onRetranscribe = startRetranscription,
                                     )
                                 }
                             } else {
@@ -638,6 +703,37 @@ internal fun RecordingDetailProductScreen(
         }
     }
 
+    if (speakerSheetOpen) {
+        SpeakerCountBottomSheet(
+            transcribed = recordingDocument != null,
+            currentMode = displayedSpeakerMode,
+            selectedMode = pendingSpeakerMode,
+            actionEnabled = !transcriptionBusy && !diarizationBusy,
+            onSelect = { choice ->
+                if (recordingDocument == null) {
+                    speakerModeStore.set(recording.id, choice)
+                    fileSpeakerModeName = choice.name
+                    pendingSpeakerModeName = null
+                    speakerSheetOpen = false
+                } else {
+                    pendingSpeakerModeName = choice.name
+                }
+            },
+            onConfirm = {
+                val choice = pendingSpeakerMode
+                speakerModeStore.set(recording.id, choice)
+                fileSpeakerModeName = choice.name
+                diarizationViewModel.start(recording.id, choice)
+                pendingSpeakerModeName = null
+                speakerSheetOpen = false
+            },
+            onDismiss = {
+                pendingSpeakerModeName = null
+                speakerSheetOpen = false
+            },
+        )
+    }
+
     if (renameOpen) {
         AlertDialog(
             onDismissRequest = { renameOpen = false },
@@ -678,6 +774,7 @@ internal fun RecordingDetailProductScreen(
                 Button(
                     onClick = {
                         deleteOpen = false
+                        speakerModeStore.clear(recording.id)
                         onDelete(recording.id)
                         onBack()
                     },
@@ -691,6 +788,85 @@ internal fun RecordingDetailProductScreen(
         )
     }
 }
+
+@Composable
+private fun SpeakerCountBottomSheet(
+    transcribed: Boolean,
+    currentMode: SpeakerCountChoice,
+    selectedMode: SpeakerCountChoice,
+    actionEnabled: Boolean,
+    onSelect: (SpeakerCountChoice) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scrollState = rememberScrollState()
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+    ) {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(scrollState)
+                    .padding(bottom = 24.dp),
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    if (transcribed) "重新识别说话人" else "说话人数",
+                    style = MaterialTheme.typography.titleLarge,
+                )
+                if (transcribed) {
+                    Text(
+                        "当前模式：${currentMode.productLabel()}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            SpeakerCountChoice.entries.forEach { choice ->
+                ListItem(
+                    modifier = Modifier.clickable { onSelect(choice) },
+                    headlineContent = { Text(choice.productLabel()) },
+                    supportingContent = { Text(speakerCountDescription(choice)) },
+                    leadingContent = {
+                        RadioButton(
+                            selected = selectedMode == choice,
+                            onClick = { onSelect(choice) },
+                        )
+                    },
+                )
+            }
+            if (transcribed) {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Button(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp),
+                    enabled = actionEnabled,
+                    onClick = onConfirm,
+                ) {
+                    Text("按 ${selectedMode.productLabel()} 重新识别")
+                }
+            }
+        }
+    }
+}
+
+private fun speakerCountDescription(choice: SpeakerCountChoice): String =
+    when (choice) {
+        SpeakerCountChoice.AUTO -> "自动识别说话人数"
+        SpeakerCountChoice.ONE -> "单人模式，跳过说话人分离，速度最快"
+        SpeakerCountChoice.TWO -> "按已知 2 人进行说话人识别"
+        SpeakerCountChoice.THREE -> "按已知 3 人进行说话人识别"
+        SpeakerCountChoice.FOUR -> "按已知 4 人进行说话人识别"
+        SpeakerCountChoice.FIVE_PLUS -> "多人会议模式"
+    }
 
 @Composable
 private fun TranscriptionAttentionBanner(
@@ -781,6 +957,8 @@ private fun EmptyTranscriptionPanel(
     canonicalReady: Boolean,
     canonicalBusy: Boolean,
     transcriptionBusy: Boolean,
+    speakerMode: SpeakerCountChoice,
+    onSpeakerModeClick: () -> Unit,
     onGenerateCanonical: () -> Unit,
     onCancelCanonical: () -> Unit,
     onStart: () -> Unit,
@@ -792,7 +970,7 @@ private fun EmptyTranscriptionPanel(
         ) {
             Text("转写", style = MaterialTheme.typography.titleLarge)
             Text(
-                "转写完成后会直接进入阅读模式；需要校对原音时可切换到时间轴。",
+                "转写完成后默认进入时间轴；需要连续阅读和复制时可切换到阅读模式。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -805,10 +983,28 @@ private fun EmptyTranscriptionPanel(
                     Button(onClick = onGenerateCanonical) {
                         Text("生成标准 WAV")
                     }
-                else ->
-                    Button(enabled = !transcriptionBusy, onClick = onStart) {
+                else -> {
+                    OutlinedButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !transcriptionBusy,
+                        onClick = onSpeakerModeClick,
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text("说话人数")
+                            Text(speakerMode.productLabel() + "  ›")
+                        }
+                    }
+                    Button(
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !transcriptionBusy,
+                        onClick = onStart,
+                    ) {
                         Text("开始离线转写")
                     }
+                }
             }
         }
     }

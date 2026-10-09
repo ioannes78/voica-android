@@ -10,6 +10,7 @@ import io.github.ioannes78.voica.audio.PcmSourceResolver
 import io.github.ioannes78.voica.ble.DefaultDeviceRepository
 import io.github.ioannes78.voica.ble.DeviceRepository
 import io.github.ioannes78.voica.database.AiSummaryRepository
+import io.github.ioannes78.voica.database.DiarizationActiveRunReader
 import io.github.ioannes78.voica.database.DiarizationRepository
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.database.SearchIndexRebuilder
@@ -120,11 +121,12 @@ class AppContainer(
         SharedPreferencesThemeSettingsStore(application)
     val localSpeechSettingsStore =
         SharedPreferencesLocalSpeechSettingsStore(application)
+    val taskCompletionNoticeStore = TaskCompletionNoticeStore(application)
     private val stage8TranscriptionEngineProvider =
         SherpaStage8TranscriptionEngineProvider(
             assetManager = application.assets,
         )
-    private val stage9DiarizationEngineProvider =
+    private val stage9BaseDiarizationEngineProvider =
         SherpaStage9DiarizationEngineProvider(
             assetManager = application.assets,
         )
@@ -145,6 +147,12 @@ class AppContainer(
         )
 
     val diarizationRepository = DiarizationRepository(recordingDatabase)
+    private val stage9VadReusingDiarizationEngineProvider =
+        VadReusingStage9DiarizationEngineProvider(
+            delegate = stage9BaseDiarizationEngineProvider,
+            activeRunReader = DiarizationActiveRunReader(recordingDatabase),
+            transcriptionRepository = transcriptionRepository,
+        )
 
     private val aiSummaryTaskOwnershipStore = AiSummaryTaskOwnershipStore(application)
     val aiSummaryRepository =
@@ -202,16 +210,6 @@ class AppContainer(
             localSpeechSettings = { localSpeechSettingsStore.settings.value },
         )
 
-    val diarizationBenchmarkRunner =
-        DiarizationBenchmarkRunner(
-            application = application,
-            pcmSourceResolver = pcmSourceResolver,
-            modelManager = modelManager,
-            modelUseRegistry = modelUseRegistry,
-            engineProvider = stage9DiarizationEngineProvider,
-            localSpeechSettings = { localSpeechSettingsStore.settings.value },
-        )
-
     val diarizationCoordinator =
         DiarizationCoordinator(
             scope = applicationScope,
@@ -221,7 +219,7 @@ class AppContainer(
             loadCanonicalLineage = recordingLibraryRepository::loadCanonicalTranscriptionLineage,
             modelManager = modelManager,
             modelUseRegistry = modelUseRegistry,
-            engineProvider = stage9DiarizationEngineProvider,
+            engineProvider = stage9VadReusingDiarizationEngineProvider,
             localSpeechSettings = { localSpeechSettingsStore.settings.value },
             isRecordingActive = recordingLibraryRepository::isRecordingActive,
         )
@@ -252,7 +250,9 @@ class AppContainer(
             diarizationCoordinator = diarizationCoordinator,
             aiSummaryCoordinator = aiSummaryCoordinator,
             aiSummaryRepository = aiSummaryRepository,
+            stage12CContentRepository = stage12CContentRepository,
             stage13B5Qa4Repository = stage13B5Qa4Repository,
+            taskCompletionNoticeStore = taskCompletionNoticeStore,
         )
 
     val stage13B5Qa4CandidateNotificationController =
@@ -329,6 +329,14 @@ class AppContainer(
         )
 
     init {
+        Stage13CDiarizationAttentionRuntime.install(
+            application = application,
+            scope = applicationScope,
+            database = recordingDatabase,
+            recordingRepository = recordingLibraryRepository,
+            coordinator = diarizationCoordinator,
+        )
+
         applicationScope.launch {
             combine(
                 deviceRepository.recordingState,

@@ -64,10 +64,7 @@ class MainActivity : ComponentActivity() {
                             appContainer.speechBenchmarkRunner.takeIf {
                                 VoicaModelChannel.isDebuggable(application)
                             },
-                        diarizationBenchmarkRunner =
-                            appContainer.diarizationBenchmarkRunner.takeIf {
-                                VoicaModelChannel.isDebuggable(application)
-                            },
+                        diarizationBenchmarkRunner = null,
                     )
                 }
             }

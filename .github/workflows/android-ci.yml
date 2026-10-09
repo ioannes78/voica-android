@@ -95,12 +95,12 @@ jobs:
             tr '[:upper:]' '[:lower:]')"
           test "$actual_cert_sha256" = "$expected_cert_sha256"
 
-      # Stage 13B.5 QA4-R1 migration gate: committed Room v1-v11 schemas must stay in sync.
+      # Room migration gate: committed Room v1-v12 schemas must stay in sync.
       - name: Verify committed Room schemas
         shell: bash
         run: |
           schema_dir="core/database/schemas"
-          for version in 1 2 3 4 5 6 7 8 9 10 11; do
+          for version in 1 2 3 4 5 6 7 8 9 10 11 12; do
             test -f "$schema_dir/io.github.ioannes78.voica.database.VoicaDatabase/${version}.json"
           done
           git diff --exit-code -- "$schema_dir"

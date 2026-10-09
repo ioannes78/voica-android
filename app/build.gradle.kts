@@ -5,6 +5,8 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val buildGitSha = providers.environmentVariable("GITHUB_SHA").getOrElse("unknown")
+
 android {
     namespace = "io.github.ioannes78.voica"
     compileSdk = 37
@@ -14,8 +16,9 @@ android {
         applicationId = "io.github.ioannes78.voica"
         minSdk = 26
         targetSdk = 37
-        versionCode = 64
-        versionName = "0.13.1-stage13b-ai-summary-qa4-r2"
+        versionCode = 75
+        versionName = "0.13.2-stage13c-c8"
+        buildConfigField("String", "GIT_SHA", "\"$buildGitSha\"")
         ndk {
             abiFilters += "arm64-v8a"
         }
@@ -61,6 +64,7 @@ android {
 kotlin {
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_17)
+        optIn.add("androidx.compose.material3.ExperimentalMaterial3Api")
     }
 }
 

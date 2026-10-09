@@ -100,6 +100,8 @@ class TranscriptionViewModel(
 
     private var documentLoadJob: Job? = null
     private var documentLoadGeneration = 0L
+    private var speakerEnrichmentJob: Job? = null
+    private var speakerEnrichmentGeneration = 0L
 
     init {
         viewModelScope.launch {
@@ -139,9 +141,7 @@ class TranscriptionViewModel(
                 when (state) {
                     is DiarizationRunState.Completed -> {
                         if (mutableDocument.value?.recordingId == state.recordingId) {
-                            mutableDocument.value?.transcriptionId?.let { transcriptionId ->
-                                requestDocumentLoad(transcriptionId)
-                            }
+                            mutableDocument.value?.transcriptionId?.let(::requestSpeakerEnrichment)
                         }
                     }
 
@@ -170,7 +170,7 @@ class TranscriptionViewModel(
                 when (state) {
                     is SpeakerAlignmentRunState.Completed -> {
                         if (mutableDocument.value?.transcriptionId == state.transcriptionId) {
-                            requestDocumentLoad(state.transcriptionId)
+                            requestSpeakerEnrichment(state.transcriptionId)
                         }
                     }
 
@@ -283,9 +283,7 @@ class TranscriptionViewModel(
                 mutableNotice.value = "说话人名称更新失败"
                 return@launch
             }
-            mutableDocument.value?.transcriptionId?.let { transcriptionId ->
-                requestDocumentLoad(transcriptionId)
-            }
+            mutableDocument.value?.transcriptionId?.let(::requestSpeakerEnrichment)
         }
     }
 
@@ -300,6 +298,7 @@ class TranscriptionViewModel(
         documentLoadGeneration += 1L
         val generation = documentLoadGeneration
         documentLoadJob?.cancel()
+        cancelSpeakerEnrichment()
         if (clearCurrent) {
             mutableDocument.value = null
         }
@@ -317,8 +316,15 @@ class TranscriptionViewModel(
         documentLoadJob?.cancel()
         documentLoadJob = null
         if (clearCurrent) {
+            cancelSpeakerEnrichment()
             mutableDocument.value = null
         }
+    }
+
+    private fun cancelSpeakerEnrichment() {
+        speakerEnrichmentGeneration += 1L
+        speakerEnrichmentJob?.cancel()
+        speakerEnrichmentJob = null
     }
 
     private fun isCurrentDocumentLoad(generation: Long): Boolean =
@@ -375,6 +381,46 @@ class TranscriptionViewModel(
                 compatiblePlaybackAssetId = compatiblePlaybackAssetId,
             )
 
+        if (!isCurrentDocumentLoad(generation)) return
+        // C7 contract: completed ASR text is product-ready immediately. Speaker work is an
+        // independent enrichment step and must never gate first publication of the transcript.
+        mutableDocument.value = baseDocument
+        requestSpeakerEnrichment(transcription.id)
+    }
+
+    private fun requestSpeakerEnrichment(transcriptionId: String) {
+        if (mutableDocument.value?.transcriptionId != transcriptionId) return
+        speakerEnrichmentGeneration += 1L
+        val generation = speakerEnrichmentGeneration
+        speakerEnrichmentJob?.cancel()
+        speakerEnrichmentJob =
+            viewModelScope.launch {
+                enrichSpeakerData(
+                    transcriptionId = transcriptionId,
+                    generation = generation,
+                )
+            }
+    }
+
+    private fun isCurrentSpeakerEnrichment(
+        transcriptionId: String,
+        generation: Long,
+    ): Boolean =
+        generation == speakerEnrichmentGeneration &&
+            mutableDocument.value?.transcriptionId == transcriptionId
+
+    private suspend fun enrichSpeakerData(
+        transcriptionId: String,
+        generation: Long,
+    ) {
+        if (!isCurrentSpeakerEnrichment(transcriptionId, generation)) return
+        val transcription = repository.find(transcriptionId) ?: return
+        if (transcription.state != TranscriptionStateValue.COMPLETED) return
+
+        val sourceSegments = repository.loadSegments(transcription.id)
+        val sourceTokens = repository.loadTokensForTranscription(transcription.id)
+        if (!isCurrentSpeakerEnrichment(transcriptionId, generation)) return
+
         val compatibleRun =
             diarizationRepository
                 .observeRuns(transcription.recordingId)
@@ -385,12 +431,7 @@ class TranscriptionViewModel(
                         run.canonicalProfileId == transcription.canonicalProfileId &&
                         run.totalSampleCount == transcription.totalSampleCount
                 }
-        if (!isCurrentDocumentLoad(generation)) return
-
-        if (compatibleRun == null) {
-            mutableDocument.value = baseDocument
-            return
-        }
+        if (!isCurrentSpeakerEnrichment(transcriptionId, generation) || compatibleRun == null) return
 
         val completedAlignment =
             diarizationRepository
@@ -400,17 +441,21 @@ class TranscriptionViewModel(
                     alignment.diarizationRunId == compatibleRun.id &&
                         alignment.state == TranscriptSpeakerAlignmentStateValue.COMPLETED
                 }
-        if (!isCurrentDocumentLoad(generation)) return
+        if (!isCurrentSpeakerEnrichment(transcriptionId, generation)) return
 
         if (completedAlignment == null) {
-            mutableDocument.value = baseDocument.copy(diarizationRunId = compatibleRun.id)
-            if (!isCurrentDocumentLoad(generation)) return
+            val current =
+                mutableDocument.value
+                    ?.takeIf { it.transcriptionId == transcriptionId }
+                    ?: return
+            mutableDocument.value = current.copy(diarizationRunId = compatibleRun.id)
+            if (!isCurrentSpeakerEnrichment(transcriptionId, generation)) return
             val started =
                 diarizationCoordinator.alignTranscription(
                     transcriptionId = transcription.id,
                     diarizationRunId = compatibleRun.id,
                 )
-            if (started) {
+            if (started && isCurrentSpeakerEnrichment(transcriptionId, generation)) {
                 mutableNotice.value = "正在把说话人分离结果应用到当前转写…"
             }
             return
@@ -421,7 +466,7 @@ class TranscriptionViewModel(
                 .loadSpeakers(compatibleRun.id)
                 .sortedBy { it.speakerOrdinal }
         val spans = diarizationRepository.loadSpans(completedAlignment.id)
-        if (!isCurrentDocumentLoad(generation)) return
+        if (!isCurrentSpeakerEnrichment(transcriptionId, generation)) return
 
         val alignedTimeline =
             buildTranscriptTimelineFromDatabase(
@@ -432,9 +477,14 @@ class TranscriptionViewModel(
                 spans = spans,
                 speakers = speakers,
             )
+        if (!isCurrentSpeakerEnrichment(transcriptionId, generation)) return
 
+        val current =
+            mutableDocument.value
+                ?.takeIf { it.transcriptionId == transcriptionId }
+                ?: return
         mutableDocument.value =
-            baseDocument.copy(
+            current.copy(
                 segments = timelineDisplaySegments(alignedTimeline, sourceSegments),
                 diarizationRunId = compatibleRun.id,
                 alignmentId = completedAlignment.id,
@@ -499,7 +549,8 @@ class TranscriptionViewModel(
         mode: TranscriptionMode,
     ) {
         mutableNotice.value = null
-        // Existing effective content remains visible while a replacement result is generated.
+        // Existing effective content and its speaker enrichment remain visible while a replacement
+        // result is generated. The new completed ASR will decide whether it can reuse alignment.
         cancelDocumentLoad(clearCurrent = false)
         if (!coordinator.start(recordingId, mode)) {
             mutableNotice.value = "已有转写任务正在运行，请先完成或取消当前任务"
