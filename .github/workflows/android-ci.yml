@@ -95,6 +95,17 @@ jobs:
             tr '[:upper:]' '[:lower:]')"
           test "$actual_cert_sha256" = "$expected_cert_sha256"
 
+      # Temporary C7-R1 bootstrap: capture the compiler-generated v12 schema before the
+      # committed-schema gate intentionally rejects the new untracked file. Remove this step
+      # immediately after 12.json is committed.
+      - name: Upload generated Room v12 schema bootstrap
+        uses: actions/upload-artifact@v4
+        with:
+          name: Voica-room-schema-v12-bootstrap
+          path: core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/12.json
+          if-no-files-found: error
+          retention-days: 1
+
       # Stage 13B.5 QA4-R1 migration gate: committed Room v1-v11 schemas must stay in sync.
       - name: Verify committed Room schemas
         shell: bash
