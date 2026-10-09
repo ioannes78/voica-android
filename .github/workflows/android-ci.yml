@@ -119,8 +119,8 @@ jobs:
 
           git fetch origin "$TARGET_BRANCH"
           git checkout -B "$TARGET_BRANCH" FETCH_HEAD
-          if test -f "$schema_path"; then
-            echo "Room v12 schema already exists on ${TARGET_BRANCH}; no bootstrap commit needed."
+          if git ls-tree -r --name-only HEAD -- "$schema_path" | grep -Fxq "$schema_path"; then
+            echo "Room v12 schema is already tracked on ${TARGET_BRANCH}; no bootstrap commit needed."
             exit 0
           fi
 
