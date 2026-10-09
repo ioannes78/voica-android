@@ -16,6 +16,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import io.github.ioannes78.voica.ui.search.SearchReturnRuntime
+import kotlinx.coroutines.delay
 
 @Composable
 fun RecordingLibraryRoute(
@@ -42,6 +43,21 @@ fun RecordingLibraryRoute(
         }
     }
 
+    // Stage 14.1A R1: the visible library search field is now the primary full-content search
+    // launcher. Keep the existing field while the user is typing, then hand the completed query to
+    // unified search instead of leaving the user in the legacy recording-only filter surface.
+    LaunchedEffect(state.query) {
+        val query = state.query.trim()
+        if (query.isNotEmpty()) {
+            delay(450L)
+            if (viewModel.uiState.value.query.trim() == query) {
+                SearchReturnRuntime.requestSearchLaunch(query)
+                onOpenUnifiedSearch()
+                viewModel.setQuery("")
+            }
+        }
+    }
+
     LaunchedEffect(state.operationMessage) {
         val message = state.operationMessage ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(message)
@@ -65,7 +81,14 @@ fun RecordingLibraryRoute(
             onConfirmDuplicateImport = viewModel::confirmDuplicateImport,
             onDismissDuplicateImport = viewModel::dismissDuplicateImport,
             onQueryChange = viewModel::setQuery,
-            onOpenUnifiedSearch = onOpenUnifiedSearch,
+            onOpenUnifiedSearch = {
+                val query = state.query.trim()
+                if (query.isNotEmpty()) {
+                    SearchReturnRuntime.requestSearchLaunch(query)
+                    viewModel.setQuery("")
+                }
+                onOpenUnifiedSearch()
+            },
             onSortChange = viewModel::setSort,
             onFavoriteFilterChange = viewModel::setFavoriteOnly,
             onCompletedTranscriptionFilterChange =
