@@ -172,6 +172,12 @@ class UnifiedSearchRepository(
         )
     }
 
+    suspend fun findRecordingDocuments(recordingIds: Collection<String>): List<SearchDocumentEntity> {
+        val ids = recordingIds.filter { it.isNotBlank() }.distinct()
+        if (ids.isEmpty()) return emptyList()
+        return dao.findRecordingDocuments(ids)
+    }
+
     private suspend fun deleteInternal(documentId: String) {
         dao.deleteFts(documentId)
         dao.deleteDocument(documentId)
