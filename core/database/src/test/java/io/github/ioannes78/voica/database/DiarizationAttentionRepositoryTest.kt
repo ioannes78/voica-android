@@ -71,6 +71,7 @@ class DiarizationAttentionRepositoryTest {
     @Test
     fun replacementDurableRunResolvesOlderInterruptedRun() = runBlocking {
         val interruptedId = createRun()
+        diarizationRepository.transitionRun(interruptedId, DiarizationStateValue.VAD_ANALYZING)
         diarizationRepository.transitionRun(interruptedId, DiarizationStateValue.DIARIZING)
         diarizationRepository.reconcileInterruptedOnStartup()
         assertEquals(
