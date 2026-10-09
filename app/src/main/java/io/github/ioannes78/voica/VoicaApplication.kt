@@ -219,12 +219,6 @@ class AppContainer(
             engineProvider = stage9VadReusingDiarizationEngineProvider,
             localSpeechSettings = { localSpeechSettingsStore.settings.value },
         )
-    private val diarizationBenchmarkExportController =
-        DiarizationBenchmarkExportController(
-            application = application,
-            runner = diarizationBenchmarkRunner,
-            diarizationRepository = diarizationRepository,
-        )
 
     private val stage9DiarizationEngineProvider =
         if (BuildConfig.DEBUG) {
@@ -356,7 +350,6 @@ class AppContainer(
 
     init {
         diarizationBenchmarkRunner.attach(diarizationCoordinator)
-        diarizationBenchmarkExportController.start(applicationScope)
 
         applicationScope.launch {
             combine(
