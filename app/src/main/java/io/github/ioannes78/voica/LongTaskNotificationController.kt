@@ -386,6 +386,8 @@ class LongTaskNotificationController(
                     requestCode = notificationId,
                     recordingId = notice.recordingId,
                     destination = destination,
+                    completionKind = notice.kind,
+                    completionTaskId = notice.taskId,
                 ),
             )
             .setOnlyAlertOnce(true)
