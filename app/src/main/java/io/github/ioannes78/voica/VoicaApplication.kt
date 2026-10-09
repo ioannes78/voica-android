@@ -220,15 +220,9 @@ class AppContainer(
             localSpeechSettings = { localSpeechSettingsStore.settings.value },
         )
 
-    private val stage9DiarizationEngineProvider =
-        if (BuildConfig.DEBUG) {
-            Stage13CBoundaryProfilingProvider(
-                application = application,
-                delegate = diarizationBenchmarkRunner.profilingEngineProvider(),
-            )
-        } else {
-            diarizationBenchmarkRunner.profilingEngineProvider()
-        }
+    // C7-R1: profiling remains available as dormant tooling, but normal debug/QA/runtime
+    // diarization no longer passes through benchmark/boundary decorators or writes JSON reports.
+    private val stage9DiarizationEngineProvider = stage9VadReusingDiarizationEngineProvider
 
     val diarizationCoordinator =
         DiarizationCoordinator(
@@ -349,7 +343,13 @@ class AppContainer(
         )
 
     init {
-        diarizationBenchmarkRunner.attach(diarizationCoordinator)
+        Stage13CDiarizationAttentionRuntime.install(
+            application = application,
+            scope = applicationScope,
+            database = recordingDatabase,
+            recordingRepository = recordingLibraryRepository,
+            coordinator = diarizationCoordinator,
+        )
 
         applicationScope.launch {
             combine(
