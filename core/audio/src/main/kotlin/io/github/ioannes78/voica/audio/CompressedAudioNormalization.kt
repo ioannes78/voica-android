@@ -36,6 +36,7 @@ class CompressedAudioToCanonicalWavConverter(
         CanonicalWavWriter(targetFile).use { writer ->
             var sourceFormat: DecodedPcmFormat? = null
             var normalizer: StreamingPcm16Normalizer? = null
+            var normalizedBuffer = ShortArray(0)
             var normalizationReported = false
             var writingReported = false
 
@@ -71,8 +72,9 @@ class CompressedAudioToCanonicalWavConverter(
                         if (isCancelled()) {
                             throw CancellationException("media conversion cancelled")
                         }
-                        val format = sourceFormat
-                            ?: error("decoder emitted PCM before output format")
+                        val format =
+                            sourceFormat
+                                ?: error("decoder emitted PCM before output format")
                         require(frameCount >= 0)
                         require(samples.size >= frameCount * format.channelCount)
 
@@ -80,17 +82,23 @@ class CompressedAudioToCanonicalWavConverter(
                             normalizationReported = true
                             onStage(CanonicalAudioStage.NORMALIZING)
                         }
-                        val mono =
-                            requireNotNull(normalizer).processInterleaved(
+                        val activeNormalizer = requireNotNull(normalizer)
+                        val required = activeNormalizer.requiredOutputCapacity(frameCount)
+                        if (normalizedBuffer.size < required) {
+                            normalizedBuffer = ShortArray(required)
+                        }
+                        val monoCount =
+                            activeNormalizer.processInterleavedInto(
                                 input = samples,
+                                output = normalizedBuffer,
                                 frameCount = frameCount,
                             )
-                        if (mono.isNotEmpty()) {
+                        if (monoCount > 0) {
                             if (!writingReported) {
                                 writingReported = true
                                 onStage(CanonicalAudioStage.WRITING)
                             }
-                            writer.writePcm16(mono)
+                            writer.writePcm16(normalizedBuffer, length = monoCount)
                         }
                     }
                 }
