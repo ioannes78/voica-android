@@ -11,8 +11,8 @@ This document hands the implemented Post-V1 P0 branch to true-device QA. It is n
 - Development branch: `post-v1-canonical-audio-p0`
 - Pull request: `#26` — `[APK] Post-V1 P0 — Canonical WAV Performance & UX`
 - Main baseline used for development: `e150589baffcebf03d8697c701dd716097cd70f6`
-- Last implementation-code HEAD before this handoff-only commit: `9eb4fb6d4b79c66505d5fe8d687930be7328cc1b`
-- Fast PR Gate for that implementation HEAD: Android PR CI `#1204` — SUCCESS
+- Current QA1-R1 implementation-code HEAD before this handoff-only commit: `0ba87549b171eee76b17abe06ea3d79861cea8ff`
+- Fast PR Gate for that implementation HEAD: Android PR CI `#1214` — SUCCESS
 
 Always re-check the current PR HEAD and CI before further code changes.
 
@@ -81,10 +81,37 @@ Runtime progress provides:
 Progress sources:
 
 - PCM WAV: exact processed frames / total frames;
-- compressed media: actual decoded PCM frames / known media duration;
+- compressed media: MediaCodec presentation timeline when available, with decoded-frame time as fallback;
 - RAW Opus: exact processed packets and decoded sample duration.
 
-The runtime throttles intermediate UI publication to about 4 Hz and always allows the first and terminal real progress sample through.
+The runtime throttles intermediate UI publication to about 4 Hz and always allows the first and explicit terminal real progress sample through.
+
+### 4.1 QA1-R1 — compressed-duration drift / progress-overrun fix
+
+True-device QA found two MP3 files where `已处理 xx:xx / 总时长` continued beyond the displayed total by tens of seconds. One captured state showed `100%` and `27:46 / 27:44` while decoding was still active.
+
+Root cause:
+
+- imported compressed-media total duration came from `MediaExtractor` / `MediaFormat.KEY_DURATION`;
+- processed duration had been derived from cumulative decoded PCM frames;
+- these clocks are not guaranteed to end at the same timestamp for every compressed file;
+- the old runtime also treated `processedDuration >= totalDuration` as a terminal progress sample, which could bypass the normal 250 ms publication throttle even though decoder EOS had not occurred.
+
+QA1-R1 changes the contract as follows:
+
+- `CanonicalAudioWorkProgress` now has explicit final-work semantics;
+- compressed progress prefers the MediaCodec output presentation timeline (`presentationTimeUs + block duration`) and retains decoded-frame time as fallback;
+- reaching metadata duration alone is **not** treated as decoder completion;
+- only actual decoder completion / explicit final work can terminate media-work progress;
+- displayed processed duration is clamped to the known total, so product UI must never show `processed > total`;
+- if metadata duration is exhausted before actual decoder completion, fraction becomes indeterminate rather than displaying a false completed `100%` state;
+- decoding is **not truncated** at metadata duration; all decoder output still reaches normalization and canonical WAV writing;
+- the 250 ms progress throttle remains active during metadata-duration overrun.
+
+Regression coverage includes:
+
+- `metadataDurationOverrunStaysThrottledAndClampedUntilExplicitFinal`;
+- `progressUsesPresentationTimelineAndOnlyFinalizesAfterDecoderEos`.
 
 ## 5. Recording Detail / Player UX
 
@@ -104,7 +131,7 @@ The player card shows:
 
 - `正在生成标准 WAV`;
 - real phase label;
-- real determinate progress when the total is known, otherwise indeterminate progress;
+- real determinate progress when the total is known and not exhausted prematurely, otherwise indeterminate progress;
 - `已处理 xx:xx / xx:xx`;
 - `已耗时 xx:xx`;
 - compact trailing text action `取消` while the operation is cancellable;
@@ -162,11 +189,16 @@ The compact line contains:
 - `moveMs`;
 - `outputShaMs`;
 - `pipelineMs`;
+- `metadataDurationMs` when available;
+- `decodedFrameDurationMs` when available;
+- `mediaTimelineDurationMs` when available;
+- `canonicalDurationMs` when available;
+- `durationDeltaMs = mediaTimelineDurationMs - metadataDurationMs` when both are available;
 - `roomCommitMs`;
 - `totalMs`;
 - `rtf` when duration is known.
 
-This instrumentation is intended to distinguish duplicate-I/O, decode, normalization, sequential write, final storage flush and output-hash costs during 30 / 60 / 120 minute true-device tests.
+This instrumentation is intended to distinguish duplicate-I/O, decode, normalization, sequential write, final storage flush and output-hash costs during 30 / 60 / 120 minute true-device tests, and to diagnose compressed-media duration metadata drift without changing audio content.
 
 ## 9. Deferred optimization
 
@@ -176,11 +208,28 @@ A process-local verified-canonical cache remains conditional P0.8 work. Only imp
 
 ## 10. Required true-device QA
 
+### QA1-R1 focused retest
+
+First re-test the two MP3 files that reproduced the overrun:
+
+- `AB019-01.mp3` — displayed total `27:44`;
+- `AB019-02.mp3` — displayed total `21:22`.
+
+Required observations:
+
+- `已处理` must never display a value greater than total duration;
+- if source metadata duration is reached before decoder EOS, the determinate percentage must stop pretending the media work is complete and switch to an indeterminate state;
+- the progress publication must remain throttled during that interval;
+- the decoder must continue processing audio rather than truncating at metadata duration;
+- actual EOS must then transition through VERIFYING / COMMITTING and restore the ready player normally;
+- capture final generation elapsed time for each file;
+- if convenient, capture the corresponding `VoicaCanonicalPerf` line to compare metadata / decoded-frame / media-timeline / canonical durations.
+
 ### Canonical generation UX
 
 - import a supported MP3/M4A/AAC/FLAC/Ogg Opus sample;
 - confirm automatic/manual canonical generation enters the player-card progress state;
-- confirm percentage is monotonic when total duration is known;
+- confirm percentage is monotonic while determinate;
 - confirm processed time advances and never exceeds total;
 - confirm elapsed time advances once per second;
 - confirm trailing `取消` works during cancellable conversion;
@@ -226,7 +275,8 @@ Primary comparison:
 - decode/read share;
 - normalization share;
 - write + sync share;
-- output SHA share.
+- output SHA share;
+- metadata / decoded-frame / media-timeline / canonical duration drift.
 
 The goal is not an invented fixed speed-up number. The goal is a materially lower and more stable long-duration RTF, with no recurrence of the previous observation where doubling recording duration appeared to produce roughly triple wall time.
 
@@ -264,8 +314,9 @@ Do **not** merge PR #26 and do **not** create a Post-V1 P0 Freeze until:
 1. the `[APK]` Fast Gate passes;
 2. the QA APK Gate passes;
 3. true-device functional QA passes;
-4. the device-download notification issue is confirmed fixed;
-5. 30 / 60 / 120 minute benchmark evidence is collected or explicitly accepted as deferred by the user;
-6. any QA findings are resolved and re-tested.
+4. QA1-R1 is confirmed on the reproducing MP3 files;
+5. the device-download notification issue is confirmed fixed;
+6. 30 / 60 / 120 minute benchmark evidence is collected or explicitly accepted as deferred by the user;
+7. any additional QA findings are resolved and re-tested.
 
 After acceptance, create the final Post-V1 P0 Freeze / Handoff update and only then continue to Stage 15.
