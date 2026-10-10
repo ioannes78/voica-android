@@ -4,15 +4,15 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
-expected_version_code="${VOICA_VERSION_CODE:-87}"
-expected_release_version="${VOICA_RELEASE_VERSION:-1.0.0-rc3-r2}"
-expected_releaseqa_version="${VOICA_RELEASEQA_VERSION:-1.0.0-rc3-r2-export-qa}"
+expected_version_code="${VOICA_VERSION_CODE:-88}"
+expected_release_version="${VOICA_RELEASE_VERSION:-1.0.0}"
+expected_releaseqa_version="${VOICA_RELEASEQA_VERSION:-1.0.0-export-qa}"
 expected_model_commit="${VOICA_MODEL_CHANNEL_COMMIT:-be74c7065ce22a5f9b207a7cf1c88d3be0e872ec}"
 expected_manifest_version="${VOICA_MODEL_MANIFEST_VERSION:-7}"
 expected_manifest_digest="${VOICA_MODEL_MANIFEST_DIGEST:-8bdb505ce97820cb942bc2855c8a099484b7e22f63ec5567b63f2c1c18d567cf}"
 
 fail() {
-    echo "V1 RC source contract failed: $*" >&2
+    echo "V1 final source contract failed: $*" >&2
     exit 1
 }
 
@@ -57,14 +57,19 @@ required_records=(
     docs/STAGE_14_4_SECURITY_PRIVACY.md
     docs/STAGE_14_4_1_EXPORT_UX.md
     docs/STAGE_14_5_RELEASE_CI.md
+    docs/STAGE_14_6_V1_RC.md
+    docs/STAGE_14_7A_PRODUCTION_SIGNING.md
+    docs/STAGE_14_7B_STABILITY.md
 )
 for record in "${required_records[@]}"; do
     [[ -s "$record" ]] || fail "missing release evidence record: $record"
 done
 
 grep -Fq 'Room schema: `12`' docs/STAGE_14_5_RELEASE_CI.md || fail "Stage 14.5 Room baseline drift"
-grep -Fq "Release versionName: \`${expected_release_version}\`" docs/STAGE_14_5_RELEASE_CI.md || fail "Stage 14.5 release identity drift"
+grep -Fq 'Release versionName: `1.0.0-rc3-r2`' docs/STAGE_14_5_RELEASE_CI.md || fail "Stage 14.5 accepted RC identity record drift"
 grep -Fq "production model-channel commit: \`${expected_model_commit}\`" docs/STAGE_14_5_RELEASE_CI.md || fail "Stage 14.5 model provenance drift"
+grep -Fq 'versionName: `1.0.0-rc3-r2`' docs/STAGE_14_7B_STABILITY.md || fail "Stage 14.7B tested RC identity record drift"
+grep -Fq 'Stage 14.7B is **ACCEPTED**.' docs/STAGE_14_7B_STABILITY.md || fail "Stage 14.7B acceptance missing"
 
-echo "Verified V1 RC source contract: code=${expected_version_code}, release=${expected_release_version}, releaseQa=${expected_releaseqa_version}, Room=v12."
-echo "Manual Stage 14 Final Freeze evidence remains separate: signed production artifact, explicit RC real-device acceptance, and auditable 30/60/120-minute real-device stability evidence."
+echo "Verified V1 final source contract: code=${expected_version_code}, release=${expected_release_version}, releaseQa=${expected_releaseqa_version}, Room=v12."
+echo "The final version identity is metadata-only relative to the accepted RC behavior baseline; production signing and final-device smoke remain separate gates."
