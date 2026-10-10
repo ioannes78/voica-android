@@ -1,213 +1,206 @@
 # Voica
 
-Voica 是面向 QS668 / CB08 AI 录音卡的 Android 原生客户端。
+Voica 是面向 **QS668 / CB08 AI 录音卡** 的 Android 原生客户端，覆盖设备连接与录音控制、录音下载与本地管理、本地语音转写、说话人分离、播放同步、全文搜索与 AI 会议总结。
 
-本项目为**全新、独立的 Android 项目**。Voica **不继承、不复制、不迁移、不翻译 `voice-card-android` 的任何代码**，包括源代码、测试代码、Gradle 配置、资源文件、数据库实现、模块实现和历史 Stage 代码。
+> 当前正式版本：**Voica 1.0.0**  
+> Android：**8.0+（minSdk 26）**  
+> ABI：**arm64-v8a**  
+> 默认语言：**简体中文**
 
-## 协议与行为参考
+## 下载
 
-协议事实优先级：
+前往 GitHub Releases 下载正式签名 APK：
 
-1. QS668 / CB08 真机可重复验证结果。
-2. 官方 Android App `声云语音转写 3.0.9-u` 静态实现，用于协议/行为主参考；与真机冲突时以真机为准。
-3. `nextproto1024/ai-recorder-card-open-protocol`，固定参考 commit：`e741ea72207f1a2aae3df4debc5c135728e0170e`。
-4. `laidely/kardo`，固定参考 commit：`bcec3c5fdbcb34810a6f235e8b5873683f2ab951`，仅用于产品行为与设备交互交叉验证。
-5. Android 官方 BLE API 行为。
+**[下载最新版本](https://github.com/ioannes78/voica-android/releases/latest)**
 
-`voice-card-android` 不作为 Voica 的代码、架构、测试或 Gradle 来源。
+Voica 1.0.0 正式 APK：
 
-## 产品目标
+- Application ID：`io.github.ioannes78.voica`
+- versionCode：`88`
+- versionName：`1.0.0`
+- APK SHA-256：`62c62d4ad93cef3b58a5443181f16d984e397b94785286136e01e163f9f125fe`
+- Production certificate SHA-256：`f972e0b4f37a528a7e667af888f68e0b9470a6dd74e32b865a9d1507554d25e7`
 
-- 稳定连接 QS668 / CB08 录音卡
-- 获取设备电量、容量、固件版本并同步时间
-- 浏览、下载和删除设备录音文件
-- 保留原始 Opus 数据并生成稳定的 16 kHz PCM/WAV 音频
-- 本地播放、精确跳转、倍速和转写同步
-- Android 端本地语音转写
-- 说话人分离
-- AI 会议纪要
-- 以稳定性、可测试性和真机可靠性为优先目标
+首次安装需要允许系统从当前来源安装 APK。后续升级请继续使用官方正式签名版本，避免签名不一致导致无法覆盖安装。
 
-## 技术路线
+## 主要功能
 
-- Kotlin
+### QS668 / CB08 录音卡
+
+- BLE 扫描、连接、自动重连与设备状态同步
+- 电量、充电状态、容量、固件信息与时间同步
+- App 录音开始 / 暂停 / 继续 / 停止
+- 设备物理按键状态同步
+- 设备录音文件列表、刷新、下载与删除
+- OPUS / WAV 资产独立管理与校验
+
+### 本地录音库
+
+- 本地导入 WAV / MP3 / M4A-AAC / ADTS AAC / FLAC / Ogg Opus
+- 原始文件与 Canonical WAV 分离保存
+- Canonical 音频统一为 `16 kHz / mono / PCM16`
+- 重命名、收藏、标签、文件夹、排序、筛选和批量管理
+- 全文搜索覆盖文件名、转写内容和 AI 总结
+- 搜索结果可定向进入对应内容
+
+### 播放与时间轴
+
+- 波形播放器
+- 精确 seek 与播放位置同步
+- 多档倍速播放
+- 转写文本与播放时间轴联动
+- 全局 Mini Player
+
+### 本地语音识别
+
+V1.0 当前文件转写模型：
+
+- **SenseVoice INT8**：快速 / 默认
+- **Qwen3-ASR 0.6B INT8**：高质量
+
+同时包括：
+
+- Silero VAD
+- 中英文标点恢复
+- 多版本转写管理
+- 转写历史、删除与人工编辑 Revision
+- 长录音后台执行、任务恢复与通知
+
+### 说话人分离
+
+正式链路：
+
+`Silero VAD → Pyannote Segmentation 3.0 INT8 → CAM++ → clustering / stitching → transcript alignment`
+
+支持：
+
+- 自动说话人数
+- 1 / 2 / 3 / 4 / 5+ 人数约束
+- 明确选择 1 人时使用单说话人 Fast Path
+- ASR 正文完成后立即可读，说话人后处理继续后台运行
+- 说话人结果增量补充，不覆盖 ASR 原文
+
+### AI 总结
+
+- 基于转写文本生成结构化会议总结
+- 多 Provider / 多模型配置
+- OpenAI-compatible Provider 支持
+- 模型发现与连接测试
+- 长文本 map/reduce
+- Structured Output / Evidence 校验
+- 总结版本、人工编辑 Revision 与历史管理
+- Provider credential 使用 Android Keystore 加密保存
+
+## V1.0 稳定性基线
+
+Stage 14 已完成正式发布冻结和真机长录音验证：
+
+| 音频时长 | SenseVoice | SenseVoice RTF | 说话人分离 | Diarization RTF | 结果 |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 30:48 | 4:08 | 0.1342 | 13:10 | 0.4275 | PASS |
+| 64:27 | 8:00 | 0.1241 | 27:30 | 0.4267 | PASS |
+| 121:07 | 16:20 | 0.1349 | 55:30 | 0.4582 | PASS |
+
+三档测试均完成后台 / 息屏恢复、播放、搜索、导出和结果持久化检查，未报告闪退或卡死。
+
+## 当前开发状态
+
+**Stage 14 — Voica V1.0 Release Freeze：FINAL / ACCEPTED / FROZEN**
+
+当前主线正式基线：
+
+- `versionCode 88`
+- `versionName 1.0.0`
+- Room schema `12`
+- sherpa-onnx `1.13.8`
+- arm64-v8a
+
+下一阶段：
+
+**Stage 15 — BLE 实时音频链路**
+
+后续主路线：
+
+`Stage 15 BLE realtime audio → Stage 16A 本地实时 ASR → Stage 16B 文件 ASR V2 → Stage 17/18 云端 ASR → Stage 19 本地/云端 AI → Stage 20 Voica V2`
+
+另有独立 Post-V1 P0 优化项：Canonical WAV 生成性能、生成进度与取消交互优化。
+
+## 技术栈
+
+- Kotlin 2.4.20
 - Jetpack Compose
 - Kotlin Coroutines / Flow
-- Android 原生 BLE
-- Room / DataStore
-- Android 兼容的本地 ASR 与说话人分离运行时
-- OpenAI-compatible AI 接口
+- Android 原生 BLE / GATT
+- Room
+- WorkManager / Android notifications
+- sherpa-onnx 1.13.8
+- libopus 1.6.1
+- Android NDK / JNI
+- R8 + resource shrink
 
-## 语言规范
+主要模块：
 
-- App 默认用户界面语言：**简体中文**
-- 项目需求、架构、路线图、测试说明、Freeze/Handoff 文档：**简体中文**
-- Git commit message：优先简体中文，可保留必要英文技术名词
-- Kotlin 类名、函数名、模块名、协议常量、API 字段等技术标识按 Android/Kotlin 英文命名规范保留
+```text
+app
+├─ core:protocol
+├─ core:ble
+├─ core:database
+├─ core:audio
+├─ core:model
+├─ core:transcript
+├─ core:ai
+├─ engine:opus
+├─ engine:media
+├─ engine:playback
+├─ engine:sherpa
+└─ engine:llm
+```
 
-## 开发原则
+## 构建环境
 
-- `voice-card-android` 与 Voica 完全隔离，不作为源码来源
-- 不进行 Swift → Kotlin 逐行翻译
-- BLE、协议、音频、ASR、说话人分离和 UI 分层实现
-- 协议与二进制行为必须有 deterministic/golden tests
-- 删除等破坏性设备操作必须二次确认
-- 长录音处理必须限制内存占用并支持取消
-- CI 通过不能替代真机验收
+当前 V1.0 构建基线：
 
-## 当前状态
+- JDK 17
+- Android Gradle Plugin 9.4.0
+- Gradle 9.6
+- compileSdk 37.1
+- targetSdk 37
+- minSdk 26
 
-- Stage 0：已完成
-- Stage 1：已完成 / 已真机验收 / 已冻结
-- Stage 2：已完成 / 已两轮真机验收 / 已冻结
-- Stage 3：已完成 / 已真机验收 / 已冻结
-- Stage 4：已完成 / 已真机验收 / 已冻结
-- Stage 5：已完成 / 已真机验收 / 已冻结
-- Stage 6：已完成 / 已真机验收 / 已冻结
-- Stage 7：已完成 / 已用户验收 / 已冻结
-- Stage 8：已完成 / 已真机验收 / 已冻结
-- Stage 9：已完成 / 已真机验收 / 已冻结
-- Stage 10：已完成 / 已真机验收 / 已冻结
-- Stage 11：已完成 / 已真机验收 / 已冻结
-- Stage 12：已完成 / 已真机验收 / 已冻结
-- 下一阶段：**Stage 13A — 本地 ASR / Diarization 引擎增强与参数调优**
+生产签名材料不进入仓库。普通开发 / QA 构建不得使用生产 keystore。
 
-Stage 2 已建立：
+## 协议与事实来源
 
-- `:core:ble`
-- BLE 扫描 / 权限
-- QS668/CB08 GATT Session
-- 严格串行 GATT Operation Queue
-- AE20/AE21/AE22/AE23 发现与订阅
-- `requestMtu(517)`
-- 时间同步
-- 电量 / 充电
-- 容量
-- 固件
-- Auth
-- 有限自动重连
-- 简体中文设备页与 BLE Diagnostics
+Voica 的 QS668 / CB08 行为优先级：
 
-Stage 2 真机确认 Actual MTU = **517**。
+1. QS668 / CB08 真机可重复验证结果
+2. 官方 Android App `声云语音转写 3.0.9-u` 的协议 / 行为参考
+3. [`nextproto1024/ai-recorder-card-open-protocol`](https://github.com/nextproto1024/ai-recorder-card-open-protocol)
+4. Android 官方 BLE / Media / Storage 行为
 
-Stage 3 已建立：
+当静态资料与真机观察冲突时，以可重复真机证据为准。
 
-- App 卡录音开始 / 暂停 / 继续 / 停止并保存
-- 设备物理录音按键事件同步
-- 录音状态 / 时长 / 当前大小 / 当前文件名 / 增益
-- Recording 时约 1 秒 GET_TIME Poller
-- Pause 语义锁存，兼容当前固件 GET_STATE=1 无法区分 Recording/Paused
-- 物理事件 acknowledgement + reconciliation
-- 最后成功设备记忆与 App 启动自动连接
-- 录音状态 Diagnostics 与真机协议证据
+## 项目文档
 
-Stage 3 真机确认 App 控制与设备物理按键控制均能稳定同步 UI。
+推荐从以下文档开始：
 
-Stage 4 已建立：
-
-- TYPE=2/CMD=0 文件列表请求
-- TYPE=2/CMD=1 多帧文件列表聚合
-- TYPE=2/CMD=18 明确列表完成
-- 官方 App 兼容的动态 filename field 严格解析
-- 当前 QS668/CB08 真机确认 filename field = **20B**
-- 标准 `noteYYYYMMDD-HHMMSS.` 安全恢复为 `.opus`
-- 文件录制时间、时长、大小显示
-- 真机确认列表第一个 BE32 = **录音时长秒数**
-- 最新录制优先排序、手动刷新、Stale/Failed 状态
-- 文件列表 Diagnostics
-
-Stage 5 已建立：
-
-- 首次连接 / 重连 / 新录音完成后自动刷新设备文件列表
-- TYPE=2/CMD=2/3/4/5 文件下载主链
-- 专用可靠文件数据通道
-- 下载进度、取消、超时、断线处理
-- 原始音频流式 `.part` 落盘、SHA-256、fsync、原子提交
-- 真机确认下载内容为原始 `.opus` 字节流
-- CMD=12 范围下载真机确认语义为 `[start, end)`
-- 单条设备录音删除与二次确认
-- 真机确认删除设备录音会同时删除物理同名 `.opus + .wav`
-- 本地文件与设备文件独立管理，不提供联合删除
-- 不提供 Delete All
-
-Stage 6 已建立：
-
-- Room 正式本地录音库与 Stage 5 legacy metadata 导入
-- DEVICE_OPUS / DEVICE_WAV / CANONICAL_WAV 独立资产模型
-- 设备 OPUS / WAV 独立下载、独立验证
-- 设备列表分别显示 OPUS / WAV 真实大小
-- WAV CMD=12 `[0,44)` RIFF header probe
-- OPUS / WAV 真实百分比下载进度
-- official libopus 1.6.1 JNI/NDK 解码
-- raw Opus → PCM → 16 kHz mono PCM16 canonical WAV
-- PCM WAV → canonical WAV 流式归一化
-- 逻辑 Recording 重命名、删除、崩溃恢复
-- `AudioSourceResolver` / `PcmSourceResolver` 稳定接口
-- 后台可靠下载明确规划到 Stage 13B
-
-项目文档：
-
+- [开发规则](AGENTS.md)
 - [产品需求](docs/PRODUCT_REQUIREMENTS.md)
 - [系统架构](docs/ARCHITECTURE.md)
-- [开发路线图](docs/ROADMAP.md)
-- [Stage 2 测试](docs/STAGE_2_TEST.md)
-- [Stage 2 Freeze](docs/STAGE_2_FREEZE.md)
-- [Stage 2 Handoff](docs/STAGE_2_HANDOFF.md)
-- [Stage 3 测试](docs/STAGE_3_TEST.md)
-- [Stage 3 Freeze](docs/STAGE_3_FREEZE.md)
-- [Stage 3 Handoff](docs/STAGE_3_HANDOFF.md)
-- [Stage 4 测试](docs/STAGE_4_TEST.md)
-- [Stage 4 Freeze](docs/STAGE_4_FREEZE.md)
-- [Stage 4 Handoff](docs/STAGE_4_HANDOFF.md)
-- [Stage 4 协议发现](docs/STAGE_4_PROTOCOL_FINDINGS.md)
-- [Stage 4 真机发现](docs/STAGE_4_REAL_DEVICE_FINDINGS.md)
-- [Stage 5 测试](docs/STAGE_5_TEST.md)
-- [Stage 5 Freeze](docs/STAGE_5_FREEZE.md)
-- [Stage 5 Handoff](docs/STAGE_5_HANDOFF.md)
-- [Stage 5 协议发现](docs/STAGE_5_PROTOCOL_FINDINGS.md)
-- [Stage 5 真机发现](docs/STAGE_5_REAL_DEVICE_FINDINGS.md)
-- [Stage 6 测试](docs/STAGE_6_TEST.md)
-- [Stage 6 Freeze](docs/STAGE_6_FREEZE.md)
-- [Stage 6 Handoff](docs/STAGE_6_HANDOFF.md)
-- [Stage 6 协议与音频发现](docs/STAGE_6_PROTOCOL_FINDINGS.md)
-- [Stage 6 真机发现](docs/STAGE_6_REAL_DEVICE_FINDINGS.md)
-- [Stage 7 测试](docs/STAGE_7_TEST.md)
-- [Stage 7 Freeze](docs/STAGE_7_FREEZE.md)
-- [Stage 7 Handoff](docs/STAGE_7_HANDOFF.md)
-- [开发规则](AGENTS.md)
+- [Stage 13C+ 路线图](docs/ROADMAP_STAGE_13C_PLUS.md)
+- [Stage 14 Final Freeze](docs/STAGE_14_FREEZE.md)
+- [Stage 14 Final Handoff](docs/STAGE_14_HANDOFF.md)
+- [Stage 14 长录音稳定性](docs/STAGE_14_7B_STABILITY.md)
+- [Post-V1 Canonical Audio 优化规划](docs/POST_V1_CANONICAL_AUDIO_OPTIMIZATION_PLAN.md)
 
-## Stage 11 已建立
+历史 Stage 的测试、Freeze、Handoff 和协议发现记录均保留在 [`docs/`](docs/) 中，不再堆叠在项目首页。
 
-- `:core:ai` + `:engine:llm`
-- 结构化转写 → Text LLM → AI Summary
-- SMART / PRESET / CUSTOM 总结模式
-- 多 Provider Profile、模型发现、连接测试
-- Google Gemini / xAI Grok / OpenAI-compatible Provider
-- Android Keystore + AES-GCM API Key 保存
-- strict JSON schema/evidence validation
-- 长文本 map/reduce 与 Room checkpoint
-- 默认简体中文总结
-- Room schema v4
-- AI evidence 可回链 Stage 10 sample timeline
-- Audio LLM 仅保留能力契约，完整直接音频理解在 Stage 19
+## 独立项目声明
+
+Voica 是一个**全新、独立实现**的 Android 项目。
+
+本项目不继承、不复制、不迁移、不 cherry-pick、不机械翻译 `ioannes78/voice-card-android` 的源代码、测试、Gradle、资源、数据库或模块实现。历史真机观察只能作为交叉验证线索，Voica 的实现和测试均独立完成。
 
 ## License
 
-Voica 项目许可证尚未确定。
-
-
-## Stage 7 已建立
-
-- 新增 `:engine:playback`
-- verified CANONICAL_WAV → AudioTrack MODE_STREAM
-- absolute 16 kHz PCM sample index 作为唯一媒体时间
-- 真实 RIFF data offset 的 sample seek
-- presented position tracking
-- AudioTimestamp / playbackHead fallback
-- 32-bit playback head wrap
-- 六档倍速且 pitch=1.0
-- Audio Focus / noisy / Bluetooth route / app lifecycle
-- 单一 PlayerCard
-- device recording → local playback 自动暂停
-- Stage 8 / Stage 10 稳定 sample timeline contract
-- 真实长录音 30min/1h/2h 压力测试债务转入 Stage 13B；Stage 13A 先冻结最终本地语音模型与参数基线
+当前仓库**尚未声明开源许可证**。在许可证明确之前，请勿默认获得复制、修改、再分发或商用授权。
