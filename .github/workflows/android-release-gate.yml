@@ -40,6 +40,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Verify V1 RC source contract
+        shell: bash
+        run: bash ci/verify-v1-rc-source-contract.sh
+
       - name: Setup JDK 17
         uses: actions/setup-java@v5
         with:
