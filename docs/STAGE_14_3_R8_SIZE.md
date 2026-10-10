@@ -1,125 +1,126 @@
 # Stage 14.3 — R8 / Resource Shrink / APK Size Optimization
 
-Status: RC2 implementation candidate; not a Final Freeze/Handoff document.
+Status: accepted Stage 14.3 implementation baseline; not a Final Freeze/Handoff document.
 
 ## Scope boundary
 
 Stage 14.3 starts from the accepted Stage 14.1 product baseline and the Stage 14.2 release/signing boundary.
 
-This RC2 slice changes build/packaging behavior only:
+The accepted result changes build/packaging behavior only:
 
 - enables R8 minification for `release`;
 - enables Android resource shrinking for `release`;
-- uses `proguard-android-optimize.txt` plus a deliberately narrow app rule set;
-- adds a non-debuggable, production-like `releaseQa` variant signed with the public QA signer for real-device testing;
+- uses `proguard-android-optimize.txt` plus a narrow app rule set;
+- protects the sherpa-onnx Java/Kotlin JNI ABI from R8 renaming/removal;
+- excludes only the unused standalone Sherpa C/C++ API libraries from packaging;
+- retains the Sherpa JNI bridge and ONNX Runtime;
+- uses a non-debuggable, production-like `releaseQa` variant signed with the public QA signer for real-device testing;
 - keeps the true PR `release` APK/AAB unsigned because the production private key is not provisioned yet;
 - keeps Room at schema 12;
 - does not modify the production model channel;
 - does not modify notification, durable-attention, playback, model-install or task-state business logic.
 
-Native-library removal is deliberately **not** combined with RC2. Native trimming is deferred until this shrink-only candidate passes real-device QA.
+## Accepted RC2-R2 identity
 
-## RC2 identity
-
-- versionCode: `82`
-- Release versionName: `1.0.0-rc2`
-- production-like QA versionName: `1.0.0-rc2-shrink-qa`
+- versionCode: `84`
+- Release versionName: `1.0.0-rc2-r2`
+- production-like QA versionName: `1.0.0-rc2-r2-shrink-qa`
 - Release applicationId: `io.github.ioannes78.voica`
 - production-like QA applicationId: `io.github.ioannes78.voica.qa`
 - Room: schema 12
 - ABI: `arm64-v8a`
 
-The production-like QA build uses the existing public QA certificate but inherits the Release shrink/non-debuggable configuration. It can upgrade the preceding Stage 14 QA package because the application ID and QA signer stay the same and versionCode advances from 81 to 82.
+## R8 / JNI correction
 
-## R8 rules
+The first shrink-only RC2 exposed a native-process exit when starting ASR or diarization. Root cause was R8 renaming/removing sherpa-onnx Java/Kotlin wrapper classes and members that the native library resolves through fixed JNI class/member names.
 
-The app rule set is intentionally narrow:
+The accepted rule preserves the sherpa-onnx JNI wrapper ABI while still allowing optimization:
 
-- retain source/line/signature/annotation metadata useful for retrace/runtime contracts;
-- explicitly preserve `io.github.ioannes78.voica.opus.NativeOpusBridge` native method names because Voica's Opus JNI library exports statically named JNI symbols.
+`-keep,allowoptimization class com.k2fsa.sherpa.onnx.** { *; }`
 
-No package-wide `-keep` rule was added.
+CI verifies the post-R8 APK still defines the original names for:
 
-The first full CI shrink completed without R8 missing-rule failures, so no broad compatibility suppression was required.
+- `OfflineRecognizer`;
+- `OfflineRecognizerResult`;
+- `Vad`;
+- `SpeechSegment`;
+- `OfflineSpeakerDiarization`;
+- `OfflineSpeakerDiarizationSegment`.
+
+RC2-R1 with this correction passed real-device ASR, VAD and diarization testing.
+
+## Native trim
+
+The accepted RC2-R2 excludes only:
+
+- `libsherpa-onnx-c-api.so`;
+- `libsherpa-onnx-cxx-api.so`.
+
+It retains:
+
+- `libsherpa-onnx-jni.so`;
+- `libonnxruntime.so`;
+- `libvoica_opus_jni.so`;
+- AndroidX path native runtime.
+
+Static and CI checks confirmed the Sherpa JNI library does not `DT_NEEDED` either removed standalone API library. The APK/AAB packaging gate requires both trimmed libraries to be absent while the JNI bridge and ONNX Runtime remain present.
+
+## Package-size result
+
+Stage 14.2 QA baseline APK:
+
+- `56,893,276` bytes.
+
+Stage 14.3 RC2-R1 after R8/resource shrink and JNI correction:
+
+- `35,565,779` bytes.
+
+Accepted Stage 14.3 RC2-R2 after native trim:
+
+- `30,650,407` bytes;
+- SHA-256: `177cdc2d95781bbf1ba9e9cde883fcdc5d0315bae80f52c4fa734cc5e4590ce4`.
+
+Reduction:
+
+- RC2-R1 → RC2-R2: `4,915,372` bytes / **13.82%**;
+- Stage 14.2 baseline → RC2-R2: `26,242,869` bytes / **46.13%**.
 
 ## CI result
 
 Android PR CI:
 
-- run number: `1092`
-- run id: `37964691716`
-- result: **SUCCESS**
+- run number: `1100`;
+- run id: `38005812040`;
+- result: **SUCCESS**.
 
 The gate passed:
 
 - all existing unit tests;
-- minified/shrunk production-like QA APK build;
-- minified/shrunk unsigned Release APK build;
-- minified/shrunk Release AAB build;
-- stable QA signer verification for the production-like QA APK;
-- Release/QA package and version identity;
-- non-debuggable manifest checks;
-- unsigned true-Release boundary in PR CI;
-- R8 mapping/configuration/seeds/usage output existence;
+- minified/shrunk production-like QA APK;
+- unsigned Release APK;
+- Release AAB;
+- QA signer verification;
+- Release/QA identity and non-debuggable checks;
+- R8 mapping/configuration/seeds/usage outputs;
+- post-R8 Sherpa JNI ABI checks;
+- APK/AAB native-trim checks plus JNI ELF dependency check;
 - production signing negative guardrails;
-- Room v1-v12 committed schema provenance gate.
+- Room v1-v12 schema provenance gate.
 
-## Package-size baseline and RC2 result
+## Real-device acceptance
 
-Stage 14.2 QA baseline APK:
+The project owner explicitly confirmed Stage 14.3 RC2-R2 real-device testing **PASS**.
 
-- bytes: `56,893,276`
-- SHA-256: `a6e57b18f8c5895fe310cc4fd25ecf4d0bb9c6c4cb52bf612ad629f8f5033870`
+Coverage included:
 
-Stage 14.3 RC2 production-like QA APK:
+- SenseVoice/local ASR path;
+- Silero VAD JNI/runtime path;
+- full speaker diarization path;
+- a dedicated VAD test file with known silence/speech windows, where detected speech intervals aligned with the designed speech windows and silence intervals were filtered;
+- no recurrence of the original post-R8 native process exit.
 
-- bytes: `35,500,243`
-- SHA-256: `a7289ea873c6187aecfb0f1d883909ed42310e8d3ccd42546624c17cfc89c800`
-
-Reduction:
-
-- `21,393,033` bytes smaller;
-- **37.60%** APK reduction.
-
-### ZIP payload composition
-
-| Category | Stage 14.2 baseline | Stage 14.3 RC2 | Change |
-| --- | ---: | ---: | ---: |
-| DEX compressed payload | 23,195,729 B | 2,297,624 B | -90.09% |
-| Native `.so` payload | 32,654,984 B | 32,517,264 B | -0.42% |
-| Android resources payload | 648,822 B | 286,720 B | -55.81% |
-| Assets payload | 153,695 B | 161,052 B | +4.79% |
-
-DEX also collapsed from 22 dex files / 74,794,976 uncompressed bytes to one `classes.dex` / 4,632,624 uncompressed bytes.
-
-After R8/resource shrinking, native libraries now account for approximately **91.6%** of the APK. This confirms that further material package reduction must come from the native dependency set, not from additional broad Java/Kotlin keep-rule removal.
-
-## Native audit — deferred RC3 candidate
-
-RC2 intentionally retains the complete Sherpa native package.
-
-Current production-like APK native payload includes:
-
-| Library | Bytes |
-| --- | ---: |
-| `libonnxruntime.so` | 22,249,552 |
-| `libsherpa-onnx-jni.so` | 4,771,760 |
-| `libsherpa-onnx-c-api.so` | 4,465,168 |
-| `libvoica_opus_jni.so` | 580,000 |
-| `libsherpa-onnx-cxx-api.so` | 440,688 |
-| `libandroidx.graphics.path.so` | 10,096 |
-
-Static audit observations for the two Sherpa C/C++ API libraries:
-
-- Voica code explicitly loads `sherpa-onnx-jni`, not the C/C++ API libraries;
-- the packaged DEX contains the `sherpa-onnx-jni` library name but not the C/C++ API library names;
-- `libsherpa-onnx-jni.so` does not list `libsherpa-onnx-c-api.so` or `libsherpa-onnx-cxx-api.so` in its ELF `DT_NEEDED` dependencies;
-- together the two libraries occupy `4,905,856` bytes, about 13.82% of the RC2 APK.
-
-These observations make them strong **audit candidates**, but not yet safe deletion targets. A later Stage 14.3 native-trim candidate may exclude them only after RC2 passes real-device tests and must then re-test every shipped Sherpa path: SenseVoice, Qwen3-ASR, Silero VAD, Pyannote segmentation, CAM++ speaker embedding, punctuation, isolated model validation and model benchmark/validation paths that remain product-reachable.
+Stage 14.3 is therefore accepted and no further aggressive trimming of `libonnxruntime.so` or `libsherpa-onnx-jni.so` is planned for V1.
 
 ## Production signing boundary
 
-Production signing remains externally blocked until the project owner can provision the first production keystore/certificate on a trusted computer.
-
-RC2 does not weaken that boundary. The production-like QA APK is a test artifact only and must never be treated as the final V1 production signer.
+Production signing remains externally blocked until the project owner can provision the first production keystore/certificate on a trusted computer. The production-like QA APK is a test artifact only and must never be treated as the final V1 production signer.
