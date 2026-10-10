@@ -22,39 +22,82 @@ class StreamingPcm16Normalizer(
         require(targetSampleRateHz > 0)
     }
 
+    /**
+     * Returns a bounded output capacity for a single streaming input block.
+     *
+     * The small guard accounts for the interpolation boundary carried across blocks. Hot-path
+     * callers can keep one output buffer at least this large and reuse it for the whole stream.
+     */
+    fun requiredOutputCapacity(frameCount: Int): Int {
+        require(frameCount >= 0)
+        if (frameCount == 0) return 0
+        return (
+            frameCount.toLong() * targetSampleRateHz / sourceSampleRateHz + OUTPUT_GUARD_SAMPLES
+        ).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+    }
+
     fun processInterleaved(
         input: ShortArray,
         offset: Int = 0,
         frameCount: Int = (input.size - offset) / sourceChannelCount,
     ): ShortArray {
+        val output = ShortArray(requiredOutputCapacity(frameCount))
+        val written =
+            processInterleavedInto(
+                input = input,
+                output = output,
+                offset = offset,
+                frameCount = frameCount,
+            )
+        return when {
+            written == 0 -> ShortArray(0)
+            written == output.size -> output
+            else -> output.copyOf(written)
+        }
+    }
+
+    /**
+     * Allocation-free hot-path variant. The caller owns [output] and may reuse it on every block.
+     * Returns the number of valid mono PCM16 samples written from index 0.
+     */
+    fun processInterleavedInto(
+        input: ShortArray,
+        output: ShortArray,
+        offset: Int = 0,
+        frameCount: Int = (input.size - offset) / sourceChannelCount,
+    ): Int {
         require(offset >= 0)
         require(frameCount >= 0)
         require(offset + frameCount * sourceChannelCount <= input.size)
-
-        val estimated = (
-            frameCount.toLong() * targetSampleRateHz / sourceSampleRateHz + 4L
-        ).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-        val output = ShortArrayBuilder(estimated.coerceAtLeast(4))
+        require(output.size >= requiredOutputCapacity(frameCount)) {
+            "normalizer output buffer too small: required=${requiredOutputCapacity(frameCount)} actual=${output.size}"
+        }
 
         var cursor = offset
-        repeat(frameCount) {
+        var outputSize = 0
+        var frame = 0
+        while (frame < frameCount) {
             var sum = 0L
-            repeat(sourceChannelCount) {
+            var channel = 0
+            while (channel < sourceChannelCount) {
                 sum += input[cursor++].toLong()
+                channel += 1
             }
-            val currentMono = (sum / sourceChannelCount)
-                .coerceIn(Short.MIN_VALUE.toLong(), Short.MAX_VALUE.toLong())
-                .toInt()
+            val currentMono =
+                (sum / sourceChannelCount)
+                    .coerceIn(Short.MIN_VALUE.toLong(), Short.MAX_VALUE.toLong())
+                    .toInt()
             sourceFrameIndex += 1
 
             val previous = previousMono
             if (previous == null) {
                 previousMono = currentMono
                 if (nextOutputIndex == 0L) {
-                    output.add(currentMono.toShort())
+                    output[outputSize++] = currentMono.toShort()
                     nextOutputIndex = 1L
                 }
-                return@repeat
+                frame += 1
+                continue
             }
 
             val currentBoundary = sourceFrameIndex * targetSampleRateHz.toLong()
@@ -63,46 +106,38 @@ class StreamingPcm16Normalizer(
                 val baseIndex = sourceNumerator / targetSampleRateHz
                 val remainder = sourceNumerator % targetSampleRateHz
 
-                val sample = when {
-                    baseIndex == sourceFrameIndex && remainder == 0L -> currentMono.toLong()
-                    baseIndex == sourceFrameIndex - 1L -> {
-                        val delta = currentMono.toLong() - previous.toLong()
-                        previous.toLong() +
-                            (delta * remainder + targetSampleRateHz / 2L) /
-                            targetSampleRateHz
+                val sample =
+                    when {
+                        baseIndex == sourceFrameIndex && remainder == 0L -> currentMono.toLong()
+                        baseIndex == sourceFrameIndex - 1L -> {
+                            val delta = currentMono.toLong() - previous.toLong()
+                            previous.toLong() +
+                                (delta * remainder + targetSampleRateHz / 2L) /
+                                targetSampleRateHz
+                        }
+
+                        else -> error(
+                            "resampler state gap: base=$baseIndex current=$sourceFrameIndex",
+                        )
                     }
-                    else -> error(
-                        "resampler state gap: base=$baseIndex current=$sourceFrameIndex",
-                    )
-                }
-                output.add(
+                output[outputSize++] =
                     sample.coerceIn(
                         Short.MIN_VALUE.toLong(),
                         Short.MAX_VALUE.toLong(),
-                    ).toShort(),
-                )
+                    ).toShort()
                 nextOutputIndex += 1
             }
 
             previousMono = currentMono
+            frame += 1
         }
 
-        return output.toArray()
+        return outputSize
     }
 
     val outputSampleCount: Long get() = nextOutputIndex
-}
 
-private class ShortArrayBuilder(initialCapacity: Int) {
-    private var values = ShortArray(initialCapacity)
-    private var size = 0
-
-    fun add(value: Short) {
-        if (size == values.size) {
-            values = values.copyOf((values.size * 2).coerceAtLeast(4))
-        }
-        values[size++] = value
+    private companion object {
+        const val OUTPUT_GUARD_SAMPLES = 4L
     }
-
-    fun toArray(): ShortArray = values.copyOf(size)
 }
