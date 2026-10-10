@@ -4,6 +4,7 @@ import java.io.File
 import java.nio.file.Files
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -76,6 +77,77 @@ class CompressedAudioNormalizationTest {
                 }
             assertEquals(16, pcm.size)
             assertTrue(pcm.all { it.toInt() == 2_000 })
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun progressUsesPresentationTimelineAndOnlyFinalizesAfterDecoderEos() = runBlocking {
+        val root = Files.createTempDirectory("voica-compressed-progress").toFile()
+        try {
+            val source =
+                File(root, "source.bin").apply {
+                    writeBytes(byteArrayOf(5, 6, 7, 8))
+                }
+            val target = File(root, "canonical.wav")
+            val format = DecodedPcmFormat(48_000, 1)
+            val blockFrames = 4_800
+            val block = ShortArray(blockFrames) { 1_000 }
+            val progress = mutableListOf<CanonicalAudioWorkProgress>()
+            val decoder =
+                object : CompressedAudioDecoder {
+                    override suspend fun decode(
+                        file: File,
+                        isCancelled: () -> Boolean,
+                        sink: Pcm16DecodeSink,
+                    ): CompressedAudioDecodeResult {
+                        sink.onFormat(format)
+                        sink.onSamplesAt(
+                            samples = block,
+                            frameCount = blockFrames,
+                            presentationTimeUs = 9_800_000L,
+                        )
+                        sink.onSamplesAt(
+                            samples = block,
+                            frameCount = blockFrames,
+                            presentationTimeUs = 10_200_000L,
+                        )
+                        return CompressedAudioDecodeResult(
+                            input =
+                                CompressedAudioDescriptor(
+                                    mimeType = "audio/mpeg",
+                                    sampleRateHz = 48_000,
+                                    channelCount = 1,
+                                    durationUs = 10_000_000L,
+                                    decoderName = "fake-pts",
+                                ),
+                            output = format,
+                            decodedFrameCount = (blockFrames * 2L),
+                            presentationEndTimeUs = 10_300_000L,
+                        )
+                    }
+                }
+
+            val result =
+                CompressedAudioToCanonicalWavConverter(decoder)
+                    .convert(
+                        sourceFile = source,
+                        targetFile = target,
+                        knownDurationUs = 10_000_000L,
+                        onProgress = progress::add,
+                    )
+
+            assertTrue(progress.size >= 3)
+            assertFalse(progress.dropLast(1).any { it.isFinal })
+            val final = progress.last()
+            assertTrue(final.isFinal)
+            assertEquals(10_300_000L, final.processedDurationUs)
+            assertEquals(10_000_000L, final.totalDurationUs)
+            assertEquals(10_000_000L, result.timing.metadataDurationUs)
+            assertEquals(200_000L, result.timing.decodedFrameDurationUs)
+            assertEquals(10_300_000L, result.timing.mediaTimelineDurationUs)
+            assertEquals(result.wav.durationUs, result.timing.canonicalDurationUs)
         } finally {
             root.deleteRecursively()
         }
