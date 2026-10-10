@@ -7,12 +7,20 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 
+data class CanonicalWavTiming(
+    val writeNanos: Long,
+    val syncNanos: Long,
+    val moveNanos: Long,
+    val outputHashNanos: Long,
+)
+
 data class CanonicalWavCommit(
     val file: File,
     val pcmSampleCount: Long,
     val sizeBytes: Long,
     val sha256: String,
     val durationUs: Long,
+    val timing: CanonicalWavTiming,
 )
 
 class CanonicalWavWriter(
@@ -22,6 +30,7 @@ class CanonicalWavWriter(
     private val raf: RandomAccessFile
     private val writeBuffer = ByteArray(WRITE_BUFFER_BYTES)
     private var sampleCount = 0L
+    private var writeNanos = 0L
     private var closed = false
     private var committed = false
 
@@ -42,6 +51,7 @@ class CanonicalWavWriter(
         var inputIndex = offset
         var remaining = length
         while (remaining > 0) {
+            val started = System.nanoTime()
             val chunkSamples = minOf(remaining, writeBuffer.size / CanonicalPcmProfile.BYTES_PER_SAMPLE)
             var byteIndex = 0
             val chunkEnd = inputIndex + chunkSamples
@@ -51,6 +61,7 @@ class CanonicalWavWriter(
                 writeBuffer[byteIndex++] = ((sample ushr 8) and 0xFF).toByte()
             }
             raf.write(writeBuffer, 0, byteIndex)
+            writeNanos += System.nanoTime() - started
             sampleCount += chunkSamples
             remaining -= chunkSamples
         }
@@ -60,7 +71,10 @@ class CanonicalWavWriter(
         check(!closed) { "writer closed" }
         val pcmBytes = sampleCount * CanonicalPcmProfile.BYTES_PER_SAMPLE
         writeHeader(raf, pcmBytes)
+
+        val syncStarted = System.nanoTime()
         raf.fd.sync()
+        val syncNanos = System.nanoTime() - syncStarted
         raf.close()
         closed = true
 
@@ -69,6 +83,7 @@ class CanonicalWavWriter(
             "WAV length mismatch expected=$expectedLength actual=${partFile.length()}"
         }
 
+        val moveStarted = System.nanoTime()
         try {
             Files.move(
                 partFile.toPath(),
@@ -83,9 +98,12 @@ class CanonicalWavWriter(
                 StandardCopyOption.REPLACE_EXISTING,
             )
         }
+        val moveNanos = System.nanoTime() - moveStarted
         committed = true
 
+        val hashStarted = System.nanoTime()
         val digest = sha256(finalFile)
+        val outputHashNanos = System.nanoTime() - hashStarted
         return CanonicalWavCommit(
             file = finalFile,
             pcmSampleCount = sampleCount,
@@ -95,6 +113,13 @@ class CanonicalWavWriter(
                 sampleIndexToTimeUs(
                     sampleCount,
                     CanonicalPcmProfile.SAMPLE_RATE_HZ,
+                ),
+            timing =
+                CanonicalWavTiming(
+                    writeNanos = writeNanos,
+                    syncNanos = syncNanos,
+                    moveNanos = moveNanos,
+                    outputHashNanos = outputHashNanos,
                 ),
         )
     }
