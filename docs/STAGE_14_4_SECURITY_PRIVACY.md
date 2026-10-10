@@ -15,7 +15,7 @@ This slice changes release security boundaries only:
 - preserves debug-only candidate model-channel override behavior;
 - preserves the Stage 14.3 R8/Sherpa JNI/native-trim configuration;
 - keeps Room at schema 12;
-- does not modify production model-channel contents;
+- does not write or modify production model-channel contents;
 - does not modify transcription, diarization, playback, notification, durable-attention or AI-summary business state machines.
 
 ## RC3 identity
