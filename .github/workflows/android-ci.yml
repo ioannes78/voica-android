@@ -130,8 +130,8 @@ jobs:
           test -n "$analyzer"
 
           test "$("$analyzer" manifest application-id "$release_qa_apk")" = "io.github.ioannes78.voica.qa"
-          test "$("$analyzer" manifest version-code "$release_qa_apk")" = "86"
-          test "$("$analyzer" manifest version-name "$release_qa_apk")" = "1.0.0-rc3-r1-export-qa"
+          test "$("$analyzer" manifest version-code "$release_qa_apk")" = "87"
+          test "$("$analyzer" manifest version-name "$release_qa_apk")" = "1.0.0-rc3-r2-export-qa"
 
           release_qa_manifest="$RUNNER_TEMP/releaseqa-manifest.xml"
           "$analyzer" manifest print "$release_qa_apk" > "$release_qa_manifest"
@@ -168,8 +168,8 @@ jobs:
           test -n "$analyzer"
 
           test "$("$analyzer" manifest application-id "$release_apk")" = "io.github.ioannes78.voica"
-          test "$("$analyzer" manifest version-code "$release_apk")" = "86"
-          test "$("$analyzer" manifest version-name "$release_apk")" = "1.0.0-rc3-r1"
+          test "$("$analyzer" manifest version-code "$release_apk")" = "87"
+          test "$("$analyzer" manifest version-name "$release_apk")" = "1.0.0-rc3-r2"
 
           release_manifest="$RUNNER_TEMP/release-manifest.xml"
           "$analyzer" manifest print "$release_apk" > "$release_manifest"
@@ -208,10 +208,10 @@ jobs:
 
           echo "Stage 14.2 QA baseline APK: ${stage14_2_qa_baseline_bytes} bytes"
           echo "Stage 14.3 RC2-R1 accepted shrunk QA APK: ${rc2_r1_qa_apk_bytes} bytes"
-          echo "Stage 14.4.1 RC3-R1 export UX releaseQa APK: ${release_qa_bytes} bytes"
+          echo "Stage 14.4.1 RC3-R2 export UX releaseQa APK: ${release_qa_bytes} bytes"
 
           if (( release_qa_bytes >= rc2_r1_qa_apk_bytes )); then
-            echo "::error::RC3-R1 lost the accepted native-trim size boundary."
+            echo "::error::RC3-R2 lost the accepted native-trim size boundary."
             exit 1
           fi
 
@@ -235,7 +235,7 @@ jobs:
                   groups[key][0] += item.file_size
                   groups[key][1] += item.compress_size
           with open(summary, "a", encoding="utf-8") as out:
-              out.write("\n### Stage 14.4.1 RC3-R1 export UX APK composition\n\n")
+              out.write("\n### Stage 14.4.1 RC3-R2 export UX APK composition\n\n")
               out.write("| Category | Uncompressed bytes | ZIP payload bytes |\n")
               out.write("| --- | ---: | ---: |\n")
               for key, (raw, compressed) in groups.items():
@@ -259,8 +259,8 @@ jobs:
 
           release_bytes="$(stat -c %s "$release_apk")"
           aab_bytes="$(stat -c %s "$release_aab")"
-          echo "Stage 14.4.1 RC3-R1 unsigned Release APK: ${release_bytes} bytes"
-          echo "Stage 14.4.1 RC3-R1 Release AAB: ${aab_bytes} bytes"
+          echo "Stage 14.4.1 RC3-R2 unsigned Release APK: ${release_bytes} bytes"
+          echo "Stage 14.4.1 RC3-R2 Release AAB: ${aab_bytes} bytes"
 
       # sherpa-onnx JNI uses literal Java class/member names from native code. R8 must not
       # rename or remove its wrapper ABI, otherwise ASR/VAD/diarization can abort the process.
