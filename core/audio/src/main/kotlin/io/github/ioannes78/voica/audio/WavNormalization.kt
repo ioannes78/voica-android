@@ -19,12 +19,13 @@ class PcmWavToCanonicalWavConverter {
         onStage: (CanonicalAudioStage) -> Unit = {},
     ): PcmWavConversionResult {
         val parsed = WavPcmParser.parse(sourceFile)
-        val info = (parsed as? WavParseResult.Valid)?.info
-            ?: throw AudioPipelineException(
-                code = "WAV_HEADER_FAILED",
-                recoverable = false,
-                message = (parsed as? WavParseResult.Invalid)?.reason ?: "invalid WAV",
-            )
+        val info =
+            (parsed as? WavParseResult.Valid)?.info
+                ?: throw AudioPipelineException(
+                    code = "WAV_HEADER_FAILED",
+                    recoverable = false,
+                    message = (parsed as? WavParseResult.Invalid)?.reason ?: "invalid WAV",
+                )
         if (!info.isPcm || info.bitsPerSample != 16) {
             throw AudioPipelineException(
                 code = "UNSUPPORTED_WAV_PCM",
@@ -59,17 +60,18 @@ class PcmWavToCanonicalWavConverter {
             )
         }
 
-        val normalizer = StreamingPcm16Normalizer(
-            sourceSampleRateHz = info.sampleRateHz,
-            sourceChannelCount = info.channelCount,
-        )
+        val normalizer =
+            StreamingPcm16Normalizer(
+                sourceSampleRateHz = info.sampleRateHz,
+                sourceChannelCount = info.channelCount,
+            )
         onStage(CanonicalAudioStage.DECODING)
 
         RandomAccessFile(sourceFile, "r").use { input ->
             input.seek(info.dataOffset)
             var remainingBytes = info.dataSizeBytes
             val frameBytes = info.blockAlign
-            val framesPerChunk = MAX_CHUNK_BYTES / frameBytes
+            val framesPerChunk = PCM_CHUNK_BYTES / frameBytes
             if (framesPerChunk <= 0) {
                 throw AudioPipelineException(
                     code = "UNSUPPORTED_WAV_FRAME",
@@ -77,6 +79,10 @@ class PcmWavToCanonicalWavConverter {
                     message = "WAV blockAlign=${info.blockAlign} exceeds buffer",
                 )
             }
+
+            val byteBuffer = ByteArray(framesPerChunk * frameBytes)
+            val interleavedBuffer = ShortArray(framesPerChunk * info.channelCount)
+            val monoBuffer = ShortArray(normalizer.requiredOutputCapacity(framesPerChunk))
 
             CanonicalWavWriter(targetFile).use { writer ->
                 var normalizationReported = false
@@ -90,36 +96,39 @@ class PcmWavToCanonicalWavConverter {
                         )
                     }
 
-                    val wantedFrames = minOf(
-                        framesPerChunk.toLong(),
-                        remainingBytes / frameBytes,
-                    ).toInt()
+                    val wantedFrames =
+                        minOf(
+                            framesPerChunk.toLong(),
+                            remainingBytes / frameBytes,
+                        ).toInt()
                     if (wantedFrames <= 0) break
                     val wantedBytes = wantedFrames * frameBytes
-                    val bytes = ByteArray(wantedBytes)
-                    input.readFully(bytes)
+                    input.readFully(byteBuffer, 0, wantedBytes)
 
-                    val samples = ShortArray(wantedFrames * info.channelCount)
+                    val sampleCount = wantedFrames * info.channelCount
                     var byteCursor = 0
-                    for (index in samples.indices) {
-                        val lo = bytes[byteCursor++].toInt() and 0xFF
-                        val hi = bytes[byteCursor++].toInt()
-                        samples[index] = ((hi shl 8) or lo).toShort()
+                    var sampleIndex = 0
+                    while (sampleIndex < sampleCount) {
+                        val lo = byteBuffer[byteCursor++].toInt() and 0xFF
+                        val hi = byteBuffer[byteCursor++].toInt()
+                        interleavedBuffer[sampleIndex++] = ((hi shl 8) or lo).toShort()
                     }
 
                     if (!normalizationReported) {
                         normalizationReported = true
                         onStage(CanonicalAudioStage.NORMALIZING)
                     }
-                    val mono = normalizer.processInterleaved(
-                        input = samples,
-                        frameCount = wantedFrames,
-                    )
+                    val monoCount =
+                        normalizer.processInterleavedInto(
+                            input = interleavedBuffer,
+                            output = monoBuffer,
+                            frameCount = wantedFrames,
+                        )
                     if (!writingReported) {
                         writingReported = true
                         onStage(CanonicalAudioStage.WRITING)
                     }
-                    writer.writePcm16(mono)
+                    writer.writePcm16(monoBuffer, length = monoCount)
                     remainingBytes -= wantedBytes.toLong()
                 }
 
@@ -157,7 +166,7 @@ class PcmWavToCanonicalWavConverter {
     }
 
     private companion object {
-        const val MAX_CHUNK_BYTES = 16 * 1024
+        const val PCM_CHUNK_BYTES = 64 * 1024
         const val HASH_BUFFER_BYTES = 64 * 1024
     }
 }
