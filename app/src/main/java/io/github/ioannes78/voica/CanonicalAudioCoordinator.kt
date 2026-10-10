@@ -66,6 +66,8 @@ class CanonicalAudioCoordinator(
     private val automaticLock = Any()
     private val automaticJobs = mutableMapOf<String, Job>()
     private val automaticRerun = mutableSetOf<String>()
+    private val progressRuntime = CanonicalGenerationProgressRuntime(nowMs)
+    val progress = progressRuntime.progress
 
     fun requestAutomatic(recordingId: String) {
         synchronized(automaticLock) {
@@ -101,6 +103,7 @@ class CanonicalAudioCoordinator(
     }
 
     fun cancel(recordingId: String) {
+        progressRuntime.cancelling(recordingId)
         activeTokens[recordingId]?.set(true)
         synchronized(automaticLock) {
             automaticRerun.remove(recordingId)
@@ -114,6 +117,7 @@ class CanonicalAudioCoordinator(
     }
 
     suspend fun cancelAndAwait(recordingId: String) {
+        progressRuntime.cancelling(recordingId)
         val caller = currentCoroutineContext()[Job]
         activeTokens[recordingId]?.set(true)
         val jobs = linkedSetOf<Job>()
@@ -142,6 +146,7 @@ class CanonicalAudioCoordinator(
             try {
                 generateLocked(recordingId, token)
             } finally {
+                progressRuntime.finish(recordingId)
                 activeTokens.remove(recordingId, token)
                 if (job != null) {
                     activeGenerationJobs.remove(recordingId, job)
@@ -267,6 +272,11 @@ class CanonicalAudioCoordinator(
                 detail = "expected=${source.sourceSizeBytes} actual=${sourceFile.length()}",
             )
         }
+
+        progressRuntime.begin(
+            recordingId = source.recordingId,
+            totalDurationUs = sourceDurationUs(source),
+        )
 
         val verifiedSourceSha = withContext(ioDispatcher) { sha256(sourceFile) }
         if (!verifiedSourceSha.equals(source.sourceSha256, ignoreCase = true)) {
@@ -405,6 +415,11 @@ class CanonicalAudioCoordinator(
             codec = "OPUS",
             channelCount = valid.value.channelCount,
         )
+        progressRuntime.stage(
+            recordingId = source.recordingId,
+            phase = CanonicalGenerationPhase.PREPARING,
+            totalDurationUs = valid.value.decodedDurationUs,
+        )
 
         ensureCapacity(valid.value.decodedDurationUs)
         val target = targetFile(source.recordingId, source.sourceSha256, PIPELINE_VERSION)
@@ -480,11 +495,7 @@ class CanonicalAudioCoordinator(
         callerJob: Job?,
         cancellationToken: AtomicBoolean,
     ): CanonicalGenerationOutcome {
-        val durationUs =
-            (source.mediaDurationMs ?: source.deviceReportedDurationMs)
-                ?.coerceAtLeast(0L)
-                ?.times(1_000L)
-                ?: 0L
+        val durationUs = sourceDurationUs(source) ?: 0L
         ensureCapacity(durationUs)
 
         val target =
@@ -501,10 +512,14 @@ class CanonicalAudioCoordinator(
                         targetFile = target,
                         expectedSourceSha256 = source.sourceSha256,
                         verifiedSourceSha256 = source.sourceSha256,
+                        knownDurationUs = durationUs.takeIf { it > 0L },
                         isCancelled = {
                             cancellationToken.get() || callerJob?.isActive == false
                         },
                         onStage = { stage -> persistStageBlocking(source, stage) },
+                        onProgress = { work ->
+                            progressRuntime.work(source.recordingId, work)
+                        },
                     )
             }
 
@@ -561,9 +576,20 @@ class CanonicalAudioCoordinator(
             sampleRateHz = info.sampleRateHz,
             channelCount = info.channelCount,
         )
+        progressRuntime.stage(
+            recordingId = source.recordingId,
+            phase = CanonicalGenerationPhase.PREPARING,
+            totalDurationUs = info.durationUs,
+        )
 
         if (info.isCanonical) {
             persistStage(source, CanonicalAudioStage.VERIFYING)
+            progressRuntime.stage(
+                recordingId = source.recordingId,
+                phase = CanonicalGenerationPhase.COMMITTING,
+                totalDurationUs = info.durationUs,
+                cancellable = false,
+            )
             repository.updateCanonicalDerivation(
                 recordingId = source.recordingId,
                 sourceAssetId = source.sourceAssetId,
@@ -604,6 +630,9 @@ class CanonicalAudioCoordinator(
                         cancellationToken.get() || callerJob?.isActive == false
                     },
                     onStage = { stage -> persistStageBlocking(source, stage) },
+                    onProgress = { work ->
+                        progressRuntime.work(source.recordingId, work)
+                    },
                 )
             }
 
@@ -631,6 +660,12 @@ class CanonicalAudioCoordinator(
             )
         }
 
+        progressRuntime.stage(
+            recordingId = source.recordingId,
+            phase = CanonicalGenerationPhase.COMMITTING,
+            totalDurationUs = info.durationUs,
+            cancellable = false,
+        )
         repository.updateCanonicalDerivation(
             recordingId = source.recordingId,
             sourceAssetId = source.sourceAssetId,
@@ -710,6 +745,17 @@ class CanonicalAudioCoordinator(
         source: CanonicalConversionSource,
         stage: CanonicalAudioStage,
     ) {
+        progressRuntime.stage(
+            recordingId = source.recordingId,
+            phase =
+                when (stage) {
+                    CanonicalAudioStage.DECODING -> CanonicalGenerationPhase.DECODING
+                    CanonicalAudioStage.NORMALIZING -> CanonicalGenerationPhase.NORMALIZING
+                    CanonicalAudioStage.WRITING -> CanonicalGenerationPhase.WRITING
+                    CanonicalAudioStage.VERIFYING -> CanonicalGenerationPhase.VERIFYING
+                },
+            cancellable = stage != CanonicalAudioStage.VERIFYING,
+        )
         repository.updateCanonicalDerivation(
             recordingId = source.recordingId,
             sourceAssetId = source.sourceAssetId,
@@ -725,6 +771,12 @@ class CanonicalAudioCoordinator(
                 },
         )
     }
+
+    private fun sourceDurationUs(source: CanonicalConversionSource): Long? =
+        (source.mediaDurationMs ?: source.deviceReportedDurationMs)
+            ?.coerceAtLeast(0L)
+            ?.times(1_000L)
+            ?.takeIf { it > 0L }
 
     private fun ensureCapacity(durationUs: Long) {
         val outputBytes =
