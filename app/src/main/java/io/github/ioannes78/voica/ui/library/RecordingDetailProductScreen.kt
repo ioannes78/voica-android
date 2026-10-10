@@ -133,6 +133,8 @@ internal fun RecordingDetailProductScreen(
     val application = LocalContext.current.applicationContext as VoicaApplication
     val speakerModeStore = remember(application) { RecordingSpeakerModeStore(application) }
     val globalSpeechSettings by application.container.localSpeechSettingsStore.settings.collectAsState()
+    val canonicalProgressByRecording by
+        application.container.canonicalAudioCoordinator.progress.collectAsState()
     val latestCompletedDiarization by
         application.container.diarizationRepository
             .observeLatestCompletedRun(recording.id)
@@ -223,6 +225,7 @@ internal fun RecordingDetailProductScreen(
                 asset.formatValidationState == AudioValidationState.VALID
         }
     val canonicalBusy = recording.derivations.any { it.state in ACTIVE_DERIVATION_STATES }
+    val canonicalProgress = canonicalProgressByRecording[recording.id]
     val fileSpeakerMode =
         fileSpeakerModeName
             ?.let { raw -> runCatching { SpeakerCountChoice.valueOf(raw) }.getOrNull() }
@@ -543,28 +546,13 @@ internal fun RecordingDetailProductScreen(
                                 recordingId = recording.id,
                                 recordingName = recording.displayName,
                                 canonicalReady = canonicalReady,
+                                canonicalBusy = canonicalBusy,
+                                canonicalProgress = canonicalProgress,
                                 deviceRecordingActive = deviceRecordingActive,
                                 playbackViewModel = playbackViewModel,
+                                onGenerateCanonical = { onGenerateCanonical(recording.id) },
+                                onCancelCanonical = { onCancelCanonical(recording.id) },
                             )
-                        }
-                        if (!canonicalReady) {
-                            item(key = "canonical-action") {
-                                if (canonicalBusy) {
-                                    OutlinedButton(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        onClick = { onCancelCanonical(recording.id) },
-                                    ) {
-                                        Text("取消生成标准 WAV")
-                                    }
-                                } else {
-                                    OutlinedButton(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        onClick = { onGenerateCanonical(recording.id) },
-                                    ) {
-                                        Text("生成标准 WAV")
-                                    }
-                                }
-                            }
                         }
                         item(key = "recording-actions") {
                             RecordingPlaybackProductActions(
@@ -1057,8 +1045,19 @@ private fun EmptyTranscriptionPanel(
             )
             when {
                 !canonicalReady && canonicalBusy ->
-                    OutlinedButton(onClick = onCancelCanonical) {
-                        Text("取消生成标准 WAV")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            "标准 WAV 正在生成",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TextButton(onClick = onCancelCanonical) {
+                            Text("取消")
+                        }
                     }
                 !canonicalReady ->
                     Button(onClick = onGenerateCanonical) {
