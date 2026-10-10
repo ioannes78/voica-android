@@ -62,11 +62,15 @@ fun StorageManagementScreen(
                     )
                 }
                 Text(
-                    "存储空间",
+                    "存储与导出",
                     style = MaterialTheme.typography.headlineSmall,
                     modifier = Modifier.padding(top = 10.dp),
                 )
             }
+        }
+
+        item {
+            ExportSettingsCard()
         }
 
         item {
