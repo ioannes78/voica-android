@@ -34,6 +34,9 @@ size_bytes() {
     stat -c %s "$1"
 }
 
+source_head_sha="${VOICA_SOURCE_HEAD_SHA:-${GITHUB_SHA:-unknown}}"
+workflow_build_sha="${GITHUB_SHA:-unknown}"
+
 signer="${ANDROID_SDK_ROOT:?ANDROID_SDK_ROOT is required}/build-tools/36.0.0/apksigner"
 production_signed=false
 production_cert_sha256="UNPROVISIONED"
@@ -47,7 +50,8 @@ if "${signer}" verify "${release_apk}" >/dev/null 2>&1; then
 fi
 
 cat > "${out}" <<EOF
-git_sha=${GITHUB_SHA:-unknown}
+source_head_sha=${source_head_sha}
+workflow_build_sha=${workflow_build_sha}
 version_code=${VOICA_VERSION_CODE}
 release_version_name=${VOICA_RELEASE_VERSION}
 releaseqa_version_name=${VOICA_RELEASEQA_VERSION}
