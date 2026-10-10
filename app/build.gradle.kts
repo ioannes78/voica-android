@@ -42,7 +42,7 @@ if (configuredProductionStoreFile == qaSigningStoreFile) {
     throw GradleException("The public QA keystore must never be used for a production release.")
 }
 if (releaseKeyAlias == "voica-qa") {
-    throw GradleException("The public QA key alias must never be used for a production release.")
+    throw GradleException("The public QA key alias must never be used for production.")
 }
 
 android {
@@ -54,8 +54,8 @@ android {
         applicationId = "io.github.ioannes78.voica"
         minSdk = 26
         targetSdk = 37
-        versionCode = 87
-        versionName = "1.0.0-rc3-r2"
+        versionCode = 88
+        versionName = "1.0.0"
         buildConfigField("String", "GIT_SHA", "\"$buildGitSha\"")
         ndk {
             abiFilters += "arm64-v8a"
