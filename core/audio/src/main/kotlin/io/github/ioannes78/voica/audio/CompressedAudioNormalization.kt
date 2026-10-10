@@ -18,8 +18,10 @@ class CompressedAudioToCanonicalWavConverter(
         targetFile: File,
         expectedSourceSha256: String? = null,
         verifiedSourceSha256: String? = null,
+        knownDurationUs: Long? = null,
         isCancelled: () -> Boolean = { false },
         onStage: (CanonicalAudioStage) -> Unit = {},
+        onProgress: (CanonicalAudioWorkProgress) -> Unit = {},
     ): CompressedAudioConversionResult {
         val sourceSha = verifiedSourceSha256 ?: sha256(sourceFile)
         if (
@@ -40,6 +42,7 @@ class CompressedAudioToCanonicalWavConverter(
             var normalizedBuffer = ShortArray(0)
             var normalizationReported = false
             var writingReported = false
+            var processedFrames = 0L
 
             val sink =
                 object : Pcm16DecodeSink {
@@ -101,6 +104,19 @@ class CompressedAudioToCanonicalWavConverter(
                             }
                             writer.writePcm16(normalizedBuffer, length = monoCount)
                         }
+                        processedFrames += frameCount.toLong()
+                        onProgress(
+                            CanonicalAudioWorkProgress(
+                                processedDurationUs =
+                                    sampleIndexToTimeUs(
+                                        processedFrames,
+                                        format.sampleRateHz,
+                                    ),
+                                totalDurationUs = knownDurationUs?.takeIf { it > 0L },
+                                processedUnits = processedFrames,
+                                totalUnits = null,
+                            ),
+                        )
                     }
                 }
 
