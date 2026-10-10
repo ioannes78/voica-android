@@ -8,6 +8,7 @@ data class CompressedAudioConversionResult(
     val sourceSha256: String,
     val decoded: CompressedAudioDecodeResult,
     val wav: CanonicalWavCommit,
+    val timing: CanonicalConversionTiming,
 )
 
 class CompressedAudioToCanonicalWavConverter(
@@ -35,6 +36,7 @@ class CompressedAudioToCanonicalWavConverter(
             )
         }
 
+        val pipelineStarted = System.nanoTime()
         onStage(CanonicalAudioStage.DECODING)
         CanonicalWavWriter(targetFile).use { writer ->
             var sourceFormat: DecodedPcmFormat? = null
@@ -43,6 +45,7 @@ class CompressedAudioToCanonicalWavConverter(
             var normalizationReported = false
             var writingReported = false
             var processedFrames = 0L
+            var normalizeNanos = 0L
 
             val sink =
                 object : Pcm16DecodeSink {
@@ -91,12 +94,14 @@ class CompressedAudioToCanonicalWavConverter(
                         if (normalizedBuffer.size < required) {
                             normalizedBuffer = ShortArray(required)
                         }
+                        val normalizeStarted = System.nanoTime()
                         val monoCount =
                             activeNormalizer.processInterleavedInto(
                                 input = samples,
                                 output = normalizedBuffer,
                                 frameCount = frameCount,
                             )
+                        normalizeNanos += System.nanoTime() - normalizeStarted
                         if (monoCount > 0) {
                             if (!writingReported) {
                                 writingReported = true
@@ -120,6 +125,7 @@ class CompressedAudioToCanonicalWavConverter(
                     }
                 }
 
+            val decodeStarted = System.nanoTime()
             val decoded =
                 try {
                     decoder.decode(
@@ -139,6 +145,7 @@ class CompressedAudioToCanonicalWavConverter(
                         cause = error,
                     )
                 }
+            val decodeWallNanos = System.nanoTime() - decodeStarted
 
             if (decoded.decodedFrameCount <= 0L) {
                 throw AudioPipelineException(
@@ -149,10 +156,22 @@ class CompressedAudioToCanonicalWavConverter(
             }
 
             onStage(CanonicalAudioStage.VERIFYING)
+            val wav = writer.commit()
+            val pipelineNanos = System.nanoTime() - pipelineStarted
+            val decodeOrReadNanos =
+                (decodeWallNanos - normalizeNanos - wav.timing.writeNanos)
+                    .coerceAtLeast(0L)
             return CompressedAudioConversionResult(
                 sourceSha256 = sourceSha,
                 decoded = decoded,
-                wav = writer.commit(),
+                wav = wav,
+                timing =
+                    CanonicalConversionTiming(
+                        decodeOrReadNanos = decodeOrReadNanos,
+                        normalizeNanos = normalizeNanos,
+                        writer = wav.timing,
+                        pipelineNanos = pipelineNanos,
+                    ),
             )
         }
     }
