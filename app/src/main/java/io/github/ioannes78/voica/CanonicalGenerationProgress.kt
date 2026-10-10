@@ -22,19 +22,30 @@ data class CanonicalGenerationProgress(
     val totalDurationUs: Long? = null,
     val processedUnits: Long = 0L,
     val totalUnits: Long? = null,
+    val workCompleted: Boolean = false,
     val startedAtMs: Long,
     val updatedAtMs: Long,
     val cancellable: Boolean = true,
 ) {
+    val durationEstimateReached: Boolean
+        get() {
+            val total = totalDurationUs?.takeIf { it > 0L } ?: return false
+            return !workCompleted && processedDurationUs >= total
+        }
+
     val fraction: Float?
         get() {
             val durationTotal = totalDurationUs?.takeIf { it > 0L }
             if (durationTotal != null) {
+                if (workCompleted) return 1f
+                if (processedDurationUs >= durationTotal) return null
                 return (processedDurationUs.toDouble() / durationTotal.toDouble())
                     .coerceIn(0.0, 1.0)
                     .toFloat()
             }
             val unitTotal = totalUnits?.takeIf { it > 0L } ?: return null
+            if (workCompleted) return 1f
+            if (processedUnits >= unitTotal) return null
             return (processedUnits.toDouble() / unitTotal.toDouble())
                 .coerceIn(0.0, 1.0)
                 .toFloat()
@@ -112,11 +123,10 @@ class CanonicalGenerationProgressRuntime(
         val now = nowMs()
         val previous = mutableProgress.value[recordingId] ?: return
         val last = lastWorkPublishMs[recordingId]
-        val terminalSample =
-            work.totalDurationUs?.takeIf { it > 0L }
-                ?.let { work.processedDurationUs >= it } == true ||
-                work.totalUnits?.takeIf { it > 0L }
-                    ?.let { work.processedUnits >= it } == true
+        val exactUnitTerminal =
+            work.totalUnits?.takeIf { it > 0L }
+                ?.let { work.processedUnits >= it } == true
+        val terminalSample = work.isFinal || exactUnitTerminal
         if (
             !force &&
             !terminalSample &&
@@ -126,16 +136,23 @@ class CanonicalGenerationProgressRuntime(
             return
         }
 
+        val totalDurationUs =
+            work.totalDurationUs?.takeIf { it > 0L }
+                ?: previous.totalDurationUs
+        val observedDurationUs =
+            maxOf(previous.processedDurationUs, work.processedDurationUs)
+        val displayDurationUs =
+            totalDurationUs?.let { observedDurationUs.coerceAtMost(it) }
+                ?: observedDurationUs
+
         lastWorkPublishMs[recordingId] = now
         publish(
             previous.copy(
-                processedDurationUs =
-                    maxOf(previous.processedDurationUs, work.processedDurationUs),
-                totalDurationUs =
-                    work.totalDurationUs?.takeIf { it > 0L }
-                        ?: previous.totalDurationUs,
+                processedDurationUs = displayDurationUs,
+                totalDurationUs = totalDurationUs,
                 processedUnits = maxOf(previous.processedUnits, work.processedUnits),
                 totalUnits = work.totalUnits ?: previous.totalUnits,
+                workCompleted = previous.workCompleted || terminalSample,
                 updatedAtMs = now,
             ),
         )
