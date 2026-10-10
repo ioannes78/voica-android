@@ -37,6 +37,12 @@ data class DecodedPcmFormat(
 interface Pcm16DecodeSink {
     fun onFormat(format: DecodedPcmFormat)
 
+    /**
+     * Consumes one synchronous PCM16 block.
+     *
+     * [samples] is valid only for the duration of this callback. Decoders may reuse the same backing
+     * array for later blocks, so sinks must copy any data they need to retain after returning.
+     */
     fun onSamples(
         samples: ShortArray,
         frameCount: Int,
