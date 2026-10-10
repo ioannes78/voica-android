@@ -204,6 +204,18 @@ class ServiceBackedDeviceRepositoryTest {
         scope.cancel()
     }
 
+    @Test
+    fun deviceSessionForegroundGenerationRejectsStaleProgressAndReleasedCommands() {
+        val staleProgress = DeviceSessionForegroundDiagnostics.begin("CB08", "正在下载 · 95%")
+        val terminalConnected = DeviceSessionForegroundDiagnostics.begin("CB08", "已连接")
+
+        assertFalse(DeviceSessionForegroundDiagnostics.isCurrent(staleProgress))
+        assertTrue(DeviceSessionForegroundDiagnostics.isCurrent(terminalConnected))
+
+        DeviceSessionForegroundDiagnostics.markIdle()
+        assertFalse(DeviceSessionForegroundDiagnostics.isCurrent(terminalConnected))
+    }
+
     private fun flushUnconfined() {
         runBlocking { yield() }
     }
