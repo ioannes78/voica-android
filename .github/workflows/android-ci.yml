@@ -98,9 +98,7 @@ jobs:
             tr '[:upper:]' '[:lower:]')"
           test "$actual_cert_sha256" = "$expected_cert_sha256"
 
-      # Stage 14.3 keeps PR Release artifacts unsigned while validating the real minified/shrunk
-      # Release configuration and a production-like QA-signed variant for device testing.
-      - name: Verify V1 RC2-R2 release identity and native-trim boundary
+      - name: Verify V1 RC3 release identity and security boundary
         shell: bash
         run: |
           set -euo pipefail
@@ -117,18 +115,36 @@ jobs:
           test -n "$analyzer"
 
           test "$("$analyzer" manifest application-id "$release_qa_apk")" = "io.github.ioannes78.voica.qa"
-          test "$("$analyzer" manifest version-code "$release_qa_apk")" = "84"
-          test "$("$analyzer" manifest version-name "$release_qa_apk")" = "1.0.0-rc2-r2-shrink-qa"
-          if "$analyzer" manifest print "$release_qa_apk" | grep -q 'android:debuggable="true"'; then
+          test "$("$analyzer" manifest version-code "$release_qa_apk")" = "85"
+          test "$("$analyzer" manifest version-name "$release_qa_apk")" = "1.0.0-rc3-security-qa"
+          release_qa_manifest="$RUNNER_TEMP/releaseqa-manifest.xml"
+          "$analyzer" manifest print "$release_qa_apk" > "$release_qa_manifest"
+          if grep -q 'android:debuggable="true"' "$release_qa_manifest"; then
             echo "::error::Production-like QA manifest is debuggable."
             exit 1
           fi
+          grep -q 'android:allowBackup="false"' "$release_qa_manifest"
+          grep -q 'android:usesCleartextTraffic="false"' "$release_qa_manifest"
 
           test "$("$analyzer" manifest application-id "$release_apk")" = "io.github.ioannes78.voica"
-          test "$("$analyzer" manifest version-code "$release_apk")" = "84"
-          test "$("$analyzer" manifest version-name "$release_apk")" = "1.0.0-rc2-r2"
-          if "$analyzer" manifest print "$release_apk" | grep -q 'android:debuggable="true"'; then
+          test "$("$analyzer" manifest version-code "$release_apk")" = "85"
+          test "$("$analyzer" manifest version-name "$release_apk")" = "1.0.0-rc3"
+          release_manifest="$RUNNER_TEMP/release-manifest.xml"
+          "$analyzer" manifest print "$release_apk" > "$release_manifest"
+          if grep -q 'android:debuggable="true"' "$release_manifest"; then
             echo "::error::Release manifest is debuggable."
+            exit 1
+          fi
+          grep -q 'android:allowBackup="false"' "$release_manifest"
+          grep -q 'android:usesCleartextTraffic="false"' "$release_manifest"
+
+          grep -Fq 'android:dataExtractionRules="@xml/data_extraction_rules"' app/src/main/AndroidManifest.xml
+          grep -Fq 'android:fullBackupContent="@xml/backup_rules"' app/src/main/AndroidManifest.xml
+          grep -Fq 'PRODUCTION_MODEL_CHANNEL_COMMIT' app/src/main/java/io/github/ioannes78/voica/AppModelManager.kt
+          grep -Fq 'be74c7065ce22a5f9b207a7cf1c88d3be0e872ec' app/src/main/java/io/github/ioannes78/voica/AppModelManager.kt
+          grep -Fq '8bdb505ce97820cb942bc2855c8a099484b7e22f63ec5567b63f2c1c18d567cf' app/src/main/java/io/github/ioannes78/voica/AppModelManager.kt
+          if grep -Fq 'voica-model-channel/main/manifests/production.json' app/src/main/java/io/github/ioannes78/voica/AppModelManager.kt; then
+            echo "::error::Production model catalog must not track mutable main in V1."
             exit 1
           fi
 
@@ -163,12 +179,12 @@ jobs:
 
           echo "Stage 14.2 QA baseline APK: ${stage14_2_qa_baseline_bytes} bytes"
           echo "Stage 14.3 RC2-R1 accepted shrunk QA APK: ${rc2_r1_qa_apk_bytes} bytes"
-          echo "Stage 14.3 RC2-R2 native-trim releaseQa APK: ${release_qa_bytes} bytes"
-          echo "Stage 14.3 RC2-R2 native-trim unsigned Release APK: ${release_bytes} bytes"
-          echo "Stage 14.3 RC2-R2 native-trim Release AAB: ${aab_bytes} bytes"
+          echo "Stage 14.4 RC3 security releaseQa APK: ${release_qa_bytes} bytes"
+          echo "Stage 14.4 RC3 security unsigned Release APK: ${release_bytes} bytes"
+          echo "Stage 14.4 RC3 security Release AAB: ${aab_bytes} bytes"
 
           if (( release_qa_bytes >= rc2_r1_qa_apk_bytes )); then
-            echo "::error::Native trim did not reduce the production-like QA APK below the accepted RC2-R1 baseline."
+            echo "::error::RC3 lost the accepted native-trim size boundary."
             exit 1
           fi
 
@@ -192,7 +208,7 @@ jobs:
                   groups[key][0] += item.file_size
                   groups[key][1] += item.compress_size
           with open(summary, "a", encoding="utf-8") as out:
-              out.write("\n### Stage 14.3 RC2-R2 native-trim APK composition\n\n")
+              out.write("\n### Stage 14.4 RC3 security APK composition\n\n")
               out.write("| Category | Uncompressed bytes | ZIP payload bytes |\n")
               out.write("| --- | ---: | ---: |\n")
               for key, (raw, compressed) in groups.items():
@@ -214,9 +230,6 @@ jobs:
           zipinfo -1 "$release_qa_apk" | grep -qx 'lib/arm64-v8a/libsherpa-onnx-jni.so'
           test -n "$analyzer"
 
-          # Use the Android SDK's DEX parser instead of treating the binary DEX string pool as
-          # newline-delimited text. `dex packages --defined-only` reports the actual post-R8
-          # class tree contained in the APK.
           "$analyzer" dex packages --defined-only "$release_qa_apk" > "$dex_tree"
 
           for class_name in \
@@ -228,7 +241,6 @@ jobs:
             'com.k2fsa.sherpa.onnx.OfflineSpeakerDiarizationSegment'; do
             if ! awk -v expected="$class_name" '$1 == "C" && $NF == expected { found=1 } END { exit found ? 0 : 1 }' "$dex_tree"; then
               echo "::error::Sherpa JNI ABI class missing or renamed after R8: $class_name"
-              echo "Sherpa classes visible in post-R8 APK:"
               grep -F 'com.k2fsa.sherpa.onnx' "$dex_tree" | head -80 || true
               exit 1
             fi
@@ -305,7 +317,6 @@ jobs:
           fi
           grep -q "public QA key alias" /tmp/qa-alias-as-production.log
 
-      # Room schema 12 remains the V1 baseline; historical schema JSON stays committed as provenance.
       - name: Verify committed Room schemas
         shell: bash
         run: |
@@ -316,7 +327,6 @@ jobs:
           git diff --exit-code -- "$schema_dir"
           test -z "$(git status --porcelain --untracked-files=all -- "$schema_dir")"
 
-      # Only the QA-signed, production-like minified candidate is exposed for real-device testing.
       - name: Upload production-like QA APK
         if: ${{ success() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[APK]'))) }}
         uses: actions/upload-artifact@v4
