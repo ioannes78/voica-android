@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material3.AlertDialog
@@ -65,6 +66,7 @@ import io.github.ioannes78.voica.database.AudioIntegrityState
 import io.github.ioannes78.voica.database.AudioValidationState
 import io.github.ioannes78.voica.database.RecordingLibraryItem
 import io.github.ioannes78.voica.database.SearchDocumentEntity
+import io.github.ioannes78.voica.database.SearchDocumentTypeValue
 import io.github.ioannes78.voica.database.TranscriptionEntity
 import io.github.ioannes78.voica.database.TranscriptionStateValue
 import io.github.ioannes78.voica.ui.ai.AiSummaryContentViewModel
@@ -88,6 +90,7 @@ import io.github.ioannes78.voica.ui.transcript.TranscriptViewMode
 import io.github.ioannes78.voica.ui.transcript.TranscriptionStatusCard
 import io.github.ioannes78.voica.ui.transcript.TranscriptionViewModel
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 private enum class ProductDetailTab {
     RECORDING,
@@ -126,7 +129,6 @@ internal fun RecordingDetailProductScreen(
 ) {
     @Suppress("UNUSED_VARIABLE") val ignoredSpeechBenchmarkRunner = speechBenchmarkRunner
     @Suppress("UNUSED_VARIABLE") val ignoredDiarizationBenchmarkRunner = diarizationBenchmarkRunner
-    @Suppress("UNUSED_VARIABLE") val ignoredSearchTarget = initialSearchTarget
 
     val application = LocalContext.current.applicationContext as VoicaApplication
     val speakerModeStore = remember(application) { RecordingSpeakerModeStore(application) }
@@ -173,6 +175,8 @@ internal fun RecordingDetailProductScreen(
     var pendingSpeakerModeName by rememberSaveable(recording.id) {
         mutableStateOf<String?>(null)
     }
+    val transcriptListState = rememberLazyListState()
+    var highlightedSearchDocumentId by remember(recording.id) { mutableStateOf<String?>(null) }
 
     BackHandler(onBack = onBack)
 
@@ -236,6 +240,43 @@ internal fun RecordingDetailProductScreen(
             ?.let { raw -> runCatching { SpeakerCountChoice.valueOf(raw) }.getOrNull() }
             ?: displayedSpeakerMode
     val visibleDiarizationAttention = diarizationAttention.firstOrNull().takeUnless { diarizationBusy }
+    val transcriptSearchTarget =
+        initialSearchTarget?.takeIf {
+            it.recordingId == recording.id &&
+                it.documentType == SearchDocumentTypeValue.TRANSCRIPT_UNIT
+        }
+    val summarySearchTarget =
+        initialSearchTarget?.takeIf {
+            it.recordingId == recording.id &&
+                it.documentType in
+                setOf(
+                    SearchDocumentTypeValue.SUMMARY_TITLE_OVERVIEW,
+                    SearchDocumentTypeValue.SUMMARY_ITEM,
+                )
+        }
+    val transcriptSearchRowIndex =
+        resolveTranscriptSearchRowIndex(
+            target = transcriptSearchTarget,
+            displayedTranscriptionId = recordingDocument?.transcriptionId,
+            currentRevisionId = transcriptContentState.currentRevisionId,
+            paragraphs = transcriptContentState.paragraphs,
+            segments = recordingDocument?.segments.orEmpty(),
+        )
+    val transcriptTimelinePrefixItems =
+        if (recordingDocument != null && transcriptViewMode == TranscriptViewMode.TIMELINE) {
+            2 +
+                if (
+                    recordingDocument.timeline != null &&
+                    recordingDocument.compatiblePlaybackAssetId == null
+                ) {
+                    1
+                } else {
+                    0
+                } +
+                if (syncState.followMode == TranscriptFollowMode.USER_SUSPENDED) 1 else 0
+        } else {
+            0
+        }
 
     val startInitialTranscription = {
         application.container.autoDiarizationPostProcessor.prepareInitialTranscription(
@@ -260,6 +301,34 @@ internal fun RecordingDetailProductScreen(
                 transcriptionViewModel.showCurrent(recording.id)
             }
             selectedTab = target
+        }
+    }
+    LaunchedEffect(transcriptSearchTarget?.documentId) {
+        if (transcriptSearchTarget != null) {
+            transcriptViewMode = TranscriptViewMode.TIMELINE
+        }
+    }
+    LaunchedEffect(
+        transcriptSearchTarget?.documentId,
+        transcriptSearchRowIndex,
+        transcriptTimelinePrefixItems,
+        selectedTab,
+        transcriptViewMode,
+    ) {
+        val target = transcriptSearchTarget ?: return@LaunchedEffect
+        if (
+            selectedTab == ProductDetailTab.TRANSCRIPT &&
+            transcriptViewMode == TranscriptViewMode.TIMELINE &&
+            transcriptSearchRowIndex >= 0
+        ) {
+            transcriptListState.animateScrollToItem(
+                transcriptTimelinePrefixItems + transcriptSearchRowIndex,
+            )
+            highlightedSearchDocumentId = target.documentId
+            delay(2_200L)
+            if (highlightedSearchDocumentId == target.documentId) {
+                highlightedSearchDocumentId = null
+            }
         }
     }
     LaunchedEffect(recordingDocument?.transcriptionId, recordingDocument?.alignmentId) {
@@ -516,6 +585,7 @@ internal fun RecordingDetailProductScreen(
 
                 ProductDetailTab.TRANSCRIPT ->
                     LazyColumn(
+                        state = transcriptListState,
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -618,6 +688,9 @@ internal fun RecordingDetailProductScreen(
                                                     .takeIf { playbackSnapshot.recordingId == recording.id },
                                             playbackCompatible =
                                                 recordingDocument.compatiblePlaybackAssetId != null,
+                                            searchHighlighted =
+                                                highlightedSearchDocumentId == transcriptSearchTarget?.documentId &&
+                                                    paragraph.stableId == transcriptSearchTarget?.sourceAnchorId,
                                             onSeek = { sample ->
                                                 playbackViewModel.seekAndPlay(recording.id, sample)
                                             },
@@ -630,6 +703,12 @@ internal fun RecordingDetailProductScreen(
                                     ) { segment ->
                                         val syncEnabled =
                                             recordingDocument.compatiblePlaybackAssetId != null
+                                        val searchHighlighted =
+                                            isTranscriptSearchSegmentHighlighted(
+                                                target = transcriptSearchTarget,
+                                                highlightedSearchDocumentId = highlightedSearchDocumentId,
+                                                segment = segment,
+                                            )
                                         TranscriptSegmentCard(
                                             segment = segment,
                                             isActive =
@@ -640,6 +719,7 @@ internal fun RecordingDetailProductScreen(
                                                     syncState.playbackCompatible &&
                                                         syncState.activeRowId == segment.stableId
                                                 },
+                                            searchHighlighted = searchHighlighted,
                                             syncEnabled = syncEnabled,
                                             onSeek = { sampleIndex ->
                                                 if (syncEnabled) {
@@ -692,6 +772,7 @@ internal fun RecordingDetailProductScreen(
                                             playbackViewModel.seekAndPlay(recording.id, sampleIndex)
                                         },
                                         showTransientHeader = false,
+                                        searchTarget = summarySearchTarget,
                                         dismissedStaleSummaryFingerprint =
                                             candidateAttention?.dismissedStaleSummaryFingerprint,
                                         onIgnoreStale = qa4LifecycleViewModel::dismissStaleSummary,
@@ -1015,6 +1096,7 @@ private fun RevisionTimelineRow(
     paragraph: TranscriptReadingParagraph,
     playbackPosition: Long?,
     playbackCompatible: Boolean,
+    searchHighlighted: Boolean = false,
     onSeek: (Long) -> Unit,
 ) {
     val start = paragraph.anchorStartSampleIndex
@@ -1031,7 +1113,13 @@ private fun RevisionTimelineRow(
                     onClick = { start?.let(onSeek) },
                 ),
         shape = MaterialTheme.shapes.medium,
-        tonalElevation = if (active) 2.dp else 0.dp,
+        color =
+            if (searchHighlighted) {
+                MaterialTheme.colorScheme.secondaryContainer
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+        tonalElevation = if (active || searchHighlighted) 2.dp else 0.dp,
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),

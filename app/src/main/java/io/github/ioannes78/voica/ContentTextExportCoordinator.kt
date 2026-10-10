@@ -8,6 +8,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import androidx.core.content.FileProvider
 import java.io.File
@@ -34,6 +35,8 @@ data class TextExportResult(
     val displayName: String,
     val destinationUri: Uri? = null,
     val error: String? = null,
+    val mimeType: String? = null,
+    val locationLabel: String? = null,
 )
 
 sealed interface TextShareOutcome {
@@ -56,6 +59,7 @@ class ContentTextExportCoordinator(
     private val clipboard =
         appContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     private val shareDir = File(appContext.cacheDir, SHARE_DIRECTORY)
+    private val destinationStore = ExportDestinationStore(appContext)
 
     fun copyToClipboard(
         label: String,
@@ -122,86 +126,186 @@ class ContentTextExportCoordinator(
     suspend fun exportToDownloads(
         document: TextContentDocument,
         format: TextExportFormat,
-    ): TextExportResult =
-        withContext(ioDispatcher) {
-            require(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
-            val displayName =
-                allocateDownloadName(
-                    safeBaseName(document.baseName) + format.extension,
-                )
-            val values =
-                ContentValues().apply {
-                    put(MediaStore.Downloads.DISPLAY_NAME, displayName)
-                    put(MediaStore.Downloads.MIME_TYPE, format.mimeType)
-                    put(
-                        MediaStore.Downloads.RELATIVE_PATH,
-                        Environment.DIRECTORY_DOWNLOADS + "/Voica",
-                    )
-                    put(MediaStore.Downloads.IS_PENDING, 1)
-                }
-            var destination: Uri? = null
-            try {
-                destination =
-                    resolver.insert(
-                        MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-                        values,
-                    ) ?: error("无法创建 Downloads 文件")
-                resolver.openOutputStream(destination, "w")
-                    ?.bufferedWriter(Charsets.UTF_8)
-                    ?.use { writer ->
-                        writer.write(document.content(format))
-                    } ?: error("无法写入导出文件")
-                resolver.update(
-                    destination,
-                    ContentValues().apply {
-                        put(MediaStore.Downloads.IS_PENDING, 0)
-                    },
-                    null,
-                    null,
-                )
-                TextExportResult(
-                    exported = true,
-                    displayName = displayName,
-                    destinationUri = destination,
-                )
-            } catch (error: Throwable) {
-                destination?.let {
-                    runCatching { resolver.delete(it, null, null) }
-                }
-                TextExportResult(
-                    exported = false,
-                    displayName = displayName,
-                    error = error.message ?: "导出失败",
-                )
-            }
+    ): TextExportResult {
+        val preferred = destinationStore.current()
+        preferred.treeUri?.let { treeUri ->
+            return exportToTree(document, format, treeUri)
         }
+
+        require(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+        val result =
+            withContext(ioDispatcher) {
+                val displayName =
+                    allocateDownloadName(
+                        safeBaseName(document.baseName) + format.extension,
+                    )
+                val values =
+                    ContentValues().apply {
+                        put(MediaStore.Downloads.DISPLAY_NAME, displayName)
+                        put(MediaStore.Downloads.MIME_TYPE, format.mimeType)
+                        put(
+                            MediaStore.Downloads.RELATIVE_PATH,
+                            Environment.DIRECTORY_DOWNLOADS + "/Voica",
+                        )
+                        put(MediaStore.Downloads.IS_PENDING, 1)
+                    }
+                var destination: Uri? = null
+                try {
+                    destination =
+                        resolver.insert(
+                            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                            values,
+                        ) ?: error("无法创建 Downloads 文件")
+                    writeDocument(document, format, destination)
+                    resolver.update(
+                        destination,
+                        ContentValues().apply {
+                            put(MediaStore.Downloads.IS_PENDING, 0)
+                        },
+                        null,
+                        null,
+                    )
+                    TextExportResult(
+                        exported = true,
+                        displayName = displayName,
+                        destinationUri = destination,
+                        mimeType = format.mimeType,
+                        locationLabel = ExportDestinationStore.DEFAULT_SHORT_LABEL,
+                    )
+                } catch (error: Throwable) {
+                    destination?.let {
+                        runCatching { resolver.delete(it, null, null) }
+                    }
+                    TextExportResult(
+                        exported = false,
+                        displayName = displayName,
+                        error = error.message ?: "导出失败",
+                        mimeType = format.mimeType,
+                        locationLabel = ExportDestinationStore.DEFAULT_SHORT_LABEL,
+                    )
+                }
+            }
+        publishFeedback(result, format)
+        return result
+    }
+
+    suspend fun exportToTree(
+        document: TextContentDocument,
+        format: TextExportFormat,
+        treeUri: Uri,
+    ): TextExportResult {
+        val locationLabel = destinationStore.resolveTreeLabel(treeUri)
+        val result =
+            withContext(ioDispatcher) {
+                val requested = safeBaseName(document.baseName) + format.extension
+                val usedNames = loadTreeNames(treeUri)
+                val displayName = allocateUniqueName(requested, usedNames)
+                val parent =
+                    runCatching {
+                        val treeId = DocumentsContract.getTreeDocumentId(treeUri)
+                        DocumentsContract.buildDocumentUriUsingTree(treeUri, treeId)
+                    }.getOrElse {
+                        return@withContext TextExportResult(
+                            exported = false,
+                            displayName = displayName,
+                            error = "无法访问导出目录",
+                            mimeType = format.mimeType,
+                            locationLabel = locationLabel,
+                        )
+                    }
+                var destination: Uri? = null
+                try {
+                    destination =
+                        DocumentsContract.createDocument(
+                            resolver,
+                            parent,
+                            format.mimeType,
+                            displayName,
+                        ) ?: error("无法创建导出文件")
+                    writeDocument(document, format, destination)
+                    TextExportResult(
+                        exported = true,
+                        displayName = displayName,
+                        destinationUri = destination,
+                        mimeType = format.mimeType,
+                        locationLabel = locationLabel,
+                    )
+                } catch (error: Throwable) {
+                    destination?.let {
+                        runCatching { DocumentsContract.deleteDocument(resolver, it) }
+                    }
+                    TextExportResult(
+                        exported = false,
+                        displayName = displayName,
+                        error = error.message ?: "导出失败",
+                        mimeType = format.mimeType,
+                        locationLabel = locationLabel,
+                    )
+                }
+            }
+        publishFeedback(result, format)
+        return result
+    }
 
     suspend fun exportToUri(
         document: TextContentDocument,
         format: TextExportFormat,
         destinationUri: Uri,
-    ): TextExportResult =
-        withContext(ioDispatcher) {
-            val displayName = safeBaseName(document.baseName) + format.extension
-            try {
-                resolver.openOutputStream(destinationUri, "w")
-                    ?.bufferedWriter(Charsets.UTF_8)
-                    ?.use { writer ->
-                        writer.write(document.content(format))
-                    } ?: error("无法写入导出文件")
-                TextExportResult(
-                    exported = true,
-                    displayName = displayName,
-                    destinationUri = destinationUri,
-                )
-            } catch (error: Throwable) {
-                TextExportResult(
-                    exported = false,
-                    displayName = displayName,
-                    error = error.message ?: "导出失败",
-                )
+    ): TextExportResult {
+        val result =
+            withContext(ioDispatcher) {
+                val displayName = safeBaseName(document.baseName) + format.extension
+                try {
+                    writeDocument(document, format, destinationUri)
+                    TextExportResult(
+                        exported = true,
+                        displayName = displayName,
+                        destinationUri = destinationUri,
+                        mimeType = format.mimeType,
+                        locationLabel = "已选择位置",
+                    )
+                } catch (error: Throwable) {
+                    TextExportResult(
+                        exported = false,
+                        displayName = displayName,
+                        error = error.message ?: "导出失败",
+                        mimeType = format.mimeType,
+                        locationLabel = "已选择位置",
+                    )
+                }
             }
+        publishFeedback(result, format)
+        return result
+    }
+
+    private fun publishFeedback(
+        result: TextExportResult,
+        format: TextExportFormat,
+    ) {
+        if (result.exported) {
+            publishExportSuccess(
+                context = appContext,
+                displayName = result.displayName,
+                destinationUri = result.destinationUri,
+                mimeType = result.mimeType ?: format.mimeType,
+                locationLabel = result.locationLabel ?: ExportDestinationStore.DEFAULT_SHORT_LABEL,
+            )
+        } else {
+            publishExportFailure(result.error ?: "导出失败")
         }
+    }
+
+    private fun writeDocument(
+        document: TextContentDocument,
+        format: TextExportFormat,
+        destinationUri: Uri,
+    ) {
+        resolver.openOutputStream(destinationUri, "w")
+            ?.bufferedWriter(Charsets.UTF_8)
+            ?.use { writer ->
+                writer.write(document.content(format))
+            } ?: error("无法写入导出文件")
+    }
 
     private fun TextContentDocument.content(format: TextExportFormat): String =
         when (format) {
@@ -229,6 +333,40 @@ class ContentTextExportCoordinator(
                 }
             }
         }
+        return allocateUniqueName(requested, used)
+    }
+
+    private fun loadTreeNames(treeUri: Uri): Set<String> {
+        val names = linkedSetOf<String>()
+        runCatching {
+            val treeId = DocumentsContract.getTreeDocumentId(treeUri)
+            val children =
+                DocumentsContract.buildChildDocumentsUriUsingTree(
+                    treeUri,
+                    treeId,
+                )
+            resolver.query(
+                children,
+                arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                null,
+                null,
+                null,
+            )?.use { cursor ->
+                val index = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                while (cursor.moveToNext()) {
+                    if (index >= 0 && !cursor.isNull(index)) {
+                        names += cursor.getString(index)
+                    }
+                }
+            }
+        }
+        return names
+    }
+
+    private fun allocateUniqueName(
+        requested: String,
+        used: Set<String>,
+    ): String {
         if (requested !in used) return requested
         val dot = requested.lastIndexOf('.')
         val base = if (dot > 0) requested.substring(0, dot) else requested

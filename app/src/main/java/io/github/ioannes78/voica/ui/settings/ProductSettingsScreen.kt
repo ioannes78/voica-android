@@ -239,8 +239,8 @@ private fun SettingsHome(
                     )
                     HorizontalDivider()
                     SettingsRow(
-                        title = "存储空间",
-                        subtitle = "录音、标准化音频、模型与缓存",
+                        title = "存储与导出",
+                        subtitle = "导出位置、录音、模型与缓存",
                         icon = { Icon(Icons.Outlined.Storage, contentDescription = null) },
                         onClick = { onOpen(SettingsPage.STORAGE) },
                     )

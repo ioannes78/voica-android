@@ -44,14 +44,38 @@ interface SearchDao {
     @Query("SELECT documentId FROM search_documents WHERE tagId = :tagId")
     suspend fun findDocumentIdsForTag(tagId: String): List<String>
 
+    @Query("SELECT DISTINCT recordingId FROM search_documents WHERE documentType = 'RECORDING' AND recordingId IS NOT NULL")
+    suspend fun findIndexedRecordingIds(): List<String>
+
     @Query("SELECT DISTINCT transcriptionId FROM search_documents WHERE documentType = 'TRANSCRIPT_UNIT' AND transcriptionId IS NOT NULL")
     suspend fun findIndexedTranscriptionIds(): List<String>
 
     @Query("SELECT DISTINCT aiSummaryId FROM search_documents WHERE aiSummaryId IS NOT NULL")
     suspend fun findIndexedAiSummaryIds(): List<String>
 
-    @Query("SELECT COUNT(*) FROM search_documents WHERE documentType NOT IN ('RECORDING', 'TRANSCRIPT_UNIT', 'SUMMARY_TITLE_OVERVIEW', 'SUMMARY_ITEM')")
-    suspend fun countLegacyProductSearchRows(): Int
+    @Query("SELECT DISTINCT folderId FROM search_documents WHERE documentType = 'FOLDER' AND folderId IS NOT NULL")
+    suspend fun findIndexedFolderIds(): List<String>
+
+    @Query("SELECT DISTINCT tagId FROM search_documents WHERE documentType = 'TAG' AND tagId IS NOT NULL")
+    suspend fun findIndexedTagIds(): List<String>
+
+    @Query("SELECT COUNT(*) FROM search_documents WHERE documentType NOT IN ('RECORDING', 'FOLDER', 'TAG', 'TRANSCRIPT_UNIT', 'SUMMARY_TITLE_OVERVIEW', 'SUMMARY_ITEM')")
+    suspend fun countUnsupportedProductSearchRows(): Int
+
+    @Query("SELECT * FROM search_documents WHERE documentType = 'RECORDING' AND recordingId IN (:recordingIds)")
+    suspend fun findRecordingDocuments(recordingIds: List<String>): List<SearchDocumentEntity>
+
+    @Query("SELECT * FROM recording_folders ORDER BY name COLLATE NOCASE ASC")
+    suspend fun findAllFolders(): List<FolderEntity>
+
+    @Query("SELECT * FROM recording_folders WHERE folderId = :folderId LIMIT 1")
+    suspend fun findFolder(folderId: String): FolderEntity?
+
+    @Query("SELECT * FROM recording_tags ORDER BY name COLLATE NOCASE ASC")
+    suspend fun findAllTags(): List<TagEntity>
+
+    @Query("SELECT * FROM recording_tags WHERE tagId = :tagId LIMIT 1")
+    suspend fun findTag(tagId: String): TagEntity?
 
     @Query("DELETE FROM search_documents_fts")
     suspend fun clearFts(): Int

@@ -8,6 +8,7 @@ import io.github.ioannes78.voica.model.DecodingModelCatalogProvider
 import io.github.ioannes78.voica.model.DefaultModelInstallBackend
 import io.github.ioannes78.voica.model.DefaultModelManager
 import io.github.ioannes78.voica.model.HttpsModelCatalogTextSource
+import io.github.ioannes78.voica.model.ModelCatalog
 import io.github.ioannes78.voica.model.ModelCatalogCodec
 import io.github.ioannes78.voica.model.ModelCatalogProvider
 import io.github.ioannes78.voica.model.ModelEnvironment
@@ -20,8 +21,15 @@ import java.net.URL
 
 object VoicaModelChannel {
     const val BOOTSTRAP_CATALOG_ASSET = "model-catalog-v1.json"
+    const val PRODUCTION_MODEL_CHANNEL_COMMIT =
+        "be74c7065ce22a5f9b207a7cf1c88d3be0e872ec"
+    const val PRODUCTION_MANIFEST_VERSION = 7
+    const val PRODUCTION_MANIFEST_DIGEST =
+        "8bdb505ce97820cb942bc2855c8a099484b7e22f63ec5567b63f2c1c18d567cf"
     const val PRODUCTION_MANIFEST_URL =
-        "https://raw.githubusercontent.com/ioannes78/voica-model-channel/main/manifests/production.json"
+        "https://raw.githubusercontent.com/ioannes78/voica-model-channel/" +
+            PRODUCTION_MODEL_CHANNEL_COMMIT +
+            "/manifests/production.json"
 
     private const val PREFERENCES_NAME = "voica-model-channel"
     private const val KEY_DEBUG_MANIFEST_URL = "debug-manifest-url"
@@ -72,6 +80,19 @@ object VoicaModelChannel {
             "candidate manifest must be a Voica model-channel release production.json URL"
         }
         preferences.edit().putString(KEY_DEBUG_MANIFEST_URL, normalized).apply()
+    }
+
+    internal fun requirePinnedProductionCatalog(catalog: ModelCatalog): ModelCatalog {
+        require(catalog.channel == "production") {
+            "production model catalog channel mismatch"
+        }
+        require(catalog.manifestVersion == PRODUCTION_MANIFEST_VERSION) {
+            "production model catalog version mismatch"
+        }
+        require(catalog.manifestDigest == PRODUCTION_MANIFEST_DIGEST) {
+            "production model catalog digest mismatch"
+        }
+        return catalog
     }
 
     internal fun isAllowedDebugManifestUrl(value: String): Boolean =
@@ -132,15 +153,22 @@ fun createVoicaModelManager(
     val appVersionCode =
         PackageInfoCompat.getLongVersionCode(packageInfo).toInt()
 
+    val resolvedManifestUrl = VoicaModelChannel.resolveManifestUrl(application)
+    val productionManifestPinned =
+        resolvedManifestUrl == VoicaModelChannel.PRODUCTION_MANIFEST_URL
     val decodedRemoteCatalogProvider =
         DecodingModelCatalogProvider(
-            HttpsModelCatalogTextSource(
-                VoicaModelChannel.resolveManifestUrl(application),
-            ),
+            HttpsModelCatalogTextSource(resolvedManifestUrl),
         )
     val productCatalogProvider =
         ModelCatalogProvider { force ->
-            val catalog = decodedRemoteCatalogProvider.load(force)
+            val decoded = decodedRemoteCatalogProvider.load(force)
+            val catalog =
+                if (productionManifestPinned) {
+                    VoicaModelChannel.requirePinnedProductionCatalog(decoded)
+                } else {
+                    decoded
+                }
             catalog.copy(
                 models =
                     catalog.models.filter { descriptor ->

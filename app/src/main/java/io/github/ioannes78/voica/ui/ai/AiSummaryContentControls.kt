@@ -1,5 +1,6 @@
 package io.github.ioannes78.voica.ui.ai
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,6 +10,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -20,12 +23,14 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -34,8 +39,10 @@ import io.github.ioannes78.voica.ai.AiSummaryRevisionEditor
 import io.github.ioannes78.voica.ai.AiSummaryRevisionProvenance
 import io.github.ioannes78.voica.ai.AiSummarySectionType
 import io.github.ioannes78.voica.database.AiSummaryEvidenceEntity
+import io.github.ioannes78.voica.database.SearchDocumentTypeValue
 import java.text.DateFormat
 import java.util.Date
+import kotlinx.coroutines.delay
 
 @Composable
 fun AiSummaryRevisionBody(
@@ -43,6 +50,22 @@ fun AiSummaryRevisionBody(
     evidenceByRef: Map<String, AiSummaryEvidenceEntity>,
     onSeekEvidence: (Long) -> Unit,
 ) {
+    val searchTarget = LocalAiSummarySearchTarget.current
+    val overviewTargeted =
+        searchTarget?.documentType == SearchDocumentTypeValue.SUMMARY_TITLE_OVERVIEW
+    val overviewRequester = remember(searchTarget?.documentId) { BringIntoViewRequester() }
+    var overviewHighlighted by remember(searchTarget?.documentId) { mutableStateOf(false) }
+
+    LaunchedEffect(searchTarget?.documentId, overviewTargeted, document.overview) {
+        if (overviewTargeted) {
+            delay(60L)
+            overviewRequester.bringIntoView()
+            overviewHighlighted = true
+            delay(2_200L)
+            overviewHighlighted = false
+        }
+    }
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -52,6 +75,19 @@ fun AiSummaryRevisionBody(
                 Text(
                     document.overview,
                     style = MaterialTheme.typography.bodyMedium,
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .bringIntoViewRequester(overviewRequester)
+                            .background(
+                                if (overviewHighlighted) {
+                                    MaterialTheme.colorScheme.secondaryContainer
+                                } else {
+                                    Color.Transparent
+                                },
+                                MaterialTheme.shapes.small,
+                            )
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
                 )
             }
         }
@@ -63,7 +99,43 @@ fun AiSummaryRevisionBody(
                     modifier = Modifier.padding(top = 4.dp),
                 )
                 section.items.forEach { item ->
-                    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    val itemTargeted =
+                        searchTarget?.documentType == SearchDocumentTypeValue.SUMMARY_ITEM &&
+                            searchTarget.itemId == item.id &&
+                            (searchTarget.sectionId == null || searchTarget.sectionId == section.id)
+                    val itemRequester =
+                        remember(searchTarget?.documentId, section.id, item.id) {
+                            BringIntoViewRequester()
+                        }
+                    var itemHighlighted by
+                        remember(searchTarget?.documentId, section.id, item.id) {
+                            mutableStateOf(false)
+                        }
+                    LaunchedEffect(searchTarget?.documentId, itemTargeted) {
+                        if (itemTargeted) {
+                            delay(60L)
+                            itemRequester.bringIntoView()
+                            itemHighlighted = true
+                            delay(2_200L)
+                            itemHighlighted = false
+                        }
+                    }
+                    Column(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .bringIntoViewRequester(itemRequester)
+                                .background(
+                                    if (itemHighlighted) {
+                                        MaterialTheme.colorScheme.secondaryContainer
+                                    } else {
+                                        Color.Transparent
+                                    },
+                                    MaterialTheme.shapes.small,
+                                )
+                                .padding(horizontal = 4.dp, vertical = 2.dp),
+                        verticalArrangement = Arrangement.spacedBy(1.dp),
+                    ) {
                         SelectionContainer {
                             Text("• " + item.text)
                         }

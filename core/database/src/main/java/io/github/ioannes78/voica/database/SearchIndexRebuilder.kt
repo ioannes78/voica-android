@@ -37,6 +37,15 @@ class SearchIndexRebuilder(
                     }
                 }
 
+            searchDao.findAllFolders().forEach { folder ->
+                indexFolder(folder)
+                count += 1L
+            }
+            searchDao.findAllTags().forEach { tag ->
+                indexTag(tag)
+                count += 1L
+            }
+
             searchRepository.markReady(count)
         } catch (error: Throwable) {
             searchRepository.markFailed(error.message)
@@ -61,10 +70,12 @@ class SearchIndexRebuilder(
 
     suspend fun reindexFolder(folderId: String) {
         searchRepository.deleteForFolder(folderId)
+        searchDao.findFolder(folderId)?.let { indexFolder(it) }
     }
 
     suspend fun reindexTag(tagId: String) {
         searchRepository.deleteForTag(tagId)
+        searchDao.findTag(tagId)?.let { indexTag(it) }
     }
 
     suspend fun reindexTranscription(transcriptionId: String) {
@@ -102,16 +113,25 @@ class SearchIndexRebuilder(
     }
 
     private suspend fun isEffectiveOnlyIndex(): Boolean {
-        if (searchDao.countLegacyProductSearchRows() != 0) return false
+        if (searchDao.countUnsupportedProductSearchRows() != 0) return false
         val activeRecordings = recordingDao.allRecordings().filter { it.state == RecordingState.ACTIVE }
+        val expectedRecordingIds = activeRecordings.mapTo(mutableSetOf()) { it.id }
         val expectedTranscriptions =
             activeRecordings.mapNotNull { resolveCurrentTranscription(it.id)?.id }.toSet()
         val expectedSummaries =
             activeRecordings.mapNotNull { resolveCurrentAiSummary(it.id)?.id }.toSet()
+        val expectedFolderIds = searchDao.findAllFolders().mapTo(mutableSetOf()) { it.folderId }
+        val expectedTagIds = searchDao.findAllTags().mapTo(mutableSetOf()) { it.tagId }
+        val indexedRecordingIds = searchDao.findIndexedRecordingIds().toSet()
         val indexedTranscriptions = searchDao.findIndexedTranscriptionIds().toSet()
         val indexedSummaries = searchDao.findIndexedAiSummaryIds().toSet()
-        return indexedTranscriptions == expectedTranscriptions &&
-            indexedSummaries == expectedSummaries
+        val indexedFolderIds = searchDao.findIndexedFolderIds().toSet()
+        val indexedTagIds = searchDao.findIndexedTagIds().toSet()
+        return indexedRecordingIds == expectedRecordingIds &&
+            indexedTranscriptions == expectedTranscriptions &&
+            indexedSummaries == expectedSummaries &&
+            indexedFolderIds == expectedFolderIds &&
+            indexedTagIds == expectedTagIds
     }
 
     private suspend fun resolveCurrentTranscription(recordingId: String): TranscriptionEntity? {
@@ -145,6 +165,32 @@ class SearchIndexRebuilder(
                         recording.recordedAtLocalIso,
                     ).joinToString(" · "),
                 updatedAtMs = recording.updatedAtMs,
+            ),
+        )
+    }
+
+    private suspend fun indexFolder(folder: FolderEntity) {
+        searchRepository.upsert(
+            SearchDocumentDraft(
+                documentId = "folder:" + folder.folderId,
+                documentType = SearchDocumentTypeValue.FOLDER,
+                folderId = folder.folderId,
+                displayTitle = folder.name,
+                displayText = "",
+                updatedAtMs = folder.updatedAtMs,
+            ),
+        )
+    }
+
+    private suspend fun indexTag(tag: TagEntity) {
+        searchRepository.upsert(
+            SearchDocumentDraft(
+                documentId = "tag:" + tag.tagId,
+                documentType = SearchDocumentTypeValue.TAG,
+                tagId = tag.tagId,
+                displayTitle = tag.name,
+                displayText = "",
+                updatedAtMs = tag.updatedAtMs,
             ),
         )
     }

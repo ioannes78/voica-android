@@ -1,40 +1,9 @@
 package io.github.ioannes78.voica.protocol
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DeviceDecodersTest {
-    @Test
-    fun legacyFileListAdapterUsesStrictDecoder() {
-        val body = ByteArray(4 + ProtocolConstants.LIST_BASE_ENTRY_LENGTH)
-        putU32Be(body, 0, 1)
-        putU32Be(body, 4, 120)
-        putU32Be(body, 8, 4096)
-        "note20260929-120000.".encodeToByteArray().copyInto(body, destinationOffset = 12)
-
-        val entry = DeviceDecoders.decodeFileList(body).single()
-
-        assertEquals(120L, entry.durationSeconds)
-        assertEquals(4096L, entry.sizeBytes)
-        assertEquals("note20260929-120000.", entry.name)
-        assertEquals(
-            listOf("note20260929-120000.opus", "note20260929-120000."),
-            entry.candidateNames,
-        )
-    }
-
-    @Test
-    fun legacyFileListAdapterRejectsIncompletePayloadInsteadOfReturningPartialData() {
-        val body = ByteArray(4 + ProtocolConstants.LIST_BASE_ENTRY_LENGTH + 10)
-        putU32Be(body, 0, 2)
-        putU32Be(body, 4, 10)
-        putU32Be(body, 8, 100)
-        "a.opus".encodeToByteArray().copyInto(body, destinationOffset = 12)
-
-        assertTrue(DeviceDecoders.decodeFileList(body).isEmpty())
-    }
-
     @Test
     fun detectsLittleEndianCapacity() {
         val body = ByteArray(8)
@@ -63,13 +32,12 @@ class DeviceDecodersTest {
 
     @Test
     fun shortBodiesAreSafe() {
-        assertTrue(DeviceDecoders.decodeFileList(byteArrayOf()).isEmpty())
         assertEquals(0, DeviceDecoders.decodeBattery(byteArrayOf()))
         try {
             DeviceDecoders.decodeRecordTime(byteArrayOf(1, 2))
             throw AssertionError("短录音时间响应必须拒绝，不能伪装成 0/0")
         } catch (_: IllegalArgumentException) {
-            // Stage 3: malformed TIME_RESPONSE is explicit decode failure.
+            // Malformed TIME_RESPONSE is an explicit decode failure.
         }
     }
 

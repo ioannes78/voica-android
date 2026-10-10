@@ -339,6 +339,7 @@ fun TranscriptSegmentCard(
     segment: TranscriptDisplaySegment,
     isActive: Boolean,
     activeCueId: String?,
+    searchHighlighted: Boolean = false,
     syncEnabled: Boolean,
     onSeek: (Long) -> Unit,
 ) {
@@ -391,10 +392,10 @@ fun TranscriptSegmentCard(
             Modifier
                 .fillMaxWidth()
                 .background(
-                    if (isActive) {
-                        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
-                    } else {
-                        MaterialTheme.colorScheme.surface
+                    when {
+                        searchHighlighted -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
+                        isActive -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
+                        else -> MaterialTheme.colorScheme.surface
                     },
                     RoundedCornerShape(8.dp),
                 )
@@ -414,7 +415,7 @@ fun TranscriptSegmentCard(
                     it,
                     style = MaterialTheme.typography.labelMedium,
                     color =
-                        if (isActive) MaterialTheme.colorScheme.primary
+                        if (isActive || searchHighlighted) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
                 )

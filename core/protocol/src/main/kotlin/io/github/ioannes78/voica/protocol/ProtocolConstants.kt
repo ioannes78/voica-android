@@ -8,11 +8,6 @@ object ProtocolConstants {
     const val LIST_BASE_NAME_LENGTH = 20
     const val LIST_BASE_ENTRY_LENGTH = 28
 
-    @Deprecated("Stage 4 supports dynamic list filename fields; use LIST_BASE_NAME_LENGTH.")
-    const val LIST_NAME_LENGTH = LIST_BASE_NAME_LENGTH
-    @Deprecated("Stage 4 supports dynamic list filename fields; use LIST_BASE_ENTRY_LENGTH.")
-    const val LIST_ENTRY_LENGTH = LIST_BASE_ENTRY_LENGTH
-
     object Type {
         const val CONTROL = 0
         const val REALTIME = 1
@@ -31,9 +26,6 @@ object ProtocolConstants {
         const val GET_AUTH = 12
         const val AUTH_RESPONSE = 13
         const val BATTERY_VALUE_CHARGING = 110
-
-        @Deprecated("Use BATTERY_VALUE_CHARGING; 110 is a battery-response value, not a command.")
-        const val BATTERY_CHARGING = BATTERY_VALUE_CHARGING
     }
 
     object Realtime {
@@ -80,23 +72,6 @@ object ProtocolConstants {
         const val GAIN_RESPONSE = 26
         const val SET_GAIN = 27
         const val SET_GAIN_RESPONSE = 28
-
-        @Deprecated("Use HARDWARE_RECORD_START")
-        const val RECORD_START = HARDWARE_RECORD_START
-        @Deprecated("Use APP_RECORD_START")
-        const val RECORD_START_RESPONSE = APP_RECORD_START
-        @Deprecated("Use HARDWARE_RECORD_SAVE")
-        const val RECORD_SAVE = HARDWARE_RECORD_SAVE
-        @Deprecated("Use APP_RECORD_SAVE")
-        const val RECORD_SAVE_RESPONSE = APP_RECORD_SAVE
-        @Deprecated("Use HARDWARE_RECORD_PAUSE")
-        const val RECORD_PAUSE = HARDWARE_RECORD_PAUSE
-        @Deprecated("Use APP_RECORD_PAUSE")
-        const val RECORD_PAUSE_RESPONSE = APP_RECORD_PAUSE
-        @Deprecated("Use HARDWARE_RECORD_RESUME")
-        const val RECORD_RESUME = HARDWARE_RECORD_RESUME
-        @Deprecated("Use APP_RECORD_RESUME")
-        const val RECORD_RESUME_RESPONSE = APP_RECORD_RESUME
     }
 
     object RecordingStateValue {

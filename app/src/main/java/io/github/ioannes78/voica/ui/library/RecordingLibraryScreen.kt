@@ -228,9 +228,6 @@ fun RecordingLibraryScreen(
                         style = MaterialTheme.typography.headlineMedium,
                         modifier = Modifier.weight(1f),
                     )
-                    IconButton(onClick = onOpenUnifiedSearch) {
-                        Icon(Icons.Outlined.Search, contentDescription = "搜索全部内容")
-                    }
                     if (state.importState is LibraryImportState.Importing) {
                         TextButton(onClick = onCancelImport) {
                             Text("取消导入")
