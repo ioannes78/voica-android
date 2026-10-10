@@ -40,6 +40,23 @@ data class CanonicalPerformanceSnapshot(
                 append(" moveMs=").append(timing.writer.moveNanos.toMillis())
                 append(" outputShaMs=").append(timing.writer.outputHashNanos.toMillis())
                 append(" pipelineMs=").append(timing.pipelineNanos.toMillis())
+                timing.metadataDurationUs?.let { metadata ->
+                    append(" metadataDurationMs=").append(metadata / 1_000L)
+                }
+                timing.decodedFrameDurationUs?.let { decoded ->
+                    append(" decodedFrameDurationMs=").append(decoded / 1_000L)
+                }
+                timing.mediaTimelineDurationUs?.let { media ->
+                    append(" mediaTimelineDurationMs=").append(media / 1_000L)
+                }
+                timing.canonicalDurationUs?.let { canonical ->
+                    append(" canonicalDurationMs=").append(canonical / 1_000L)
+                }
+                val metadata = timing.metadataDurationUs
+                val media = timing.mediaTimelineDurationUs
+                if (metadata != null && media != null) {
+                    append(" durationDeltaMs=").append((media - metadata) / 1_000L)
+                }
             }
             append(" roomCommitMs=").append(roomCommitNanos.toMillis())
             append(" totalMs=").append(totalWallNanos.toMillis())
