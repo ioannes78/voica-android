@@ -1,8 +1,8 @@
 # Stage 14.6 — V1 Release Candidate
 
-Status: **RC CI PASS / REAL-DEVICE ACCEPTANCE PENDING / FINAL FREEZE BLOCKED**
+Status: **ACCEPTED / RC CI PASS / REAL-DEVICE ACCEPTANCE PASS / FINAL FREEZE BLOCKED**
 
-This record prepares the final V1 release-candidate gate. It is **not** the Stage 14 Final Freeze/Handoff and it does not claim that a signed production release exists.
+This record prepares and accepts the final V1 release-candidate gate. It is **not** the Stage 14 Final Freeze/Handoff and it does not claim that a signed production release exists.
 
 ## 1. Scope
 
@@ -148,17 +148,27 @@ Therefore Stage 14 Final Freeze must remain blocked until that evidence is eithe
 
 Virtual 30/60/120-minute timeline tests must not be substituted for real-device soak evidence.
 
-### 6.3 Stage 14.6 RC real-device acceptance — PENDING
+### 6.3 Stage 14.6 RC real-device acceptance — PASS
 
-The production-like ReleaseQa APK for source head `c7ccdd77e71daf2f11cb88489bd0b3a0fab3b80b`, SHA-256 `48a0b1b5a41f415c71bbb21c9ab9bc7dd94dd277b8b2e5a37d35e408fce737cc`, must receive explicit user acceptance before Stage 14.6 is accepted.
+On 2026-10-10 the user explicitly reported **“测试通过”** after running the Stage 14.6 production-like ReleaseQa RC smoke.
 
-Because Stage 14.6 changes release gating only, the RC smoke does not need to repeat every previously accepted deep regression unless the RC exposes a regression. It must at minimum confirm that the final candidate installs/upgrades and that critical V1 paths remain operational.
+Accepted binary identity:
+
+- source head: `c7ccdd77e71daf2f11cb88489bd0b3a0fab3b80b`
+- ReleaseQa SHA-256: `48a0b1b5a41f415c71bbb21c9ab9bc7dd94dd277b8b2e5a37d35e408fce737cc`
+- ReleaseQa size: `30,651,379 bytes`
+- versionCode: `87`
+- versionName: `1.0.0-rc3-r2-export-qa`
+
+The accepted smoke covered the Stage 14.6 candidate gate requested for the final RC. No product regression was reported.
+
+This acceptance closes Stage 14.6 itself, but it does **not** clear the production signer or 30/60/120-minute stability blockers above.
 
 ## 7. Stage 14.6 RC smoke checklist
 
-Use the production-like `releaseQa` APK from Stage 14.6 source head `c7ccdd77e71daf2f11cb88489bd0b3a0fab3b80b`.
+The accepted production-like `releaseQa` APK came from Stage 14.6 source head `c7ccdd77e71daf2f11cb88489bd0b3a0fab3b80b`.
 
-Minimum candidate smoke:
+Minimum candidate smoke baseline:
 
 - install/upgrade over the existing Stage 14 QA package without data loss;
 - app launches and Recording Library loads normally;
@@ -174,7 +184,7 @@ Minimum candidate smoke:
 - audio/transcript/summary export works for system default and, when configured, the persisted custom SAF folder;
 - restart/reopen does not corrupt Current/Candidate/History state.
 
-Any failure that points to product behavior invalidates the assumption that Stage 14.6 is release-gate-only and must be investigated before acceptance.
+Stage 14.6 real-device RC acceptance: **PASS**.
 
 ## 8. Dedicated 30 / 60 / 120 minute evidence record template
 
@@ -197,15 +207,18 @@ If a measurement cannot be obtained reliably, record it as `N/A` with the reason
 
 ## 9. Stage 14.6 acceptance rule
 
-Current gate state:
+Final Stage 14.6 gate state:
 
 1. Stage 14.6 source head passes Android PR CI — **PASS**;
 2. the same source head passes Android Full Release Gate — **PASS**;
 3. releaseQa artifact provenance/hash recorded — **PASS**;
-4. explicit RC real-device smoke acceptance — **PENDING**.
+4. explicit RC real-device smoke acceptance — **PASS**.
 
-Therefore Stage 14.6 is **CI-complete but not yet user-accepted**.
+Therefore Stage 14.6 is **ACCEPTED**.
 
-Even after Stage 14.6 acceptance, **Stage 14 Final Freeze/Handoff remains blocked** until the production signer and required auditable 30/60/120-minute real-device stability evidence are resolved.
+Stage 14 Final Freeze/Handoff remains **BLOCKED** until both remaining release blockers are resolved:
 
-Do not merge PR #24 and do not create Stage 14 Final Freeze/Handoff merely because CI is green.
+- first production signer provisioned and signed production artifact identity recorded;
+- auditable 30/60/120-minute real-device stability evidence completed and recorded.
+
+Do not merge PR #24 and do not create Stage 14 Final Freeze/Handoff merely because Stage 14.6 is accepted.
