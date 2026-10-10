@@ -30,44 +30,42 @@ class MainActivity : ComponentActivity() {
         setContent {
             val themeSettings by appContainer.themeSettingsStore.settings.collectAsState()
             VoicaTheme(settings = themeSettings) {
-                ExportFeedbackHost {
-                    Stage13B5Qa4GlobalAttentionHost(container = appContainer) {
-                        VoicaApp(
-                            repository = deviceRepository,
-                            recordingLibraryRepository = recordingLibraryRepository,
-                            canonicalAudioCoordinator = canonicalAudioCoordinator,
-                            localAudioImportCoordinator = appContainer.localAudioImportCoordinator,
-                            localRecordingDeleteCoordinator =
-                                appContainer.localRecordingDeleteCoordinator,
-                            localAudioExportCoordinator =
-                                appContainer.localAudioExportCoordinator,
-                            storageManagementCoordinator =
-                                appContainer.storageManagementCoordinator,
-                            playbackController = appContainer.playbackController,
-                            modelManager = appContainer.modelManager,
-                            modelUpdateController = appContainer.modelUpdateController,
-                            transcriptionCoordinator = appContainer.transcriptionCoordinator,
-                            transcriptionRepository = appContainer.transcriptionRepository,
-                            stage12CContentRepository = appContainer.stage12CContentRepository,
-                            unifiedSearchRepository = appContainer.unifiedSearchRepository,
-                            searchIndexRebuilder = appContainer.searchIndexRebuilder,
-                            diarizationCoordinator = appContainer.diarizationCoordinator,
-                            diarizationRepository = appContainer.diarizationRepository,
-                            aiSummaryCoordinator = appContainer.aiSummaryCoordinator,
-                            aiSummaryRepository = appContainer.aiSummaryRepository,
-                            providerProfileStore = appContainer.providerProfileStore,
-                            providerConfigurationRepository =
-                                appContainer.providerConfigurationRepository,
-                            providerAdapterRegistry = appContainer.providerAdapterRegistry,
-                            themeSettingsStore = appContainer.themeSettingsStore,
-                            localSpeechSettingsStore = appContainer.localSpeechSettingsStore,
-                            speechBenchmarkRunner =
-                                appContainer.speechBenchmarkRunner.takeIf {
-                                    VoicaModelChannel.isDebuggable(application)
-                                },
-                            diarizationBenchmarkRunner = null,
-                        )
-                    }
+                Stage13B5Qa4GlobalAttentionHost(container = appContainer) {
+                    VoicaApp(
+                        repository = deviceRepository,
+                        recordingLibraryRepository = recordingLibraryRepository,
+                        canonicalAudioCoordinator = canonicalAudioCoordinator,
+                        localAudioImportCoordinator = appContainer.localAudioImportCoordinator,
+                        localRecordingDeleteCoordinator =
+                            appContainer.localRecordingDeleteCoordinator,
+                        localAudioExportCoordinator =
+                            appContainer.localAudioExportCoordinator,
+                        storageManagementCoordinator =
+                            appContainer.storageManagementCoordinator,
+                        playbackController = appContainer.playbackController,
+                        modelManager = appContainer.modelManager,
+                        modelUpdateController = appContainer.modelUpdateController,
+                        transcriptionCoordinator = appContainer.transcriptionCoordinator,
+                        transcriptionRepository = appContainer.transcriptionRepository,
+                        stage12CContentRepository = appContainer.stage12CContentRepository,
+                        unifiedSearchRepository = appContainer.unifiedSearchRepository,
+                        searchIndexRebuilder = appContainer.searchIndexRebuilder,
+                        diarizationCoordinator = appContainer.diarizationCoordinator,
+                        diarizationRepository = appContainer.diarizationRepository,
+                        aiSummaryCoordinator = appContainer.aiSummaryCoordinator,
+                        aiSummaryRepository = appContainer.aiSummaryRepository,
+                        providerProfileStore = appContainer.providerProfileStore,
+                        providerConfigurationRepository =
+                            appContainer.providerConfigurationRepository,
+                        providerAdapterRegistry = appContainer.providerAdapterRegistry,
+                        themeSettingsStore = appContainer.themeSettingsStore,
+                        localSpeechSettingsStore = appContainer.localSpeechSettingsStore,
+                        speechBenchmarkRunner =
+                            appContainer.speechBenchmarkRunner.takeIf {
+                                VoicaModelChannel.isDebuggable(application)
+                            },
+                        diarizationBenchmarkRunner = null,
+                    )
                 }
             }
         }
