@@ -1,3 +1,0 @@
-CI strategy optimization benchmark marker.
-This file exists only to trigger apples-to-apples CI benchmarks before and after the CI workflow change.
-Candidate gate validation trigger: 2026-10-10.
