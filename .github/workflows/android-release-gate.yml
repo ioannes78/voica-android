@@ -1,0 +1,186 @@
+name: Android Full Release Gate
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - "app/**"
+      - "core/**"
+      - "engine/**"
+      - "ci/**"
+      - "gradle.properties"
+      - "settings.gradle.kts"
+      - "build.gradle.kts"
+      - ".github/workflows/android-release-gate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-release-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VOICA_VERSION_CODE: "87"
+  VOICA_RELEASE_VERSION: "1.0.0-rc3-r2"
+  VOICA_RELEASEQA_VERSION: "1.0.0-rc3-r2-export-qa"
+  VOICA_MODEL_CHANNEL_COMMIT: "be74c7065ce22a5f9b207a7cf1c88d3be0e872ec"
+  VOICA_MODEL_MANIFEST_VERSION: "7"
+  VOICA_MODEL_MANIFEST_DIGEST: "8bdb505ce97820cb942bc2855c8a099484b7e22f63ec5567b63f2c1c18d567cf"
+
+jobs:
+  full-release-gate:
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.title, '[APK]') || contains(github.event.pull_request.title, '[RELEASE]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+
+      - name: Install Android build and native toolchains
+        shell: bash
+        run: |
+          sdkmanager \
+            "platforms;android-37.1" \
+            "build-tools;36.0.0" \
+            "ndk;28.2.13676358" \
+            "cmake;3.22.1"
+
+      - name: Setup Gradle 9.6
+        uses: gradle/actions/setup-gradle@v5.0.2
+        with:
+          gradle-version: "9.6.0"
+          cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+          cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+
+      - name: Prefetch and verify Opus 1.6.1 source
+        shell: bash
+        run: bash ci/prepare-opus-source.sh
+
+      - name: Build full unsigned Release surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle \
+            :app:assembleReleaseQa \
+            :app:assembleRelease \
+            :app:bundleRelease \
+            --no-configuration-cache \
+            --stacktrace
+
+      - name: Verify R8 outputs
+        shell: bash
+        run: |
+          bash ci/verify-r8-outputs.sh releaseQa
+          bash ci/verify-r8-outputs.sh release
+
+      - name: Verify ReleaseQa identity and QA signer
+        shell: bash
+        run: |
+          bash ci/verify-release-artifact.sh \
+            app/build/outputs/apk/releaseQa/app-releaseQa.apk \
+            io.github.ioannes78.voica.qa \
+            "$VOICA_VERSION_CODE" \
+            "$VOICA_RELEASEQA_VERSION" \
+            qa
+
+      - name: Verify unsigned Release APK identity
+        shell: bash
+        run: |
+          bash ci/verify-release-artifact.sh \
+            app/build/outputs/apk/release/app-release-unsigned.apk \
+            io.github.ioannes78.voica \
+            "$VOICA_VERSION_CODE" \
+            "$VOICA_RELEASE_VERSION" \
+            unsigned
+
+      - name: Verify Release AAB structure and identity contract
+        shell: bash
+        run: |
+          bash ci/verify-release-aab.sh \
+            app/build/outputs/bundle/release/app-release.aab \
+            io.github.ioannes78.voica \
+            "$VOICA_VERSION_CODE" \
+            "$VOICA_RELEASE_VERSION"
+
+      - name: Verify security and model-channel boundary
+        shell: bash
+        run: |
+          bash ci/verify-release-security.sh app/build/outputs/apk/releaseQa/app-releaseQa.apk
+          bash ci/verify-release-security.sh app/build/outputs/apk/release/app-release-unsigned.apk
+
+      - name: Verify Sherpa JNI and native packaging
+        shell: bash
+        run: |
+          bash ci/verify-sherpa-package.sh apk app/build/outputs/apk/releaseQa/app-releaseQa.apk
+          bash ci/verify-sherpa-package.sh apk app/build/outputs/apk/release/app-release-unsigned.apk
+          bash ci/verify-sherpa-package.sh aab app/build/outputs/bundle/release/app-release.aab
+
+      - name: Verify Room schema provenance
+        shell: bash
+        run: bash ci/verify-room-schemas.sh
+
+      - name: Verify production signing configuration guardrails
+        shell: bash
+        run: bash ci/verify-production-signing-config.sh
+
+      - name: Verify production signing artifact boundary
+        shell: bash
+        run: bash ci/verify-production-signing-boundary.sh app/build/outputs/apk/release/app-release-unsigned.apk
+
+      - name: Generate Release provenance
+        shell: bash
+        run: |
+          bash ci/generate-release-provenance.sh \
+            app/build/outputs/apk/release/app-release-unsigned.apk \
+            app/build/outputs/bundle/release/app-release.aab \
+            app/build/outputs/apk/releaseQa/app-releaseQa.apk \
+            build/release-provenance.txt
+
+      - name: Upload production-like QA APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Voica-release-gate-releaseqa-apk
+          path: app/build/outputs/apk/releaseQa/app-releaseQa.apk
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload UNSIGNED Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Voica-release-UNSIGNED-apk
+          path: app/build/outputs/apk/release/app-release-unsigned.apk
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload UNSIGNED Release AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: Voica-release-UNSIGNED-aab
+          path: app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload Release provenance and mappings
+        uses: actions/upload-artifact@v4
+        with:
+          name: Voica-release-provenance
+          path: |
+            build/release-provenance.txt
+            app/build/outputs/mapping/release/mapping.txt
+            app/build/outputs/mapping/releaseQa/mapping.txt
+          if-no-files-found: error
+          retention-days: 7
