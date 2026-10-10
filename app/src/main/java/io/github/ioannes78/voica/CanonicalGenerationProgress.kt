@@ -111,13 +111,20 @@ class CanonicalGenerationProgressRuntime(
     ) {
         val now = nowMs()
         val previous = mutableProgress.value[recordingId] ?: return
-        val last = lastWorkPublishMs[recordingId] ?: Long.MIN_VALUE
+        val last = lastWorkPublishMs[recordingId]
         val terminalSample =
             work.totalDurationUs?.takeIf { it > 0L }
                 ?.let { work.processedDurationUs >= it } == true ||
                 work.totalUnits?.takeIf { it > 0L }
                     ?.let { work.processedUnits >= it } == true
-        if (!force && !terminalSample && now - last < MIN_WORK_PUBLISH_INTERVAL_MS) return
+        if (
+            !force &&
+            !terminalSample &&
+            last != null &&
+            now - last < MIN_WORK_PUBLISH_INTERVAL_MS
+        ) {
+            return
+        }
 
         lastWorkPublishMs[recordingId] = now
         publish(
