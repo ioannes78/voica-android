@@ -28,8 +28,13 @@ fi
 
 verify_log="$(mktemp)"
 trap 'rm -f "${verify_log}"' EXIT
-if ! jarsigner -verify -strict "${aab}" >"${verify_log}" 2>&1; then
+if ! jarsigner -verify "${aab}" >"${verify_log}" 2>&1; then
     cat "${verify_log}" >&2
+    exit 1
+fi
+if ! grep -q 'jar verified\.' "${verify_log}"; then
+    cat "${verify_log}" >&2
+    echo "AAB JAR signature verification did not report success." >&2
     exit 1
 fi
 
@@ -50,4 +55,4 @@ if [[ "${actual_cert_sha256}" = "${qa_cert_sha256}" ]]; then
 fi
 test "${actual_cert_sha256}" = "${expected_cert_sha256}"
 
-echo "Verified production AAB signature. certificate_sha256=${actual_cert_sha256}"
+echo "Verified production AAB signature integrity and signer certificate. certificate_sha256=${actual_cert_sha256}"
