@@ -63,16 +63,49 @@ The Production Gate does **not** rebuild `releaseQa` and does not build an unsig
 
 Fast PR and QA gates use Gradle configuration cache. Production signing initially remains on `--no-configuration-cache` until the release path has a separate compatibility qualification; release reliability has priority over a small additional speed gain.
 
-## Benchmark baseline
+## Real CI benchmark — 2026-10-10
 
-The optimization benchmark uses the same Draft PR and `[APK]` title before and after the strategy change.
+The optimization benchmark used the same Draft PR and the same `[APK]` intent before and after the strategy change.
 
-Old-strategy baseline on 2026-10-10:
+### Old strategy
 
-- Android PR CI #1166: approximately 8m05s total; main Gradle invocation 6m52s.
-- Android Full Release Gate #26: approximately 11m21s total; main Gradle invocation 9m50s.
-- `[APK]` wall-clock completion was therefore approximately 11m21s.
-- Approximate combined runner occupancy was 19m26s.
+- Android PR CI #1166: approximately **8m05s** total; main Gradle invocation **6m52s**.
+- Android Full Release Gate #26: approximately **11m21s** total; main Gradle invocation **9m50s**.
+- `[APK]` wall-clock completion: approximately **11m21s**.
+- Approximate combined runner occupancy: **19m26s**.
 - Both heavy jobs attempted to write Gradle cache entries and produced cache reservation conflicts.
+- The Release Gate redundantly built `releaseQa + unsigned Release APK + Release AAB` even though the request was only for a QA APK.
 
-The optimized-run measurements are added after the same PR is rerun with this strategy.
+### Optimized strategy
+
+- Android PR CI #1171 — Fast PR Gate: **3m17s** total; Gradle unit/debug gate approximately **2m03s**; configuration cache stored successfully.
+- Android PR CI #1171 — QA APK Gate: **4m58s** total; `assembleReleaseQa` Gradle build approximately **3m47s**; configuration cache stored successfully.
+- Android Production Gate #31: **SKIPPED by design** for `[APK]`.
+- `[APK]` wall-clock completion: approximately **5m01s**.
+- Approximate combined runner occupancy: **8m15s**.
+- QA and production jobs use read-only Gradle caches, so the old multi-writer cache reservation conflict is removed.
+
+Measured improvement:
+
+| Metric | Old | Optimized | Reduction |
+| --- | ---: | ---: | ---: |
+| `[APK]` wall-clock | 11m21s | 5m01s | **55.8%** |
+| combined runner occupancy | 19m26s | 8m15s | **57.5%** |
+| first fast feedback | 8m05s | 3m17s | **59.4%** |
+
+These are observed GitHub Actions timings, not estimates. Individual future runs can vary with GitHub-hosted runner/network/cache conditions.
+
+## Production Candidate validation
+
+The production path was separately exercised on the same CI-only PR with `[CANDIDATE]` after the `[APK]` benchmark.
+
+- Android Production Gate #32: **SUCCESS**.
+- Production preflight: **SUCCESS**.
+- Production signed candidate/release job: approximately **5m05s**.
+- The only production Gradle build was `assembleRelease + bundleRelease`: **3m23s**, 320 actionable tasks (200 executed, 120 from cache).
+- QA APK Gate: **SKIPPED**, as intended for `[CANDIDATE]`.
+- Production certificate validation, signed APK/AAB verification, R8, security, Sherpa/native packaging, Room schema, provenance, artifact upload, and temporary-keystore cleanup all passed.
+- Provenance correctly records `releaseqa_apk_sha256=N/A` and `releaseqa_apk_size=N/A`, proving the production path no longer rebuilds QA solely for provenance.
+- Production Gradle cache was read-only and did not write cache state after the job.
+
+The candidate validation used the unchanged V1 metadata (`versionCode 88`, `versionName 1.0.0`) only to validate the CI machinery. It is **not** a real overwrite-upgrade candidate and must not be used to test upgrading an installed V1.0 build with the same versionCode. A real Post-V1 candidate must use a versionCode greater than the installed production build; if the final release must then overwrite that candidate, the final release must advance versionCode again.
