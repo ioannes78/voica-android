@@ -9,6 +9,20 @@ enum class CanonicalAudioStage {
     VERIFYING,
 }
 
+data class CanonicalAudioWorkProgress(
+    val processedDurationUs: Long,
+    val totalDurationUs: Long?,
+    val processedUnits: Long,
+    val totalUnits: Long?,
+) {
+    init {
+        require(processedDurationUs >= 0L)
+        require(totalDurationUs == null || totalDurationUs >= 0L)
+        require(processedUnits >= 0L)
+        require(totalUnits == null || totalUnits >= 0L)
+    }
+}
+
 object CanonicalPcmProfile {
     const val SAMPLE_RATE_HZ = 16_000
     const val CHANNEL_COUNT = 1
