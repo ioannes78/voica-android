@@ -10,6 +10,7 @@ import io.github.ioannes78.voica.audio.CompressedAudioDecoder
 import io.github.ioannes78.voica.audio.CompressedAudioDescriptor
 import io.github.ioannes78.voica.audio.DecodedPcmFormat
 import io.github.ioannes78.voica.audio.Pcm16DecodeSink
+import io.github.ioannes78.voica.audio.sampleIndexToTimeUs
 import java.io.File
 import java.nio.ByteOrder
 import kotlinx.coroutines.CancellationException
@@ -66,6 +67,7 @@ class AndroidMediaDecoder : CompressedAudioDecoder {
                 var outputDone = false
                 var outputFormat: DecodedPcmFormat? = null
                 var totalFrames = 0L
+                var presentationEndTimeUs: Long? = null
                 var pcmBuffer = ShortArray(0)
 
                 while (!outputDone) {
@@ -135,8 +137,24 @@ class AndroidMediaDecoder : CompressedAudioDecoder {
                                     }
                                     view.asShortBuffer().get(pcmBuffer, 0, sampleCount)
                                     val frameCount = sampleCount / format.channelCount
-                                    sink.onSamples(pcmBuffer, frameCount)
+                                    val presentationTimeUs =
+                                        bufferInfo.presentationTimeUs.takeIf { it >= 0L }
+                                    sink.onSamplesAt(
+                                        samples = pcmBuffer,
+                                        frameCount = frameCount,
+                                        presentationTimeUs = presentationTimeUs,
+                                    )
                                     totalFrames += frameCount
+                                    presentationTimeUs?.let { startUs ->
+                                        val endUs =
+                                            startUs +
+                                                sampleIndexToTimeUs(
+                                                    frameCount.toLong(),
+                                                    format.sampleRateHz,
+                                                )
+                                        presentationEndTimeUs =
+                                            maxOf(presentationEndTimeUs ?: 0L, endUs)
+                                    }
                                 }
 
                                 outputDone =
@@ -154,6 +172,7 @@ class AndroidMediaDecoder : CompressedAudioDecoder {
                     input = descriptor,
                     output = finalFormat,
                     decodedFrameCount = totalFrames,
+                    presentationEndTimeUs = presentationEndTimeUs,
                 )
             } finally {
                 runCatching { codec?.stop() }
