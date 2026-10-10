@@ -18,6 +18,7 @@ class PcmWavToCanonicalWavConverter {
         verifiedSourceSha256: String? = null,
         isCancelled: () -> Boolean = { false },
         onStage: (CanonicalAudioStage) -> Unit = {},
+        onProgress: (CanonicalAudioWorkProgress) -> Unit = {},
     ): PcmWavConversionResult {
         val parsed = WavPcmParser.parse(sourceFile)
         val info =
@@ -84,6 +85,7 @@ class PcmWavToCanonicalWavConverter {
             val byteBuffer = ByteArray(framesPerChunk * frameBytes)
             val interleavedBuffer = ShortArray(framesPerChunk * info.channelCount)
             val monoBuffer = ShortArray(normalizer.requiredOutputCapacity(framesPerChunk))
+            var processedFrames = 0L
 
             CanonicalWavWriter(targetFile).use { writer ->
                 var normalizationReported = false
@@ -131,6 +133,16 @@ class PcmWavToCanonicalWavConverter {
                     }
                     writer.writePcm16(monoBuffer, length = monoCount)
                     remainingBytes -= wantedBytes.toLong()
+                    processedFrames += wantedFrames.toLong()
+                    onProgress(
+                        CanonicalAudioWorkProgress(
+                            processedDurationUs =
+                                sampleIndexToTimeUs(processedFrames, info.sampleRateHz),
+                            totalDurationUs = info.durationUs,
+                            processedUnits = processedFrames,
+                            totalUnits = info.frameCount,
+                        ),
+                    )
                 }
 
                 if (remainingBytes != 0L) {
