@@ -17,10 +17,11 @@ class CompressedAudioToCanonicalWavConverter(
         sourceFile: File,
         targetFile: File,
         expectedSourceSha256: String? = null,
+        verifiedSourceSha256: String? = null,
         isCancelled: () -> Boolean = { false },
         onStage: (CanonicalAudioStage) -> Unit = {},
     ): CompressedAudioConversionResult {
-        val sourceSha = sha256(sourceFile)
+        val sourceSha = verifiedSourceSha256 ?: sha256(sourceFile)
         if (
             expectedSourceSha256 != null &&
             !sourceSha.equals(expectedSourceSha256, ignoreCase = true)
