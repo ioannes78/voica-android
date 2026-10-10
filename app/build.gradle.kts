@@ -42,7 +42,7 @@ if (configuredProductionStoreFile == qaSigningStoreFile) {
     throw GradleException("The public QA keystore must never be used for a production release.")
 }
 if (releaseKeyAlias == "voica-qa") {
-    throw GradleException("The public QA key alias must never be used for production.")
+    throw GradleException("The public QA key alias must never be used for a production release.")
 }
 
 android {
