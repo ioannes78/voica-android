@@ -5,6 +5,10 @@ data class CanonicalConversionTiming(
     val normalizeNanos: Long,
     val writer: CanonicalWavTiming,
     val pipelineNanos: Long,
+    val metadataDurationUs: Long? = null,
+    val decodedFrameDurationUs: Long? = null,
+    val mediaTimelineDurationUs: Long? = null,
+    val canonicalDurationUs: Long? = null,
 ) {
     val measuredNanos: Long
         get() =
