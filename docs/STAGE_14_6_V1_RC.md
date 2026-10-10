@@ -1,6 +1,6 @@
 # Stage 14.6 — V1 Release Candidate
 
-Status: **RC PREPARED / CI PENDING / REAL-DEVICE ACCEPTANCE PENDING / FINAL FREEZE BLOCKED**
+Status: **RC CI PASS / REAL-DEVICE ACCEPTANCE PENDING / FINAL FREEZE BLOCKED**
 
 This record prepares the final V1 release-candidate gate. It is **not** the Stage 14 Final Freeze/Handoff and it does not claim that a signed production release exists.
 
@@ -65,6 +65,54 @@ The gate verifies at source level:
 
 Artifact-level identity, signing, security, R8, Sherpa JNI/native packaging, Room and provenance verification continue to run through the existing Stage 14.5 Full Release Gate.
 
+## 4.1 Stage 14.6 CI evidence
+
+Stage 14.6 source candidate:
+
+- source head: `c7ccdd77e71daf2f11cb88489bd0b3a0fab3b80b`
+- commit: `Stage 14.6 prepare V1 release candidate gate`
+
+The same source head passed both required workflows:
+
+- Android PR CI: `#1145` / run `38040238655` — **SUCCESS**
+- Android Full Release Gate: `#5` / run `38040238633` — **SUCCESS**
+
+The Full Release Gate verified successfully:
+
+- V1 RC source contract;
+- full unsigned Release surface build;
+- R8 outputs;
+- ReleaseQa application identity and stable QA signer;
+- unsigned production Release APK identity;
+- production Release AAB structure / identity contract;
+- security / privacy / frozen model-channel boundary;
+- Sherpa JNI ABI and native packaging;
+- committed Room v1..v12 provenance;
+- production signing configuration guardrails;
+- unsigned-production-artifact boundary;
+- generated release provenance;
+- releaseQa / unsigned APK / unsigned AAB / provenance artifact upload.
+
+Generated provenance for source head `c7ccdd77e71daf2f11cb88489bd0b3a0fab3b80b`:
+
+- Release APK SHA-256: `a5160e9a9047467d41191018188f9bb80e20dbd33001a31fdb269be641e759ed`
+- Release APK size: `30,639,079 bytes`
+- Release AAB SHA-256: `41de2dccb76005edc6d7cda51491885560bf81269f1d6eeb4816d9ec19089a74`
+- Release AAB size: `25,589,050 bytes`
+- ReleaseQa APK SHA-256: `48a0b1b5a41f415c71bbb21c9ab9bc7dd94dd277b8b2e5a37d35e408fce737cc`
+- ReleaseQa APK size: `30,651,379 bytes`
+- production signed: `false`
+- production certificate: `UNPROVISIONED`
+
+Full Release Gate artifact records:
+
+- `Voica-release-gate-releaseqa-apk`: artifact `11666115140`, ZIP digest `sha256:a25708e2f685dd4cb54cfe58cae7875c4b384bdde018bc0a8930134d07306c98`
+- `Voica-release-UNSIGNED-apk`: artifact `11665244879`, ZIP digest `sha256:79af79cd5b274a0e6c5aa909c26335d3e49ffc46ce336a5358b72dbbe6b6d379`
+- `Voica-release-UNSIGNED-aab`: artifact `11665294770`, ZIP digest `sha256:eb6ff3e96ab7d5b74b317a39085d35293fbf042ebabad9e5155021f64c504399`
+- `Voica-release-provenance`: artifact `11665855574`, ZIP digest `sha256:36cbc2c9feb9b62fa5e8d2f0fbec327a792cd45248d75faa37baa92ee32dea00`
+
+The GitHub PR workflow checkout/build commit may be a generated PR merge SHA. `source_head_sha` in release provenance is the authoritative RC source identity and remains `c7ccdd77e71daf2f11cb88489bd0b3a0fab3b80b`.
+
 ## 5. Inherited accepted evidence
 
 Stage 14.6 relies on already accepted evidence only where no product/runtime behavior has changed:
@@ -82,7 +130,7 @@ CI success does not replace real-device acceptance.
 
 ### 6.1 Production signer — BLOCKED
 
-Current authoritative release provenance still states:
+Stage 14.6 release provenance states:
 
 - `production_signed=false`
 - `production_cert_sha256=UNPROVISIONED`
@@ -102,13 +150,13 @@ Virtual 30/60/120-minute timeline tests must not be substituted for real-device 
 
 ### 6.3 Stage 14.6 RC real-device acceptance — PENDING
 
-The production-like ReleaseQa APK produced by the Stage 14.6 source head must receive explicit user acceptance before Final Freeze/Handoff.
+The production-like ReleaseQa APK for source head `c7ccdd77e71daf2f11cb88489bd0b3a0fab3b80b`, SHA-256 `48a0b1b5a41f415c71bbb21c9ab9bc7dd94dd277b8b2e5a37d35e408fce737cc`, must receive explicit user acceptance before Stage 14.6 is accepted.
 
 Because Stage 14.6 changes release gating only, the RC smoke does not need to repeat every previously accepted deep regression unless the RC exposes a regression. It must at minimum confirm that the final candidate installs/upgrades and that critical V1 paths remain operational.
 
 ## 7. Stage 14.6 RC smoke checklist
 
-Use the production-like `releaseQa` APK from the Stage 14.6 CI head.
+Use the production-like `releaseQa` APK from Stage 14.6 source head `c7ccdd77e71daf2f11cb88489bd0b3a0fab3b80b`.
 
 Minimum candidate smoke:
 
@@ -149,12 +197,14 @@ If a measurement cannot be obtained reliably, record it as `N/A` with the reason
 
 ## 9. Stage 14.6 acceptance rule
 
-Stage 14.6 may be marked accepted only after:
+Current gate state:
 
-1. the Stage 14.6 branch head passes Android PR CI;
-2. the same source head passes Android Full Release Gate;
-3. releaseQa artifact provenance/hash is recorded;
-4. explicit RC real-device smoke acceptance is received.
+1. Stage 14.6 source head passes Android PR CI — **PASS**;
+2. the same source head passes Android Full Release Gate — **PASS**;
+3. releaseQa artifact provenance/hash recorded — **PASS**;
+4. explicit RC real-device smoke acceptance — **PENDING**.
+
+Therefore Stage 14.6 is **CI-complete but not yet user-accepted**.
 
 Even after Stage 14.6 acceptance, **Stage 14 Final Freeze/Handoff remains blocked** until the production signer and required auditable 30/60/120-minute real-device stability evidence are resolved.
 
