@@ -111,11 +111,13 @@ The gate passed:
 - production signing negative guardrails;
 - Room v1-v12 committed schema provenance gate.
 
-## RC3 package sizes
+## RC3 package sizes and QA artifact
 
 - production-like QA APK: `30,651,379` bytes;
+- QA APK SHA-256: `c957d4c8071a18e6b72ec7e3158f1750440bf60fce677c946379f03c2c41031c`;
 - unsigned Release APK: `30,639,079` bytes;
-- Release AAB: `25,570,923` bytes.
+- Release AAB: `25,570,923` bytes;
+- GitHub artifact ZIP SHA-256: `dfb5f7555a9c1fd89b34b01d9e0e5c0b3fb386954e0b36e40d66cb91e6ee3411`.
 
 The security changes therefore retain the accepted Stage 14.3 package-size boundary.
 
