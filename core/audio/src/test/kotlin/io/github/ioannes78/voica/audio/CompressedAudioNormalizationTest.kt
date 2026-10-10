@@ -12,14 +12,16 @@ class CompressedAudioNormalizationTest {
     fun decoderPcmIsDownmixedResampledAndCommittedAsCanonicalWav() = runBlocking {
         val root = Files.createTempDirectory("voica-compressed-canonical").toFile()
         try {
-            val source = File(root, "source.bin").apply {
-                writeBytes(byteArrayOf(1, 2, 3, 4))
-            }
+            val source =
+                File(root, "source.bin").apply {
+                    writeBytes(byteArrayOf(1, 2, 3, 4))
+                }
             val target = File(root, "canonical.wav")
             val frames = 48
-            val stereo = ShortArray(frames * 2) { index ->
-                if (index % 2 == 0) 1_000 else 3_000
-            }
+            val stereo =
+                ShortArray(frames * 2) { index ->
+                    if (index % 2 == 0) 1_000 else 3_000
+                }
             val decoder =
                 object : CompressedAudioDecoder {
                     override suspend fun decode(
@@ -29,7 +31,16 @@ class CompressedAudioNormalizationTest {
                     ): CompressedAudioDecodeResult {
                         val format = DecodedPcmFormat(48_000, 2)
                         sink.onFormat(format)
-                        sink.onSamples(stereo, frames)
+                        val firstFrames = 17
+                        sink.onSamples(
+                            stereo.copyOfRange(0, firstFrames * format.channelCount),
+                            firstFrames,
+                        )
+                        val remainingFrames = frames - firstFrames
+                        sink.onSamples(
+                            stereo.copyOfRange(firstFrames * format.channelCount, stereo.size),
+                            remainingFrames,
+                        )
                         return CompressedAudioDecodeResult(
                             input =
                                 CompressedAudioDescriptor(
@@ -57,11 +68,12 @@ class CompressedAudioNormalizationTest {
             assertTrue(parsed is WavParseResult.Valid)
             assertTrue((parsed as WavParseResult.Valid).info.isCanonical)
 
-            val pcm = CanonicalWavPcmSource(target).use { pcmSource ->
-                val values = ShortArray(32)
-                val read = runBlocking { pcmSource.read(values) }
-                values.copyOf(read?.sampleCount ?: 0)
-            }
+            val pcm =
+                CanonicalWavPcmSource(target).use { pcmSource ->
+                    val values = ShortArray(32)
+                    val read = runBlocking { pcmSource.read(values) }
+                    values.copyOf(read?.sampleCount ?: 0)
+                }
             assertEquals(16, pcm.size)
             assertTrue(pcm.all { it.toInt() == 2_000 })
         } finally {
