@@ -21,9 +21,11 @@ release_aab="${2:-app/build/outputs/bundle/release/app-release.aab}"
 releaseqa_apk="${3:-app/build/outputs/apk/releaseQa/app-releaseQa.apk}"
 out="${4:-build/release-provenance.txt}"
 
-for path in "${release_apk}" "${release_aab}" "${releaseqa_apk}"; do
-    test -f "${path}"
-done
+test -f "${release_apk}"
+test -f "${release_aab}"
+if [[ "${releaseqa_apk}" != "-" ]]; then
+    test -f "${releaseqa_apk}"
+fi
 
 mkdir -p "$(dirname "${out}")"
 
@@ -33,6 +35,13 @@ sha256() {
 size_bytes() {
     stat -c %s "$1"
 }
+
+releaseqa_sha256="N/A"
+releaseqa_size="N/A"
+if [[ "${releaseqa_apk}" != "-" ]]; then
+    releaseqa_sha256="$(sha256 "${releaseqa_apk}")"
+    releaseqa_size="$(size_bytes "${releaseqa_apk}")"
+fi
 
 source_head_sha="${VOICA_SOURCE_HEAD_SHA:-${GITHUB_SHA:-unknown}}"
 workflow_build_sha="${GITHUB_SHA:-unknown}"
@@ -64,8 +73,8 @@ release_apk_sha256=$(sha256 "${release_apk}")
 release_apk_size=$(size_bytes "${release_apk}")
 release_aab_sha256=$(sha256 "${release_aab}")
 release_aab_size=$(size_bytes "${release_aab}")
-releaseqa_apk_sha256=$(sha256 "${releaseqa_apk}")
-releaseqa_apk_size=$(size_bytes "${releaseqa_apk}")
+releaseqa_apk_sha256=${releaseqa_sha256}
+releaseqa_apk_size=${releaseqa_size}
 production_signed=${production_signed}
 production_cert_sha256=${production_cert_sha256}
 EOF
@@ -74,7 +83,7 @@ cat "${out}"
 
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     {
-        echo "### Stage 14.5 Full Release provenance"
+        echo "### Release provenance"
         echo
         echo '```text'
         cat "${out}"
