@@ -45,6 +45,7 @@ class CompressedAudioToCanonicalWavConverter(
             var normalizationReported = false
             var writingReported = false
             var processedFrames = 0L
+            var processedTimelineUs = 0L
             var normalizeNanos = 0L
 
             val sink =
@@ -75,6 +76,22 @@ class CompressedAudioToCanonicalWavConverter(
                     override fun onSamples(
                         samples: ShortArray,
                         frameCount: Int,
+                    ) {
+                        consume(samples, frameCount, presentationTimeUs = null)
+                    }
+
+                    override fun onSamplesAt(
+                        samples: ShortArray,
+                        frameCount: Int,
+                        presentationTimeUs: Long?,
+                    ) {
+                        consume(samples, frameCount, presentationTimeUs)
+                    }
+
+                    private fun consume(
+                        samples: ShortArray,
+                        frameCount: Int,
+                        presentationTimeUs: Long?,
                     ) {
                         if (isCancelled()) {
                             throw CancellationException("media conversion cancelled")
@@ -109,14 +126,28 @@ class CompressedAudioToCanonicalWavConverter(
                             }
                             writer.writePcm16(normalizedBuffer, length = monoCount)
                         }
+
                         processedFrames += frameCount.toLong()
+                        val frameCountTimelineUs =
+                            sampleIndexToTimeUs(processedFrames, format.sampleRateHz)
+                        val ptsEndUs =
+                            presentationTimeUs
+                                ?.takeIf { it >= 0L }
+                                ?.let { startUs ->
+                                    startUs +
+                                        sampleIndexToTimeUs(
+                                            frameCount.toLong(),
+                                            format.sampleRateHz,
+                                        )
+                                }
+                        processedTimelineUs =
+                            maxOf(
+                                processedTimelineUs,
+                                ptsEndUs ?: frameCountTimelineUs,
+                            )
                         onProgress(
                             CanonicalAudioWorkProgress(
-                                processedDurationUs =
-                                    sampleIndexToTimeUs(
-                                        processedFrames,
-                                        format.sampleRateHz,
-                                    ),
+                                processedDurationUs = processedTimelineUs,
                                 totalDurationUs = knownDurationUs?.takeIf { it > 0L },
                                 processedUnits = processedFrames,
                                 totalUnits = null,
@@ -155,6 +186,28 @@ class CompressedAudioToCanonicalWavConverter(
                 )
             }
 
+            val decodedFrameDurationUs =
+                sampleIndexToTimeUs(
+                    decoded.decodedFrameCount,
+                    decoded.output.sampleRateHz,
+                )
+            val finalMediaTimelineUs =
+                decoded.presentationEndTimeUs?.takeIf { it > 0L }
+                    ?: processedTimelineUs.takeIf { it > 0L }
+                    ?: decodedFrameDurationUs
+            val metadataDurationUs =
+                knownDurationUs?.takeIf { it > 0L }
+                    ?: decoded.input.durationUs?.takeIf { it > 0L }
+            onProgress(
+                CanonicalAudioWorkProgress(
+                    processedDurationUs = finalMediaTimelineUs,
+                    totalDurationUs = metadataDurationUs,
+                    processedUnits = decoded.decodedFrameCount,
+                    totalUnits = null,
+                    isFinal = true,
+                ),
+            )
+
             onStage(CanonicalAudioStage.VERIFYING)
             val wav = writer.commit()
             val pipelineNanos = System.nanoTime() - pipelineStarted
@@ -171,6 +224,10 @@ class CompressedAudioToCanonicalWavConverter(
                         normalizeNanos = normalizeNanos,
                         writer = wav.timing,
                         pipelineNanos = pipelineNanos,
+                        metadataDurationUs = metadataDurationUs,
+                        decodedFrameDurationUs = decodedFrameDurationUs,
+                        mediaTimelineDurationUs = finalMediaTimelineUs,
+                        canonicalDurationUs = wav.durationUs,
                     ),
             )
         }
