@@ -198,6 +198,7 @@ class RawOpusToCanonicalWavConverter(
         prevalidated: RawOpusValidation? = null,
         isCancelled: () -> Boolean = { false },
         onStage: (CanonicalAudioStage) -> Unit = {},
+        onProgress: (CanonicalAudioWorkProgress) -> Unit = {},
     ): RawOpusConversionResult {
         val validation =
             prevalidated
@@ -234,6 +235,8 @@ class RawOpusToCanonicalWavConverter(
             var normalizationReported = false
             var writingReported = false
             var monoBuffer = ShortArray(0)
+            var processedPackets = 0L
+            var processedSamples48k = 0L
             decoderFactory.create(
                 sampleRateHz = CanonicalPcmProfile.SAMPLE_RATE_HZ,
                 channelCount = validation.channelCount,
@@ -298,6 +301,18 @@ class RawOpusToCanonicalWavConverter(
                             onStage(CanonicalAudioStage.WRITING)
                         }
                         writer.writePcm16(monoBuffer, length = monoCount)
+
+                        processedPackets = packetIndex + 1L
+                        processedSamples48k += totalSamples48k.toLong()
+                        onProgress(
+                            CanonicalAudioWorkProgress(
+                                processedDurationUs =
+                                    processedSamples48k * 1_000_000L / 48_000L,
+                                totalDurationUs = validation.decodedDurationUs,
+                                processedUnits = processedPackets,
+                                totalUnits = validation.packetCount,
+                            ),
+                        )
                     }
 
                     onStage(CanonicalAudioStage.VERIFYING)
