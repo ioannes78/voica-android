@@ -115,9 +115,11 @@ Stage 14 已完成正式发布冻结和真机长录音验证：
 - sherpa-onnx `1.13.8`
 - arm64-v8a
 
-下一阶段：
+当前下一开发阶段：
 
-**Stage 15 — BLE 实时音频链路**
+**Post-V1 P0 — Canonical Audio Performance & UX**
+
+完成该专项并发布计划中的 `1.0.1` 后，再进入 **Stage 15 — BLE 实时音频链路**。
 
 后续主路线：
 

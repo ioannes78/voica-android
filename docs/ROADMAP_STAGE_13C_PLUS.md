@@ -233,6 +233,46 @@ Stage 14 不承担新的大规模模型选型。
 
 ---
 
+# Post-V1 P0 — Canonical Audio Performance & UX
+
+Stage 14 V1.0 Final Freeze 完成后、Stage 15 开始前，先执行本独立维护阶段。
+
+权威专项规划：
+
+`docs/POST_V1_CANONICAL_AUDIO_OPTIMIZATION_PLAN.md`
+
+本阶段范围固定为：
+
+- Canonical WAV 长音频生成性能 Profiling 与优化；
+- Canonical WAV Fast Path；
+- 重复全文件 I/O / SHA 审计；
+- buffer / allocation / GC / 顺序 I/O 优化；
+- 真实、可观察的 canonical generation progress contract；
+- Recording Detail 播放器内生成进度；
+- 删除独立大号“取消生成标准 WAV”按钮，将取消交互合并进播放器任务状态；
+- 30 / 60 / 120 分钟同样本 A/B benchmark 与真机稳定性验证。
+
+阶段边界：
+
+- 不重新打开 Stage 14 Freeze；
+- 不混入 Stage 15 BLE realtime audio；
+- production model channel 默认不变；
+- Room 优先保持 v12，只有 durable progress/recovery 的明确数据需求才允许受控 migration；
+- P2“ASR 直通压缩音频解码”默认不进入 `1.0.1`，需要独立证据与再次确认；
+- 规划目标发布版本为 `1.0.1` / versionCode `89`，开发开始前必须重新读取 `main` 并核验实际版本号。
+
+建议开发分支：
+
+`post-v1-canonical-audio-p0`
+
+建议 PR：
+
+`[APK] Post-V1 P0 — Canonical WAV Performance & UX`
+
+Post-V1 P0 必须完成 Unit Test / Build / CI、30/60/120 A/B 真机验证、用户明确“测试通过”、Freeze/Handoff 并合并 `main`，之后才进入 Stage 15。
+
+---
+
 # Stage 15 — BLE 实时音频链路
 
 保持既有边界：
@@ -748,11 +788,12 @@ Stage 20 的 Speaker Voiceprint 不得提前混入 Stage 13C 的 run-local diari
 
 从当前 Stage 13B 之后，路线固定为：
 
-`Stage 13B → Stage 13C → Stage 14 → Stage 15 → Stage 16A → Stage 16B → Stage 17 → Stage 18 → Stage 19A → Stage 19B → Stage 19C → Stage 19D → Stage 20`
+`Stage 13B → Stage 13C → Stage 14 → Post-V1 P0 → Stage 15 → Stage 16A → Stage 16B → Stage 17 → Stage 18 → Stage 19A → Stage 19B → Stage 19C → Stage 19D → Stage 20`
 
 其中：
 
 - Stage 13C：说话人分离性能专项
+- Post-V1 P0：Canonical WAV 生成性能、真实进度与取消交互优化；完成后再进入 Stage 15
 - Stage 16A：本地实时 ASR
 - Stage 16B：本地文件 ASR V2 / Fun-ASR-Nano Benchmark
 - Stage 17：云端文件 ASR / 音频上传转写

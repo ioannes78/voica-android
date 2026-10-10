@@ -16,9 +16,15 @@ Stage 14 Final Freeze/Handoff：
 - `docs/STAGE_13C_FREEZE.md`
 - `docs/STAGE_13C_HANDOFF.md`
 
-当前下一开发阶段：**Stage 15 — BLE 实时音频链路**。
+当前下一开发阶段：**Post-V1 P0 — Canonical Audio Performance & UX**。
 
-Stage 14 已完成 V1.0 Release Freeze、production signing、30/60/120 分钟真实稳定性与最终 `1.0.0` 真机冒烟；任何 Stage 15 接管都必须重新读取 GitHub 当前 `main`、HEAD、CI、Room schema、Stage 14 Final Freeze/Handoff 与 production model channel，不能把本文记录的某个历史 SHA 当成当前状态。
+当前执行顺序固定为：
+
+`Stage 14 V1.0（已冻结） → Post-V1 P0 → Stage 15`
+
+Post-V1 P0 完成开发、真机验收、Freeze/Handoff 并合并 `main` 后，才进入 **Stage 15 — BLE 实时音频链路**。
+
+Stage 14 已完成 V1.0 Release Freeze、production signing、30/60/120 分钟真实稳定性与最终 `1.0.0` 真机冒烟；任何 Post-V1 P0 或 Stage 15 接管都必须重新读取 GitHub 当前 `main`、HEAD、CI、Room schema、Stage 14 Final Freeze/Handoff、Post-V1 P0 权威规划与 production model channel，不能把本文记录的某个历史 SHA 当成当前状态。
 
 从 **Stage 13C** 开始的后续权威增量规划：
 
@@ -227,8 +233,9 @@ Stage 13C+ 详细规划统一读取：`docs/ROADMAP_STAGE_13C_PLUS.md`。
 - Silero VAD
 - CT-Transformer zh-en punctuation
 
-### Stage 15–20 顺序
+### Post-V1 P0 / Stage 15–20 顺序
 
+- Post-V1 P0：Stage 14 V1.0 之后立即执行，专项优化 Canonical WAV 生成性能、真实生成进度与取消交互；独立于 Stage 15，不修改 BLE realtime 边界。规划目标版本为 `1.0.1` / versionCode `89`，开发开始时必须重新核验并最终确认。
 - Stage 15：只负责 BLE realtime Audio → Opus → PCM 与实时媒体时间链。
 - Stage 16A：本地 true streaming ASR，必须遵循 `docs/STAGE_16_STREAMING_CONTRACT_V2.md`。
 - Stage 16B：本地文件 ASR V2，重点 benchmark SenseVoice INT8 / Fun-ASR-Nano INT8 / Qwen3-ASR 0.6B INT8；最终保留模型数量由真机 benchmark 决定，不为模型数量而堆叠。

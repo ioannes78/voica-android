@@ -1,12 +1,38 @@
 # Post-V1 P0 — Canonical Audio / 标准 WAV 性能与生成体验专项
 
-状态：**PLANNED / USER CONFIRMED / POST-V1 NON-BLOCKING**
+状态：**PLANNED / USER CONFIRMED / NEXT DEVELOPMENT STAGE**
 
 本文件记录 Stage 14 V1 RC 真机长音频验收期间发现的标准 WAV（canonical audio）性能与界面问题。该专项**不修改已经通过 Stage 14.7B 30 / 60 / 120 分钟稳定性验收的 V1 RC 二进制**，不作为 Stage 14 Final Freeze 阻断项。
 
 开始本专项开发前，必须重新核验 `main`、上一阶段 Freeze/Handoff、当前 Room schema、production model channel、当前 canonical audio 实现、播放器/转写依赖与当时 CI。GitHub 当前仓库仍为唯一事实来源。
 
 Voica 为独立项目；不得复制、迁移、继承、cherry-pick、机械翻译或改写 `ioannes78/voice-card-android` 的实现。
+
+---
+
+## 0. 阶段定位与发布目标
+
+Stage 14 V1.0 已完成 Final Freeze/Handoff、production signing、GitHub Release 与最终真机冒烟。用户现已明确确认：**Post-V1 P0 在 Stage 15 之前优先开发**。
+
+当前执行顺序：
+
+`Stage 14 V1.0（FROZEN） → Post-V1 P0 → Stage 15`
+
+本专项作为独立开发阶段，不重新打开 Stage 14，也不占用 Stage 15 BLE realtime 范围。
+
+规划开发身份：
+
+- development branch：`post-v1-canonical-audio-p0`；
+- PR：`[APK] Post-V1 P0 — Canonical WAV Performance & UX`；
+- 目标发布：Voica `1.0.1`；
+- 规划 versionCode：`89`；
+- Room：优先保持 v12；
+- production model channel：默认保持 Stage 14 V1.0 pin，不执行 promotion；
+- P2 ASR 直通解码：默认不进入 `1.0.1`，只有 P0/P1 结果仍不足且用户再次确认时才独立推进。
+
+上述版本号是规划目标；正式编码前必须重新核验 `main` 当前 versionCode/versionName，不能仅凭本文历史值直接修改。
+
+本专项完成条件：Unit Test / Build / CI + 30/60/120 分钟 A/B 真机验证 + 用户明确“测试通过” + Freeze/Handoff + merge `main`。满足后才解锁 Stage 15。
 
 ---
 
@@ -309,10 +335,13 @@ P2 不得抢在 P0/P1 Profiling 与低风险优化之前实现。
 
 # 8. 与 Stage 14 / Stage 15 的边界
 
-- Stage 14 当前 production-signed V1 RC 不因本规划发生任何代码变化；
-- Stage 14.7B 已通过的 30 / 60 / 120 分钟证据保持有效；
-- 本规划文件本身不改变 Room schema、production model channel 或 APK/AAB；
-- 该专项属于 **V1 发布后的 P0 follow-up**；
-- 是否在进入 Stage 15 BLE 实时音频链路前优先实施，由 Stage 14 Final Handoff 后用户确认；
-- 若先实施本专项，应建立独立 development branch / PR，不在已冻结的 Stage 14 PR 上继续写生产代码。
+- Stage 14 V1.0 Final Freeze 保持不变，本专项不得改写其冻结验收事实；
+- Stage 14.7B 已通过的 30 / 60 / 120 分钟稳定性证据继续作为 V1 baseline；
+- 本规划文件本身不改变 Room schema、production model channel 或已发布的 `v1.0.0` APK/AAB；
+- 该专项已由用户确认升级为 **V1 发布后的下一开发阶段**；
+- 必须在 Stage 15 BLE 实时音频链路之前完成；
+- 必须使用独立 development branch / PR，不在已冻结的 Stage 14 PR 上继续写生产代码；
+- 目标发布为 `1.0.1` / versionCode `89`，但编码前必须重新核验当前 `main`；
+- Room 优先保持 v12，production model channel 默认不变；
+- P2 ASR 直通解码不默认进入 `1.0.1`，需要独立性能证据与再次确认。
 

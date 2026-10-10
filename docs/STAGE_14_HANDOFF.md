@@ -2,7 +2,9 @@
 
 状态：**FINAL / ACCEPTED**
 
-下一阶段：**Stage 15 — UNBLOCKED only after PR #24 merge + main verification**
+冻结时解锁：**Stage 15 — after PR #24 merge + main verification**
+
+后续规划调整（2026-10-10 用户确认）：**Post-V1 P0 → Stage 15**。Stage 14 冻结事实不变；当前执行顺序以 `AGENTS.md`、`docs/ROADMAP_STAGE_13C_PLUS.md` 与 `docs/POST_V1_CANONICAL_AUDIO_OPTIMIZATION_PLAN.md` 为准。
 
 日期：2026-10-10
 
@@ -10,7 +12,7 @@
 
 GitHub 当前仓库是唯一事实来源。
 
-Stage 15 开始任何修改前必须重新核对：
+Post-V1 P0 开始任何修改前必须重新核对；Post-V1 P0 完成 Freeze/Handoff 后，Stage 15 开始时也必须再次核对：
 
 - `main` HEAD
 - PR #24 最终 merged 状态
@@ -199,15 +201,17 @@ RAM/PSS、CPU、thermal、storage quantitative telemetry 当时未 instrumentati
 
 `docs/POST_V1_CANONICAL_AUDIO_OPTIMIZATION_PLAN.md`
 
-该计划当前仅是 **Post-V1 P0 规划项**，没有进入 V1.0 binary。
+该计划没有进入 V1.0 binary；Stage 14 Final Freeze 仍保持不变。
 
-Stage 15 不得未经明确确认将该优化静默混入 BLE realtime 开发；需要实施时应单独确认范围、benchmark 方案和 UI/UX，再建立独立修改链。
+用户已在 Stage 14 完成后明确确认：**先实施 Post-V1 P0，再进入 Stage 15**。Post-V1 P0 必须使用独立分支/PR，并按专项规划完成 benchmark、UI/UX、真机验收与 Freeze/Handoff。
 
-## 12. Stage 15 正式边界
+## 12. Post-V1 P0 后的 Stage 15 正式边界
 
-路线图下一阶段：
+当前路线图顺序：
 
-**Stage 15 — BLE 实时音频链路**
+**Post-V1 P0 — Canonical Audio Performance & UX → Stage 15 — BLE 实时音频链路**
+
+Post-V1 P0 完成并 Freeze/Handoff 后，Stage 15 的正式边界仍为：
 
 核心链：
 
@@ -249,4 +253,4 @@ Final Freeze/Handoff/阶段状态提交后可将 PR #24 标记 Ready 并合并�
 6. 确认 production model channel 仍为 `be74c706...`；
 7. 确认 Stage 14 最终正式签名 artifact hashes 与 Freeze 一致；
 8. 确认没有 Freeze/Handoff 后产品代码漂移；
-9. 完成以上核验后，Stage 15 才真正解锁。
+9. 完成以上 Stage 14 post-merge 核验后，Post-V1 P0 解锁；Post-V1 P0 完成真机验收、Freeze/Handoff 并合并 `main` 后，Stage 15 才真正进入开发。
