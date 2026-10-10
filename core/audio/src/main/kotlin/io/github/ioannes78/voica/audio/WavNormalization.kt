@@ -8,6 +8,7 @@ data class PcmWavConversionResult(
     val source: WavPcmInfo,
     val sourceSha256: String,
     val wav: CanonicalWavCommit,
+    val timing: CanonicalConversionTiming,
 )
 
 class PcmWavToCanonicalWavConverter {
@@ -20,6 +21,7 @@ class PcmWavToCanonicalWavConverter {
         onStage: (CanonicalAudioStage) -> Unit = {},
         onProgress: (CanonicalAudioWorkProgress) -> Unit = {},
     ): PcmWavConversionResult {
+        val pipelineStarted = System.nanoTime()
         val parsed = WavPcmParser.parse(sourceFile)
         val info =
             (parsed as? WavParseResult.Valid)?.info
@@ -86,6 +88,8 @@ class PcmWavToCanonicalWavConverter {
             val interleavedBuffer = ShortArray(framesPerChunk * info.channelCount)
             val monoBuffer = ShortArray(normalizer.requiredOutputCapacity(framesPerChunk))
             var processedFrames = 0L
+            var readDecodeNanos = 0L
+            var normalizeNanos = 0L
 
             CanonicalWavWriter(targetFile).use { writer ->
                 var normalizationReported = false
@@ -106,6 +110,7 @@ class PcmWavToCanonicalWavConverter {
                         ).toInt()
                     if (wantedFrames <= 0) break
                     val wantedBytes = wantedFrames * frameBytes
+                    val readDecodeStarted = System.nanoTime()
                     input.readFully(byteBuffer, 0, wantedBytes)
 
                     val sampleCount = wantedFrames * info.channelCount
@@ -116,17 +121,20 @@ class PcmWavToCanonicalWavConverter {
                         val hi = byteBuffer[byteCursor++].toInt()
                         interleavedBuffer[sampleIndex++] = ((hi shl 8) or lo).toShort()
                     }
+                    readDecodeNanos += System.nanoTime() - readDecodeStarted
 
                     if (!normalizationReported) {
                         normalizationReported = true
                         onStage(CanonicalAudioStage.NORMALIZING)
                     }
+                    val normalizeStarted = System.nanoTime()
                     val monoCount =
                         normalizer.processInterleavedInto(
                             input = interleavedBuffer,
                             output = monoBuffer,
                             frameCount = wantedFrames,
                         )
+                    normalizeNanos += System.nanoTime() - normalizeStarted
                     if (!writingReported) {
                         writingReported = true
                         onStage(CanonicalAudioStage.WRITING)
@@ -154,10 +162,18 @@ class PcmWavToCanonicalWavConverter {
                 }
 
                 onStage(CanonicalAudioStage.VERIFYING)
+                val wav = writer.commit()
                 return PcmWavConversionResult(
                     source = info,
                     sourceSha256 = sourceSha,
-                    wav = writer.commit(),
+                    wav = wav,
+                    timing =
+                        CanonicalConversionTiming(
+                            decodeOrReadNanos = readDecodeNanos,
+                            normalizeNanos = normalizeNanos,
+                            writer = wav.timing,
+                            pipelineNanos = System.nanoTime() - pipelineStarted,
+                        ),
                 )
             }
         }
