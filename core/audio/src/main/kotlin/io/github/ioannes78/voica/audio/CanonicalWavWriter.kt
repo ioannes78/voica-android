@@ -20,6 +20,7 @@ class CanonicalWavWriter(
 ) : AutoCloseable {
     private val partFile = File(finalFile.parentFile, finalFile.name + ".part")
     private val raf: RandomAccessFile
+    private val writeBuffer = ByteArray(WRITE_BUFFER_BYTES)
     private var sampleCount = 0L
     private var closed = false
     private var committed = false
@@ -37,15 +38,22 @@ class CanonicalWavWriter(
     fun writePcm16(samples: ShortArray, offset: Int = 0, length: Int = samples.size - offset) {
         check(!closed) { "writer closed" }
         require(offset >= 0 && length >= 0 && offset + length <= samples.size)
-        val bytes = ByteArray(length * 2)
-        var out = 0
-        for (index in offset until offset + length) {
-            val sample = samples[index].toInt()
-            bytes[out++] = (sample and 0xFF).toByte()
-            bytes[out++] = ((sample ushr 8) and 0xFF).toByte()
+
+        var inputIndex = offset
+        var remaining = length
+        while (remaining > 0) {
+            val chunkSamples = minOf(remaining, writeBuffer.size / CanonicalPcmProfile.BYTES_PER_SAMPLE)
+            var byteIndex = 0
+            val chunkEnd = inputIndex + chunkSamples
+            while (inputIndex < chunkEnd) {
+                val sample = samples[inputIndex++].toInt()
+                writeBuffer[byteIndex++] = (sample and 0xFF).toByte()
+                writeBuffer[byteIndex++] = ((sample ushr 8) and 0xFF).toByte()
+            }
+            raf.write(writeBuffer, 0, byteIndex)
+            sampleCount += chunkSamples
+            remaining -= chunkSamples
         }
-        raf.write(bytes)
-        sampleCount += length
     }
 
     fun commit(): CanonicalWavCommit {
@@ -83,10 +91,11 @@ class CanonicalWavWriter(
             pcmSampleCount = sampleCount,
             sizeBytes = finalFile.length(),
             sha256 = digest,
-            durationUs = sampleIndexToTimeUs(
-                sampleCount,
-                CanonicalPcmProfile.SAMPLE_RATE_HZ,
-            ),
+            durationUs =
+                sampleIndexToTimeUs(
+                    sampleCount,
+                    CanonicalPcmProfile.SAMPLE_RATE_HZ,
+                ),
         )
     }
 
@@ -127,8 +136,8 @@ class CanonicalWavWriter(
 
     private fun sha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
-        file.inputStream().buffered(BUFFER_SIZE).use { input ->
-            val buffer = ByteArray(BUFFER_SIZE)
+        file.inputStream().buffered(HASH_BUFFER_BYTES).use { input ->
+            val buffer = ByteArray(HASH_BUFFER_BYTES)
             while (true) {
                 val read = input.read(buffer)
                 if (read < 0) break
@@ -143,6 +152,7 @@ class CanonicalWavWriter(
     private companion object {
         const val WAV_HEADER_BYTES = 44L
         const val UINT32_MAX = 0xFFFF_FFFFL
-        const val BUFFER_SIZE = 64 * 1024
+        const val WRITE_BUFFER_BYTES = 64 * 1024
+        const val HASH_BUFFER_BYTES = 64 * 1024
     }
 }
