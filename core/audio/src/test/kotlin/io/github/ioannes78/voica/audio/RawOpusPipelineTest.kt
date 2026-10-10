@@ -43,7 +43,7 @@ class RawOpusPipelineTest {
     }
 
     @Test
-    fun conversionStreamsPacketsIntoCanonicalWav() {
+    fun conversionStreamsPacketsIntoCanonicalWavAndReportsExactProgress() {
         val root = Files.createTempDirectory("voica-opus-convert").toFile()
         try {
             val source = root.resolve("sample.opus")
@@ -54,12 +54,25 @@ class RawOpusPipelineTest {
                 inspector = FakeInspector(),
                 decoderFactory = FakeDecoderFactory(),
             )
-            val result = converter.convert(source, target)
+            val progress = mutableListOf<CanonicalAudioWorkProgress>()
+            val result =
+                converter.convert(
+                    sourceFile = source,
+                    targetFile = target,
+                    onProgress = progress::add,
+                )
 
             assertEquals("fake-opus", result.decoderVersion)
             assertEquals(640L, result.wav.pcmSampleCount)
             assertEquals(40_000L, result.wav.durationUs)
             assertEquals(44L + 640L * 2L, result.wav.sizeBytes)
+            assertEquals(2, progress.size)
+            assertEquals(20_000L, progress.first().processedDurationUs)
+            assertEquals(1L, progress.first().processedUnits)
+            assertEquals(40_000L, progress.last().processedDurationUs)
+            assertEquals(40_000L, progress.last().totalDurationUs)
+            assertEquals(2L, progress.last().processedUnits)
+            assertEquals(2L, progress.last().totalUnits)
 
             val parsed = WavPcmParser.parse(target)
             assertTrue(parsed is WavParseResult.Valid)
