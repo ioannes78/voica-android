@@ -438,6 +438,9 @@ class CanonicalAudioCoordinator(
                         cancellationToken.get() || callerJob?.isActive == false
                     },
                     onStage = { stage -> persistStageBlocking(source, stage) },
+                    onProgress = { work ->
+                        progressRuntime.work(source.recordingId, work)
+                    },
                 )
             }
 
