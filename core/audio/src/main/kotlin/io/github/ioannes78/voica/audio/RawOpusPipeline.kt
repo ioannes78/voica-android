@@ -177,6 +177,7 @@ data class RawOpusConversionResult(
     val sourceSha256: String,
     val decoderVersion: String,
     val wav: CanonicalWavCommit,
+    val timing: CanonicalConversionTiming,
 )
 
 class AudioPipelineException(
@@ -230,6 +231,7 @@ class RawOpusToCanonicalWavConverter(
                 sourceChannelCount = validation.channelCount,
             )
 
+        val pipelineStarted = System.nanoTime()
         try {
             onStage(CanonicalAudioStage.DECODING)
             var normalizationReported = false
@@ -237,6 +239,8 @@ class RawOpusToCanonicalWavConverter(
             var monoBuffer = ShortArray(0)
             var processedPackets = 0L
             var processedSamples48k = 0L
+            var decodeNanos = 0L
+            var normalizeNanos = 0L
             decoderFactory.create(
                 sampleRateHz = CanonicalPcmProfile.SAMPLE_RATE_HZ,
                 channelCount = validation.channelCount,
@@ -271,7 +275,9 @@ class RawOpusToCanonicalWavConverter(
                             "Opus packet duration cannot map exactly to 16 kHz"
                         }
                         val expectedFrames16k = totalSamples48k / 3
+                        val decodeStarted = System.nanoTime()
                         val decoded = decoder.decode(packet)
+                        decodeNanos += System.nanoTime() - decodeStarted
                         if (decoded.size != expectedFrames16k * validation.channelCount) {
                             throw AudioPipelineException(
                                 code = "OPUS_DECODE_FAILED",
@@ -290,12 +296,14 @@ class RawOpusToCanonicalWavConverter(
                         if (monoBuffer.size < required) {
                             monoBuffer = ShortArray(required)
                         }
+                        val normalizeStarted = System.nanoTime()
                         val monoCount =
                             normalizer.processInterleavedInto(
                                 input = decoded,
                                 output = monoBuffer,
                                 frameCount = expectedFrames16k,
                             )
+                        normalizeNanos += System.nanoTime() - normalizeStarted
                         if (!writingReported) {
                             writingReported = true
                             onStage(CanonicalAudioStage.WRITING)
@@ -322,6 +330,13 @@ class RawOpusToCanonicalWavConverter(
                         sourceSha256 = sourceSha,
                         decoderVersion = decoderFactory.version,
                         wav = commit,
+                        timing =
+                            CanonicalConversionTiming(
+                                decodeOrReadNanos = decodeNanos,
+                                normalizeNanos = normalizeNanos,
+                                writer = commit.timing,
+                                pipelineNanos = System.nanoTime() - pipelineStarted,
+                            ),
                     )
                 }
             }
