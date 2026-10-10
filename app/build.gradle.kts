@@ -54,8 +54,8 @@ android {
         applicationId = "io.github.ioannes78.voica"
         minSdk = 26
         targetSdk = 37
-        versionCode = 85
-        versionName = "1.0.0-rc3"
+        versionCode = 86
+        versionName = "1.0.0-rc3-r1"
         buildConfigField("String", "GIT_SHA", "\"$buildGitSha\"")
         ndk {
             abiFilters += "arm64-v8a"
@@ -117,7 +117,7 @@ android {
             // Same QA application ID allows an in-place upgrade from earlier Stage 14 QA builds.
             initWith(getByName("release"))
             applicationIdSuffix = ".qa"
-            versionNameSuffix = "-security-qa"
+            versionNameSuffix = "-export-qa"
             signingConfig = signingConfigs.getByName("qa")
             matchingFallbacks += listOf("release")
         }
