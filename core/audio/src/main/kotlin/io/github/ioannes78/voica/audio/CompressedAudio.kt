@@ -47,12 +47,27 @@ interface Pcm16DecodeSink {
         samples: ShortArray,
         frameCount: Int,
     )
+
+    /**
+     * Timestamp-aware variant for decoders that expose a source media timeline.
+     *
+     * [presentationTimeUs] is the source-media timestamp for the first frame in this block. The
+     * default preserves compatibility with decoders/tests that only provide frame-count progress.
+     */
+    fun onSamplesAt(
+        samples: ShortArray,
+        frameCount: Int,
+        presentationTimeUs: Long?,
+    ) {
+        onSamples(samples, frameCount)
+    }
 }
 
 data class CompressedAudioDecodeResult(
     val input: CompressedAudioDescriptor,
     val output: DecodedPcmFormat,
     val decodedFrameCount: Long,
+    val presentationEndTimeUs: Long? = null,
 )
 
 interface CompressedAudioDecoder {
