@@ -1,8 +1,8 @@
 # Stage 14.7A — Production Signing
 
-Status: **IMPLEMENTED / PRODUCTION SIGNING CI PENDING / FINAL FREEZE BLOCKED**
+Status: **ACCEPTED / PRODUCTION SIGNING PASS / FINAL FREEZE BLOCKED**
 
-Stage 14.7A adds the first production-signing execution path for the accepted Voica V1 release candidate. It does not change product functionality, Room schema, model selection, the production model channel, or the accepted Stage 14.6 RC product behavior.
+Stage 14.7A adds and accepts the first production-signing execution path for the accepted Voica V1 release candidate. It does not change product functionality, Room schema, model selection, the production model channel, or the accepted Stage 14.6 RC product behavior.
 
 ## 1. Re-verified baseline
 
@@ -26,7 +26,7 @@ The Stage 14.6 acceptance record remains authoritative for real-device RC smoke 
 
 ## 2. GitHub Secret contract
 
-The production signing job consumes the already provisioned repository Secrets only through GitHub Actions runtime environment variables:
+The production signing job consumes the provisioned repository Secrets only through GitHub Actions runtime environment variables:
 
 - `VOICA_KEYSTORE_BASE64`
 - `VOICA_STORE_PASSWORD`
@@ -93,6 +93,8 @@ The workflow:
 - never uploads the keystore as an Actions artifact;
 - removes the temporary keystore in an `always()` cleanup step.
 
+Run #12 confirmed that materialization, certificate validation, build, artifact upload and cleanup all complete successfully.
+
 ## 6. Signed artifact build and verification
 
 With the complete production signing configuration present, Stage 14.7A builds:
@@ -101,7 +103,7 @@ With the complete production signing configuration present, Stage 14.7A builds:
 - production-signed Release AAB;
 - ReleaseQa APK used for provenance cross-reference.
 
-The signed APK must verify:
+The signed APK verification requires:
 
 - applicationId: `io.github.ioannes78.voica`
 - versionCode: `87`
@@ -112,43 +114,108 @@ The signed APK must verify:
 - certificate SHA-256 equals the certificate derived from the production keystore;
 - certificate SHA-256 is not the public QA signer.
 
-The signed AAB must verify:
+The signed AAB verification requires:
 
 - expected bundle structure / release identity contract;
-- valid strict JAR signature;
-- signer certificate SHA-256 equals the production keystore certificate;
+- `jarsigner` verifies JAR signature integrity and reports `jar verified.`;
+- signer certificate SHA-256 equals the production keystore certificate exactly;
 - signer certificate is not the public QA signer.
+
+The Android application signing certificate is intentionally self-signed. `jarsigner -strict` was tested in the first Stage 14.7A run and correctly rejected as an inappropriate PKI trust-chain gate because it converts the expected self-signed-certificate warning into a failure even when AAB signature integrity is valid. The accepted gate therefore verifies signature integrity plus exact signer-certificate identity, rather than requiring a public CA chain.
 
 The existing R8, security/model-boundary, Sherpa JNI/native packaging and Room provenance checks are repeated against the production-signed surface where applicable.
 
-## 7. Artifacts
+## 7. Accepted CI evidence
 
-On success the workflow uploads only:
+Accepted Stage 14.7A workflow head:
+
+- `47e00c7cca656e62ca93373ef652c26e275dbd0d`
+- commit: `Stage 14.7A fix AAB signing verification`
+
+CI evidence:
+
+- Android PR CI `#1152`, run `38044710929` — **SUCCESS**
+- Android Full Release Gate `#12`, run `38044710898` — **SUCCESS**
+- Full Release Gate baseline unsigned job — **SUCCESS**
+- Production signing job — **SUCCESS**
+- accepted product source lock to `c7ccdd77e71daf2f11cb88489bd0b3a0fab3b80b` — **PASS**
+- production keystore materialization / alias / secret configuration — **PASS**
+- production-signed APK/AAB build — **PASS**
+- APK production signer / identity verification — **PASS**
+- AAB signature integrity / production signer verification — **PASS**
+- production provenance generation — **PASS**
+- signed artifact upload — **PASS**
+- temporary production keystore cleanup — **PASS**
+
+The workflow checkout/build SHA recorded in provenance is `0ada1c4b01257aa0f9d41ad6ef1bd918e8ba48ff`, which is a generated PR merge build identity. The authoritative accepted V1 product source remains `c7ccdd77e71daf2f11cb88489bd0b3a0fab3b80b`.
+
+## 8. Production signer identity
+
+First accepted Voica production signing certificate:
+
+- certificate SHA-256: `f972e0b4f37a528a7e667af888f68e0b9470a6dd74e32b865a9d1507554d25e7`
+- QA certificate SHA-256: `3df9c619ad0d06f2fabb24232420bf056ca2d8ea9413e7f776669a591974f288`
+- production certificate differs from QA certificate — **PASS**
+
+This production certificate SHA-256 is now the V1 signing identity that future update/release verification must preserve unless an explicitly planned signing-key migration is performed.
+
+## 9. Production signed provenance
+
+Accepted production provenance for product source `c7ccdd77e71daf2f11cb88489bd0b3a0fab3b80b`:
+
+- versionCode: `87`
+- Release versionName: `1.0.0-rc3-r2`
+- ReleaseQa versionName: `1.0.0-rc3-r2-export-qa`
+- Room schema: `12`
+- ABI: `arm64-v8a`
+- production model channel commit: `be74c7065ce22a5f9b207a7cf1c88d3be0e872ec`
+- production model manifest version: `7`
+- production model manifest digest: `8bdb505ce97820cb942bc2855c8a099484b7e22f63ec5567b63f2c1c18d567cf`
+- signed Release APK SHA-256: `dd5be670d39e1d083aac6e2dce1dec651e6fecacfe027a8d0266bb93e0dafd49`
+- signed Release APK size: `30,651,367 bytes`
+- signed Release AAB SHA-256: `57bf9311b918d9a780c346ea9cca993f10e6328d6ca165b195480e0859f32844`
+- signed Release AAB size: `25,602,802 bytes`
+- ReleaseQa APK SHA-256: `89137e978e7766abe593f6f96fe402671f056cd10443cb95a0af6aae9cdb358b`
+- ReleaseQa APK size: `30,651,379 bytes`
+- `production_signed=true`
+- production certificate SHA-256: `f972e0b4f37a528a7e667af888f68e0b9470a6dd74e32b865a9d1507554d25e7`
+
+The signed APK and AAB were also downloaded from the Actions artifacts and their file-level SHA-256 values were independently recomputed; both exactly match the generated production provenance.
+
+## 10. Accepted Actions artifacts
+
+Production artifacts from Full Release Gate #12:
 
 - `Voica-V1-RC-production-signed-apk`
+  - artifact id: `11666543541`
+  - artifact ZIP digest: `sha256:a4da209c76bb7a4ecd182af42261f69c91e00dcfe505a250d7fef1359db3702a`
 - `Voica-V1-RC-production-signed-aab`
+  - artifact id: `11666882923`
+  - artifact ZIP digest: `sha256:25434c3f694814694267fbedadd024de261c06726e055de1a1664a20b24d72f7`
 - `Voica-V1-RC-production-signing-provenance`
+  - artifact id: `11667077422`
+  - artifact ZIP digest: `sha256:d988510ee0e66f0213c8753b207eadd88ff8bd7152bc8d246864cb1bddcd49f8`
 
-The provenance artifact contains the release provenance text and Release mapping file. It does not contain the production keystore or passwords.
+The production signing provenance artifact contains the provenance text and Release mapping only. The production keystore and password values are not artifacts.
 
-## 8. Stage 14.7A acceptance rule
+## 11. Stage 14.7A acceptance
 
-Stage 14.7A is accepted only after one same-repository Stage 14 run proves all of the following:
+Stage 14.7A acceptance gates:
 
-1. normal Full Release Gate PASS;
-2. accepted RC product-source lock PASS;
-3. production signing configuration PASS;
-4. production APK signature / identity PASS;
-5. production AAB signature / identity PASS;
-6. production certificate SHA-256 recorded;
-7. signed APK and AAB SHA-256 / sizes recorded in provenance;
-8. signed artifacts uploaded successfully;
-9. keystore absent from uploaded artifacts.
+1. normal Full Release Gate PASS — **PASS**;
+2. accepted RC product-source lock PASS — **PASS**;
+3. production signing configuration PASS — **PASS**;
+4. production APK signature / identity PASS — **PASS**;
+5. production AAB signature / identity PASS — **PASS**;
+6. production certificate SHA-256 recorded — **PASS**;
+7. signed APK and AAB SHA-256 / sizes recorded — **PASS**;
+8. signed artifacts uploaded successfully — **PASS**;
+9. temporary keystore cleanup PASS and keystore absent from uploaded artifact set — **PASS**.
 
-Until that run succeeds, this file remains `PRODUCTION SIGNING CI PENDING`.
+Therefore **Stage 14.7A is ACCEPTED** and the previous `production signer UNPROVISIONED` blocker is closed.
 
-## 9. Final Freeze remains blocked
+## 12. Final Freeze remains blocked
 
-Passing Stage 14.7A removes the production-signer blocker only.
+Stage 14.7A removes the production-signer blocker only.
 
 Stage 14 Final Freeze/Handoff remains blocked until the separate Stage 14.7B real-device `30 / 60 / 120` minute stability evidence is completed and recorded. PR #24 must remain Draft/Open and must not be merged merely because production signing succeeds.
