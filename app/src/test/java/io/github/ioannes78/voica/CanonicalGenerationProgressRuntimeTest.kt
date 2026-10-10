@@ -84,6 +84,73 @@ class CanonicalGenerationProgressRuntimeTest {
         val progress = runtime.progress.value.getValue(RECORDING_ID)
         assertEquals(10_000_000L, progress.processedDurationUs)
         assertEquals(1f, progress.fraction ?: -1f, 0.0001f)
+        assertTrue(progress.workCompleted)
+    }
+
+    @Test
+    fun metadataDurationOverrunStaysThrottledAndClampedUntilExplicitFinal() {
+        var now = 4_000L
+        val runtime = CanonicalGenerationProgressRuntime(nowMs = { now })
+        runtime.begin(RECORDING_ID, totalDurationUs = 10_000_000L)
+
+        runtime.work(
+            RECORDING_ID,
+            CanonicalAudioWorkProgress(
+                processedDurationUs = 9_000_000L,
+                totalDurationUs = 10_000_000L,
+                processedUnits = 900L,
+                totalUnits = null,
+            ),
+        )
+
+        now += 250L
+        runtime.work(
+            RECORDING_ID,
+            CanonicalAudioWorkProgress(
+                processedDurationUs = 10_500_000L,
+                totalDurationUs = 10_000_000L,
+                processedUnits = 1_050L,
+                totalUnits = null,
+            ),
+        )
+        var progress = runtime.progress.value.getValue(RECORDING_ID)
+        assertEquals(10_000_000L, progress.processedDurationUs)
+        assertTrue(progress.durationEstimateReached)
+        assertFalse(progress.workCompleted)
+        assertNull(progress.fraction)
+        val overrunPublishedAt = progress.updatedAtMs
+
+        now += 10L
+        runtime.work(
+            RECORDING_ID,
+            CanonicalAudioWorkProgress(
+                processedDurationUs = 11_000_000L,
+                totalDurationUs = 10_000_000L,
+                processedUnits = 1_100L,
+                totalUnits = null,
+            ),
+        )
+        progress = runtime.progress.value.getValue(RECORDING_ID)
+        assertEquals(overrunPublishedAt, progress.updatedAtMs)
+        assertEquals(10_000_000L, progress.processedDurationUs)
+        assertNull(progress.fraction)
+
+        now += 10L
+        runtime.work(
+            RECORDING_ID,
+            CanonicalAudioWorkProgress(
+                processedDurationUs = 11_500_000L,
+                totalDurationUs = 10_000_000L,
+                processedUnits = 1_150L,
+                totalUnits = null,
+                isFinal = true,
+            ),
+        )
+        progress = runtime.progress.value.getValue(RECORDING_ID)
+        assertEquals(10_000_000L, progress.processedDurationUs)
+        assertTrue(progress.workCompleted)
+        assertFalse(progress.durationEstimateReached)
+        assertEquals(1f, progress.fraction ?: -1f, 0.0001f)
     }
 
     @Test
