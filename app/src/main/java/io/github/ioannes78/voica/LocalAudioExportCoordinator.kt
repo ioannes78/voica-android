@@ -40,6 +40,8 @@ data class LocalAudioExportItemResult(
     val displayName: String?,
     val destinationUri: Uri? = null,
     val error: String? = null,
+    val mimeType: String? = null,
+    val locationLabel: String? = null,
 )
 
 data class LocalAudioBatchExportResult(
@@ -83,6 +85,7 @@ class LocalAudioExportCoordinator(
     private val appContext = context.applicationContext
     private val resolver = appContext.contentResolver
     private val shareDir = File(appContext.cacheDir, SHARE_DIRECTORY)
+    private val destinationStore = ExportDestinationStore(appContext)
 
     suspend fun describe(
         recordingId: String,
@@ -101,145 +104,173 @@ class LocalAudioExportCoordinator(
         recordingIds: Collection<String>,
         variant: AudioExportVariant = AudioExportVariant.CANONICAL_WAV,
     ): LocalAudioBatchExportResult {
-        require(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
-        return withContext(ioDispatcher) {
-            val usedNames = loadExistingDownloadNames()
-            val results = ArrayList<LocalAudioExportItemResult>()
-            recordingIds.distinct().forEach { recordingId ->
-                currentCoroutineContext().ensureActive()
-                val source = resolveSource(recordingId, variant)
-                if (source == null) {
-                    results +=
-                        LocalAudioExportItemResult(
-                            recordingId = recordingId,
-                            exported = false,
-                            displayName = null,
-                            error = "没有可导出的音频",
-                        )
-                    return@forEach
-                }
-                val name = allocateUniqueName(source.displayName, usedNames)
-                usedNames += name
-                results += exportSourceToDownloads(source, name)
-            }
-            LocalAudioBatchExportResult(results)
+        val preferred = destinationStore.current()
+        preferred.treeUri?.let { treeUri ->
+            return exportToTree(recordingIds, treeUri, variant)
         }
+
+        require(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+        val result =
+            withContext(ioDispatcher) {
+                val usedNames = loadExistingDownloadNames()
+                val results = ArrayList<LocalAudioExportItemResult>()
+                recordingIds.distinct().forEach { recordingId ->
+                    currentCoroutineContext().ensureActive()
+                    val source = resolveSource(recordingId, variant)
+                    if (source == null) {
+                        results +=
+                            LocalAudioExportItemResult(
+                                recordingId = recordingId,
+                                exported = false,
+                                displayName = null,
+                                error = "没有可导出的音频",
+                                locationLabel = ExportDestinationStore.DEFAULT_SHORT_LABEL,
+                            )
+                        return@forEach
+                    }
+                    val name = allocateUniqueName(source.displayName, usedNames)
+                    usedNames += name
+                    results += exportSourceToDownloads(source, name)
+                }
+                LocalAudioBatchExportResult(results)
+            }
+        publishBatchFeedback(result, ExportDestinationStore.DEFAULT_SHORT_LABEL)
+        return result
     }
 
     suspend fun exportToTree(
         recordingIds: Collection<String>,
         treeUri: Uri,
         variant: AudioExportVariant = AudioExportVariant.CANONICAL_WAV,
-    ): LocalAudioBatchExportResult =
-        withContext(ioDispatcher) {
-            val parent =
-                runCatching {
-                    val treeId = DocumentsContract.getTreeDocumentId(treeUri)
-                    DocumentsContract.buildDocumentUriUsingTree(treeUri, treeId)
-                }.getOrElse {
-                    return@withContext LocalAudioBatchExportResult(
-                        recordingIds.distinct().map { recordingId ->
+    ): LocalAudioBatchExportResult {
+        val locationLabel = destinationStore.resolveTreeLabel(treeUri)
+        val result =
+            withContext(ioDispatcher) {
+                val parent =
+                    runCatching {
+                        val treeId = DocumentsContract.getTreeDocumentId(treeUri)
+                        DocumentsContract.buildDocumentUriUsingTree(treeUri, treeId)
+                    }.getOrElse {
+                        return@withContext LocalAudioBatchExportResult(
+                            recordingIds.distinct().map { recordingId ->
+                                LocalAudioExportItemResult(
+                                    recordingId = recordingId,
+                                    exported = false,
+                                    displayName = null,
+                                    error = "无法访问导出目录",
+                                    locationLabel = locationLabel,
+                                )
+                            },
+                        )
+                    }
+                val usedNames = loadTreeNames(treeUri)
+                val results = ArrayList<LocalAudioExportItemResult>()
+                recordingIds.distinct().forEach { recordingId ->
+                    currentCoroutineContext().ensureActive()
+                    val source = resolveSource(recordingId, variant)
+                    if (source == null) {
+                        results +=
                             LocalAudioExportItemResult(
                                 recordingId = recordingId,
                                 exported = false,
                                 displayName = null,
-                                error = "无法访问导出目录",
+                                error = "没有可导出的音频",
+                                locationLabel = locationLabel,
                             )
-                        },
-                    )
-                }
-            val usedNames = loadTreeNames(treeUri)
-            val results = ArrayList<LocalAudioExportItemResult>()
-            recordingIds.distinct().forEach { recordingId ->
-                currentCoroutineContext().ensureActive()
-                val source = resolveSource(recordingId, variant)
-                if (source == null) {
-                    results +=
-                        LocalAudioExportItemResult(
-                            recordingId = recordingId,
-                            exported = false,
-                            displayName = null,
-                            error = "没有可导出的音频",
-                        )
-                    return@forEach
-                }
-                val name = allocateUniqueName(source.displayName, usedNames)
-                usedNames += name
-                var destination: Uri? = null
-                try {
-                    destination =
-                        DocumentsContract.createDocument(
-                            resolver,
-                            parent,
-                            source.mimeType,
-                            name,
-                        ) ?: error("无法创建导出文件")
-                    copySource(source.file, destination)
-                    results +=
-                        LocalAudioExportItemResult(
-                            recordingId = recordingId,
-                            exported = true,
-                            displayName = name,
-                            destinationUri = destination,
-                        )
-                } catch (cancelled: CancellationException) {
-                    destination?.let {
-                        runCatching {
-                            DocumentsContract.deleteDocument(resolver, it)
-                        }
+                        return@forEach
                     }
-                    throw cancelled
-                } catch (error: Throwable) {
-                    destination?.let {
-                        runCatching {
-                            DocumentsContract.deleteDocument(resolver, it)
+                    val name = allocateUniqueName(source.displayName, usedNames)
+                    usedNames += name
+                    var destination: Uri? = null
+                    try {
+                        destination =
+                            DocumentsContract.createDocument(
+                                resolver,
+                                parent,
+                                source.mimeType,
+                                name,
+                            ) ?: error("无法创建导出文件")
+                        copySource(source.file, destination)
+                        results +=
+                            LocalAudioExportItemResult(
+                                recordingId = recordingId,
+                                exported = true,
+                                displayName = name,
+                                destinationUri = destination,
+                                mimeType = source.mimeType,
+                                locationLabel = locationLabel,
+                            )
+                    } catch (cancelled: CancellationException) {
+                        destination?.let {
+                            runCatching {
+                                DocumentsContract.deleteDocument(resolver, it)
+                            }
                         }
+                        throw cancelled
+                    } catch (error: Throwable) {
+                        destination?.let {
+                            runCatching {
+                                DocumentsContract.deleteDocument(resolver, it)
+                            }
+                        }
+                        results +=
+                            LocalAudioExportItemResult(
+                                recordingId = recordingId,
+                                exported = false,
+                                displayName = name,
+                                error = error.message ?: "导出失败",
+                                mimeType = source.mimeType,
+                                locationLabel = locationLabel,
+                            )
                     }
-                    results +=
-                        LocalAudioExportItemResult(
-                            recordingId = recordingId,
-                            exported = false,
-                            displayName = name,
-                            error = error.message ?: "导出失败",
-                        )
                 }
+                LocalAudioBatchExportResult(results)
             }
-            LocalAudioBatchExportResult(results)
-        }
+        publishBatchFeedback(result, locationLabel)
+        return result
+    }
 
     suspend fun exportToUri(
         recordingId: String,
         destinationUri: Uri,
         variant: AudioExportVariant = AudioExportVariant.CANONICAL_WAV,
-    ): LocalAudioExportItemResult =
-        withContext(ioDispatcher) {
-            val source =
-                resolveSource(recordingId, variant)
-                    ?: return@withContext LocalAudioExportItemResult(
+    ): LocalAudioExportItemResult {
+        val result =
+            withContext(ioDispatcher) {
+                val source =
+                    resolveSource(recordingId, variant)
+                        ?: return@withContext LocalAudioExportItemResult(
+                            recordingId = recordingId,
+                            exported = false,
+                            displayName = null,
+                            error = "没有可导出的音频",
+                        )
+                try {
+                    copySource(source.file, destinationUri)
+                    LocalAudioExportItemResult(
+                        recordingId = recordingId,
+                        exported = true,
+                        displayName = source.displayName,
+                        destinationUri = destinationUri,
+                        mimeType = source.mimeType,
+                        locationLabel = "已选择位置",
+                    )
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Throwable) {
+                    LocalAudioExportItemResult(
                         recordingId = recordingId,
                         exported = false,
-                        displayName = null,
-                        error = "没有可导出的音频",
+                        displayName = source.displayName,
+                        error = error.message ?: "导出失败",
+                        mimeType = source.mimeType,
+                        locationLabel = "已选择位置",
                     )
-            try {
-                copySource(source.file, destinationUri)
-                LocalAudioExportItemResult(
-                    recordingId = recordingId,
-                    exported = true,
-                    displayName = source.displayName,
-                    destinationUri = destinationUri,
-                )
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Throwable) {
-                LocalAudioExportItemResult(
-                    recordingId = recordingId,
-                    exported = false,
-                    displayName = source.displayName,
-                    error = error.message ?: "导出失败",
-                )
+                }
             }
-        }
+        publishItemFeedback(result)
+        return result
+    }
 
     suspend fun prepareShare(
         recordingId: String,
@@ -285,6 +316,62 @@ class LocalAudioExportCoordinator(
         withContext(ioDispatcher) {
             cleanupStaleShareCacheLocked()
         }
+
+    private fun publishBatchFeedback(
+        result: LocalAudioBatchExportResult,
+        locationLabel: String,
+    ) {
+        val successes = result.items.filter { it.exported }
+        if (successes.isEmpty()) {
+            publishExportFailure(
+                result.items.firstNotNullOfOrNull { it.error } ?: "没有可导出的音频",
+            )
+            return
+        }
+
+        val first = successes.first()
+        val displayName = first.displayName ?: "录音"
+        val mimeType = first.mimeType ?: "application/octet-stream"
+        val message =
+            when {
+                result.failedCount == 0 && result.exportedCount == 1 ->
+                    "已导出：$displayName · $locationLabel"
+                result.failedCount == 0 ->
+                    "已导出 ${result.exportedCount} 条录音 · $locationLabel"
+                else ->
+                    "已导出 ${result.exportedCount} 条，${result.failedCount} 条失败 · $locationLabel"
+            }
+        first.destinationUri?.let { uri ->
+            destinationStore.recordLastExport(
+                uri = uri,
+                displayName = displayName,
+                mimeType = mimeType,
+                locationLabel = locationLabel,
+            )
+        }
+        ExportFeedbackBus.publish(
+            ExportFeedbackEvent(
+                message = message,
+                success = true,
+                destinationUri = first.destinationUri,
+                mimeType = mimeType,
+            ),
+        )
+    }
+
+    private fun publishItemFeedback(result: LocalAudioExportItemResult) {
+        if (result.exported) {
+            publishExportSuccess(
+                context = appContext,
+                displayName = result.displayName ?: "录音",
+                destinationUri = result.destinationUri,
+                mimeType = result.mimeType ?: "application/octet-stream",
+                locationLabel = result.locationLabel ?: "已选择位置",
+            )
+        } else {
+            publishExportFailure(result.error ?: "导出失败")
+        }
+    }
 
     private suspend fun resolveSource(
         recordingId: String,
@@ -387,6 +474,8 @@ class LocalAudioExportCoordinator(
                 exported = true,
                 displayName = displayName,
                 destinationUri = destination,
+                mimeType = source.mimeType,
+                locationLabel = ExportDestinationStore.DEFAULT_SHORT_LABEL,
             )
         } catch (cancelled: CancellationException) {
             destination?.let { resolver.delete(it, null, null) }
@@ -398,6 +487,8 @@ class LocalAudioExportCoordinator(
                 exported = false,
                 displayName = displayName,
                 error = error.message ?: "导出失败",
+                mimeType = source.mimeType,
+                locationLabel = ExportDestinationStore.DEFAULT_SHORT_LABEL,
             )
         }
     }
