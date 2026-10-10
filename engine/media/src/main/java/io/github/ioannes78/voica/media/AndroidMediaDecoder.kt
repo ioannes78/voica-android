@@ -66,6 +66,7 @@ class AndroidMediaDecoder : CompressedAudioDecoder {
                 var outputDone = false
                 var outputFormat: DecodedPcmFormat? = null
                 var totalFrames = 0L
+                var pcmBuffer = ShortArray(0)
 
                 while (!outputDone) {
                     if (isCancelled()) throw CancellationException("media decode cancelled")
@@ -129,10 +130,12 @@ class AndroidMediaDecoder : CompressedAudioDecoder {
                                     require(sampleCount % format.channelCount == 0) {
                                         "decoder output is not frame aligned"
                                     }
-                                    val samples = ShortArray(sampleCount)
-                                    view.asShortBuffer().get(samples)
+                                    if (pcmBuffer.size < sampleCount) {
+                                        pcmBuffer = ShortArray(sampleCount)
+                                    }
+                                    view.asShortBuffer().get(pcmBuffer, 0, sampleCount)
                                     val frameCount = sampleCount / format.channelCount
-                                    sink.onSamples(samples, frameCount)
+                                    sink.onSamples(pcmBuffer, frameCount)
                                     totalFrames += frameCount
                                 }
 
