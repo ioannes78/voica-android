@@ -58,33 +58,52 @@ jobs:
           cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
 
-      - name: Unit test and shrunk release builds
-        run: >
-          gradle
-          :core:protocol:test
-          :core:ble:testDebugUnitTest
-          :core:database:testDebugUnitTest
-          :core:ai:test
-          :core:audio:test
-          :core:model:test
-          :core:transcript:test
-          :engine:opus:assembleDebug
-          :engine:media:testDebugUnitTest
-          :engine:media:assembleDebug
-          :engine:playback:testDebugUnitTest
-          :engine:playback:assembleDebug
-          :engine:sherpa:testDebugUnitTest
-          :engine:llm:testDebugUnitTest
-          :engine:llm:assembleDebug
-          :engine:sherpa:assembleDebug
-          :app:testDebugUnitTest
-          :app:assembleReleaseQa
-          :app:assembleRelease
-          :app:bundleRelease
-          --no-configuration-cache
-          --stacktrace
+      # Tiered Stage 14 validation:
+      # - every run keeps the full unit/debug gate;
+      # - [APK], [RELEASE], and manual runs additionally build the shrunk releaseQa candidate;
+      # - only [RELEASE] and manual runs build production Release APK/AAB.
+      # This avoids paying for a second R8/resource-shrink pass on every real-device QA commit.
+      - name: Unit test and selected release builds
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_TITLE: ${{ github.event_name == 'pull_request' && github.event.pull_request.title || '' }}
+        run: |
+          set -euo pipefail
+
+          tasks=(
+            :core:protocol:test
+            :core:ble:testDebugUnitTest
+            :core:database:testDebugUnitTest
+            :core:ai:test
+            :core:audio:test
+            :core:model:test
+            :core:transcript:test
+            :engine:opus:assembleDebug
+            :engine:media:testDebugUnitTest
+            :engine:media:assembleDebug
+            :engine:playback:testDebugUnitTest
+            :engine:playback:assembleDebug
+            :engine:sherpa:testDebugUnitTest
+            :engine:llm:testDebugUnitTest
+            :engine:llm:assembleDebug
+            :engine:sherpa:assembleDebug
+            :app:testDebugUnitTest
+          )
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" || "$PR_TITLE" == *"[APK]"* || "$PR_TITLE" == *"[RELEASE]"* ]]; then
+            tasks+=( :app:assembleReleaseQa )
+          fi
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" || "$PR_TITLE" == *"[RELEASE]"* ]]; then
+            tasks+=( :app:assembleRelease :app:bundleRelease )
+          fi
+
+          printf 'Gradle tasks: %s\n' "${tasks[*]}"
+          gradle "${tasks[@]}" --no-configuration-cache --stacktrace
 
       - name: Verify production-like QA signing identity
+        if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && (contains(github.event.pull_request.title, '[APK]') || contains(github.event.pull_request.title, '[RELEASE]'))) }}
         shell: bash
         run: |
           set -euo pipefail
@@ -98,25 +117,22 @@ jobs:
             tr '[:upper:]' '[:lower:]')"
           test "$actual_cert_sha256" = "$expected_cert_sha256"
 
-      - name: Verify V1 RC3-R1 release identity and security boundary
+      - name: Verify production-like QA identity and security boundary
+        if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && (contains(github.event.pull_request.title, '[APK]') || contains(github.event.pull_request.title, '[RELEASE]'))) }}
         shell: bash
         run: |
           set -euo pipefail
 
           release_qa_apk="app/build/outputs/apk/releaseQa/app-releaseQa.apk"
-          release_apk="app/build/outputs/apk/release/app-release-unsigned.apk"
-          release_aab="app/build/outputs/bundle/release/app-release.aab"
-          signer="$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner"
           analyzer="$(command -v apkanalyzer)"
 
           test -f "$release_qa_apk"
-          test -f "$release_apk"
-          test -f "$release_aab"
           test -n "$analyzer"
 
           test "$("$analyzer" manifest application-id "$release_qa_apk")" = "io.github.ioannes78.voica.qa"
           test "$("$analyzer" manifest version-code "$release_qa_apk")" = "86"
           test "$("$analyzer" manifest version-name "$release_qa_apk")" = "1.0.0-rc3-r1-export-qa"
+
           release_qa_manifest="$RUNNER_TEMP/releaseqa-manifest.xml"
           "$analyzer" manifest print "$release_qa_apk" > "$release_qa_manifest"
           if grep -q 'android:debuggable="true"' "$release_qa_manifest"; then
@@ -125,18 +141,6 @@ jobs:
           fi
           grep -q 'android:allowBackup="false"' "$release_qa_manifest"
           grep -q 'android:usesCleartextTraffic="false"' "$release_qa_manifest"
-
-          test "$("$analyzer" manifest application-id "$release_apk")" = "io.github.ioannes78.voica"
-          test "$("$analyzer" manifest version-code "$release_apk")" = "86"
-          test "$("$analyzer" manifest version-name "$release_apk")" = "1.0.0-rc3-r1"
-          release_manifest="$RUNNER_TEMP/release-manifest.xml"
-          "$analyzer" manifest print "$release_apk" > "$release_manifest"
-          if grep -q 'android:debuggable="true"' "$release_manifest"; then
-            echo "::error::Release manifest is debuggable."
-            exit 1
-          fi
-          grep -q 'android:allowBackup="false"' "$release_manifest"
-          grep -q 'android:usesCleartextTraffic="false"' "$release_manifest"
 
           grep -Fq 'android:dataExtractionRules="@xml/data_extraction_rules"' app/src/main/AndroidManifest.xml
           grep -Fq 'android:fullBackupContent="@xml/backup_rules"' app/src/main/AndroidManifest.xml
@@ -148,6 +152,34 @@ jobs:
             exit 1
           fi
 
+      - name: Verify full production Release identity and security boundary
+        if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[RELEASE]')) }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_apk="app/build/outputs/apk/release/app-release-unsigned.apk"
+          release_aab="app/build/outputs/bundle/release/app-release.aab"
+          signer="$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner"
+          analyzer="$(command -v apkanalyzer)"
+
+          test -f "$release_apk"
+          test -f "$release_aab"
+          test -n "$analyzer"
+
+          test "$("$analyzer" manifest application-id "$release_apk")" = "io.github.ioannes78.voica"
+          test "$("$analyzer" manifest version-code "$release_apk")" = "86"
+          test "$("$analyzer" manifest version-name "$release_apk")" = "1.0.0-rc3-r1"
+
+          release_manifest="$RUNNER_TEMP/release-manifest.xml"
+          "$analyzer" manifest print "$release_apk" > "$release_manifest"
+          if grep -q 'android:debuggable="true"' "$release_manifest"; then
+            echo "::error::Release manifest is debuggable."
+            exit 1
+          fi
+          grep -q 'android:allowBackup="false"' "$release_manifest"
+          grep -q 'android:usesCleartextTraffic="false"' "$release_manifest"
+
           if "$signer" verify "$release_apk" >/dev/null 2>&1; then
             echo "::error::PR release APK unexpectedly contains a signer. Production credentials must not be injected here."
             exit 1
@@ -156,15 +188,14 @@ jobs:
           unzip -tq "$release_aab" >/dev/null
           zipinfo -1 "$release_aab" | grep -qx 'base/manifest/AndroidManifest.xml'
 
-      - name: Verify R8 outputs and package-size reduction
+      - name: Verify releaseQa R8 outputs and package-size reduction
+        if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && (contains(github.event.pull_request.title, '[APK]') || contains(github.event.pull_request.title, '[RELEASE]'))) }}
         shell: bash
         run: |
           set -euo pipefail
 
-          mapping_dir="app/build/outputs/mapping/release"
+          mapping_dir="app/build/outputs/mapping/releaseQa"
           release_qa_apk="app/build/outputs/apk/releaseQa/app-releaseQa.apk"
-          release_apk="app/build/outputs/apk/release/app-release-unsigned.apk"
-          release_aab="app/build/outputs/bundle/release/app-release.aab"
           stage14_2_qa_baseline_bytes=56893276
           rc2_r1_qa_apk_bytes=35565779
 
@@ -174,14 +205,10 @@ jobs:
           test -f "$mapping_dir/usage.txt"
 
           release_qa_bytes="$(stat -c %s "$release_qa_apk")"
-          release_bytes="$(stat -c %s "$release_apk")"
-          aab_bytes="$(stat -c %s "$release_aab")"
 
           echo "Stage 14.2 QA baseline APK: ${stage14_2_qa_baseline_bytes} bytes"
           echo "Stage 14.3 RC2-R1 accepted shrunk QA APK: ${rc2_r1_qa_apk_bytes} bytes"
           echo "Stage 14.4.1 RC3-R1 export UX releaseQa APK: ${release_qa_bytes} bytes"
-          echo "Stage 14.4.1 RC3-R1 export UX unsigned Release APK: ${release_bytes} bytes"
-          echo "Stage 14.4.1 RC3-R1 export UX Release AAB: ${aab_bytes} bytes"
 
           if (( release_qa_bytes >= rc2_r1_qa_apk_bytes )); then
             echo "::error::RC3-R1 lost the accepted native-trim size boundary."
@@ -215,9 +242,30 @@ jobs:
                   out.write(f"| {key} | {raw} | {compressed} |\n")
           PY
 
+      - name: Verify full production Release R8 outputs
+        if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[RELEASE]')) }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapping_dir="app/build/outputs/mapping/release"
+          release_apk="app/build/outputs/apk/release/app-release-unsigned.apk"
+          release_aab="app/build/outputs/bundle/release/app-release.aab"
+
+          test -s "$mapping_dir/mapping.txt"
+          test -s "$mapping_dir/configuration.txt"
+          test -f "$mapping_dir/seeds.txt"
+          test -f "$mapping_dir/usage.txt"
+
+          release_bytes="$(stat -c %s "$release_apk")"
+          aab_bytes="$(stat -c %s "$release_aab")"
+          echo "Stage 14.4.1 RC3-R1 unsigned Release APK: ${release_bytes} bytes"
+          echo "Stage 14.4.1 RC3-R1 Release AAB: ${aab_bytes} bytes"
+
       # sherpa-onnx JNI uses literal Java class/member names from native code. R8 must not
       # rename or remove its wrapper ABI, otherwise ASR/VAD/diarization can abort the process.
       - name: Verify Sherpa JNI ABI after R8
+        if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && (contains(github.event.pull_request.title, '[APK]') || contains(github.event.pull_request.title, '[RELEASE]'))) }}
         shell: bash
         run: |
           set -euo pipefail
@@ -246,30 +294,25 @@ jobs:
             fi
           done
 
-      - name: Verify Sherpa native trim after packaging
+      - name: Verify Sherpa native trim in releaseQa
+        if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && (contains(github.event.pull_request.title, '[APK]') || contains(github.event.pull_request.title, '[RELEASE]'))) }}
         shell: bash
         run: |
           set -euo pipefail
 
           release_qa_apk="app/build/outputs/apk/releaseQa/app-releaseQa.apk"
-          release_aab="app/build/outputs/bundle/release/app-release.aab"
           jni_so="$RUNNER_TEMP/libsherpa-onnx-jni.so"
+          listing="$RUNNER_TEMP/releaseqa.files"
 
-          for archive in "$release_qa_apk" "$release_aab"; do
-            listing="$RUNNER_TEMP/$(basename "$archive").files"
-            zipinfo -1 "$archive" > "$listing"
-
-            if grep -Eq '(^|/)libsherpa-onnx-(c-api|cxx-api)\.so$' "$listing"; then
-              echo "::error::Unused Sherpa standalone C/C++ API library is still packaged in $(basename "$archive")."
-              grep -E 'libsherpa-onnx-(c-api|cxx-api)\.so$' "$listing" || true
-              exit 1
-            fi
-          done
+          zipinfo -1 "$release_qa_apk" > "$listing"
+          if grep -Eq '(^|/)libsherpa-onnx-(c-api|cxx-api)\.so$' "$listing"; then
+            echo "::error::Unused Sherpa standalone C/C++ API library is still packaged in releaseQa."
+            grep -E 'libsherpa-onnx-(c-api|cxx-api)\.so$' "$listing" || true
+            exit 1
+          fi
 
           zipinfo -1 "$release_qa_apk" | grep -qx 'lib/arm64-v8a/libsherpa-onnx-jni.so'
           zipinfo -1 "$release_qa_apk" | grep -qx 'lib/arm64-v8a/libonnxruntime.so'
-          zipinfo -1 "$release_aab" | grep -qx 'base/lib/arm64-v8a/libsherpa-onnx-jni.so'
-          zipinfo -1 "$release_aab" | grep -qx 'base/lib/arm64-v8a/libonnxruntime.so'
 
           unzip -p "$release_qa_apk" 'lib/arm64-v8a/libsherpa-onnx-jni.so' > "$jni_so"
           test -s "$jni_so"
@@ -278,6 +321,25 @@ jobs:
             readelf -d "$jni_so" | grep NEEDED || true
             exit 1
           fi
+
+      - name: Verify Sherpa native trim in production AAB
+        if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[RELEASE]')) }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_aab="app/build/outputs/bundle/release/app-release.aab"
+          listing="$RUNNER_TEMP/release-aab.files"
+
+          zipinfo -1 "$release_aab" > "$listing"
+          if grep -Eq '(^|/)libsherpa-onnx-(c-api|cxx-api)\.so$' "$listing"; then
+            echo "::error::Unused Sherpa standalone C/C++ API library is still packaged in Release AAB."
+            grep -E 'libsherpa-onnx-(c-api|cxx-api)\.so$' "$listing" || true
+            exit 1
+          fi
+
+          zipinfo -1 "$release_aab" | grep -qx 'base/lib/arm64-v8a/libsherpa-onnx-jni.so'
+          zipinfo -1 "$release_aab" | grep -qx 'base/lib/arm64-v8a/libonnxruntime.so'
 
       - name: Verify production signing guardrails
         shell: bash
@@ -328,7 +390,7 @@ jobs:
           test -z "$(git status --porcelain --untracked-files=all -- "$schema_dir")"
 
       - name: Upload production-like QA APK
-        if: ${{ success() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[APK]'))) }}
+        if: ${{ success() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && (contains(github.event.pull_request.title, '[APK]') || contains(github.event.pull_request.title, '[RELEASE]')))) }}
         uses: actions/upload-artifact@v4
         with:
           name: Voica-releaseqa-apk
@@ -337,7 +399,7 @@ jobs:
           retention-days: 3
 
       - name: Remove older QA APK artifacts for this branch
-        if: ${{ success() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[APK]'))) }}
+        if: ${{ success() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && (contains(github.event.pull_request.title, '[APK]') || contains(github.event.pull_request.title, '[RELEASE]')))) }}
         continue-on-error: true
         shell: bash
         env:
