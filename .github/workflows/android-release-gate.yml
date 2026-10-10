@@ -1,4 +1,4 @@
-name: Android Full Release Gate
+name: Android Production Gate
 
 on:
   pull_request:
@@ -7,43 +7,146 @@ on:
       - "app/**"
       - "core/**"
       - "engine/**"
-      - "ci/**"
+      - "gradle/**"
       - "gradle.properties"
       - "settings.gradle.kts"
       - "build.gradle.kts"
       - ".github/workflows/android-release-gate.yml"
+      - "ci/**"
   workflow_dispatch:
+    inputs:
+      channel:
+        description: "Production artifact channel"
+        required: true
+        default: candidate
+        type: choice
+        options:
+          - candidate
+          - release
 
 permissions:
   contents: read
+  actions: write
 
 concurrency:
-  group: android-release-gate-${{ github.ref }}
+  group: android-production-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-env:
-  VOICA_SOURCE_HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-  VOICA_ACCEPTED_RC_SOURCE_SHA: "c7ccdd77e71daf2f11cb88489bd0b3a0fab3b80b"
-  VOICA_VERSION_CODE: "88"
-  VOICA_RELEASE_VERSION: "1.0.0"
-  VOICA_RELEASEQA_VERSION: "1.0.0-export-qa"
-  VOICA_MODEL_CHANNEL_COMMIT: "be74c7065ce22a5f9b207a7cf1c88d3be0e872ec"
-  VOICA_MODEL_MANIFEST_VERSION: "7"
-  VOICA_MODEL_MANIFEST_DIGEST: "8bdb505ce97820cb942bc2855c8a099484b7e22f63ec5567b63f2c1c18d567cf"
-
 jobs:
-  full-release-gate:
-    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.title, '[APK]') || contains(github.event.pull_request.title, '[RELEASE]') }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+  preflight:
+    name: Production preflight
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'pull_request' &&
+          (contains(github.event.pull_request.title, '[CANDIDATE]') || contains(github.event.pull_request.title, '[RELEASE]')))
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    outputs:
+      version_code: ${{ steps.identity.outputs.version_code }}
+      release_version: ${{ steps.identity.outputs.release_version }}
+      releaseqa_version: ${{ steps.identity.outputs.releaseqa_version }}
+      model_commit: ${{ steps.identity.outputs.model_commit }}
+      model_manifest_version: ${{ steps.identity.outputs.model_manifest_version }}
+      model_manifest_digest: ${{ steps.identity.outputs.model_manifest_digest }}
+      channel: ${{ steps.identity.outputs.channel }}
+      source_head_sha: ${{ steps.identity.outputs.source_head_sha }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Verify V1 final source contract
+      - name: Cheap release contracts
+        id: identity
         shell: bash
-        run: bash ci/verify-v1-rc-source-contract.sh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_CHANNEL: ${{ inputs.channel }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          bash ci/verify-room-schemas.sh
+
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import os, re
+          from pathlib import Path
+
+          gradle = Path("app/build.gradle.kts").read_text()
+          model = Path("app/src/main/java/io/github/ioannes78/voica/AppModelManager.kt").read_text()
+
+          def one(pattern, text, label):
+              match = re.search(pattern, text, re.S)
+              if not match:
+                  raise SystemExit(f"Unable to derive {label}")
+              return match.group(1)
+
+          version_code = one(r"\bversionCode\s*=\s*(\d+)", gradle, "versionCode")
+          release_version = one(r"\bversionName\s*=\s*\"([^\"]+)\"", gradle, "versionName")
+          model_commit = one(r"PRODUCTION_MODEL_CHANNEL_COMMIT\s*=\s*\"([^\"]+)\"", model, "model commit")
+          model_version = one(r"PRODUCTION_MANIFEST_VERSION\s*=\s*(\d+)", model, "model manifest version")
+          model_digest = one(r"PRODUCTION_MANIFEST_DIGEST\s*=\s*\"([^\"]+)\"", model, "model digest")
+
+          event = os.environ["EVENT_NAME"]
+          channel = os.environ.get("INPUT_CHANNEL") or ""
+          if event == "pull_request":
+              title = os.environ.get("PR_TITLE", "")
+              channel = "release" if "[RELEASE]" in title else "candidate"
+          if channel not in {"candidate", "release"}:
+              raise SystemExit(f"Unsupported production channel: {channel}")
+
+          source = os.environ.get("PR_HEAD_SHA") or os.environ.get("GITHUB_SHA", "")
+          print(f"version_code={version_code}")
+          print(f"release_version={release_version}")
+          print(f"releaseqa_version={release_version}-export-qa")
+          print(f"model_commit={model_commit}")
+          print(f"model_manifest_version={model_version}")
+          print(f"model_manifest_digest={model_digest}")
+          print(f"channel={channel}")
+          print(f"source_head_sha={source}")
+          PY
+
+          grep -Fq 'android:allowBackup="false"' app/src/main/AndroidManifest.xml
+          grep -Fq 'android:usesCleartextTraffic="false"' app/src/main/AndroidManifest.xml
+          grep -Fq 'PRODUCTION_MODEL_CHANNEL_COMMIT' app/src/main/java/io/github/ioannes78/voica/AppModelManager.kt
+          if grep -Fq 'voica-model-channel/main/manifests/production.json' app/src/main/java/io/github/ioannes78/voica/AppModelManager.kt; then
+            echo "::error::Production model catalog must not track mutable main."
+            exit 1
+          fi
+
+  production-build:
+    name: Production signed candidate / release
+    needs: preflight
+    if: >-
+      ${{
+        needs.preflight.result == 'success' &&
+        (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository)
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      VOICA_SOURCE_HEAD_SHA: ${{ needs.preflight.outputs.source_head_sha }}
+      VOICA_VERSION_CODE: ${{ needs.preflight.outputs.version_code }}
+      VOICA_RELEASE_VERSION: ${{ needs.preflight.outputs.release_version }}
+      VOICA_RELEASEQA_VERSION: ${{ needs.preflight.outputs.releaseqa_version }}
+      VOICA_MODEL_CHANNEL_COMMIT: ${{ needs.preflight.outputs.model_commit }}
+      VOICA_MODEL_MANIFEST_VERSION: ${{ needs.preflight.outputs.model_manifest_version }}
+      VOICA_MODEL_MANIFEST_DIGEST: ${{ needs.preflight.outputs.model_manifest_digest }}
+      VOICA_PRODUCTION_CHANNEL: ${{ needs.preflight.outputs.channel }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Reverify cheap release contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ci/verify-room-schemas.sh
+          grep -Fq "$VOICA_MODEL_CHANNEL_COMMIT" app/src/main/java/io/github/ioannes78/voica/AppModelManager.kt
+          grep -Fq "$VOICA_MODEL_MANIFEST_DIGEST" app/src/main/java/io/github/ioannes78/voica/AppModelManager.kt
 
       - name: Setup JDK 17
         uses: actions/setup-java@v5
@@ -65,210 +168,20 @@ jobs:
             "ndk;28.2.13676358" \
             "cmake;3.22.1"
 
-      - name: Setup Gradle 9.6
+      - name: Setup Gradle 9.6 read-only cache
         uses: gradle/actions/setup-gradle@v5.0.2
         with:
           gradle-version: "9.6.0"
-          cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+          cache-read-only: true
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
 
       - name: Prefetch and verify Opus 1.6.1 source
         shell: bash
         run: bash ci/prepare-opus-source.sh
-
-      - name: Build full unsigned Release surface
-        shell: bash
-        run: |
-          set -euo pipefail
-          gradle \
-            :app:assembleReleaseQa \
-            :app:assembleRelease \
-            :app:bundleRelease \
-            --no-configuration-cache \
-            --stacktrace
-
-      - name: Verify R8 outputs
-        shell: bash
-        run: |
-          bash ci/verify-r8-outputs.sh releaseQa
-          bash ci/verify-r8-outputs.sh release
-
-      - name: Verify ReleaseQa identity and QA signer
-        shell: bash
-        run: |
-          bash ci/verify-release-artifact.sh \
-            app/build/outputs/apk/releaseQa/app-releaseQa.apk \
-            io.github.ioannes78.voica.qa \
-            "$VOICA_VERSION_CODE" \
-            "$VOICA_RELEASEQA_VERSION" \
-            qa
-
-      - name: Verify unsigned Release APK identity
-        shell: bash
-        run: |
-          bash ci/verify-release-artifact.sh \
-            app/build/outputs/apk/release/app-release-unsigned.apk \
-            io.github.ioannes78.voica \
-            "$VOICA_VERSION_CODE" \
-            "$VOICA_RELEASE_VERSION" \
-            unsigned
-
-      - name: Verify Release AAB structure and identity contract
-        shell: bash
-        run: |
-          bash ci/verify-release-aab.sh \
-            app/build/outputs/bundle/release/app-release.aab \
-            io.github.ioannes78.voica \
-            "$VOICA_VERSION_CODE" \
-            "$VOICA_RELEASE_VERSION"
-
-      - name: Verify security and model-channel boundary
-        shell: bash
-        run: |
-          bash ci/verify-release-security.sh app/build/outputs/apk/releaseQa/app-releaseQa.apk
-          bash ci/verify-release-security.sh app/build/outputs/apk/release/app-release-unsigned.apk
-
-      - name: Verify Sherpa JNI and native packaging
-        shell: bash
-        run: |
-          bash ci/verify-sherpa-package.sh apk app/build/outputs/apk/releaseQa/app-releaseQa.apk
-          bash ci/verify-sherpa-package.sh apk app/build/outputs/apk/release/app-release-unsigned.apk
-          bash ci/verify-sherpa-package.sh aab app/build/outputs/bundle/release/app-release.aab
-
-      - name: Verify Room schema provenance
-        shell: bash
-        run: bash ci/verify-room-schemas.sh
 
       - name: Verify production signing configuration guardrails
         shell: bash
         run: bash ci/verify-production-signing-config.sh
-
-      - name: Verify production signing artifact boundary
-        shell: bash
-        run: bash ci/verify-production-signing-boundary.sh app/build/outputs/apk/release/app-release-unsigned.apk
-
-      - name: Generate Release provenance
-        shell: bash
-        run: |
-          bash ci/generate-release-provenance.sh \
-            app/build/outputs/apk/release/app-release-unsigned.apk \
-            app/build/outputs/bundle/release/app-release.aab \
-            app/build/outputs/apk/releaseQa/app-releaseQa.apk \
-            build/release-provenance.txt
-
-      - name: Upload production-like QA APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Voica-release-gate-releaseqa-apk
-          path: app/build/outputs/apk/releaseQa/app-releaseQa.apk
-          if-no-files-found: error
-          retention-days: 3
-
-      - name: Upload UNSIGNED Release APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Voica-release-UNSIGNED-apk
-          path: app/build/outputs/apk/release/app-release-unsigned.apk
-          if-no-files-found: error
-          retention-days: 3
-
-      - name: Upload UNSIGNED Release AAB
-        uses: actions/upload-artifact@v4
-        with:
-          name: Voica-release-UNSIGNED-aab
-          path: app/build/outputs/bundle/release/app-release.aab
-          if-no-files-found: error
-          retention-days: 3
-
-      - name: Upload Release provenance and mappings
-        uses: actions/upload-artifact@v4
-        with:
-          name: Voica-release-provenance
-          path: |
-            build/release-provenance.txt
-            app/build/outputs/mapping/release/mapping.txt
-            app/build/outputs/mapping/releaseQa/mapping.txt
-          if-no-files-found: error
-          retention-days: 7
-
-  production-signing:
-    name: Production signing (Stage 14 final V1)
-    needs: full-release-gate
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'stage14-v1-release-freeze' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Lock final product behavior to accepted RC
-        shell: bash
-        run: |
-          set -euo pipefail
-          git fetch --no-tags --depth=100 origin stage14-v1-release-freeze
-          git cat-file -e "${VOICA_ACCEPTED_RC_SOURCE_SHA}^{commit}"
-
-          # No behavior/build-source drift is allowed outside app/build.gradle.kts.
-          git diff --exit-code "${VOICA_ACCEPTED_RC_SOURCE_SHA}" HEAD -- \
-            app \
-            core \
-            engine \
-            gradle \
-            gradle.properties \
-            gradlew \
-            gradlew.bat \
-            build.gradle.kts \
-            settings.gradle.kts \
-            ':(exclude)app/build.gradle.kts'
-
-          # Inside app/build.gradle.kts, only versionCode/versionName may differ from the
-          # accepted RC. Strip those two metadata lines and require byte-for-byte equality.
-          diff -u \
-            <(git show "${VOICA_ACCEPTED_RC_SOURCE_SHA}:app/build.gradle.kts" | sed -E '/^[[:space:]]*version(Code|Name) = /d') \
-            <(sed -E '/^[[:space:]]*version(Code|Name) = /d' app/build.gradle.kts)
-
-          git show "${VOICA_ACCEPTED_RC_SOURCE_SHA}:app/build.gradle.kts" | grep -Fq 'versionCode = 87'
-          git show "${VOICA_ACCEPTED_RC_SOURCE_SHA}:app/build.gradle.kts" | grep -Fq 'versionName = "1.0.0-rc3-r2"'
-          grep -Fq 'versionCode = 88' app/build.gradle.kts
-          grep -Fq 'versionName = "1.0.0"' app/build.gradle.kts
-
-          echo "Final V1 product behavior is unchanged from accepted RC ${VOICA_ACCEPTED_RC_SOURCE_SHA}; only version metadata advanced to code 88 / 1.0.0."
-
-      - name: Verify V1 final source contract
-        shell: bash
-        run: bash ci/verify-v1-rc-source-contract.sh
-
-      - name: Setup JDK 17
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v4
-        with:
-          packages: platform-tools
-
-      - name: Install Android build and native toolchains
-        shell: bash
-        run: |
-          sdkmanager \
-            "platforms;android-37.1" \
-            "build-tools;36.0.0" \
-            "ndk;28.2.13676358" \
-            "cmake;3.22.1"
-
-      - name: Setup Gradle 9.6
-        uses: gradle/actions/setup-gradle@v5.0.2
-        with:
-          gradle-version: "9.6.0"
-          cache-read-only: false
-          cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
-
-      - name: Prefetch and verify Opus 1.6.1 source
-        shell: bash
-        run: bash ci/prepare-opus-source.sh
 
       - name: Materialize production keystore in runner temp
         shell: bash
@@ -282,11 +195,11 @@ jobs:
           fi
           store="${RUNNER_TEMP}/voica-production.jks"
           umask 077
-          printf '%s' "${VOICA_KEYSTORE_BASE64}" | base64 --decode > "${store}"
-          test -s "${store}"
-          echo "VOICA_RELEASE_STORE_FILE=${store}" >> "${GITHUB_ENV}"
+          printf '%s' "$VOICA_KEYSTORE_BASE64" | base64 --decode > "$store"
+          test -s "$store"
+          echo "VOICA_RELEASE_STORE_FILE=$store" >> "$GITHUB_ENV"
 
-      - name: Validate production secret set and certificate
+      - name: Validate production signer
         shell: bash
         env:
           VOICA_RELEASE_STORE_PASSWORD: ${{ secrets.VOICA_STORE_PASSWORD }}
@@ -300,36 +213,23 @@ jobs:
               exit 2
             fi
           done
-          LC_ALL=C keytool -list -keystore "${VOICA_RELEASE_STORE_FILE}" \
-            -storepass "${VOICA_RELEASE_STORE_PASSWORD}" \
-            -alias "${VOICA_RELEASE_KEY_ALIAS}" >/dev/null
           cert_sha256="$(
-            LC_ALL=C keytool -list -v -keystore "${VOICA_RELEASE_STORE_FILE}" \
-              -storepass "${VOICA_RELEASE_STORE_PASSWORD}" \
-              -alias "${VOICA_RELEASE_KEY_ALIAS}" |
+            LC_ALL=C keytool -list -v -keystore "$VOICA_RELEASE_STORE_FILE" \
+              -storepass "$VOICA_RELEASE_STORE_PASSWORD" \
+              -alias "$VOICA_RELEASE_KEY_ALIAS" |
               sed -n 's/^[[:space:]]*SHA256: //p' |
               head -n 1 |
               tr '[:upper:]' '[:lower:]' |
               tr -d ':[:space:]'
           )"
-          if [[ -z "${cert_sha256}" ]]; then
-            echo "Unable to read production certificate SHA-256." >&2
-            exit 1
-          fi
-          if [[ "${cert_sha256}" = "3df9c619ad0d06f2fabb24232420bf056ca2d8ea9413e7f776669a591974f288" ]]; then
+          test -n "$cert_sha256"
+          if [[ "$cert_sha256" = "3df9c619ad0d06f2fabb24232420bf056ca2d8ea9413e7f776669a591974f288" ]]; then
             echo "Production certificate must not match the public QA signer." >&2
             exit 1
           fi
-          echo "VOICA_EXPECTED_PRODUCTION_CERT_SHA256=${cert_sha256}" >> "${GITHUB_ENV}"
-          {
-            echo "### Production signer"
-            echo
-            echo "- certificate SHA-256: \`${cert_sha256}\`"
-            echo "- accepted RC behavior source: \`${VOICA_ACCEPTED_RC_SOURCE_SHA}\`"
-            echo "- final release source: \`${VOICA_SOURCE_HEAD_SHA}\`"
-          } >> "${GITHUB_STEP_SUMMARY}"
+          echo "VOICA_EXPECTED_PRODUCTION_CERT_SHA256=$cert_sha256" >> "$GITHUB_ENV"
 
-      - name: Build production-signed APK and AAB
+      - name: Build production-signed APK and AAB once
         shell: bash
         env:
           VOICA_RELEASE_STORE_PASSWORD: ${{ secrets.VOICA_STORE_PASSWORD }}
@@ -339,7 +239,6 @@ jobs:
           set -euo pipefail
           gradle \
             :app:verifyProductionSigningConfiguration \
-            :app:assembleReleaseQa \
             :app:assembleRelease \
             :app:bundleRelease \
             --no-configuration-cache \
@@ -347,63 +246,61 @@ jobs:
           test -f app/build/outputs/apk/release/app-release.apk
           test -f app/build/outputs/bundle/release/app-release.aab
 
-      - name: Verify production-signed Release artifacts
+      - name: Verify production artifacts
         shell: bash
         run: |
           set -euo pipefail
+          apk="app/build/outputs/apk/release/app-release.apk"
+          aab="app/build/outputs/bundle/release/app-release.aab"
           bash ci/verify-r8-outputs.sh release
           bash ci/verify-release-artifact.sh \
-            app/build/outputs/apk/release/app-release.apk \
-            io.github.ioannes78.voica \
-            "$VOICA_VERSION_CODE" \
-            "$VOICA_RELEASE_VERSION" \
-            production
+            "$apk" io.github.ioannes78.voica \
+            "$VOICA_VERSION_CODE" "$VOICA_RELEASE_VERSION" production
           bash ci/verify-release-aab.sh \
-            app/build/outputs/bundle/release/app-release.aab \
-            io.github.ioannes78.voica \
-            "$VOICA_VERSION_CODE" \
-            "$VOICA_RELEASE_VERSION"
+            "$aab" io.github.ioannes78.voica \
+            "$VOICA_VERSION_CODE" "$VOICA_RELEASE_VERSION"
           bash ci/verify-production-aab-signature.sh \
-            app/build/outputs/bundle/release/app-release.aab \
-            "$VOICA_EXPECTED_PRODUCTION_CERT_SHA256"
-          bash ci/verify-release-security.sh app/build/outputs/apk/release/app-release.apk
-          bash ci/verify-sherpa-package.sh apk app/build/outputs/apk/release/app-release.apk
-          bash ci/verify-sherpa-package.sh aab app/build/outputs/bundle/release/app-release.aab
+            "$aab" "$VOICA_EXPECTED_PRODUCTION_CERT_SHA256"
+          bash ci/verify-release-security.sh "$apk"
+          bash ci/verify-sherpa-package.sh apk "$apk"
+          bash ci/verify-sherpa-package.sh aab "$aab"
           bash ci/verify-room-schemas.sh
 
-      - name: Generate production-signed provenance
+      - name: Generate production provenance
         shell: bash
         run: |
           set -euo pipefail
           bash ci/generate-release-provenance.sh \
             app/build/outputs/apk/release/app-release.apk \
             app/build/outputs/bundle/release/app-release.aab \
-            app/build/outputs/apk/releaseQa/app-releaseQa.apk \
+            - \
             build/production-release-provenance.txt
           grep -qx 'production_signed=true' build/production-release-provenance.txt
           grep -qx "production_cert_sha256=${VOICA_EXPECTED_PRODUCTION_CERT_SHA256}" build/production-release-provenance.txt
           grep -qx "source_head_sha=${VOICA_SOURCE_HEAD_SHA}" build/production-release-provenance.txt
 
-      - name: Upload production-signed APK
+      - name: Upload production APK
         uses: actions/upload-artifact@v4
         with:
-          name: Voica-V1-production-signed-apk
+          name: Voica-${{ env.VOICA_RELEASE_VERSION }}-${{ env.VOICA_PRODUCTION_CHANNEL }}-apk
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 14
+          compression-level: 0
 
-      - name: Upload production-signed AAB
+      - name: Upload production AAB
         uses: actions/upload-artifact@v4
         with:
-          name: Voica-V1-production-signed-aab
+          name: Voica-${{ env.VOICA_RELEASE_VERSION }}-${{ env.VOICA_PRODUCTION_CHANNEL }}-aab
           path: app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
           retention-days: 14
+          compression-level: 0
 
-      - name: Upload production signing provenance and mapping
+      - name: Upload production provenance and mapping
         uses: actions/upload-artifact@v4
         with:
-          name: Voica-V1-production-signing-provenance
+          name: Voica-${{ env.VOICA_RELEASE_VERSION }}-${{ env.VOICA_PRODUCTION_CHANNEL }}-provenance
           path: |
             build/production-release-provenance.txt
             app/build/outputs/mapping/release/mapping.txt
@@ -411,10 +308,10 @@ jobs:
           retention-days: 14
 
       - name: Remove production keystore from runner
-        if: ${{ always() }}
+        if: always()
         shell: bash
         run: |
           set +e
-          if [[ -n "${VOICA_RELEASE_STORE_FILE:-}" && -f "${VOICA_RELEASE_STORE_FILE}" ]]; then
-            shred -u "${VOICA_RELEASE_STORE_FILE}" 2>/dev/null || rm -f "${VOICA_RELEASE_STORE_FILE}"
+          if [[ -n "${VOICA_RELEASE_STORE_FILE:-}" && -f "$VOICA_RELEASE_STORE_FILE" ]]; then
+            shred -u "$VOICA_RELEASE_STORE_FILE" 2>/dev/null || rm -f "$VOICA_RELEASE_STORE_FILE"
           fi
