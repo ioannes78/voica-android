@@ -14,6 +14,7 @@ data class CanonicalAudioWorkProgress(
     val totalDurationUs: Long?,
     val processedUnits: Long,
     val totalUnits: Long?,
+    val isFinal: Boolean = false,
 ) {
     init {
         require(processedDurationUs >= 0L)
