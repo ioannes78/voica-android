@@ -1,6 +1,6 @@
 # Stage 14.7B — Real-device 30 / 60 / 120 minute stability
 
-Status: **IN PROGRESS / B1+B2 PASS / B3 PENDING / FINAL FREEZE BLOCKED**
+Status: **ACCEPTED / B1+B2+B3 PASS / STAGE 14.7B COMPLETE / FINAL FREEZE PREPARATION READY**
 
 Stage 14.7B records the final real-device long-audio stability evidence required before Stage 14 Final Freeze/Handoff.
 
@@ -95,46 +95,101 @@ Interpretation:
 - No crash, ANR, hang, task-loss, persistence, playback, search, export, background or screen-off failure was observed.
 - Therefore B2 is accepted as a real-device operational-stability PASS.
 
+## B3 — 120-minute real-device run
+
+Result: **PASS**
+
+User-reported real-device evidence on 2026-10-10:
+
+- audio duration: `121:07` (`7267 s`)
+- SenseVoice processing time: `16:20` (`980 s`)
+- SenseVoice RTF: `0.1349`
+- SenseVoice throughput: approximately `7.42x realtime`
+- speaker diarization processing time: `55:30` (`3330 s`)
+- speaker diarization RTF: `0.4582`
+- speaker diarization throughput: approximately `2.18x realtime`
+- diarization / SenseVoice processing-time ratio: approximately `3.40x`
+- sequential SenseVoice + diarization processing time: `71:50` (`4310 s`)
+- sequential processing RTF: `0.5931`
+- background / screen-off behavior: **PASS / normal**
+- crash: **none observed**
+- ANR / hang: **none observed**
+- OOM: **none reported**
+- playback / search / export: **PASS / normal**
+- result persistence: **PASS / normal**
+- other anomalies: **none reported**
+
+B2 → B3 scaling:
+
+- audio-duration ratio: approximately `1.88x`
+- SenseVoice processing-time ratio: approximately `2.04x`
+- speaker-diarization processing-time ratio: approximately `2.02x`
+- SenseVoice RTF changed from `0.1241` to `0.1349`
+- speaker-diarization RTF changed from `0.4267` to `0.4582`
+
+B1 → B3 scaling:
+
+- audio-duration ratio: approximately `3.93x`
+- SenseVoice processing-time ratio: approximately `3.95x`
+- speaker-diarization processing-time ratio: approximately `4.22x`
+
+Interpretation:
+
+- SenseVoice remained strongly faster than realtime at approximately `7.42x` realtime and showed no operational failure at the 121-minute duration.
+- Speaker diarization remained faster than realtime and completed successfully; normalized RTF rose modestly versus B1/B2 but did not show runaway nonlinear degradation.
+- Across B1/B2/B3, both ASR and diarization remained broadly proportional to source duration, with no crash, ANR, hang, task-loss, persistence, playback, search, export, background or screen-off failure.
+- Therefore B3 is accepted as the final real-device long-duration operational-stability PASS.
+
 ## Canonical WAV performance observation
 
 Separately from ASR/diarization, the user reported that, for the same source format, generating the standard/canonical WAV for an approximately one-hour audio file took roughly `3x` the time observed for an approximately half-hour file, while source duration was only about `2x` longer.
 
-- exact canonical-generation wall-clock times were not captured for B1/B2, so no formal RTF can be calculated for this stage.
-- the observation is treated as a **performance watch item**, not an operational-stability failure, because canonical generation completed and no crash/hang/data-loss behavior was reported.
-- current evidence suggests the nonlinear behavior is localized to canonical preprocessing rather than SenseVoice or speaker diarization, because B1→B2 ASR/diarization scaling remained linear or better.
-- B3 should continue to observe canonical-generation behavior; do not change the tested binary before B3.
+- exact canonical-generation wall-clock times were not captured for B1/B2/B3, so no formal canonical-generation RTF can be calculated for Stage 14.7B.
+- the observation remains a **known non-blocking performance watch item** because canonical generation completed and no crash/hang/data-loss behavior was reported.
+- current evidence indicates the observed nonlinearity is not reproduced in SenseVoice or speaker diarization processing, whose B1/B2/B3 scaling remained broadly proportional to source duration.
+- optimize canonical preprocessing in a later performance stage rather than changing the accepted Stage 14 release binary after successful 30/60/120-minute stability validation.
 
-## Resource telemetry for B2
+## Resource telemetry
 
-No external ADB telemetry values were supplied for this run:
+No external ADB telemetry collector was used for these user-run acceptance tests, so quantitative system-resource values are unavailable.
 
-- RAM / PSS peak: `N/A — not instrumented for B2`
-- CPU utilization: `N/A — not instrumented for B2`
-- thermal status / temperature: `N/A — not instrumented for B2`
-- storage delta / free-space telemetry: `N/A — not instrumented for B2`
-- canonical WAV exact generation time: `N/A — qualitative slowdown reported, exact timing not captured`
+### B2
 
-This does not invalidate the B2 operational-stability result, but B3 should capture resource/canonical timing observations where practical.
+- RAM / PSS peak: `N/A — not instrumented`
+- CPU utilization: `N/A — not instrumented`
+- thermal status / temperature: `N/A — not instrumented`
+- storage delta / free-space telemetry: `N/A — not instrumented`
 
-## Remaining run
+### B3
 
-### B3 — 120 minutes
+- RAM / PSS peak: `N/A — not instrumented`
+- CPU utilization: `N/A — not instrumented`
+- thermal status / temperature: `N/A — not instrumented`
+- storage delta / free-space telemetry: `N/A — not instrumented`
+- canonical WAV exact generation time: `N/A — exact wall-clock timing not captured`
 
-Pending.
+Unavailable telemetry is explicitly recorded as N/A rather than inferred. The operational evidence still covers the release-critical outcomes: successful completion, background/screen-off behavior, crash/ANR/hang observations, persistence, playback, search and export across real 30/60/120-minute audio runs.
 
-Use the same production-signed APK. Minimum evidence:
+## Final Stage 14.7B acceptance
 
-- actual audio duration
-- canonical WAV generation time if applicable
-- SenseVoice processing time / RTF
-- speaker diarization processing time / RTF
-- background / screen-off recovery
-- crash / ANR / OOM observation
-- persistence / playback / search / export result
-- thermal / resource observations where practical
+Stage 14.7B is **ACCEPTED**.
 
-B3 is the final long-duration release-stability gate.
+All three real-device duration gates passed on the same accepted production-signed V1 RC binary:
 
-## Final acceptance rule
+| Gate | Audio | SenseVoice RTF | Diarization RTF | Operational result |
+| --- | ---: | ---: | ---: | --- |
+| B1 | 30:48 | 0.1342 | 0.4275 | PASS |
+| B2 | 64:27 | 0.1241 | 0.4267 | PASS |
+| B3 | 121:07 | 0.1349 | 0.4582 | PASS |
 
-Stage 14.7B remains **IN PROGRESS** until B3 is completed and accepted. PR #24 must remain Draft/Open. Do not merge and do not create Stage 14 Final Freeze/Handoff yet.
+Acceptance basis:
+
+- production-signed binary identity remained unchanged throughout B1/B2/B3;
+- 30-, 60-, and 120-minute-class real audio all completed SenseVoice and speaker-diarization processing successfully;
+- background / screen-off behavior remained normal;
+- no crash, ANR, hang or reported OOM occurred;
+- playback, search, export and result persistence remained normal;
+- no data-loss or recovery blocker was reported;
+- canonical-WAV generation speed is retained as a non-blocking performance follow-up because exact timings were not captured and no correctness/stability failure accompanied it.
+
+Stage 14.7B no longer blocks Final Freeze/Handoff preparation. PR #24 should remain Draft/Open until the Stage 14 Final Freeze/Handoff artifacts and final CI/release checks are completed. Do not merge solely on the basis of this acceptance document.
