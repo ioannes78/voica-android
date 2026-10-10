@@ -64,6 +64,8 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_CHANNEL: ${{ inputs.channel }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          GITHUB_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           bash ci/verify-room-schemas.sh
@@ -113,12 +115,6 @@ jobs:
             echo "::error::Production model catalog must not track mutable main."
             exit 1
           fi
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          INPUT_CHANNEL: ${{ inputs.channel }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          GITHUB_SHA: ${{ github.sha }}
 
   production-build:
     name: Production signed candidate / release
