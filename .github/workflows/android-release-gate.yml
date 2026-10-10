@@ -24,9 +24,9 @@ concurrency:
 env:
   VOICA_SOURCE_HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
   VOICA_ACCEPTED_RC_SOURCE_SHA: "c7ccdd77e71daf2f11cb88489bd0b3a0fab3b80b"
-  VOICA_VERSION_CODE: "87"
-  VOICA_RELEASE_VERSION: "1.0.0-rc3-r2"
-  VOICA_RELEASEQA_VERSION: "1.0.0-rc3-r2-export-qa"
+  VOICA_VERSION_CODE: "88"
+  VOICA_RELEASE_VERSION: "1.0.0"
+  VOICA_RELEASEQA_VERSION: "1.0.0-export-qa"
   VOICA_MODEL_CHANNEL_COMMIT: "be74c7065ce22a5f9b207a7cf1c88d3be0e872ec"
   VOICA_MODEL_MANIFEST_VERSION: "7"
   VOICA_MODEL_MANIFEST_DIGEST: "8bdb505ce97820cb942bc2855c8a099484b7e22f63ec5567b63f2c1c18d567cf"
@@ -41,7 +41,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Verify V1 RC source contract
+      - name: Verify V1 final source contract
         shell: bash
         run: bash ci/verify-v1-rc-source-contract.sh
 
@@ -192,7 +192,7 @@ jobs:
           retention-days: 7
 
   production-signing:
-    name: Production signing (Stage 14 RC only)
+    name: Production signing (Stage 14 final V1)
     needs: full-release-gate
     if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'stage14-v1-release-freeze' }}
     runs-on: ubuntu-latest
@@ -202,12 +202,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Lock production product source to accepted RC
+      - name: Lock final product behavior to accepted RC
         shell: bash
         run: |
           set -euo pipefail
-          git fetch --no-tags --depth=20 origin stage14-v1-release-freeze
+          git fetch --no-tags --depth=100 origin stage14-v1-release-freeze
           git cat-file -e "${VOICA_ACCEPTED_RC_SOURCE_SHA}^{commit}"
+
+          # No behavior/build-source drift is allowed outside app/build.gradle.kts.
           git diff --exit-code "${VOICA_ACCEPTED_RC_SOURCE_SHA}" HEAD -- \
             app \
             core \
@@ -217,10 +219,23 @@ jobs:
             gradlew \
             gradlew.bat \
             build.gradle.kts \
-            settings.gradle.kts
-          echo "Production product source is unchanged from accepted RC ${VOICA_ACCEPTED_RC_SOURCE_SHA}."
+            settings.gradle.kts \
+            ':(exclude)app/build.gradle.kts'
 
-      - name: Verify V1 RC source contract
+          # Inside app/build.gradle.kts, only versionCode/versionName may differ from the
+          # accepted RC. Strip those two metadata lines and require byte-for-byte equality.
+          diff -u \
+            <(git show "${VOICA_ACCEPTED_RC_SOURCE_SHA}:app/build.gradle.kts" | sed -E '/^[[:space:]]*version(Code|Name) = /d') \
+            <(sed -E '/^[[:space:]]*version(Code|Name) = /d' app/build.gradle.kts)
+
+          git show "${VOICA_ACCEPTED_RC_SOURCE_SHA}:app/build.gradle.kts" | grep -Fq 'versionCode = 87'
+          git show "${VOICA_ACCEPTED_RC_SOURCE_SHA}:app/build.gradle.kts" | grep -Fq 'versionName = "1.0.0-rc3-r2"'
+          grep -Fq 'versionCode = 88' app/build.gradle.kts
+          grep -Fq 'versionName = "1.0.0"' app/build.gradle.kts
+
+          echo "Final V1 product behavior is unchanged from accepted RC ${VOICA_ACCEPTED_RC_SOURCE_SHA}; only version metadata advanced to code 88 / 1.0.0."
+
+      - name: Verify V1 final source contract
         shell: bash
         run: bash ci/verify-v1-rc-source-contract.sh
 
@@ -310,7 +325,8 @@ jobs:
             echo "### Production signer"
             echo
             echo "- certificate SHA-256: \`${cert_sha256}\`"
-            echo "- accepted RC source: \`${VOICA_ACCEPTED_RC_SOURCE_SHA}\`"
+            echo "- accepted RC behavior source: \`${VOICA_ACCEPTED_RC_SOURCE_SHA}\`"
+            echo "- final release source: \`${VOICA_SOURCE_HEAD_SHA}\`"
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Build production-signed APK and AAB
@@ -357,8 +373,6 @@ jobs:
 
       - name: Generate production-signed provenance
         shell: bash
-        env:
-          VOICA_SOURCE_HEAD_SHA: ${{ env.VOICA_ACCEPTED_RC_SOURCE_SHA }}
         run: |
           set -euo pipefail
           bash ci/generate-release-provenance.sh \
@@ -368,11 +382,12 @@ jobs:
             build/production-release-provenance.txt
           grep -qx 'production_signed=true' build/production-release-provenance.txt
           grep -qx "production_cert_sha256=${VOICA_EXPECTED_PRODUCTION_CERT_SHA256}" build/production-release-provenance.txt
+          grep -qx "source_head_sha=${VOICA_SOURCE_HEAD_SHA}" build/production-release-provenance.txt
 
       - name: Upload production-signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: Voica-V1-RC-production-signed-apk
+          name: Voica-V1-production-signed-apk
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 14
@@ -380,7 +395,7 @@ jobs:
       - name: Upload production-signed AAB
         uses: actions/upload-artifact@v4
         with:
-          name: Voica-V1-RC-production-signed-aab
+          name: Voica-V1-production-signed-aab
           path: app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
           retention-days: 14
@@ -388,7 +403,7 @@ jobs:
       - name: Upload production signing provenance and mapping
         uses: actions/upload-artifact@v4
         with:
-          name: Voica-V1-RC-production-signing-provenance
+          name: Voica-V1-production-signing-provenance
           path: |
             build/production-release-provenance.txt
             app/build/outputs/mapping/release/mapping.txt
