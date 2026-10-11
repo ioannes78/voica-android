@@ -73,6 +73,9 @@ class AndroidDeviceSession(
     private var negotiatedMtu: Int? = null
     private val fileTransferConsumerLock = Any()
     private var fileTransferConsumer: ReliableFileTransferConsumer? = null
+    private val realtimeAudioConsumerLock = Any()
+    private var realtimeAudioConsumer: RealtimeAudioConsumer? = null
+    private var realtimeAudioFramesSinceDiagnostics = 0
 
     private val commandClient = DeviceCommandClient(
         writer = { frame -> writeFrame(frame) },
@@ -110,6 +113,7 @@ class AndroidDeviceSession(
             activeGeneration = generation
             requestedDisconnectReason = null
             negotiatedMtu = null
+            realtimeAudioFramesSinceDiagnostics = 0
             router.reset()
             commandClient.cancelPending()
             commandClient.resetSequence()
@@ -253,6 +257,26 @@ class AndroidDeviceSession(
         synchronized(fileTransferConsumerLock) {
             if (fileTransferConsumer === consumer) {
                 fileTransferConsumer = null
+            }
+        }
+    }
+
+    fun registerRealtimeAudioConsumer(consumer: RealtimeAudioConsumer): Boolean =
+        synchronized(realtimeAudioConsumerLock) {
+            when {
+                realtimeAudioConsumer == null -> {
+                    realtimeAudioConsumer = consumer
+                    true
+                }
+                realtimeAudioConsumer === consumer -> true
+                else -> false
+            }
+        }
+
+    fun unregisterRealtimeAudioConsumer(consumer: RealtimeAudioConsumer) {
+        synchronized(realtimeAudioConsumerLock) {
+            if (realtimeAudioConsumer === consumer) {
+                realtimeAudioConsumer = null
             }
         }
     }
@@ -880,8 +904,37 @@ class AndroidDeviceSession(
         }
 
         val routed = router.accept(characteristicUuid, value.copyOf())
-        updateDiagnostics { it.copy(notifications = router.stats()) }
+        val realtimeOnly = routed.isNotEmpty() && routed.all { it.isRealtimeAudioFrame() }
+        if (realtimeOnly) {
+            realtimeAudioFramesSinceDiagnostics += routed.size
+            if (realtimeAudioFramesSinceDiagnostics >= REALTIME_DIAGNOSTICS_BATCH_FRAMES) {
+                realtimeAudioFramesSinceDiagnostics = 0
+                updateDiagnostics { it.copy(notifications = router.stats()) }
+            }
+        } else if (routed.isNotEmpty()) {
+            realtimeAudioFramesSinceDiagnostics = 0
+            updateDiagnostics { it.copy(notifications = router.stats()) }
+        }
+
         routed.forEach { event ->
+            if (event.isRealtimeAudioFrame()) {
+                val consumer = synchronized(realtimeAudioConsumerLock) { realtimeAudioConsumer }
+                if (consumer != null) {
+                    val result = consumer.offer(
+                        notification = event,
+                        sessionGeneration = generation,
+                        receivedAtNanos = System.nanoTime(),
+                    )
+                    if (result == RealtimeAudioOfferResult.REJECTED) {
+                        addLog(
+                            "Realtime audio delivery rejected source=" + event.source +
+                                " bytes=" + event.frame.data.size,
+                        )
+                    }
+                }
+                return@forEach
+            }
+
             val matchedPending = commandClient.accept(event)
             var transferAccepted: Boolean? = null
             if (event.isFileTransferFrame()) {
@@ -1098,6 +1151,8 @@ class AndroidDeviceSession(
     }
 
     private fun releaseGatt(gatt: BluetoothGatt) {
+        var closedGeneration: Long? = null
+        var realtimeConsumerToClose: RealtimeAudioConsumer? = null
         synchronized(lock) {
             if (currentGatt !== gatt) {
                 safeClose(gatt)
@@ -1117,10 +1172,20 @@ class AndroidDeviceSession(
             synchronized(fileTransferConsumerLock) {
                 fileTransferConsumer = null
             }
+            closedGeneration = activeGeneration
+            synchronized(realtimeAudioConsumerLock) {
+                realtimeConsumerToClose = realtimeAudioConsumer
+                realtimeAudioConsumer = null
+            }
+            realtimeAudioFramesSinceDiagnostics = 0
             router.reset()
             activeGeneration = null
             currentGatt = null
             safeClose(gatt)
+        }
+        val generation = closedGeneration
+        if (generation != null) {
+            realtimeConsumerToClose?.onSessionClosed(generation)
         }
         updateDiagnostics {
             it.copy(
@@ -1146,5 +1211,9 @@ class AndroidDeviceSession(
     override fun close() {
         currentGatt?.let(::releaseGatt)
         scope.cancel()
+    }
+
+    private companion object {
+        const val REALTIME_DIAGNOSTICS_BATCH_FRAMES = 64
     }
 }
