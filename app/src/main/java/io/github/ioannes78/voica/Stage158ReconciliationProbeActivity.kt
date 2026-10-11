@@ -549,9 +549,9 @@ private fun renderStage158Gate(
     val gateAAutoConverged =
         observation.gateARecordingAfterSave?.status == "Idle" &&
             observation.gateAAfterSave?.phase == RealtimeRuntimePhase.IDLE.name &&
-            observation.gateAAfterSave.gateOpen.not() &&
-            observation.gateAAfterSave.sourceActive.not() &&
-            observation.gateAAfterSave.sourceLastEnd == "DEVICE_RECORDING_ENDED" &&
+            observation.gateAAfterSave?.gateOpen == false &&
+            observation.gateAAfterSave?.sourceActive == false &&
+            observation.gateAAfterSave?.sourceLastEnd == "DEVICE_RECORDING_ENDED" &&
             delta(baseline.reconciler.requested, observation.gateAReconcilerAfterSave?.requested) == 1L
     appendLine("A facts autoConverged=$gateAAutoConverged noManualRealtimeStop=true")
 
@@ -565,7 +565,7 @@ private fun renderStage158Gate(
             (delta(observation.gateAAfterSave?.canonicalSamples, observation.gateBCRuntimeBeforeStop?.canonicalSamples) ?: 0L) > 0L &&
             observation.gateBCStopSuccess == true &&
             observation.gateBCAfterStop?.phase == RealtimeRuntimePhase.IDLE.name &&
-            observation.gateBCAfterStop.sourceLastEnd == "STOP" &&
+            observation.gateBCAfterStop?.sourceLastEnd == "STOP" &&
             delta(observation.gateBCReconcilerBeforeStop?.requested, observation.gateBCReconcilerAfterStop?.requested) == 0L
     appendLine("BC facts secondSessionHealthy=$gateBCPassed explicitStopDidNotReconcile=${delta(observation.gateBCReconcilerBeforeStop?.requested, observation.gateBCReconcilerAfterStop?.requested) == 0L}")
 
