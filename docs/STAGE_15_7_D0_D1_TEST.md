@@ -1,45 +1,38 @@
-# Stage 15.7 — D0 / D1A / D1B / D1C TYPE3 与 TYPE1 真机 Fact Gate
+# Stage 15.7 — TYPE3 / TYPE1 真机 Fact Gate
 
-状态：**D0 已确认 / D1 已确认控制面耦合 / D1A-D1B 已确认 / D1C 待真机隔离验证**
+状态：**D0 / D1 / D1A / D1B / D1C 已确认；D2 待真机验证**
 
-## 1. 范围
+## 1. 范围与原则
 
-本 Gate 只验证 QS668 / CB08 当前真机上的两套控制面关系：
+本 Gate 只验证 QS668 / CB08 当前真机上的两类控制行为：
 
-- TYPE=3：设备本地录音生命周期；
-- TYPE=1：BLE realtime audio 生命周期。
+- TYPE=3：设备 recording / file lifecycle；
+- TYPE=1：BLE realtime audio lifecycle。
 
-不得扩展为 Stage 16A streaming ASR 产品逻辑。
+不得扩展为 Stage 16 streaming ASR 产品逻辑。
 
-生产 BLE transport、RealtimeAudioRuntime、Opus decoder、canonical source 不因本 Gate 绕过或替换。
+所有 QA Probe 必须调用现有生产 `DeviceRepository` / `RealtimeAudioRuntime` 入口；不得为了得到期望结果绕过 production guard 直接发送 raw TYPE3 命令。
 
-## 2. D0 — Passive TYPE1 Fact Gate
+真机重复事实优先于先验协议假设。
 
-固定操作：
+## 2. D0 — TYPE3-only Passive TYPE1 Gate（已确认）
 
-`TYPE3 APP_RECORD_START → 录音 8–10 秒 → TYPE3 APP_RECORD_SAVE`
+固定流程：
 
-明确禁止调用 realtime START / STOP / PAUSE / RESUME。
+`TYPE3 START → 录音 8–10 秒 → TYPE3 SAVE`
 
-2026-10-12 真机结果：
+真机事实：
 
 ```text
-runtime realtimeCommands start=0/0 pause=0/0 resume=0/0 stop=0/0
-runtime fence gatedReject=0 staleOffer=0 quarantineReject=0 overflow=0
-runtime source started=0 ended=0 offeredFrames=0 offeredSamples=0
-D0 delta gatedReject=0 realtimeStart=0 realtimePause=0 realtimeResume=0 realtimeStop=0
 D0 sourceDelta started=0 ended=0 fileCountDelta=1
 D0 invariant noRealtimeControl=true passiveType1Observed=false
 ```
 
-冻结事实：
+冻结结论：
 
-- TYPE3 普通设备录音可以独立创建录音；
-- 未调用 realtime START 时，真机不会发送 TYPE1 realtime audio；
-- `TYPE3 APP_RECORD_START` 不会隐式启动 TYPE1 realtime audio；
-- TYPE1 realtime audio 必须由 App 显式执行 realtime START。
-
-正确表达：
+- TYPE3 普通录音可以独立创建 1 个设备录音文件；
+- TYPE3 START 不会隐式启动 TYPE1 realtime audio；
+- TYPE1 realtime 必须由 App 显式 START。
 
 ```text
 D0 factStatus=RESOLVED
@@ -47,22 +40,20 @@ passiveType1DuringType3=false
 conclusion=TYPE1_REQUIRES_EXPLICIT_REALTIME_START
 ```
 
-## 3. 首轮 D1 — 已确认真机事实
+## 3. 首轮 D1 — TYPE3 + TYPE1 共存事实（已确认）
 
 原固定顺序：
 
-`TYPE3 START → realtime START → realtime STOP → DeviceRepository.saveRecording()`
+`TYPE3 START → realtime START → realtime STOP → production saveRecording()`
 
-首轮真机已确认：
+冻结结论：
 
 - TYPE3 已处于 Recording 时，显式 realtime START 成功；
-- realtime START 后 TYPE3 仍保持 Recording；
+- realtime START 后设备仍为 Recording；
 - realtime media pipeline 健康；
-- realtime STOP 正确闭合 canonical source；
-- **realtime STOP 后设备录音状态从 Recording 变为 Idle，size 归零**；
-- 因此“TYPE1 STOP 保持 TYPE3 Recording”的完全独立假设为 false。
-
-正确表达：
+- realtime STOP 正常闭合 canonical source；
+- realtime STOP 后设备 recording 从 Recording 变为 Idle；
+- 因此 TYPE1 STOP 与 TYPE3 recording lifecycle 并非独立。
 
 ```text
 D1 factStatus=RESOLVED
@@ -71,49 +62,36 @@ REALTIME_STOP_PRESERVES_TYPE3=false
 REALTIME_PIPELINE_HEALTHY=true
 ```
 
-`factStatus=RESOLVED` 表示事实探测成功，不等同于原假设 PASS。
-
-## 4. D1A — Realtime STOP Finalize Fact Gate（已确认）
+## 4. D1A — Realtime STOP Finalize Gate（已确认）
 
 固定流程：
 
-`刷新文件基线 → TYPE3 START → realtime START → 讲话 5–8 秒 → realtime STOP → 立即 sync recording → 立即 refresh files`
+`刷新文件基线 → TYPE3 START → realtime START → 讲话 5–8 秒 → realtime STOP → sync recording → refresh files`
 
-2026-10-12 真机结果：
+2026-10-12 真机：
 
 ```text
 D1A TYPE3 status afterStart=Recording afterRealtimeStart=Recording afterRealtimeStop=Idle
-D1A TYPE3 size afterStart=840 afterRealtimeStart=25280 afterRealtimeStop=0
-D1A realtime outcomes start=true/-- stop=true/--
-D1A baseline fileCount=19
 D1A stopFiles count=21 deltaFromBaseline=2
 D1A newFilesAfterRealtimeStop=[note20261012-021237.opus, note20261012-021250.opus]
 D1A mediaDelta acceptedBlocks=168 packets=672 canonicalFrames=672 canonicalSamples=215040
 D1A anomalyDelta ingressOverflow=0 malformed=0 dropped=0 decodeFailures=0 sourceOverflow=0
 D1A source afterStop active=false lastEnd=STOP drainTimedOut=false
-D1A facts coexistenceStart=true realtimeStopPreservedType3=false realtimeStopCreatedFiles=true
 D1A factStatus=RESOLVED
 ```
 
-### 4.1 冻结事实
+冻结结论：
 
-- TYPE3 Recording 与显式 TYPE1 realtime START 可以同时存在；
-- TYPE1 realtime STOP 会把设备 recording 状态变为 Idle；
-- TYPE1 realtime STOP 后 canonical source 以 STOP 正常闭合；
-- realtime 窗口媒体与解码链路健康，无 overflow / malformed / drop / decode failure；
-- 混合 TYPE3 + TYPE1 会话在 STOP 后文件列表由 19 增至 21；
-- 新增两个不同时间戳文件：
-  - `note20261012-021237.opus`
-  - `note20261012-021250.opus`
-- 因此两套控制面的 STOP / finalize 语义并非完全独立。
+- TYPE3 Recording 与 TYPE1 realtime START 可以共存；
+- TYPE1 STOP 会把设备 recording 置为 Idle；
+- 混合会话最终新增 2 个不同时间戳的设备 `.opus` 文件；
+- realtime 媒体、解码、canonical STOP lifecycle 均健康。
 
-当前不能仅凭 D1A 断言第二个文件一定由 TYPE1 START 单独创建；需要 D1C TYPE1-only 隔离验证。
+## 5. D1B — Production SAVE After STOP（已确认）
 
-## 5. D1B — Production SAVE After STOP Fact Gate（已确认）
+生产 `DeviceRepository.saveRecording()` 只在状态为 `Recording` / `Paused` 时发送 SAVE；状态已经为 Idle 时直接返回。
 
-当前生产 `DeviceRepository.saveRecording()` 只在 recording status 为 `Recording` 或 `Paused` 时发送 SAVE；若已经为 `Idle`，函数直接返回。
-
-2026-10-12 真机结果：
+真机：
 
 ```text
 D1B save attempted=true eligibleAtRequest=false statusBefore=Idle statusAfter=Idle
@@ -123,140 +101,220 @@ D1B facts productionSaveExpectedNoOp=true postStopSaveCreatedFiles=false postSto
 D1B factStatus=RESOLVED
 ```
 
-### 5.1 冻结事实
+冻结结论：
 
-- realtime STOP 后 production recording state 已为 Idle；
-- 后续调用 `DeviceRepository.saveRecording()` 不会发送新的 TYPE3 SAVE；
-- D1B 前后文件数量 21 → 21；
-- 没有新增文件；
-- 因此 D1A 中的两个新增文件全部形成于 D1B SAVE 调用之前。
+- D1A 两个新增文件全部形成于 D1B 调用之前；
+- STOP 后 production SAVE 是 NO-OP；
+- 不得绕过 guard 发送 raw SAVE 来改变这个生产事实。
 
-严禁为了测试而绕过 production guard 直接发送 raw TYPE3 SAVE。
+## 6. D1C — TYPE1-only File Side-Effect Gate（已确认）
 
-## 6. D1C — TYPE1-only File Side-Effect Fact Gate
+固定流程：
 
-### 6.1 目的
+`Idle + 文件基线 → realtime START → 讲话 5–8 秒 → realtime STOP → sync recording → refresh files`
 
-隔离回答以下事实：
+整个流程不调用 TYPE3 START / SAVE / PAUSE / RESUME。
 
-1. 未启动 TYPE3 时，单独 realtime START 是否会把设备 recording state 从 Idle 改为非 Idle；
-2. realtime START 后设备是否出现 recording filename / size；
-3. TYPE1-only realtime START/STOP 是否会创建设备录音文件；
-4. 若创建，准确新增文件数量和文件名是什么；
-5. TYPE1-only STOP 是否回到 Idle，同时 canonical lifecycle 正常闭合。
-
-### 6.2 QA Surface
-
-Launcher：
-
-`Voica Stage15 D1C Probe`
-
-Activity：
-
-`Stage157D1CRealtimeOnlyProbeActivity`
-
-该 Activity **不会调用**：
-
-- `DeviceRepository.startRecording()`；
-- `DeviceRepository.saveRecording()`；
-- TYPE3 PAUSE / RESUME；
-- raw TYPE3 protocol command。
-
-只调用：
-
-- recording state sync；
-- device file list refresh；
-- `RealtimeAudioRuntime.start()`；
-- `RealtimeAudioRuntime.stop()`。
-
-为避免 QA 页面自身制造 canonical slow-consumer backpressure，仍持续 drain canonical events，但不参与媒体处理。
-
-### 6.3 固定真机流程
-
-`同步 recording + 刷新文件基线 → realtime START → 讲话 5–8 秒 → realtime STOP → sync recording → refresh files`
-
-测试期间：
-
-- 不点击正常 Voica 的设备录音开始/停止；
-- 不按录音卡物理录音键；
-- 不打开 D0 / D1 / 通用 Stage15 Probe；
-- 不发送任何 TYPE3 控制。
-
-### 6.4 核心输出
+2026-10-12 真机：
 
 ```text
-D1C baseline recordingStatus=...
-D1C afterRealtimeStart status=... filename=... sizeBytes=...
-D1C afterRealtimeStop status=... filename=... sizeBytes=...
-D1C stopFiles count=... deltaFromBaseline=...
-D1C newFilesAfterRealtimeStop=[...]
-D1C facts baselineIdle=...
-type1ChangedRecordingState=...
-type1StopReturnedIdle=...
-type1OnlyCreatedFiles=...
-exactlyOneFileCreated=...
-realtimeMediaObserved=...
-cleanRealtimeWindow=...
-lifecycleClosedByStop=...
-D1C executionValid=...
+D1C baseline recordingStatus=Idle
+D1C afterRealtimeStart status=Recording sizeBytes=240 filename=note20261012-022603.opus
+D1C afterRealtimeStop status=Idle sizeBytes=0 filename=note20261012-022603.opus
+D1C mediaDelta acceptedBlocks=137 packets=548 canonicalFrames=548 canonicalSamples=175360
+D1C anomalyDelta ingressOverflow=0 malformed=0 dropped=0 decodeFailures=0 sourceOverflow=0
+D1C source afterStop active=false lastEnd=STOP drainTimedOut=false
+D1C stopFiles count=24 deltaFromBaseline=1
+D1C newFilesAfterRealtimeStop=[note20261012-022603.opus]
+D1C facts baselineIdle=true type1ChangedRecordingState=true type1StopReturnedIdle=true
+D1C facts type1OnlyCreatedFiles=true exactlyOneFileCreated=true
+D1C executionValid=true
 D1C factStatus=RESOLVED
 ```
 
-### 6.5 事实解释矩阵
+### 6.1 D1C 冻结事实
 
-若 D1C 得到：
+TYPE1 realtime START **不是纯 BLE audio subscribe**。它同时：
 
-```text
-baselineIdle=true
-type1ChangedRecordingState=true
-type1OnlyCreatedFiles=true
-```
+- 把设备 recording state 从 Idle 改为 Recording；
+- 分配 recording filename；
+- 产生 recording size；
+- 开启 TYPE1 realtime media；
+- 在 TYPE1 STOP 后 finalize 1 个设备 `.opus` 文件并回到 Idle。
 
-则可确认 TYPE1 realtime 并非纯 BLE streaming 控制；它会同时触发设备 recording/file lifecycle。
-
-若进一步得到：
+结合 D0 / D1A：
 
 ```text
-exactlyOneFileCreated=true
+D0   TYPE3-only  -> +1 file
+D1C  TYPE1-only  -> +1 file
+D1A  TYPE3+TYPE1 -> +2 files
 ```
 
-则结合：
+因此 D1A 两个不同时间戳文件分别来源于两套 START lifecycle 的解释已经得到交叉验证支持。
+
+## 7. 当前设备生命周期模型
+
+截至 D1C，可冻结为：
 
 ```text
-D0  TYPE3-only  -> +1 file
-D1C TYPE1-only  -> +1 file
-D1A TYPE3+TYPE1 -> +2 files
+TYPE3 START
+  -> 启动设备 recording/file lifecycle
+  -> 不开启 TYPE1 realtime stream
+
+TYPE1 START
+  -> 启动设备 recording/file lifecycle
+  -> 开启 TYPE1 realtime stream
+  -> recording state = Recording
+
+TYPE1 STOP
+  -> 停止 TYPE1 realtime
+  -> recording state = Idle
+  -> finalize 当前相关 recording files
 ```
 
-可以把“混合会话两个文件分别来源于两套启动生命周期”的解释提升为强事实结论。
+因此“TYPE1 / TYPE3 是完全独立控制面”的假设已经否定。
 
-如果 TYPE1-only 不创建文件，则必须回到 D1A 调查第二文件的其他设备端来源，不得按假设修改生产代码。
+## 8. D2 — Production Reverse-Control Fact Gate
 
-## 7. D1C 真机步骤
+### 8.1 为什么原 D2 顺序需要修正
 
-1. 安装包含 D1C Probe 的最新 Stage 15 QA APK。
-2. 正常 Voica 连接 QS668 / CB08，等待 Ready。
-3. 确认正常 Voica 当前没有进行 TYPE3 录音。
-4. 返回桌面，打开 `Voica Stage15 D1C Probe`。
-5. 确认 `连接 Ready：true`。
-6. 点击 `重置D1C`。
-7. 点击 `D1C-1 realtime START`；Probe 会先自动同步 recording 并刷新文件列表建立 baseline，然后仅发送 realtime START。
-8. 等页面提示 START 成功。
-9. 正常讲话 5–8 秒。
-10. 点击 `D1C-2 realtime STOP`。
-11. 等待 `D1C 完成`；Probe 会自动 sync recording 并刷新文件列表。
-12. 点击 `复制D1C Gate`，提交完整文本。
-
-## 8. 后续 D2
-
-只有 D1C 事实冻结后，再执行反向命令 Gate：
+原先设想：
 
 `realtime START → TYPE3 START → TYPE3 SAVE → realtime STOP`
 
-D2 不再以“完全双向独立”为先验，而用于确认：
+但 D1C 已证明 realtime START 后 production recording state 已为 `Recording`。
 
-- TYPE3 START 在已有 TYPE1 realtime 下的行为；
-- TYPE3 SAVE 是否会反向终止 TYPE1 realtime；
-- 反向顺序下的设备文件数量、文件名和 canonical lifecycle。
+当前生产 `DeviceRepository.startRecording()` guard 为：
 
-D1C / D2 真机事实完成前，不修改生产 BLE / Realtime lifecycle contract。
+- transport 必须 Ready；
+- recording state 必须是 `Idle`；
+- 不得存在活动 file operation。
+
+所以在 realtime ACTIVE 时再次调用 production `startRecording()`，正常预期是 **NO-OP**，不会真实发送第二个 TYPE3 START。
+
+相反，production `saveRecording()` 在 `Recording` / `Paused` 状态是 eligible，因此它可能真实发送 TYPE3 SAVE。
+
+D2 不绕过这个 guard，而直接验证实际产品冲突：
+
+> TYPE1 realtime ACTIVE 时，正常录音控制路径发出 production TYPE3 SAVE，会不会反向终止或静默切断 TYPE1 realtime media？
+
+### 8.2 固定流程
+
+```text
+同步 recording + 刷新文件基线
+→ realtime START
+→ 讲话约 3 秒
+→ production TYPE3 START 尝试
+→ 继续讲话 5–8 秒
+→ production TYPE3 SAVE
+→ 继续讲话 3 秒并自动观察 realtime media
+→ 显式 realtime STOP 清理
+→ refresh final files
+```
+
+### 8.3 QA Surface
+
+Launcher：`Voica Stage15 D2 Probe`
+
+Activity：`Stage157D2ReverseControlProbeActivity`
+
+D2 只调用：
+
+- `RealtimeAudioRuntime.start()`；
+- `DeviceRepository.startRecording()`；
+- `DeviceRepository.saveRecording()`；
+- `RealtimeAudioRuntime.stop()`；
+- recording sync / file refresh。
+
+不得直接调用 raw TYPE3 protocol。
+
+### 8.4 D2 核心事实字段
+
+生产 START guard：
+
+```text
+D2 TYPE3 start attempted=...
+eligibleAtRequest=...
+productionStartExpectedNoOp=...
+```
+
+TYPE3 SAVE 前后：
+
+```text
+D2 TYPE3 save attempted=...
+eligibleAtRequest=...
+statusBefore=...
+statusAfter=...
+```
+
+保存后 3 秒媒体窗口：
+
+```text
+D2 runtime immediateAfterSave phase=... gateOpen=... sourceActive=...
+D2 runtime postSaveWindow phase=... gateOpen=... sourceActive=...
+D2 media postSaveWindow acceptedBlocks=...
+canonicalFrames=...
+canonicalSamples=...
+```
+
+判定字段：
+
+```text
+D2 facts productionType3StartNoOp=...
+type3SaveEligible=...
+type3SaveReturnedIdle=...
+postSaveMediaContinued=...
+runtimeStayedActiveAfterSave=...
+type3SaveReverseStoppedMedia=...
+D2 reverseEffect=...
+D2 executionValid=...
+D2 factStatus=...
+```
+
+### 8.5 `reverseEffect` 解释
+
+#### `STREAM_CONTINUES`
+
+TYPE3 SAVE 后 realtime runtime 仍 ACTIVE / gate open / source active，且保存后媒体计数继续增长。
+
+说明：TYPE3 SAVE 可以结束设备 recording state，但 TYPE1 realtime media 继续出流。
+
+#### `DEVICE_MEDIA_STOPS_RUNTIME_STAYS_ACTIVE`
+
+TYPE3 SAVE 后 runtime 仍认为 ACTIVE，但保存后 3 秒 `acceptedBlocks/canonicalSamples` 不再增长。
+
+说明：固件已停止 TYPE1 media，但 App runtime 没有收到对应 realtime STOP 状态转换。这是 Stage 15 lifecycle contract 必须处理的重要设备事实。
+
+#### `RUNTIME_NOT_ACTIVE_AFTER_SAVE`
+
+TYPE3 SAVE 后 runtime 本身不再 ACTIVE / gate closed / canonical source inactive。
+
+需要根据 `lastEnd` / transport generation / command 状态判断是固件导致 transport lifecycle 改变，还是其他已定义关闭路径。
+
+### 8.6 D2 真机步骤
+
+1. 安装最新 Stage 15 QA APK。
+2. 正常 Voica 连接 QS668 / CB08，等待 Ready。
+3. 确认当前没有普通设备录音进行中。
+4. 打开 `Voica Stage15 D2 Probe`，确认 Ready=true。
+5. 点击 `重置D2`。
+6. 点击 `D2-1 realtime START`；等待成功，讲话约 3 秒。
+7. 点击 `D2-2 TYPE3开始尝试`；正常预期 production guard NO-OP。
+8. 继续讲话 5–8 秒。
+9. 点击 `D2-3 TYPE3保存`。
+10. 点击后**持续讲话至少 3 秒**；Probe 会自动观察保存后的媒体增长。
+11. 页面提示 D2-3 观察完成后，点击 `D2-4 realtime STOP` 做显式清理。
+12. 等待最终文件刷新完成。
+13. 点击 `复制D2 Gate`，提交完整文本。
+
+测试期间不要按录音卡物理按键，不要打开其他 Stage15 Probe。
+
+## 9. Stage 15.7 后续门禁
+
+D2 真机事实完成前：
+
+- 不修改 production BLE / Realtime lifecycle contract；
+- 不创建 Stage 15 Final Freeze/Handoff；
+- 不把 Stage 16 streaming ASR 行为建立在“TYPE1 是无副作用纯流”这一错误假设上。
+
+D2 完成后，再依据 D0–D2 全部真机证据决定 Stage 15.7 是否需要生产 lifecycle 修订，或可直接进入 Stage 15 Final 收口。
