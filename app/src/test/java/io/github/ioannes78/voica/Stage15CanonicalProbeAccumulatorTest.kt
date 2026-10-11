@@ -2,6 +2,8 @@ package io.github.ioannes78.voica
 
 import io.github.ioannes78.voica.audio.RealtimeCanonicalEpochStartReason
 import io.github.ioannes78.voica.audio.RealtimeCanonicalPcmFrame
+import io.github.ioannes78.voica.audio.RealtimeCanonicalSessionEndReason
+import io.github.ioannes78.voica.audio.RealtimeCanonicalStreamEvent
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -9,9 +11,9 @@ class Stage15CanonicalProbeAccumulatorTest {
     @Test
     fun contiguousFramesStayGapAndOverlapFree() {
         val accumulator = Stage15CanonicalProbeAccumulator()
-        accumulator.accept(frame(start = 0, reason = RealtimeCanonicalEpochStartReason.SESSION_START))
-        accumulator.accept(frame(start = 320))
-        accumulator.accept(frame(start = 640))
+        accumulator.accept(pcmEvent(start = 0, reason = RealtimeCanonicalEpochStartReason.SESSION_START))
+        accumulator.accept(pcmEvent(start = 320))
+        accumulator.accept(pcmEvent(start = 640))
 
         val snapshot = accumulator.snapshot()
         assertEquals(3L, snapshot.frames)
@@ -24,9 +26,9 @@ class Stage15CanonicalProbeAccumulatorTest {
     @Test
     fun newEpochMustRestartAtZeroAndCarryReason() {
         val accumulator = Stage15CanonicalProbeAccumulator()
-        accumulator.accept(frame(start = 0, epoch = 1, reason = RealtimeCanonicalEpochStartReason.SESSION_START))
-        accumulator.accept(frame(start = 320, epoch = 1))
-        accumulator.accept(frame(start = 0, epoch = 2, reason = RealtimeCanonicalEpochStartReason.CONTROL_BOUNDARY))
+        accumulator.accept(pcmEvent(start = 0, epoch = 1, reason = RealtimeCanonicalEpochStartReason.SESSION_START))
+        accumulator.accept(pcmEvent(start = 320, epoch = 1))
+        accumulator.accept(pcmEvent(start = 0, epoch = 2, reason = RealtimeCanonicalEpochStartReason.CONTROL_BOUNDARY))
 
         val snapshot = accumulator.snapshot()
         assertEquals(2L, snapshot.epochsSeen)
@@ -38,24 +40,56 @@ class Stage15CanonicalProbeAccumulatorTest {
     @Test
     fun detectsGapAndOverlapWithinSameEpoch() {
         val accumulator = Stage15CanonicalProbeAccumulator()
-        accumulator.accept(frame(start = 0, reason = RealtimeCanonicalEpochStartReason.SESSION_START))
-        accumulator.accept(frame(start = 400))
-        accumulator.accept(frame(start = 650))
+        accumulator.accept(pcmEvent(start = 0, reason = RealtimeCanonicalEpochStartReason.SESSION_START))
+        accumulator.accept(pcmEvent(start = 400))
+        accumulator.accept(pcmEvent(start = 650))
 
         val snapshot = accumulator.snapshot()
         assertEquals(1L, snapshot.gapCount)
         assertEquals(1L, snapshot.overlapCount)
     }
 
-    private fun frame(
+    @Test
+    fun lifecycleEventsAndSessionEndAreObservedIndependently() {
+        val accumulator = Stage15CanonicalProbeAccumulator()
+        accumulator.accept(RealtimeCanonicalStreamEvent.SessionStarted(1))
+        accumulator.accept(
+            RealtimeCanonicalStreamEvent.EpochStarted(
+                sessionId = 1,
+                epochId = 1,
+                reason = RealtimeCanonicalEpochStartReason.SESSION_START,
+            ),
+        )
+        accumulator.accept(pcmEvent(start = 0, reason = RealtimeCanonicalEpochStartReason.SESSION_START))
+        accumulator.accept(
+            RealtimeCanonicalStreamEvent.SessionEnded(
+                sessionId = 1,
+                finalEpochId = 1,
+                finalSampleIndexExclusive = 320,
+                reason = RealtimeCanonicalSessionEndReason.STOP,
+                drainTimedOut = false,
+            ),
+        )
+
+        val snapshot = accumulator.snapshot()
+        assertEquals(1L, snapshot.sessionStartedEvents)
+        assertEquals(1L, snapshot.epochStartedEvents)
+        assertEquals(1L, snapshot.sessionEndedEvents)
+        assertEquals(0L, snapshot.sessionEndMismatchCount)
+        assertEquals(RealtimeCanonicalSessionEndReason.STOP, snapshot.lastSessionEndReason)
+    }
+
+    private fun pcmEvent(
         start: Long,
         epoch: Long = 1,
         reason: RealtimeCanonicalEpochStartReason? = null,
-    ) = RealtimeCanonicalPcmFrame(
-        sessionId = 1,
-        epochId = epoch,
-        startSampleIndex = start,
-        samples = ShortArray(320),
-        epochStartReason = reason,
+    ) = RealtimeCanonicalStreamEvent.PcmFrame(
+        RealtimeCanonicalPcmFrame(
+            sessionId = 1,
+            epochId = epoch,
+            startSampleIndex = start,
+            samples = ShortArray(320),
+            epochStartReason = reason,
+        ),
     )
 }
