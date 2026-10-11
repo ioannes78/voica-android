@@ -22,7 +22,7 @@ import io.github.ioannes78.voica.ble.RecordingDeviceState
 import io.github.ioannes78.voica.ble.RemoteDeleteDiagnostics
 import io.github.ioannes78.voica.ble.RemoteDeviceFile
 import io.github.ioannes78.voica.protocol.RecordingGain
-import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -41,70 +41,124 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 class DeviceDownloadNotificationTerminalStateTest {
     @Test
-    fun terminalDownloadStateRemainsConnectedAcrossLaterInvalidationsAndNextDownload() {
+    fun fiveConsecutiveDownloadsUseOneLeaseAndAlwaysReturnToConnected() {
+        DeviceSessionForegroundDiagnostics.markIdle()
+        DeviceSessionNotificationDisplayDiagnostics.reset()
         val delegate = NotificationFakeDeviceRepository()
-        val publishedLabels = mutableListOf<String>()
-        val generation = AtomicLong(0L)
+        val renderedLabels = mutableListOf<String>()
+        val serviceAcquireCount = AtomicInteger(0)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         ServiceBackedDeviceRepository(
             context = ApplicationProvider.getApplicationContext<Context>(),
             delegate = delegate,
             scope = scope,
-            foregroundServiceAcquire = { _, _, label ->
-                publishedLabels += label
-                generation.incrementAndGet()
+            foregroundServiceAcquire = { _, deviceName, label ->
+                serviceAcquireCount.incrementAndGet()
+                DeviceSessionForegroundDiagnostics.begin(deviceName, label)
             },
             foregroundServiceRelease = {},
+            foregroundNotificationUpdate = { _, _, label -> renderedLabels += label },
+            progressUpdateMinIntervalMs = 0L,
         )
         flushUnconfined()
 
+        assertEquals(1, serviceAcquireCount.get())
+        val leaseGeneration = DeviceSessionForegroundDiagnostics.state.value.generation
+        DeviceSessionForegroundDiagnostics.markActive(leaseGeneration, "CB08", "已连接")
+        flushUnconfined()
+
+        repeat(5) { index ->
+            val operationId = 100L + index
+            listOf(10L, 50L, 92L, 99L, 100L).forEach { percent ->
+                delegate.fileOperation.value =
+                    FileOperationState.Active(
+                        operationId = operationId,
+                        operation = DeviceFileOperationType.DOWNLOAD,
+                        stage = FileOperationStage.TRANSFERRING,
+                        progress = DownloadProgress(receivedBytes = percent, expectedBytes = 100L),
+                    )
+                flushUnconfined()
+            }
+
+            delegate.fileOperation.value =
+                FileOperationState.Completed(
+                    operationId = operationId,
+                    operation = DeviceFileOperationType.DOWNLOAD,
+                )
+            flushUnconfined()
+
+            assertEquals("已连接", renderedLabels.last())
+            assertEquals(1, serviceAcquireCount.get())
+            assertEquals(leaseGeneration, DeviceSessionForegroundDiagnostics.state.value.generation)
+        }
+
+        val terminalIndex = renderedLabels.lastIndex
+        delegate.info.value = delegate.info.value.copy(battery = delegate.info.value.battery)
+        delegate.recording.value = delegate.recording.value.copy()
+        flushUnconfined()
+
+        assertEquals("已连接", renderedLabels.last())
+        assertFalse(
+            renderedLabels.drop(terminalIndex + 1).any { it.startsWith("正在下载") },
+        )
+        assertTrue(renderedLabels.contains("正在下载 · 92%"))
+        assertTrue(renderedLabels.contains("正在下载 · 100%"))
+        scope.cancel()
+    }
+
+    @Test
+    fun latestBusinessStateWinsWhenLeaseBecomesActiveAfterDownloadAlreadyCompleted() {
+        DeviceSessionForegroundDiagnostics.markIdle()
+        DeviceSessionNotificationDisplayDiagnostics.reset()
+        val delegate = NotificationFakeDeviceRepository()
+        val renderedLabels = mutableListOf<String>()
+        val serviceAcquireCount = AtomicInteger(0)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        ServiceBackedDeviceRepository(
+            context = ApplicationProvider.getApplicationContext<Context>(),
+            delegate = delegate,
+            scope = scope,
+            foregroundServiceAcquire = { _, deviceName, label ->
+                serviceAcquireCount.incrementAndGet()
+                DeviceSessionForegroundDiagnostics.begin(deviceName, label)
+            },
+            foregroundServiceRelease = {},
+            foregroundNotificationUpdate = { _, _, label -> renderedLabels += label },
+            progressUpdateMinIntervalMs = 0L,
+        )
+        flushUnconfined()
+
+        val leaseGeneration = DeviceSessionForegroundDiagnostics.state.value.generation
         delegate.fileOperation.value =
             FileOperationState.Active(
-                operationId = 41L,
+                operationId = 201L,
                 operation = DeviceFileOperationType.DOWNLOAD,
                 stage = FileOperationStage.TRANSFERRING,
                 progress = DownloadProgress(receivedBytes = 92L, expectedBytes = 100L),
             )
         flushUnconfined()
-        assertEquals("正在下载 · 92%", publishedLabels.last())
-
-        delegate.fileOperation.value =
-            FileOperationState.Completed(
-                operationId = 41L,
-                operation = DeviceFileOperationType.DOWNLOAD,
-            )
-        flushUnconfined()
-        assertEquals("已连接", publishedLabels.last())
-
-        val terminalPublishCount = publishedLabels.size
-        delegate.info.value = delegate.info.value.copy(battery = delegate.info.value.battery)
-        delegate.recording.value = delegate.recording.value.copy()
-        flushUnconfined()
-
-        assertEquals("已连接", publishedLabels.last())
-        assertFalse(
-            publishedLabels.drop(terminalPublishCount).any { it.startsWith("正在下载") },
-        )
-
         delegate.fileOperation.value =
             FileOperationState.Active(
-                operationId = 42L,
+                operationId = 201L,
                 operation = DeviceFileOperationType.DOWNLOAD,
                 stage = FileOperationStage.TRANSFERRING,
-                progress = DownloadProgress(receivedBytes = 23L, expectedBytes = 100L),
+                progress = DownloadProgress(receivedBytes = 100L, expectedBytes = 100L),
             )
         flushUnconfined()
-        assertEquals("正在下载 · 23%", publishedLabels.last())
-
         delegate.fileOperation.value =
             FileOperationState.Completed(
-                operationId = 42L,
+                operationId = 201L,
                 operation = DeviceFileOperationType.DOWNLOAD,
             )
         flushUnconfined()
-        assertEquals("已连接", publishedLabels.last())
-        assertTrue(publishedLabels.contains("正在下载 · 92%"))
-        assertTrue(publishedLabels.contains("正在下载 · 23%"))
+
+        assertTrue(renderedLabels.isEmpty())
+        DeviceSessionForegroundDiagnostics.markActive(leaseGeneration, "CB08", "已连接")
+        flushUnconfined()
+
+        assertEquals(1, serviceAcquireCount.get())
+        assertTrue(renderedLabels.isEmpty() || renderedLabels.last() == "已连接")
+        assertFalse(renderedLabels.any { it.startsWith("正在下载") })
         scope.cancel()
     }
 
