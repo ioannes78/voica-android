@@ -27,6 +27,31 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+enum class RealtimeRecordingReconciliationResult {
+    COMPLETED_AFTER_STOP,
+    COMPLETED_WITH_FALLBACK,
+    NO_OP,
+    FAILED,
+}
+
+data class RealtimeRecordingReconciliationOutcome(
+    val result: RealtimeRecordingReconciliationResult,
+    val stopOutcome: RealtimeCommandOutcome? = null,
+    val endResult: RealtimeCanonicalSessionEndResult? = null,
+)
+
+data class RealtimeRecordingReconciliationSnapshot(
+    val attempts: Long = 0,
+    val stopWriteSuccess: Long = 0,
+    val stopWriteFailure: Long = 0,
+    val fallbackCount: Long = 0,
+    val completed: Long = 0,
+    val noOp: Long = 0,
+    val failure: Long = 0,
+    val lastResult: RealtimeRecordingReconciliationResult? = null,
+    val lastStopFailure: RealtimeCommandFailure? = null,
+)
+
 data class RealtimeAudioRuntimeSnapshot(
     val closed: Boolean = false,
     val transportGeneration: Long? = null,
@@ -42,6 +67,7 @@ data class RealtimeAudioRuntimeSnapshot(
     val ingress: RealtimeAudioIngressSnapshot = RealtimeAudioIngressSnapshot(),
     val pipeline: RealtimeCanonicalAudioPipelineSnapshot = RealtimeCanonicalAudioPipelineSnapshot(),
     val source: RealtimeCanonicalAudioSourceSnapshot = RealtimeCanonicalAudioSourceSnapshot(),
+    val reconciliation: RealtimeRecordingReconciliationSnapshot = RealtimeRecordingReconciliationSnapshot(),
 )
 
 /**
@@ -59,6 +85,7 @@ class RealtimeAudioRuntime(
     private val workerDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
     private val lifecycleMutex = Mutex()
+    private val reconciliationMutex = Mutex()
     private val logicalSessionIds = AtomicLong(0)
     private val statsLock = Any()
     private val trackingDecoderFactory = TrackingDecoderFactory(decoderFactory)
@@ -93,6 +120,15 @@ class RealtimeAudioRuntime(
     private var transportCloseWhileActiveCount = 0L
     private var decoderCreateCount = 0L
     private var decoderReleaseCount = 0L
+    private var reconciliationAttempts = 0L
+    private var reconciliationStopWriteSuccess = 0L
+    private var reconciliationStopWriteFailure = 0L
+    private var reconciliationFallbackCount = 0L
+    private var reconciliationCompleted = 0L
+    private var reconciliationNoOp = 0L
+    private var reconciliationFailure = 0L
+    private var reconciliationLastResult: RealtimeRecordingReconciliationResult? = null
+    private var reconciliationLastStopFailure: RealtimeCommandFailure? = null
 
     suspend fun start(): RealtimeCommandOutcome {
         val current = ensureOwner()
@@ -121,15 +157,86 @@ class RealtimeAudioRuntime(
         val endResult = canonicalSource.endActiveSessionAfterQuiet(
             reason = RealtimeCanonicalSessionEndReason.STOP,
         )
-        if (
-            endResult == RealtimeCanonicalSessionEndResult.ENDED ||
-            endResult == RealtimeCanonicalSessionEndResult.ENDED_AFTER_TIMEOUT ||
-            endResult == RealtimeCanonicalSessionEndResult.NO_ACTIVE_SESSION
-        ) {
+        if (endResult.isTerminalDrainResult()) {
             current.controller.completeStopDrain()
         }
         return command
     }
+
+    /**
+     * Stage 15.8 convergence path for a trusted device Recording/Paused -> Idle transition.
+     *
+     * D2 proved that TYPE3 SAVE can stop device TYPE1 media while the app runtime remains ACTIVE.
+     * We first best-effort the normal TYPE1 STOP transaction. If that write fails while the same
+     * owner is still logically ACTIVE/PAUSED, the device Idle fact remains authoritative, so the
+     * local audio gate and canonical lifecycle are closed without fabricating a successful STOP.
+     */
+    suspend fun reconcileDeviceRecordingEnded(): RealtimeRecordingReconciliationOutcome =
+        reconciliationMutex.withLock {
+            val current = currentOwner()
+                ?: return@withLock recordReconciliationNoOp()
+            val initialPhase = current.controller.snapshot.value.phase
+            if (!initialPhase.isRecordingReconciliationEligible()) {
+                return@withLock recordReconciliationNoOp()
+            }
+
+            synchronized(statsLock) { reconciliationAttempts += 1 }
+            val stopOutcome = current.controller.stop()
+            if (stopOutcome.success) {
+                synchronized(statsLock) {
+                    reconciliationStopWriteSuccess += 1
+                    reconciliationLastStopFailure = null
+                }
+                val endResult = canonicalSource.endActiveSessionAfterQuiet(
+                    reason = RealtimeCanonicalSessionEndReason.DEVICE_RECORDING_ENDED,
+                )
+                if (endResult.isTerminalDrainResult()) {
+                    current.controller.completeStopDrain()
+                    return@withLock recordReconciliationCompleted(
+                        result = RealtimeRecordingReconciliationResult.COMPLETED_AFTER_STOP,
+                        stopOutcome = stopOutcome,
+                        endResult = endResult,
+                    )
+                }
+                return@withLock recordReconciliationFailure(stopOutcome, endResult)
+            }
+
+            val phaseAfterStopAttempt = current.controller.snapshot.value.phase
+            if (
+                stopOutcome.failure == RealtimeCommandFailure.INVALID_PHASE &&
+                !phaseAfterStopAttempt.isRecordingReconciliationEligible()
+            ) {
+                return@withLock recordReconciliationNoOp(stopOutcome)
+            }
+
+            synchronized(statsLock) {
+                reconciliationStopWriteFailure += 1
+                reconciliationLastStopFailure = stopOutcome.failure
+            }
+
+            if (!current.controller.beginExternalTerminationDrain()) {
+                val phaseAfterFallbackAttempt = current.controller.snapshot.value.phase
+                return@withLock if (!phaseAfterFallbackAttempt.isRecordingReconciliationEligible()) {
+                    recordReconciliationNoOp(stopOutcome)
+                } else {
+                    recordReconciliationFailure(stopOutcome, null)
+                }
+            }
+
+            synchronized(statsLock) { reconciliationFallbackCount += 1 }
+            val endResult = canonicalSource.endActiveSessionAfterQuiet(
+                reason = RealtimeCanonicalSessionEndReason.DEVICE_RECORDING_ENDED,
+            )
+            if (endResult.isTerminalDrainResult()) {
+                current.controller.completeStopDrain()
+                return@withLock recordReconciliationCompleted(
+                    result = RealtimeRecordingReconciliationResult.COMPLETED_WITH_FALLBACK,
+                    stopOutcome = stopOutcome,
+                    endResult = endResult,
+                )
+            }
+            recordReconciliationFailure(stopOutcome, endResult)
+        }
 
     fun snapshot(): RealtimeAudioRuntimeSnapshot {
         val current = owner
@@ -141,6 +248,17 @@ class RealtimeAudioRuntime(
                 transportCloseWhileActiveCount = transportCloseWhileActiveCount,
                 decoderCreateCount = decoderCreateCount,
                 decoderReleaseCount = decoderReleaseCount,
+                reconciliation = RealtimeRecordingReconciliationSnapshot(
+                    attempts = reconciliationAttempts,
+                    stopWriteSuccess = reconciliationStopWriteSuccess,
+                    stopWriteFailure = reconciliationStopWriteFailure,
+                    fallbackCount = reconciliationFallbackCount,
+                    completed = reconciliationCompleted,
+                    noOp = reconciliationNoOp,
+                    failure = reconciliationFailure,
+                    lastResult = reconciliationLastResult,
+                    lastStopFailure = reconciliationLastStopFailure,
+                ),
             )
         }
         val liveGeneration = transport.currentGeneration
@@ -165,6 +283,7 @@ class RealtimeAudioRuntime(
             ingress = current?.ingress?.snapshot() ?: lastIngressSnapshot,
             pipeline = current?.pipeline?.snapshot() ?: lastPipelineSnapshot,
             source = canonicalSource.snapshot(),
+            reconciliation = counters.reconciliation,
         )
     }
 
@@ -307,6 +426,52 @@ class RealtimeAudioRuntime(
         }
     }
 
+    private fun recordReconciliationNoOp(
+        stopOutcome: RealtimeCommandOutcome? = null,
+    ): RealtimeRecordingReconciliationOutcome {
+        synchronized(statsLock) {
+            reconciliationNoOp += 1
+            reconciliationLastResult = RealtimeRecordingReconciliationResult.NO_OP
+            reconciliationLastStopFailure = stopOutcome?.failure
+        }
+        return RealtimeRecordingReconciliationOutcome(
+            result = RealtimeRecordingReconciliationResult.NO_OP,
+            stopOutcome = stopOutcome,
+        )
+    }
+
+    private fun recordReconciliationCompleted(
+        result: RealtimeRecordingReconciliationResult,
+        stopOutcome: RealtimeCommandOutcome,
+        endResult: RealtimeCanonicalSessionEndResult,
+    ): RealtimeRecordingReconciliationOutcome {
+        synchronized(statsLock) {
+            reconciliationCompleted += 1
+            reconciliationLastResult = result
+        }
+        return RealtimeRecordingReconciliationOutcome(
+            result = result,
+            stopOutcome = stopOutcome,
+            endResult = endResult,
+        )
+    }
+
+    private fun recordReconciliationFailure(
+        stopOutcome: RealtimeCommandOutcome?,
+        endResult: RealtimeCanonicalSessionEndResult?,
+    ): RealtimeRecordingReconciliationOutcome {
+        synchronized(statsLock) {
+            reconciliationFailure += 1
+            reconciliationLastResult = RealtimeRecordingReconciliationResult.FAILED
+            reconciliationLastStopFailure = stopOutcome?.failure
+        }
+        return RealtimeRecordingReconciliationOutcome(
+            result = RealtimeRecordingReconciliationResult.FAILED,
+            stopOutcome = stopOutcome,
+            endResult = endResult,
+        )
+    }
+
     private fun unavailable(command: RealtimeControlCommand): RealtimeCommandOutcome =
         RealtimeCommandOutcome(
             command = command,
@@ -320,6 +485,14 @@ class RealtimeAudioRuntime(
 
     private fun RealtimeCanonicalPcmFrame.withSessionId(sessionId: Long): RealtimeCanonicalPcmFrame =
         copy(sessionId = sessionId)
+
+    private fun RealtimeCanonicalSessionEndResult.isTerminalDrainResult(): Boolean =
+        this == RealtimeCanonicalSessionEndResult.ENDED ||
+            this == RealtimeCanonicalSessionEndResult.ENDED_AFTER_TIMEOUT ||
+            this == RealtimeCanonicalSessionEndResult.NO_ACTIVE_SESSION
+
+    private fun RealtimeRuntimePhase.isRecordingReconciliationEligible(): Boolean =
+        this == RealtimeRuntimePhase.ACTIVE || this == RealtimeRuntimePhase.PAUSED
 
     private fun RealtimeRuntimePhase.isMediaSessionInFlight(): Boolean =
         this == RealtimeRuntimePhase.STARTING ||
@@ -404,5 +577,6 @@ class RealtimeAudioRuntime(
         val transportCloseWhileActiveCount: Long,
         val decoderCreateCount: Long,
         val decoderReleaseCount: Long,
+        val reconciliation: RealtimeRecordingReconciliationSnapshot,
     )
 }
