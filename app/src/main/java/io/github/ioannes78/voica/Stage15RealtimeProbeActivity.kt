@@ -66,6 +66,7 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
     private val mutableControlSnapshot = MutableStateFlow(Stage15ControlDiagnosticsSnapshot())
     private val mutableTransportCloseDiagnostic =
         MutableStateFlow<Stage15TransportCloseDiagnostic?>(null)
+    private val mutableCanonicalConsumerPaused = MutableStateFlow(false)
     private val mutableAction = MutableStateFlow("等待连接")
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -77,6 +78,10 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
 
         probeScope.launch(Dispatchers.Default) {
             while (isActive) {
+                while (mutableCanonicalConsumerPaused.value && isActive) {
+                    delay(CANONICAL_CONSUMER_PAUSE_POLL_MS)
+                }
+                if (!isActive) break
                 val event = realtimeRuntime.canonicalSource.receive() ?: break
                 canonicalAccumulator.accept(event)
             }
@@ -106,11 +111,13 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
                     canonicalSnapshot = mutableCanonicalSnapshot,
                     controlSnapshot = mutableControlSnapshot,
                     transportCloseDiagnostic = mutableTransportCloseDiagnostic,
+                    canonicalConsumerPaused = mutableCanonicalConsumerPaused,
                     action = mutableAction,
                     onConnect = ::connect,
                     onDisconnect = ::disconnect,
                     onCommand = ::sendRealtime,
                     onStopDrainFault = ::stopAndDisconnectDuringDrain,
+                    onConsumerBackpressureFault = ::pauseCanonicalConsumerForBackpressure,
                     onReset = ::resetProbe,
                 )
             }
@@ -269,7 +276,31 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Stage 15.7-C QA-only downstream slowdown. Only this Probe's canonical receive loop is paused;
+     * BLE ingress, Opus decode, canonical production and queue limits remain untouched.
+     */
+    private fun pauseCanonicalConsumerForBackpressure() {
+        if (mutableCanonicalConsumerPaused.value) {
+            mutableAction.value = "QA：canonical consumer 已暂停"
+            return
+        }
+        if (realtimeRuntime.snapshot().phase != RealtimeRuntimePhase.ACTIVE) {
+            mutableAction.value = "QA：请先 START realtime，再触发 consumer backpressure"
+            return
+        }
+        mutableCanonicalConsumerPaused.value = true
+        mutableAction.value = "QA：canonical consumer 暂停 ${CANONICAL_CONSUMER_PAUSE_MS}ms"
+        probeScope.launch {
+            delay(CANONICAL_CONSUMER_PAUSE_MS)
+            mutableCanonicalConsumerPaused.value = false
+            mutableAction.value = "QA：canonical consumer 已恢复；等待 live-edge 消费"
+            publishSnapshots()
+        }
+    }
+
     private fun resetProbe() {
+        mutableCanonicalConsumerPaused.value = false
         accumulator.reset()
         canonicalAccumulator.reset()
         controlDiagnostics.reset()
@@ -290,6 +321,8 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
         const val STOP_DRAIN_POLL_INTERVAL_MS = 5L
         const val STOP_DRAIN_FAULT_DELAY_MS = 80L
         const val STOP_DRAIN_ARM_TIMEOUT_MS = 750L
+        const val CANONICAL_CONSUMER_PAUSE_MS = 1_500L
+        const val CANONICAL_CONSUMER_PAUSE_POLL_MS = 10L
         const val NANOS_PER_MILLISECOND = 1_000_000L
     }
 }
@@ -432,11 +465,13 @@ private fun Stage15ProbeScreen(
     canonicalSnapshot: MutableStateFlow<Stage15CanonicalProbeSnapshot>,
     controlSnapshot: MutableStateFlow<Stage15ControlDiagnosticsSnapshot>,
     transportCloseDiagnostic: MutableStateFlow<Stage15TransportCloseDiagnostic?>,
+    canonicalConsumerPaused: MutableStateFlow<Boolean>,
     action: MutableStateFlow<String>,
     onConnect: (String) -> Unit,
     onDisconnect: () -> Unit,
     onCommand: (RealtimeControlCommand) -> Unit,
     onStopDrainFault: () -> Unit,
+    onConsumerBackpressureFault: () -> Unit,
     onReset: () -> Unit,
 ) {
     val clipboard = LocalClipboardManager.current
@@ -455,6 +490,7 @@ private fun Stage15ProbeScreen(
     val canonical by canonicalSnapshot.collectAsState()
     val control by controlSnapshot.collectAsState()
     val closeDiagnostic by transportCloseDiagnostic.collectAsState()
+    val consumerPaused by canonicalConsumerPaused.collectAsState()
     val actionText by action.collectAsState()
     val fgs by DeviceSessionForegroundDiagnostics.state.collectAsState()
     val fgsDisplay by DeviceSessionNotificationDisplayDiagnostics.state.collectAsState()
@@ -467,6 +503,7 @@ private fun Stage15ProbeScreen(
         canonical,
         control,
         closeDiagnostic,
+        consumerPaused,
         diagnostics,
         fgs,
         fgsDisplay,
@@ -477,6 +514,7 @@ private fun Stage15ProbeScreen(
             canonical = canonical,
             control = control,
             closeDiagnostic = closeDiagnostic,
+            consumerPaused = consumerPaused,
             gattSessionId = diagnostics.sessionId,
             negotiatedMtu = diagnostics.negotiatedMtu,
             fgs = fgs,
@@ -542,8 +580,13 @@ private fun Stage15ProbeScreen(
             }
         }
         item {
-            OutlinedButton(onClick = onStopDrainFault) {
-                Text("QA STOP→80ms断开")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onStopDrainFault) {
+                    Text("QA STOP→80ms断开")
+                }
+                OutlinedButton(onClick = onConsumerBackpressureFault, enabled = !consumerPaused) {
+                    Text(if (consumerPaused) "consumer暂停中" else "QA consumer暂停1.5s")
+                }
             }
         }
 
@@ -593,6 +636,7 @@ private fun renderStage157Gate(
     canonical: Stage15CanonicalProbeSnapshot,
     control: Stage15ControlDiagnosticsSnapshot,
     closeDiagnostic: Stage15TransportCloseDiagnostic?,
+    consumerPaused: Boolean,
     gattSessionId: Long,
     negotiatedMtu: Int?,
     fgs: DeviceSessionForegroundSnapshot,
@@ -652,6 +696,7 @@ private fun renderStage157Gate(
             "raw=${closeDiagnostic?.rawReason ?: "--"} " +
             "gattStatus=${closeDiagnostic?.gattStatus ?: "--"}",
     )
+    appendLine("canonicalConsumer paused=$consumerPaused faultDurationMs=$CANONICAL_CONSUMER_FAULT_DISPLAY_MS")
     appendLine(
         "formalIngress generation=${ingress.activeSessionGeneration ?: "--"} acceptedBlocks=${ingress.acceptedBlocks} " +
             "acceptedBytes=${ingress.acceptedBytes} queueBlocks=${ingress.queueBlocks} queueBytes=${ingress.queueBytes} " +
@@ -704,7 +749,8 @@ private fun renderStage157Gate(
             "ended=${canonical.sessionEndedEvents}",
     )
     appendLine(
-        "canonicalProbe discontinuities=${canonical.consumerDiscontinuities} drainTimeoutEnds=${canonical.drainTimeoutEnds} " +
+        "canonicalProbe discontinuities=${canonical.consumerDiscontinuities} " +
+            "consumerGapAck=${canonical.consumerGapAcknowledged} drainTimeoutEnds=${canonical.drainTimeoutEnds} " +
             "endMismatch=${canonical.sessionEndMismatchCount} gap=${canonical.gapCount} overlap=${canonical.overlapCount} " +
             "invalidEpochStart=${canonical.invalidEpochStartCount}",
     )
@@ -723,6 +769,8 @@ private fun renderStage157Gate(
     )
     appendLine("gattSession=$gattSessionId mtu=${negotiatedMtu ?: "--"}")
 }
+
+private const val CANONICAL_CONSUMER_FAULT_DISPLAY_MS = 1_500L
 
 private fun connectionLabel(state: DeviceConnectionState): String =
     when (state) {
