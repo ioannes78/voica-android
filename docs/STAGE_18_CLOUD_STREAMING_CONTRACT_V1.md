@@ -207,6 +207,18 @@ Provider不支持原 session resume：
 
 原则：宁可显式 discontinuity，也不能伪造连续媒体时间。
 
+### 10.4 Device recording independence across cloud/network failure
+
+云端/网络 lifecycle 不得反向控制录音卡本机录音 lifecycle。
+
+冻结原则：
+
+- WebSocket failure、Provider failure、网络断开、App异常、BLE transport loss、Bluetooth Off 不得因为 cloud realtime 失败而主动停止录音卡本机录音；
+- BLE transport close 时，Stage 18 结束或切分对应的 cloud/canonical realtime session，设备录音继续；
+- BLE reconnect 后如果 Stage 16 上层 coordinator 确认仍是同一次设备录音且 realtime transcription intent 仍为 ACTIVE，则 Stage 18 跟随新的 canonical logical session 建立新的 cloud logical input session；
+- 不得把断联期间缺失的手机 PCM 伪造成连续云端媒体；
+- cloud socket reconnect 与 BLE reconnect 是两个不同 recovery domain，必须分别处理。
+
 ## 11. Reconnect buffer
 
 Stage 18 必须有 bounded reconnect media buffer。
@@ -263,6 +275,8 @@ Stage 18 必须消费这些事件：
 - canonical SessionEnded → flush scheduler + provider finalization；
 - cloud socket reconnect不得反向修改 canonical session/epoch。
 
+同一次设备物理录音可以对应多个 canonical logical session 和多个 cloud logical session；断联边界必须保留为显式 lineage boundary。
+
 ## 15. Privacy / user consent
 
 用户必须明确知晓 realtime audio 会发送给第三方 Provider。
@@ -318,6 +332,8 @@ Fallback必须显式、用户可理解。
 
 不得因为 cloud realtime 失败自动改成上传完整录音文件，除非用户明确选择 Stage 17 文件 ASR 流程。
 
+不得因为 cloud/network failure 停止设备本机录音。
+
 ## 18. Stage 18 验收矩阵
 
 至少覆盖：
@@ -334,6 +350,7 @@ Fallback必须显式、用户可理解。
 - reconnect buffer overflow → live edge
 - canonical Pause/Resume epoch
 - BLE reconnect/new canonical session
+- BLE断联后设备继续录音 + reconnect后新 canonical/cloud session
 - final flush/SessionEnded
 - background/screen-off
 - 30/60/120 分钟稳定性
@@ -349,7 +366,8 @@ Stage 18 不得：
 - 使用 wall clock伪造 canonical media continuity；
 - 让 socket generation 等同 BLE generation；
 - 静默跨 Provider/session discontinuity；
-- 未经用户同意上传音频。
+- 未经用户同意上传音频；
+- 因 cloud/network/App/手机异常主动停止设备本机录音。
 
 ## 20. Authority
 
