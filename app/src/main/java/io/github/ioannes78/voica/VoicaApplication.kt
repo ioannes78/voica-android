@@ -217,7 +217,7 @@ class AppContainer(
             pcmSourceResolver = pcmSourceResolver,
             diarizationRepository = diarizationRepository,
             transcriptionRepository = transcriptionRepository,
-            loadCanonicalLineage = recordingLibraryRepository::loadCanonicalTranscriptionLineage,
+            loadCanonicalLineage = recordingLibraryRepository::loadCanonicalLineage,
             modelManager = modelManager,
             modelUseRegistry = modelUseRegistry,
             engineProvider = stage9VadReusingDiarizationEngineProvider,
@@ -339,6 +339,14 @@ class AppContainer(
             context = application,
             delegate = deviceRuntime,
             scope = applicationScope,
+        )
+
+    val realtimeRecordingLifecycleReconciler =
+        RealtimeRecordingLifecycleReconciler(
+            scope = applicationScope,
+            recordingStates = deviceRepository.recordingState,
+            runtimeSnapshot = realtimeAudioRuntime::snapshot,
+            reconcile = realtimeAudioRuntime::reconcileDeviceRecordingEnded,
         )
 
     init {
