@@ -351,6 +351,9 @@ class RealtimeAudioRuntime(
     private inner class TrackingDecoderFactory(
         private val delegate: OpusDecoderFactory,
     ) : OpusDecoderFactory {
+        override val version: String
+            get() = delegate.version
+
         override fun create(sampleRateHz: Int, channelCount: Int): OpusDecoder {
             val decoder = delegate.create(sampleRateHz, channelCount)
             synchronized(statsLock) { decoderCreateCount += 1 }
