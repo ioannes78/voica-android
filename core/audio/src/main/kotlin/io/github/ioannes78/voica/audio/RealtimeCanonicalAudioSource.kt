@@ -6,7 +6,9 @@ import kotlinx.coroutines.delay
 
 enum class RealtimeCanonicalSessionEndReason {
     STOP,
+    TRANSPORT_CLOSED,
     SUPERSEDED_BY_NEW_SESSION,
+    RUNTIME_CLOSED,
 }
 
 enum class RealtimeCanonicalConsumerDiscontinuityReason {
@@ -227,6 +229,30 @@ class RealtimeCanonicalAudioSource(
             }
             if (signal.receiveCatching().getOrNull() == null) return null
         }
+    }
+
+    /**
+     * Immediately appends a terminal lifecycle event after all already-accepted PCM.
+     *
+     * Callers must first stop/join the producer so no PCM can be offered after this terminal event.
+     * This is the transport/runtime-close path; normal STOP continues to use quiet-drain semantics.
+     */
+    fun endActiveSessionImmediately(
+        reason: RealtimeCanonicalSessionEndReason,
+    ): RealtimeCanonicalSessionEndResult {
+        require(reason != RealtimeCanonicalSessionEndReason.STOP) {
+            "STOP must use endActiveSessionAfterQuiet()"
+        }
+        var shouldSignal = false
+        val result = synchronized(lock) {
+            if (closed) return@synchronized RealtimeCanonicalSessionEndResult.CLOSED
+            if (!sessionActive) return@synchronized RealtimeCanonicalSessionEndResult.NO_ACTIVE_SESSION
+            enqueueSessionEndedLocked(reason = reason, drainTimedOut = false)
+            shouldSignal = true
+            RealtimeCanonicalSessionEndResult.ENDED
+        }
+        if (shouldSignal) signal.trySend(Unit)
+        return result
     }
 
     suspend fun endActiveSessionAfterQuiet(

@@ -67,7 +67,7 @@ interface RealtimeCommandBoundarySink {
 }
 
 /**
- * Stage 15.6-A command transaction coordinator.
+ * Stage 15.6 command transaction coordinator.
  *
  * START/RESUME arm a generation-aware audio fence before the BLE write. A successful write commits
  * the canonical boundary atomically inside the fence, then releases fenced audio. Failed/stale or
@@ -173,6 +173,8 @@ class RealtimeCommandController(
             publishPhase(RealtimeRuntimePhase.TRANSPORT_CLOSED, transport.currentGeneration, RealtimeControlCommand.PAUSE, RealtimeCommandFailure.STALE_GENERATION)
             return@withLock RealtimeCommandOutcome(RealtimeControlCommand.PAUSE, false, RealtimeCommandFailure.STALE_GENERATION, result)
         }
+
+        fence.closeAudioGate()
         increment(Counter.PAUSE_SUCCESS)
         publishPhase(RealtimeRuntimePhase.PAUSED, generation, RealtimeControlCommand.PAUSE, null)
         RealtimeCommandOutcome(RealtimeControlCommand.PAUSE, true, transportResult = result)
@@ -261,11 +263,13 @@ class RealtimeCommandController(
 
     suspend fun completeStopDrain() = commandMutex.withLock {
         if (mutableSnapshot.value.phase == RealtimeRuntimePhase.DRAINING) {
+            fence.closeAudioGate()
             publishPhase(RealtimeRuntimePhase.IDLE, transport.currentGeneration, RealtimeControlCommand.STOP, null)
         }
     }
 
     suspend fun onTransportClosed(generation: Long) = commandMutex.withLock {
+        fence.closeAudioGate()
         val current = mutableSnapshot.value
         if (current.transportGeneration == generation && current.phase != RealtimeRuntimePhase.CLOSED) {
             publishPhase(RealtimeRuntimePhase.TRANSPORT_CLOSED, null, current.lastCommand, current.lastFailure)
@@ -273,6 +277,7 @@ class RealtimeCommandController(
     }
 
     suspend fun close() = commandMutex.withLock {
+        fence.closeAudioGate()
         publishPhase(RealtimeRuntimePhase.CLOSED, null, mutableSnapshot.value.lastCommand, mutableSnapshot.value.lastFailure)
     }
 

@@ -20,6 +20,8 @@ data class RealtimeCommandFenceToken(
 data class RealtimeCommandFenceSnapshot(
     val activeCommand: RealtimeControlCommand? = null,
     val activeGeneration: Long? = null,
+    val quarantinedGeneration: Long? = null,
+    val audioGateOpen: Boolean = false,
     val bufferedFrames: Int = 0,
     val bufferedBytes: Int = 0,
     val peakBufferedFrames: Int = 0,
@@ -35,15 +37,20 @@ data class RealtimeCommandFenceSnapshot(
     val droppedBytes: Long = 0,
     val downstreamRejectedCount: Long = 0,
     val commitActionFailureCount: Long = 0,
+    val quarantinedRejectCount: Long = 0,
+    val gatedRejectCount: Long = 0,
 )
 
 /**
  * Bounded generation-aware fence used while START/RESUME write completion is unresolved.
  *
- * The fence stays on the BLE callback path, so offer() only copies already-parsed realtime frames
- * into a small bounded queue. It never decodes Opus, creates PCM, suspends, or performs ASR work.
- * commit() serializes the canonical boundary action with release of fenced frames so a boundary can
- * never be created after the fence has already become ambiguous.
+ * The realtime audio gate is closed by default. Only a committed START/RESUME opens it; PAUSE,
+ * STOP finalization and transport close close it again. This prevents pre-START or PAUSED audio
+ * from reaching canonical ingress even during tiny registration/command windows.
+ *
+ * A failed/ambiguous commit quarantines that transport generation. Later realtime audio from the
+ * same generation is rejected until the generation closes rather than leaking into ingress without
+ * a committed logical session/epoch boundary.
  */
 class RealtimeCommandFence(
     private val downstream: RealtimeAudioConsumer,
@@ -58,6 +65,8 @@ class RealtimeCommandFence(
     private val lock = Any()
     private val tokenCounter = AtomicLong(0)
     private var active: ActiveFence? = null
+    private var quarantinedGeneration: Long? = null
+    private var audioGateOpen = false
 
     private var preparedCount = 0L
     private var committedCount = 0L
@@ -70,6 +79,8 @@ class RealtimeCommandFence(
     private var droppedBytes = 0L
     private var downstreamRejectedCount = 0L
     private var commitActionFailureCount = 0L
+    private var quarantinedRejectCount = 0L
+    private var gatedRejectCount = 0L
     private var peakBufferedFrames = 0
     private var peakBufferedBytes = 0
 
@@ -82,6 +93,12 @@ class RealtimeCommandFence(
         }
         require(transportGeneration > 0L)
         check(active == null) { "Realtime command fence is already active" }
+        check(quarantinedGeneration != transportGeneration) {
+            "Realtime transport generation is quarantined"
+        }
+        check(!audioGateOpen) {
+            "Realtime audio gate must be closed before START/RESUME"
+        }
         val token = RealtimeCommandFenceToken(
             id = tokenCounter.incrementAndGet(),
             command = command,
@@ -97,11 +114,21 @@ class RealtimeCommandFence(
         sessionGeneration: Long,
         receivedAtNanos: Long,
     ): RealtimeAudioOfferResult = synchronized(lock) {
+        val isAudio = notification.isRealtimeAudioFrame()
+        if (isAudio && quarantinedGeneration == sessionGeneration) {
+            quarantinedRejectCount += 1
+            return@synchronized RealtimeAudioOfferResult.REJECTED
+        }
+
         val current = active
         if (current == null) {
+            if (isAudio && !audioGateOpen) {
+                gatedRejectCount += 1
+                return@synchronized RealtimeAudioOfferResult.REJECTED
+            }
             return@synchronized downstream.offer(notification, sessionGeneration, receivedAtNanos)
         }
-        if (!notification.isRealtimeAudioFrame()) {
+        if (!isAudio) {
             return@synchronized downstream.offer(notification, sessionGeneration, receivedAtNanos)
         }
         if (sessionGeneration != current.token.transportGeneration) {
@@ -124,14 +151,13 @@ class RealtimeCommandFence(
         }
 
         val copied = BufferedFrame(
-            notification =
-                RoutedNotification(
-                    source = notification.source,
-                    frame = ProtocolFrame(
-                        sequence = notification.frame.sequence,
-                        data = notification.frame.data.copyOf(),
-                    ),
+            notification = RoutedNotification(
+                source = notification.source,
+                frame = ProtocolFrame(
+                    sequence = notification.frame.sequence,
+                    data = notification.frame.data.copyOf(),
                 ),
+            ),
             sessionGeneration = sessionGeneration,
             receivedAtNanos = receivedAtNanos,
         )
@@ -154,6 +180,8 @@ class RealtimeCommandFence(
         if (current.ambiguous) {
             ambiguousCount += 1
             dropBufferedLocked(current)
+            quarantinedGeneration = token.transportGeneration
+            audioGateOpen = false
             active = null
             return@synchronized RealtimeCommandFenceCommitResult.AMBIGUOUS
         }
@@ -163,10 +191,13 @@ class RealtimeCommandFence(
         } catch (_: Throwable) {
             commitActionFailureCount += 1
             dropBufferedLocked(current)
+            quarantinedGeneration = token.transportGeneration
+            audioGateOpen = false
             active = null
             return@synchronized RealtimeCommandFenceCommitResult.COMMIT_ACTION_FAILED
         }
 
+        audioGateOpen = true
         var rejected = false
         while (current.buffer.isNotEmpty()) {
             val frame = current.buffer.removeFirst()
@@ -184,6 +215,8 @@ class RealtimeCommandFence(
         active = null
         committedCount += 1
         if (rejected) {
+            quarantinedGeneration = token.transportGeneration
+            audioGateOpen = false
             RealtimeCommandFenceCommitResult.DOWNSTREAM_REJECTED
         } else {
             RealtimeCommandFenceCommitResult.COMMITTED
@@ -202,6 +235,10 @@ class RealtimeCommandFence(
         true
     }
 
+    fun closeAudioGate() = synchronized(lock) {
+        audioGateOpen = false
+    }
+
     override fun onSessionClosed(sessionGeneration: Long) {
         synchronized(lock) {
             val current = active
@@ -210,6 +247,10 @@ class RealtimeCommandFence(
                 active = null
                 abortedCount += 1
             }
+            if (quarantinedGeneration == sessionGeneration) {
+                quarantinedGeneration = null
+            }
+            audioGateOpen = false
         }
         downstream.onSessionClosed(sessionGeneration)
     }
@@ -219,6 +260,8 @@ class RealtimeCommandFence(
         RealtimeCommandFenceSnapshot(
             activeCommand = current?.token?.command,
             activeGeneration = current?.token?.transportGeneration,
+            quarantinedGeneration = quarantinedGeneration,
+            audioGateOpen = audioGateOpen,
             bufferedFrames = current?.buffer?.size ?: 0,
             bufferedBytes = current?.bufferedBytes ?: 0,
             peakBufferedFrames = peakBufferedFrames,
@@ -234,6 +277,8 @@ class RealtimeCommandFence(
             droppedBytes = droppedBytes,
             downstreamRejectedCount = downstreamRejectedCount,
             commitActionFailureCount = commitActionFailureCount,
+            quarantinedRejectCount = quarantinedRejectCount,
+            gatedRejectCount = gatedRejectCount,
         )
     }
 

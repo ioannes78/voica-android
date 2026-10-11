@@ -4,10 +4,43 @@ import io.github.ioannes78.voica.protocol.ProtocolConstants
 import io.github.ioannes78.voica.protocol.ProtocolFrame
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RealtimeCommandFenceTest {
+    @Test
+    fun audioGateIsClosedBeforeStartAndAfterExplicitClose() {
+        val downstream = CapturingConsumer()
+        val fence = RealtimeCommandFence(downstream)
+
+        assertEquals(
+            RealtimeAudioOfferResult.REJECTED,
+            fence.offer(audioNotification(sequence = 1), 7, 100),
+        )
+        assertEquals(1L, fence.snapshot().gatedRejectCount)
+        assertFalse(fence.snapshot().audioGateOpen)
+
+        val token = fence.prepare(RealtimeControlCommand.START, transportGeneration = 7)
+        assertEquals(RealtimeCommandFenceCommitResult.COMMITTED, fence.commit(token))
+        assertTrue(fence.snapshot().audioGateOpen)
+
+        assertEquals(
+            RealtimeAudioOfferResult.ACCEPTED,
+            fence.offer(audioNotification(sequence = 2), 7, 200),
+        )
+        assertEquals(1, downstream.frames.size)
+
+        fence.closeAudioGate()
+        assertFalse(fence.snapshot().audioGateOpen)
+        assertEquals(
+            RealtimeAudioOfferResult.REJECTED,
+            fence.offer(audioNotification(sequence = 3), 7, 300),
+        )
+        assertEquals(2L, fence.snapshot().gatedRejectCount)
+        assertEquals(1, downstream.frames.size)
+    }
+
     @Test
     fun startFenceCommitsBoundaryBeforeBufferedFrames() {
         val events = mutableListOf<String>()
@@ -32,6 +65,8 @@ class RealtimeCommandFenceTest {
         assertEquals(listOf("boundary", "frame:1", "frame:2"), events)
         assertEquals(2, fence.snapshot().peakBufferedFrames)
         assertEquals(1L, fence.snapshot().committedCount)
+        assertTrue(fence.snapshot().audioGateOpen)
+        assertNull(fence.snapshot().quarantinedGeneration)
     }
 
     @Test
@@ -45,10 +80,12 @@ class RealtimeCommandFenceTest {
         assertTrue(downstream.frames.isEmpty())
         assertEquals(1L, fence.snapshot().droppedFrames)
         assertEquals(1L, fence.snapshot().abortedCount)
+        assertFalse(fence.snapshot().audioGateOpen)
+        assertNull(fence.snapshot().quarantinedGeneration)
     }
 
     @Test
-    fun overflowMakesFenceAmbiguousAndDoesNotCreateBoundary() {
+    fun overflowMakesFenceAmbiguousAndQuarantinesGeneration() {
         val downstream = CapturingConsumer()
         val fence = RealtimeCommandFence(
             downstream = downstream,
@@ -68,14 +105,26 @@ class RealtimeCommandFenceTest {
             fence.commit(token) { boundaryCreated = true },
         )
         assertFalse(boundaryCreated)
+        assertFalse(fence.snapshot().audioGateOpen)
         assertTrue(downstream.frames.isEmpty())
+        assertEquals(5L, fence.snapshot().quarantinedGeneration)
+
+        assertEquals(
+            RealtimeAudioOfferResult.REJECTED,
+            fence.offer(audioNotification(sequence = 3), 5, 300),
+        )
+        assertTrue(downstream.frames.isEmpty())
+        assertEquals(1L, fence.snapshot().quarantinedRejectCount)
+
+        fence.onSessionClosed(5)
+        assertNull(fence.snapshot().quarantinedGeneration)
         assertEquals(1L, fence.snapshot().overflowCount)
         assertEquals(1L, fence.snapshot().ambiguousCount)
         assertEquals(2L, fence.snapshot().droppedFrames)
     }
 
     @Test
-    fun failedBoundaryActionDropsBufferedAudio() {
+    fun failedBoundaryActionDropsBufferedAudioAndQuarantinesGeneration() {
         val downstream = CapturingConsumer()
         val fence = RealtimeCommandFence(downstream)
         val token = fence.prepare(RealtimeControlCommand.START, transportGeneration = 6)
@@ -86,6 +135,8 @@ class RealtimeCommandFenceTest {
             fence.commit(token) { error("boundary failure") },
         )
         assertTrue(downstream.frames.isEmpty())
+        assertFalse(fence.snapshot().audioGateOpen)
+        assertEquals(6L, fence.snapshot().quarantinedGeneration)
         assertEquals(1L, fence.snapshot().commitActionFailureCount)
         assertEquals(1L, fence.snapshot().droppedFrames)
     }
@@ -101,6 +152,7 @@ class RealtimeCommandFenceTest {
             fence.offer(audioNotification(sequence = 1), 11, 100),
         )
         assertEquals(RealtimeCommandFenceCommitResult.AMBIGUOUS, fence.commit(token))
+        assertEquals(10L, fence.snapshot().quarantinedGeneration)
         assertEquals(1L, fence.snapshot().staleOfferCount)
         assertTrue(downstream.frames.isEmpty())
     }
@@ -116,6 +168,7 @@ class RealtimeCommandFenceTest {
 
         assertEquals(listOf(9L), downstream.closedGenerations)
         assertFalse(fence.abort(token))
+        assertFalse(fence.snapshot().audioGateOpen)
         assertEquals(1L, fence.snapshot().droppedFrames)
     }
 
