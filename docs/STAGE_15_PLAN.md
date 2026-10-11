@@ -1,6 +1,6 @@
 # Stage 15 — BLE 实时音频链路 开发规划 V1
 
-状态：**已确认 / 15.0C packet-boundary fact gate 进行中**
+状态：**已确认 / 15.0–15.0C 完成 / 15.1–15.2 开发中**
 
 ## 基线
 
@@ -19,141 +19,143 @@ Stage 15 从 main `d82210cf2b8ce25df92f4f07df200019c501f8ea` 开始。
 
 ## 15.0 — Protocol / audio fact gate
 
-- 再核验 main / PR / CI / version / Room / model pin。
-- 增加 TYPE=1 START/STOP/PAUSE/RESUME command contract。
-- 提供真机原始事实采集能力，不先假设 packet boundary 或 sequence domain。
-- Gate G1：确认 `TYPE=1 CMD=1 body` 与真实 Opus packet boundary 的关系。
-- Gate G2：确认 protocol SEQ 的 realtime domain / rollover / sharing semantics。
+已完成并冻结：
 
-### 15.0 第一轮真机事实
+- TYPE=1 START / STOP / PAUSE / RESUME command contract；
+- G1：真实 Opus packet boundary；
+- G2：protocol SEQ realtime 语义；
+- cadence / silence semantics；
+- temporary true-device Probe。
 
-第一轮 QS668 真机样本：
+### 15.0 / 15.0B / 15.0C 最终真机事实
 
-- `audioPackets=524`，`audioBytes=83840`
-- CMD=1 body 长度：`160 bytes × 524`
-- 对整个 160B body 执行 Opus inspector：`524 valid / 0 invalid`
-- channels：全部 `1`
-- totalSamples48k：全部 `960`
-- inspector duration：全部 `20 ms`
-- audio CMD=1 基本全部来自 AE22；START filename 从 AE23 返回
-- protocol SEQ：所有 audio CMD=1 均为 `0`
-- `probeQueueOverflow=0` / `genericObserverOverflow=0`
-- AE22 / AE23 CRC error 均为 `0`
-- negotiated MTU `517`
+第一轮 whole-body 样本曾观察：
 
-冻结结论：
+- `160B × 524` realtime CMD=1 body；
+- whole-160B Opus inspector `524 valid / 0 invalid`；
+- inspector 返回 mono / `960 samples @48k = 20 ms`；
+- audio CMD=1 protocol SEQ 恒为 `0`。
 
-- **G2 PASS（否定性事实）**：realtime audio 的 protocol SEQ 恒为 `0`，不可用于 duplicate / loss / reorder / timeline 判定。正式 ingress 只把 SEQ 作为原始诊断字段。
-- 因没有 packet counter，Stage 15 不做基于 SEQ 的 PLC，也不声称精确 packet loss count。
+15.0B 三组 cadence/silence 矩阵：
 
-第一轮曾暂定“160B body = 单一完整 Opus packet”，但该 G1 结论已被 15.0B cadence 事实重新打开，不能进入正式 decoder mainline。
+1. 静音：`401 bodies / 32.479 s / 12.346 bodies/s`；
+2. 持续声音：`322 bodies / 26.186 s / 12.297 bodies/s`；
+3. 声音→静音→声音：`486 bodies / 39.354 s / 12.349 bodies/s`。
 
-### 15.0B — Cadence / silence semantics fact gate
+共同结论：
 
-15.0B Probe 增加：
+- transport body 固定 `160 bytes`；
+- steady-state cadence 约 `80 ms/body`；
+- 普通静音不停止 transport；
+- protocol SEQ 恒 0，不提供 audio ordering/loss domain；
+- whole-body `inspect(160B)` 的 20ms 结果不能证明 packet boundary。
 
-- `protocolSeqHistogram`，彻底移除 duplicate/gap candidate 语义；
-- whole-body inspector samples 累加出的 `mediaDurationMs`；
-- START→STOP monotonic `wallElapsedMs` 与 `mediaWallRatio`；
-- body inter-arrival histogram：`<25 / 25–49 / 50–99 / 100–249 / >=250 ms` 与最大 gap；
-- `beforePause / paused / afterResume` body 计数；
-- device-reported filename；
-- START、first audio、PAUSE TX、device paused、RESUME TX、device resumed、first audio after resume、STOP、last audio 的 monotonic timeline offsets。
+15.0C direct packet-boundary gate：
 
-15.0B 真机矩阵已完成：
+- `417/417` 160B body eligible；
+- `0` rejected body；
+- 拆分得到 `1668` 个 40B packet；
+- `1668/1668` Opus inspect valid；
+- `1668/1668` persistent decode success；
+- slot0/1/2/3 全部 mono、`960 samples @48k = 20 ms`；
+- 每 packet 解码输出 `320 samples @16k = 20 ms`；
+- split40 media duration `33.360 s`；
+- first→last audio arrival span `33.246 s`；
+- `mediaArrivalSpanRatio=1.003`；
+- Probe overflow / generic observer overflow / CRC error 均为 0。
 
-1. 静音样本：`401 bodies / 32.479 s / 12.346 bodies/s`；
-2. 持续声音样本：`322 bodies / 26.186 s / 12.297 bodies/s`；
-3. 声音→静音→声音样本：`486 bodies / 39.354 s / 12.349 bodies/s`。
+正式冻结：
 
-三组共同事实：
-
-- body 长度始终 `160 bytes`；
-- protocol SEQ 始终 `0`；
-- whole-body inspector 始终返回 `960 samples @48k = 20 ms`；
-- body rate 稳定约 `12.3–12.35 / s`；
-- `mediaWallRatio` 稳定约 `0.246–0.247`；
-- 最大 inter-arrival gap 仅约 `147–154 ms`，静音阶段没有 `>=250 ms` transport gap；
-- queue overflow / observer overflow / CRC error 均为 `0`。
-
-15.0B 结论：
-
-- **PASS：排除普通静音抑制 / VAD 停包假设**。静音、持续声音和声音/静音切换下 transport cadence 基本一致。
-- `160B body` 的 arrival cadence 约 `80 ms/body`；这与现有设备文件链路已验证的 `40B Opus packet × 4 × 20 ms = 80 ms` 高度吻合。
-- whole-body `inspect(160B)` 返回 valid/20ms 只能证明该 byte sequence 可被 libopus 语法解析，不能证明协议 packet boundary 就是 160B。
-- 因此 **G1 第一轮结论撤回**，进入 15.0C 直接验证 `160B transport body = 4 × 40B Opus packet`。
-
-### 15.0C — Packet boundary fact gate
-
-15.0C 只扩展临时 Probe，不进入正式 realtime decoder pipeline。
-
-对每个 `TYPE=1/CMD=1` body：
-
-- 保留 whole-160B Opus inspect 作为对照；
-- 仅当 body 恰好 `160 bytes` 时按固定边界切成 4 个 slice：`[0..39] / [40..79] / [80..119] / [120..159]`；
-- 对 slot0/1/2/3 分别执行 Opus inspect；
-- Probe worker 内创建一个 `16 kHz / mono` persistent Opus decoder，按 transport arrival order 连续 decode 四个 40B slice；
-- 统计每 slot valid/invalid、channel、samples48k、duration、decodedSamples16k；
-- 累加 `split40MediaDurationMs` 与 `split40DecodedDurationMs`；
-- 同时输出 `split40MediaWallRatio` 与 `split40MediaArrivalSpanRatio`；
-- 非 160B body 只记录 rejected，不做猜测性 framing。
-
-15.0C G1 PASS 条件：
-
-- 160B body 占本轮 realtime audio body 的全部或稳定绝大多数；
-- 4 个 slot 均稳定 Opus valid；
-- 各 slot 稳定 `channels=1`；
-- 各 slot 稳定 `960 samples @48k = 20 ms`；
-- persistent decoder 各 slot 稳定输出 `320 samples @16k = 20 ms`；
-- `4 × 40B` 累计媒体时长与 body arrival span 接近 1:1；
-- `probeQueueOverflow=0`、`genericObserverOverflow=0`、CRC error=0。
-
-若通过，则正式冻结：
-
-`TYPE1/CMD1 160B transport aggregation unit → 4 × fixed-40-byte Opus packets → persistent Opus decoder`
-
-Probe 中的 decoder 只用于 packet-boundary 验证，不输出到播放器、Room、Stage 16A 或正式 consumer。
+- **G1 PASS**：`TYPE1/CMD1 160B transport block = 4 × fixed-40-byte Opus packets`。
+- **G2 PASS（否定性语义）**：audio protocol SEQ 恒 0，不可用于 duplicate / reorder / loss / PLC / timeline。
+- 每 40B packet = 20ms mono Opus；每 160B block = 80ms。
+- 16k mono decoder 正常每 packet 输出 320 samples；每 block 共 1280 canonical samples。
+- canonical timeline 后续按**实际 decoder 输出 sample count**推进，不硬编码 wall clock/SEQ。
 
 ### 15.0 Probe candidate
 
 - QA development identity：versionCode `90` / versionName `1.1.0-stage15`。
-- 临时第二 launcher `Voica Stage15 Probe` 只服务真机事实采集；Final Freeze 前必须移除或并入正式诊断入口。
-- Probe 启动时先 park 正常 `DeviceRepository`；若正常产品 session 仍持有活跃 transport，则主动断开后再创建独立 probe session，禁止同一设备双 GATT owner。
-- 15.0C 允许在 worker 线程执行 temporary Opus inspect/decode 以验证 packet boundary；仍不形成正式 realtime pipeline。
-- `probeQueueOverflow > 0` 或 `genericObserverOverflow > 0` 时，本轮数据不得用于冻结 packet boundary/cadence 语义。
+- 临时第二 launcher `Voica Stage15 Probe` 继续作为 Stage 15 真机诊断面；Final Freeze 前必须移除或并入正式诊断入口。
+- Probe 启动时 park 正常 `DeviceRepository`，禁止同一设备双 GATT owner。
+- 15.0C temporary decoder 只用于 packet-boundary 验证，不输出到播放器、Room、Stage 16A。
 
 ## 15.1 — Dedicated realtime packet ingress
 
-建立 generation-scoped realtime packet source，绕开 generic observer SharedFlow 作为音频 truth。BLE callback 只做 parse/classify/enqueue/counter。
+实现目标：generation-scoped realtime audio source，彻底取消 generic observer SharedFlow 作为 CMD=1 音频 truth。
 
-待 15.0C G1 通过后，正式 ingress 目标顺序为：
+正式路径：
 
-`TYPE1/CMD1 160B arrival order → bounded transport-body queue → 4×40B deaggregation → Opus packet validation → persistent decoder`
+`GATT notification → existing FrameParser/CRC → TYPE1/CMD1 classify → RealtimeAudioConsumer → RealtimeAudioIngress`
 
-protocol SEQ 不参与 audio ordering。
+当前实现约束：
 
-## 15.2 — Arrival / bounded encoded buffer
+- `AndroidDeviceSession` 允许单一 `RealtimeAudioConsumer` 注册；同一 consumer 重复注册幂等，不允许两个不同 consumer 同时占用；
+- realtime CMD=1 不再送 generic `notifications` SharedFlow；非音频 TYPE=1、文件、控制、KEY 行为保持原路径；
+- realtime CMD=1 不再执行每 block `RX ...` 日志；
+- notification diagnostics 对纯 realtime audio 约每 64 block 聚合刷新一次，避免每 80ms 高成本 StateFlow/log 更新；
+- callback 只执行 parse/classify、一次 160B body copy、bounded offer/counter；不执行 JNI decode、Opus inspect、PCM、Room、ASR；
+- stale GATT generation 仍由现有 `isCurrent(generation)` 在进入 realtime consumer 前拒绝；
+- GATT generation release 会关闭该 generation 的 consumer ownership，并调用 `onSessionClosed(generation)`。
 
-容量必须基于 15.0C 最终 transport/body 语义冻结。
+## 15.2 — Realtime deaggregation + bounded encoded buffer
 
-若确认 `160B body = 80 ms media`，则低延迟 0.5–1.0 s encoded ingress 初始目标约为 `8–12 bodies`，而不是此前候选的 64 bodies。最终同时设置 packet/body count 与 encoded bytes 双重硬上限。
+正式 transport unit：`160 bytes / 80 ms`。
 
-没有可用 audio packet sequence 时：
+`RealtimeAudioIngress` 冻结初始硬上限：
 
-- 不做基于 SEQ 的 duplicate / loss / reorder；
-- 不做 PLC；
-- BLE disconnect、queue overflow、decoder error、无法解释的 transport stall 均产生 explicit discontinuity；
-- 恢复后创建新 epoch，不猜测缺失 packet 数。
+- `12 blocks`
+- `2048 encoded bytes`
+
+正常最大 backlog：
+
+- `12 × 80 ms = 960 ms`
+- `12 × 160 B = 1920 B`
+
+Ingress 行为：
+
+- 保存 `sessionGeneration`、source characteristic、raw protocol SEQ、monotonic arrival timestamp（仅诊断）、continuityId；
+- 不使用 protocol SEQ 排序/去重；
+- body 必须恰好 160B；非 160B 不猜测 framing，标 malformed + continuity advance；
+- queue count/byte 任一越界：记录 overflow，丢弃整个 stale backlog，continuityId++，当前 live block 仍接收并标记 `discontinuityBefore=true`；
+- generation change / session close 同样清理旧 backlog，并形成 continuity boundary；
+- callback 之外由 `RealtimeOpusPacketizer` 按固定顺序拆为：`[0..39] / [40..79] / [80..119] / [120..159]`；
+- 只有第一个 40B packet 继承 block 的 `discontinuityBefore`；4 个 packet 共享 generation / continuity / arrival metadata。
+
+当前 temporary Probe 已切换为实际注册 `RealtimeAudioIngress`，generic observer 只接收低频非音频 TYPE=1 response。这样后续真机数据直接覆盖正式 15.1/15.2 hot path。
+
+自动化测试覆盖：
+
+- 160B accept + metadata preservation；
+- 4×40B 顺序 deaggregation；
+- count cap overflow → stale backlog 全清 + live-edge discontinuity；
+- byte cap overflow；
+- malformed body 不猜 framing；
+- generation transition；
+- session close；
+- non-audio TYPE=1 ignored。
 
 ## 15.3 — Continuous Opus decode
 
-复用现有 `engine:opus` persistent decoder。每个连续 epoch 维护 decoder state；decoder error / unknown loss 产生 discontinuity。PLC 仅在未来存在可验证 loss duration 与明确 API 支持时再考虑。
+下一步复用现有 `engine:opus` persistent decoder：
+
+`RealtimeOpusPacket(40B) → persistent decoder(16k/mono) → ShortArray`
+
+约束：
+
+- 每个 continuity/epoch 维护连续 decoder state；
+- `discontinuityBefore` 时 reset decoder；
+- 正常 QS668 packet 预期 320 samples，但 canonical timeline 必须使用**实际 decode 返回长度**；
+- decoder error / unknown loss 产生 explicit discontinuity；
+- PLC 仅在未来存在可验证 loss duration 与明确 API 支持时再考虑。
 
 ## 15.4 — Canonical PCM + timeline
 
-输出固定 `16 kHz / mono / PCM16`。建立 `realtimeSessionId + epochId + epochStartSampleIndex`；sample index 为媒体时间唯一真值。disconnect/reconnect、pause/resume 默认创建新 epoch。
+输出固定 `16 kHz / mono / PCM16`。建立 `realtimeSessionId + epochId + epochStartSampleIndex`；sample index 为媒体时间唯一真值。
 
-普通自然静音在 15.0B 中未表现为 transport discontinuity，因此不得因内容静音本身创建新 epoch。
+- 每成功 decode 一 packet，sample index += 实际 PCM sample count；
+- disconnect/reconnect、overflow、decoder fatal、pause/resume（当前安全契约）形成 epoch boundary；
+- 普通自然静音不形成 discontinuity；
+- wall clock / arrival timestamp / protocol SEQ 仅诊断，不反推 canonical sample time。
 
 ## 15.5 — Consumer / backpressure
 
@@ -165,7 +167,13 @@ protocol SEQ 不参与 audio ordering。
 
 ## 15.7 — Diagnostics + true-device integration
 
-低频聚合 transport / queue / decoder / timeline / lifecycle / performance counters。增加最小实时音频诊断入口用于真机 START/PAUSE/RESUME/STOP 和 packet fact gate。完成 realtime BLE PCM 与 final device recording waveform alignment 实验。
+低频聚合 transport / queue / decoder / timeline / lifecycle / performance counters。完成：
+
+- START / PAUSE / RESUME / STOP；
+- TYPE3 recording 与 TYPE1 realtime independence；
+- overflow / reconnect / Bluetooth off / user disconnect；
+- background / screen-off；
+- realtime BLE PCM 与 final device recording waveform cross-correlation alignment。
 
 ## 15.8 — Stability / final gate
 
@@ -184,8 +192,8 @@ Stage 15 开发分支使用：
 - versionCode `90`
 - versionName `1.1.0-stage15`
 
-Final Freeze 时再决定是否正式 `1.1.0`。
+Room 保持 `v12`；production model channel 保持原 pin。Final Freeze 时再决定是否正式 `1.1.0`。
 
 ## Freeze / merge gate
 
-只有 15.0/15.0B/15.0C fact gate、自动化、真机 QA、30/60/120 分钟稳定性全部通过，且用户明确说“测试通过”，才创建 `STAGE_15_FREEZE.md` / `STAGE_15_HANDOFF.md`、跑 Final CI 并 merge。merge 后重新核验 main/version/Room/model pin 后才解锁 Stage 16A。
+只有 Stage 15 全链路自动化、真机 QA、30/60/120 分钟稳定性全部通过，且用户明确说“测试通过”，才创建 `STAGE_15_FREEZE.md` / `STAGE_15_HANDOFF.md`、跑 Final CI 并 merge。merge 后重新核验 main/version/Room/model pin 后才解锁 Stage 16A。
