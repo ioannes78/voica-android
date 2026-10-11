@@ -1,249 +1,192 @@
-# Post-V1 P0 — Canonical WAV Performance & UX Handoff
+# Post-V1 P0 — Canonical WAV Performance & UX Final Handoff
 
-Status: **QA CANDIDATE / NOT FROZEN / NOT MERGED**
+状态：**FINAL ACCEPTED / FROZEN CANDIDATE / AWAITING FINAL CI + MERGE**
 
-This document hands the current Post-V1 P0 branch to true-device QA. It is not a Freeze document and does not authorize merge or release.
+日期：2026-10-11
+
+本文件是 Post-V1 P0 的最终交接记录。产品代码与真机 QA 已完成；当前只允许 Final Freeze/Handoff、CI 与 merge 收口，不得再静默修改生产行为。
 
 ## 1. GitHub truth
 
-- Repository: `ioannes78/voica-android`
-- Production branch: `main`
-- Development branch: `post-v1-canonical-audio-p0`
-- Pull request: `#26` — `[APK] Post-V1 P0 — Canonical WAV Performance & UX`
-- Main baseline used for development: `e150589baffcebf03d8697c701dd716097cd70f6`
-- QA2-R2 implementation-code HEAD before this handoff-only commit: `1c268608eba2454f0669c9e82e1ee7410d5feef9`
-- Fast PR Gate for that implementation HEAD: Android PR CI `#1223` — **SUCCESS**
+- repository：`ioannes78/voica-android`
+- production branch：`main`
+- development branch：`post-v1-canonical-audio-p0`
+- PR：`#26` — `[APK] Post-V1 P0 — Canonical WAV Performance & UX`
+- 开发基线 main：`e150589baffcebf03d8697c701dd716097cd70f6`
+- 最后完成真机验收的 QA candidate HEAD：`e5ee57abf213bd2c3d8c7de1656e65da4ac4a011`
+- QA2-R2 implementation-code HEAD：`1c268608eba2454f0669c9e82e1ee7410d5feef9`
+- Final Freeze 文档首提交：`08e2df36309a8913f443fdcd0490a0bab9f008db`
+- Final Freeze：`docs/POST_V1_P0_FREEZE.md`
 
-Always re-check the current PR HEAD and CI before further code changes.
+继续操作前必须重新核验 PR 当前 HEAD、main HEAD 与最新 CI，不得把以上 SHA 当作未来不变事实。
 
-## 2. Product / schema baseline
+## 2. 产品 / schema 基线
 
-- target `versionName`: `1.0.1`
-- target `versionCode`: `89`
-- production applicationId: `io.github.ioannes78.voica`
-- QA applicationId: `io.github.ioannes78.voica.qa`
-- Room: **v12 unchanged**
+- target versionCode：`89`
+- target versionName：`1.0.1`
+- production applicationId：`io.github.ioannes78.voica`
+- QA applicationId：`io.github.ioannes78.voica.qa`
+- Room：**v12 unchanged**
 - no Post-V1 P0 Room migration
-- canonical profile remains `CANONICAL_PCM16_16000_MONO_WAV_V1`
-- canonical output contract remains PCM16 / 16 kHz / mono WAV
-- production model channel pin remains unchanged from Stage 14 V1
-- ABI remains `arm64-v8a`
+- canonical profile：`CANONICAL_PCM16_16000_MONO_WAV_V1`
+- canonical output：PCM16 / 16 kHz / mono WAV
+- ABI：`arm64-v8a`
+- production model channel：保持 Stage 14 V1.0 immutable pin，不执行 promotion
 
-## 3. Implemented canonical performance changes
+## 3. Final accepted implementation
 
-### 3.1 Source integrity de-duplication
+### 3.1 Canonical performance
 
-Canonical generation still performs one authoritative full SHA-256 verification of the managed source before conversion. The immediately repeated converter-level full source SHA scan was removed for coordinator-owned compressed media, PCM WAV and RAW Opus conversions. RAW Opus also reuses the coordinator validation result.
+冻结：
 
-Output canonical SHA, Room lineage, source SHA lineage and corruption detection remain intact.
+- coordinator 保留一份 authoritative source SHA / integrity verification；
+- compressed / PCM WAV / RAW Opus coordinator-owned conversion 去除紧邻的重复 source full SHA；
+- Android MediaCodec、normalizer、PCM WAV path 与 canonical writer 采用 bounded reusable buffers；
+- PCM WAV streaming chunk 为 64 KiB；
+- canonical-compatible PCM16 / 16 kHz / mono WAV same-path Fast Path 保留；
+- compressed decoder progress 优先 MediaCodec presentation timeline，decoded-frame time fallback；
+- metadata duration 不再当作 decoder completion；
+- explicit final/EOS 控制任务完成，不为匹配 metadata duration 截断音频；
+- `VoicaCanonicalPerf` 保留 source SHA、decode/read、normalize、write、sync、move、output SHA、pipeline、Room commit、wall、RTF 与 duration drift 诊断。
 
-### 3.2 Reusable streaming buffers
+P0 未实现 compressed source → ASR 直通解码。
 
-The conversion hot path now reuses bounded buffers instead of allocating a fresh array chain for every block:
+### 3.2 Player / Recording Detail UX
 
-- Android MediaCodec output `ShortArray` reuse;
-- allocation-free `StreamingPcm16Normalizer.processInterleavedInto` hot path;
-- reusable normalizer output buffer;
-- reusable PCM WAV byte/interleaved/mono buffers;
-- reusable 64 KiB canonical WAV writer byte buffer;
-- PCM WAV streaming chunk size increased to 64 KiB.
+冻结为三态：
 
-### 3.3 Existing canonical WAV Fast Path preserved
+1. 未生成：`生成标准 WAV`；
+2. 生成中：真实阶段/进度、`已处理 / 总时长`、`已耗时`，安全阶段显示紧凑 `取消`；
+3. Ready：自动恢复波形播放器与转写/说话人入口。
 
-A managed WAV that is already PCM16 / 16 kHz / mono canonical audio is reused in place. It is not copied to a second physical canonical file. Existing shared-path cleanup protections remain in force.
+旧的独立整行 canonical cancel 按钮不恢复。Recording info 保留真实 `录音时长`。
 
-## 4. Canonical generation progress and player UX
+## 4. QA1-R1 — compressed duration progress
 
-Canonical high-frequency progress is process-local runtime state, not Room state. Room continues to hold durable lifecycle / terminal state only.
+原真机问题：MP3 `已处理` 可以超过 metadata 总时长，而 decoder 仍未 EOS。
 
-Progress sources:
+最终修复：
 
-- PCM WAV: exact processed frames / total frames;
-- compressed media: MediaCodec presentation timeline when available, decoded-frame time as fallback;
-- RAW Opus: exact packet/sample progress.
+- progress 使用 source PTS timeline；
+- display processed duration 不超过已知 total；
+- total 被追平但未 EOS 时不把任务视为 terminal；
+- decoder 继续完整处理到 EOS。
 
-The player card now has three states:
+用户对原复现 MP3 明确确认：**QA1-R1 PASSED**。
 
-1. not generated — integrated `生成标准 WAV` action;
-2. generating — real phase/progress, `已处理 / 总时长`, `已耗时`, trailing `取消` while cancellable;
-3. ready — normal waveform player.
+## 5. QA2 — device download foreground notification
 
-The old standalone full-width canonical cancel action was removed.
+### QA2-R1
 
-The recording information card now shows, in order:
+上游 stale business decision serialization 修复后，真机仍可在连续下载第 3 次起残留 `92% / 99% / 100%`，因此 QA2-R1 不作为最终冻结架构。
 
-1. 录制时间
-2. 录音时长
-3. 文件大小
-4. 来源 / 格式
+### QA2-R2 — FINAL ACCEPTED
 
-`录音时长` uses actual media/device duration metadata, not file-size estimation.
+最终架构：
 
-## 5. QA1-R1 — compressed-duration progress overrun
+- 一个连续设备 connection/session 只 acquire 一个 FGS lease；
+- lease generation 不随每次通知文字变化而递增；
+- ACTIVE service 使用同一 notification id 原位更新；
+- STARTING 期间不排队历史 progress，只在 ACTIVE 后重新投影最新业务真值；
+- download progress bounded coalescing；
+- Completed / Failed / Cancelled / recording / reconnect / disconnect 等终态立即处理；
+- delayed progress reconciliation 重新读取当前状态，不回放旧百分比；
+- diagnostics 区分 lease generation、desired revision/label、rendered revision/label。
 
-True-device QA found MP3 files where `已处理` exceeded the displayed total by tens of seconds while decoding remained active.
+自动化覆盖同一连接 5 次连续下载、92/99/100 late progress、每次 Completed 回到 `已连接`、单 lease acquire count 及 STARTING latest-state contract。
 
-The fix:
+CI：
 
-- compressed progress prefers MediaCodec output PTS (`presentationTimeUs + block duration`);
-- metadata duration alone is no longer treated as decoder completion;
-- explicit decoder completion / final-work semantics control terminal progress;
-- displayed processed duration is clamped to the known total;
-- when metadata duration is exhausted before decoder EOS, determinate fraction no longer pretends the work is complete;
-- progress throttling remains active during the overrun interval;
-- decoding is never truncated just to match metadata duration;
-- `VoicaCanonicalPerf` records metadata / decoded-frame / media-timeline / canonical duration drift.
+- Android PR CI `#1223` — Fast PR Gate **SUCCESS**（QA2-R2 implementation head）
+- Android PR CI `#1224` — Fast PR Gate **SUCCESS**
+- Android PR CI `#1224` — QA APK Gate **SUCCESS**
 
-True-device result: **QA1-R1 PASSED** on the two reported reproducing MP3 files. Captured UI showed `21:22 / 21:22` and `27:44 / 27:44` without processed-duration overrun.
+QA2-R2 candidate artifact：
 
-## 6. Device download foreground notification QA
+- artifact：`Voica-1.0.1-export-qa-apk`
+- artifact ID：`11690442570`
+- artifact ZIP digest：`sha256:1c948672a9960da534f6f1a5cf1d4f4144f4856ee5e9a1e641899c5b2c7feb12`
 
-### 6.1 QA2-R1 result — FAILED on true device
+用户明确确认：**QA2-R2 测试通过**。
 
-QA2-R1 changed the repository collector so combined business-state emissions are invalidation signals only and every publish re-reads the latest connection / recording / file-operation / device-info values under one serialization boundary. This removed the stale precomputed-decision race.
+## 6. 30 / 60 / 121 分钟 Canonical 性能验收
 
-True-device retest nevertheless still reproduced stale notification progress. More importantly, repeated downloads exposed a cumulative pattern:
+测试条件：同一约 121 分钟 MP3 源文件；30 分钟与 60 分钟样本通过 MP3 stream copy 截取，不重新编码，因此编码条件一致。
 
-- the first two downloads could complete normally;
-- from the third download onward stale notification terminal state became much easier to reproduce;
-- observed residual labels included `92%`, `99%` and `100%`;
-- the residual percentage was not deterministic.
+真机 wall-clock：
 
-This means QA2-R1 fixed an upstream business-decision race but did not address repeated Android foreground-service command / notification updates.
+| 音频时长 | Canonical WAV 生成耗时 | RTF | 约实时速度 |
+| --- | ---: | ---: | ---: |
+| 30:00 | 2:26 | 0.0811 | 12.33× |
+| 60:00 | 5:00 | 0.0833 | 12.00× |
+| 121:07 | 8:55 | 0.0736 | 13.58× |
 
-### 6.2 QA2-R2 root cause and architecture
+Scaling：
 
-Before QA2-R2, every changed foreground label could call `DeviceSessionForegroundService.acquire()`. During one download, percentage changes such as 1%, 2%, 3% ... could therefore enqueue many `startForegroundService()` requests, each with a new generation, even though the connected-device foreground lease itself never ended.
+- `T60 / T30 = 2.055`，duration ratio `2.000`；
+- `T121 / T60 = 1.783`，duration ratio `2.019`；
+- `T121 / T30 = 3.664`，duration ratio `4.037`。
 
-That conflated two concepts:
+验收结论：
 
-1. foreground-service lease lifetime;
-2. notification display revision.
+- 30→60 基本线性；
+- 121 分钟没有随时长增加而继续放大的非线性退化；
+- 原 Stage 14 观察到的“约 2 倍时长、约 3 倍 canonical wall time”未在本候选复现；
+- 长音频 canonical 性能目标通过。
 
-QA2-R2 separates them.
+RAM/PSS、CPU、thermal、storage I/O 定量 telemetry 本轮未采集，真实记录为 **N/A**。
 
-### 6.3 QA2-R2 single-lease contract
+## 7. Final true-device functional acceptance
 
-For one continuous device connection/session:
+用户在完成长音频 benchmark 后继续执行最终功能回归，并明确确认：**“测试通过”**。
 
-- `startForegroundService()` is used to acquire the connected-device foreground lease;
-- that lease generation remains stable while notification text changes;
-- progress/recording/reconnect text changes do **not** acquire a new service generation;
-- when the service is ACTIVE, the existing foreground notification is updated in place with `NotificationManager.notify()` using the same notification id;
-- if business state changes while the initial service is still STARTING, no extra start command is queued; latest business truth is re-projected immediately when the one lease becomes ACTIVE;
-- release/disconnect still invalidates the lease generation.
+最终接受范围：
 
-The existing stale-generation gate in `DeviceSessionForegroundService` remains as protection for genuinely stale lifecycle commands.
+- compressed audio canonical generation；
+- progress / elapsed / cancellation / completion；
+- completion → waveform/player ready；
+- transcription；
+- diarization；
+- recording duration display；
+- canonical-compatible WAV Fast Path；
+- QS668/CB08 repeated download notification terminal sync；
+- 无新增用户报告的 crash / ANR / data corruption / blocking regression。
 
-### 6.4 Progress coalescing
+因此 Post-V1 P0 的产品 QA 门禁已全部满足。
 
-Download percentage notification updates are coalesced to a minimum interval of 300 ms. The delayed task does not carry an old percentage; it re-reads current business state before publishing.
+## 8. Final Freeze / CI rule
 
-Terminal/non-progress states are immediate and bypass the progress throttle, including:
+`docs/POST_V1_P0_FREEZE.md` 已创建。
 
-- `Completed` → `已连接` while still connected;
-- failure/cancellation → current connected state;
-- recording state;
-- reconnect/connection state;
-- disconnect/release.
+Freeze/Handoff 文档提交后必须：
 
-Therefore a delayed percentage cannot replay after terminal state.
+1. 重新核验 PR #26 当前 HEAD；
+2. 最新 Fast PR Gate 必须 **SUCCESS**；
+3. `[APK]` QA APK Gate 必须 **SUCCESS**；
+4. main 不得在本阶段收口期间发生未处理漂移；
+5. CI 全绿后把 PR 从 Draft 标记为 Ready；
+6. 使用 expected-head SHA 执行受控 merge；
+7. merge 后重新核验 main HEAD / versionCode / versionName / Room v12 / production model channel boundary。
 
-### 6.5 Desired vs rendered diagnostics
+CI 不能替代已经完成的真机验收；真机验收也不能替代 Final CI。
 
-QA2-R2 also separates notification display diagnostics from the foreground-service lease diagnostics. The display snapshot tracks:
+## 9. Next — Stage 15
 
-- lease generation;
-- desired revision / desired label;
-- rendered revision / rendered label.
+Post-V1 P0 merge `main` 并完成 post-merge 核验后，正式解锁：
 
-This makes future diagnosis able to distinguish business truth, requested display state and successfully rendered in-process notification update.
+**Stage 15 — BLE 实时音频链路**。
 
-### 6.6 QA2-R2 regression coverage
+Stage 15 开始任何编码前必须重新读取：
 
-Automated coverage now includes:
+- `AGENTS.md`
+- `docs/STAGE_14_FREEZE.md`
+- `docs/STAGE_14_HANDOFF.md`
+- `docs/POST_V1_P0_FREEZE.md`
+- `docs/POST_V1_P0_HANDOFF.md`
+- `docs/ROADMAP_STAGE_13C_PLUS.md`
+- `docs/STAGE_16_STREAMING_CONTRACT_V2.md`
+- GitHub 当前 main / open PR / CI / app version / Room
+- production model channel 当前 pin
+- BLE / protocol / audio / canonical timeline 当前实现
 
-- one foreground lease across reconnect-label updates;
-- five consecutive download operations on one lease;
-- each download exercises late progress including 92%, 99% and 100%;
-- every `Completed` returns to `已连接`;
-- lease generation remains unchanged across all five downloads;
-- the service acquire count remains one across the continuous session;
-- later unrelated invalidations cannot reintroduce `正在下载`;
-- state changes while the service is STARTING do not enqueue historical progress commands.
-
-Fast PR Gate #1223 passed with the QA2-R2 production implementation and stress tests.
-
-No BLE protocol, transfer accounting, file commit, Room schema, canonical pipeline, version identity or production model channel was changed for QA2-R2.
-
-## 7. Canonical performance instrumentation
-
-Successful canonical generation publishes `VoicaCanonicalPerf` diagnostics including:
-
-- source role/container/bytes/duration;
-- source SHA time;
-- decode/read time;
-- normalization time;
-- WAV write time;
-- `fd.sync()` time;
-- atomic move time;
-- output SHA time;
-- pipeline time;
-- metadata duration;
-- decoded-frame duration;
-- media-timeline duration;
-- canonical duration;
-- duration delta;
-- Room commit time;
-- total wall time;
-- RTF.
-
-This is intended for the planned 30 / 60 / 120 minute true-device benchmark.
-
-## 8. Required true-device QA
-
-### QA2-R2 focused retest — highest priority
-
-Use the same CB08/QS668 file and connection session that reproduced the cumulative failure.
-
-Required observations:
-
-- perform at least **5 consecutive downloads without disconnecting**;
-- during transfer, system notification displays current `正在下载 · xx%`;
-- after every successful local completion, notification returns to `已连接` while the device remains connected;
-- specifically verify downloads #3, #4 and #5 because the previous implementation degraded from the third download onward;
-- no permanent `92%`, `95%`, `99%` or `100%` residue;
-- repeat at least once with the app backgrounded;
-- cancel one download and verify stale percentage disappears;
-- complete a download and immediately start recording; notification must become the recording state and old download progress must not return.
-
-### Canonical generation UX / functional regression
-
-- progress never displays processed duration greater than total;
-- generation completion restores the ready waveform player;
-- cancellation works only in cancellable phases;
-- playback, waveform, ASR and diarization still resolve canonical audio;
-- canonical-compatible WAV Fast Path remains fast and safe;
-- recording info contains the real recording duration.
-
-### 30 / 60 / 120 minute benchmark
-
-Use the same physical phone and comparable source media. Capture `VoicaCanonicalPerf` for each duration and compare RTF, `T60/T30`, `T120/T60`, source SHA, decode/read, normalization, write/sync and output SHA shares.
-
-## 9. Deferred optimization
-
-P0 still does not change the downstream `RoomAudioSourceResolver` full-SHA integrity contract. A process-local verified-canonical resolver cache remains conditional work only if true-device profiling proves meaningful benefit.
-
-## 10. Merge / Freeze rule
-
-Do **not** merge PR #26 and do **not** create Post-V1 P0 Freeze until:
-
-1. current `[APK]` Fast Gate passes;
-2. current QA APK Gate passes;
-3. QA1-R1 remains accepted;
-4. QA2-R2 is confirmed with at least five consecutive true-device downloads;
-5. remaining functional regression checks pass;
-6. 30 / 60 / 120 minute benchmark evidence is collected or explicitly accepted as deferred by the user;
-7. any additional QA findings are resolved and re-tested.
-
-After acceptance, create the final Post-V1 P0 Freeze / Handoff update and only then continue to Stage 15.
+Stage 15 必须继续遵守：不得复制、迁移、继承、cherry-pick 或机械翻译 `ioannes78/voice-card-android` 的任何实现。
