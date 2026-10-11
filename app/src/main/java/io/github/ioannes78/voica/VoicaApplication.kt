@@ -26,6 +26,7 @@ import io.github.ioannes78.voica.llm.ProviderAdapterRegistry
 import io.github.ioannes78.voica.llm.ProviderConfigurationRepository
 import io.github.ioannes78.voica.llm.UrlConnectionLlmHttpTransport
 import io.github.ioannes78.voica.model.ModelUseRegistry
+import io.github.ioannes78.voica.opus.NativeOpusBackend
 import io.github.ioannes78.voica.playback.AndroidPlaybackController
 import io.github.ioannes78.voica.ui.theme.SharedPreferencesThemeSettingsStore
 import java.io.File
@@ -314,11 +315,23 @@ class AppContainer(
             onRegistered = canonicalAudioCoordinator::requestAutomatic,
         )
 
-    private val deviceRuntime: DeviceRepository =
+    private val defaultDeviceRepository =
         DefaultDeviceRepository(
             context = application,
             parentScope = applicationScope,
             downloadedAssetRegistry = downloadedAssetRegistry,
+        )
+
+    private val deviceRuntime: DeviceRepository = defaultDeviceRepository
+
+    private val realtimeOpusBackend = NativeOpusBackend()
+
+    val realtimeAudioRuntime =
+        RealtimeAudioRuntime(
+            scope = applicationScope,
+            transport = defaultDeviceRepository.realtimeTransport,
+            packetInspector = realtimeOpusBackend,
+            decoderFactory = realtimeOpusBackend,
         )
 
     val deviceRepository: DeviceRepository =
