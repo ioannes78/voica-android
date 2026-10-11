@@ -46,6 +46,76 @@ class Stage15RealtimeProbeAccumulatorTest {
         assertEquals(1L, snapshot.arrivalGapHistogram[">=250ms"])
         assertEquals(320.0, snapshot.maxArrivalGapMs, 0.001)
         assertEquals(4L, snapshot.phasePacketCounts["beforePause"])
+        assertEquals(4L, snapshot.split40RejectedBodies)
+    }
+
+    @Test
+    fun split40FactsTrackAllFourSlotsAndPersistentDecodeSamples() {
+        val probe = Stage15RealtimeProbeAccumulator()
+        val fullInfo = OpusPacketInfo(valid = true, channels = 1, totalSamples48k = 960)
+
+        probe.noteTx("START", sequence = 0, written = true, atNanos = 1_000_000_000L)
+        probe.accept(
+            notification = audio(sequence = 0, size = 160),
+            receivedAtNanos = 1_100_000_000L,
+            opusInfo = fullInfo,
+            split40Facts = splitFacts(),
+        )
+        probe.accept(
+            notification = audio(sequence = 0, size = 160),
+            receivedAtNanos = 1_180_000_000L,
+            opusInfo = fullInfo,
+            split40Facts = splitFacts(),
+        )
+        probe.noteTx("STOP", sequence = 1, written = true, atNanos = 1_260_000_000L)
+
+        val snapshot = probe.snapshot()
+        assertEquals(2L, snapshot.split40EligibleBodies)
+        assertEquals(0L, snapshot.split40RejectedBodies)
+        assertEquals(8L, snapshot.split40PacketCount)
+        assertEquals(8L, snapshot.split40Valid)
+        assertEquals(0L, snapshot.split40Invalid)
+        assertEquals(8L, snapshot.split40DecodeSuccess)
+        assertEquals(0L, snapshot.split40DecodeFailure)
+        assertEquals(160.0, snapshot.split40MediaDurationMs, 0.001)
+        assertEquals(160.0, snapshot.split40DecodedDurationMs, 0.001)
+        assertEquals(80.0, snapshot.audioArrivalSpanMs, 0.001)
+        assertEquals(2.0, snapshot.split40MediaArrivalSpanRatio, 0.001)
+        assertEquals(160.0 / 260.0, snapshot.split40MediaWallRatio, 0.001)
+        for (slot in 0 until 4) {
+            assertEquals(2L, snapshot.split40SlotValidCounts[slot])
+            assertEquals(mapOf(1 to 2L), snapshot.split40SlotChannelCounts[slot])
+            assertEquals(mapOf(960 to 2L), snapshot.split40SlotSamples48kCounts[slot])
+            assertEquals(mapOf(20 to 2L), snapshot.split40SlotDurationMsCounts[slot])
+            assertEquals(mapOf(320 to 2L), snapshot.split40SlotDecodedSamples16kCounts[slot])
+        }
+    }
+
+    @Test
+    fun split40DecodeFailureIsCountedWithoutInventingDecodedDuration() {
+        val probe = Stage15RealtimeProbeAccumulator()
+        val info = OpusPacketInfo(valid = true, channels = 1, totalSamples48k = 960)
+        val facts = Stage15Split40Facts(
+            eligible160ByteBody = true,
+            packets = listOf(
+                Stage15Split40PacketFact(0, info, decodedSamples16k = 320),
+                Stage15Split40PacketFact(1, info, decodeErrorCode = -2002),
+                Stage15Split40PacketFact(2, info, decodedSamples16k = 320),
+                Stage15Split40PacketFact(3, info, decodedSamples16k = 320),
+            ),
+        )
+
+        probe.noteTx("START", sequence = 0, written = true, atNanos = 1_000_000_000L)
+        probe.accept(audio(0, 160), 1_100_000_000L, info, facts)
+        probe.noteTx("STOP", sequence = 1, written = true, atNanos = 1_200_000_000L)
+
+        val snapshot = probe.snapshot()
+        assertEquals(4L, snapshot.split40Valid)
+        assertEquals(3L, snapshot.split40DecodeSuccess)
+        assertEquals(1L, snapshot.split40DecodeFailure)
+        assertEquals(mapOf(-2002 to 1L), snapshot.split40DecodeErrorCounts)
+        assertEquals(80.0, snapshot.split40MediaDurationMs, 0.001)
+        assertEquals(60.0, snapshot.split40DecodedDurationMs, 0.001)
     }
 
     @Test
@@ -109,7 +179,7 @@ class Stage15RealtimeProbeAccumulatorTest {
     }
 
     @Test
-    fun invalidOpusDoesNotAdvanceMediaDuration() {
+    fun invalidOpusDoesNotAdvanceFull160MediaDuration() {
         val probe = Stage15RealtimeProbeAccumulator()
         val invalid = OpusPacketInfo(valid = false, errorCode = -4)
 
@@ -136,6 +206,20 @@ class Stage15RealtimeProbeAccumulatorTest {
         assertEquals(null, snapshot.wallElapsedMs)
         assertEquals(null, snapshot.sessionStartMonotonicMs)
         assertTrue(snapshot.timelineOffsetsMs.isEmpty())
+    }
+
+    private fun splitFacts(): Stage15Split40Facts {
+        val info = OpusPacketInfo(valid = true, channels = 1, totalSamples48k = 960)
+        return Stage15Split40Facts(
+            eligible160ByteBody = true,
+            packets = (0 until 4).map { slot ->
+                Stage15Split40PacketFact(
+                    slot = slot,
+                    opusInfo = info,
+                    decodedSamples16k = 320,
+                )
+            },
+        )
     }
 
     private fun audio(sequence: Int, size: Int): RoutedNotification =
