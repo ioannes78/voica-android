@@ -261,6 +261,25 @@ class RealtimeCommandController(
         RealtimeCommandOutcome(RealtimeControlCommand.STOP, true, transportResult = result)
     }
 
+    /**
+     * Stage 15.8 fallback for a device-side recording termination that already stopped TYPE1 media.
+     * No transport success is fabricated: this only closes the local audio gate and enters DRAINING.
+     */
+    suspend fun beginExternalTerminationDrain(): Boolean = commandMutex.withLock {
+        val current = mutableSnapshot.value
+        if (current.phase != RealtimeRuntimePhase.ACTIVE && current.phase != RealtimeRuntimePhase.PAUSED) {
+            return@withLock false
+        }
+        fence.closeAudioGate()
+        publishPhase(
+            RealtimeRuntimePhase.DRAINING,
+            current.transportGeneration ?: transport.currentGeneration,
+            current.lastCommand,
+            current.lastFailure,
+        )
+        true
+    }
+
     suspend fun completeStopDrain() = commandMutex.withLock {
         if (mutableSnapshot.value.phase == RealtimeRuntimePhase.DRAINING) {
             fence.closeAudioGate()
