@@ -7,6 +7,7 @@ enum class RealtimeCommandFenceCommitResult {
     COMMITTED,
     AMBIGUOUS,
     DOWNSTREAM_REJECTED,
+    COMMIT_ACTION_FAILED,
     STALE_TOKEN,
 }
 
@@ -33,6 +34,7 @@ data class RealtimeCommandFenceSnapshot(
     val droppedFrames: Long = 0,
     val droppedBytes: Long = 0,
     val downstreamRejectedCount: Long = 0,
+    val commitActionFailureCount: Long = 0,
 )
 
 /**
@@ -40,6 +42,8 @@ data class RealtimeCommandFenceSnapshot(
  *
  * The fence stays on the BLE callback path, so offer() only copies already-parsed realtime frames
  * into a small bounded queue. It never decodes Opus, creates PCM, suspends, or performs ASR work.
+ * commit() serializes the canonical boundary action with release of fenced frames so a boundary can
+ * never be created after the fence has already become ambiguous.
  */
 class RealtimeCommandFence(
     private val downstream: RealtimeAudioConsumer,
@@ -65,6 +69,7 @@ class RealtimeCommandFence(
     private var droppedFrames = 0L
     private var droppedBytes = 0L
     private var downstreamRejectedCount = 0L
+    private var commitActionFailureCount = 0L
     private var peakBufferedFrames = 0
     private var peakBufferedBytes = 0
 
@@ -137,7 +142,10 @@ class RealtimeCommandFence(
         RealtimeAudioOfferResult.ACCEPTED
     }
 
-    fun commit(token: RealtimeCommandFenceToken): RealtimeCommandFenceCommitResult = synchronized(lock) {
+    fun commit(
+        token: RealtimeCommandFenceToken,
+        beforeRelease: () -> Unit = {},
+    ): RealtimeCommandFenceCommitResult = synchronized(lock) {
         val current = active
         if (current == null || current.token != token) {
             staleTokenCount += 1
@@ -148,6 +156,15 @@ class RealtimeCommandFence(
             dropBufferedLocked(current)
             active = null
             return@synchronized RealtimeCommandFenceCommitResult.AMBIGUOUS
+        }
+
+        try {
+            beforeRelease()
+        } catch (_: Throwable) {
+            commitActionFailureCount += 1
+            dropBufferedLocked(current)
+            active = null
+            return@synchronized RealtimeCommandFenceCommitResult.COMMIT_ACTION_FAILED
         }
 
         var rejected = false
@@ -216,6 +233,7 @@ class RealtimeCommandFence(
             droppedFrames = droppedFrames,
             droppedBytes = droppedBytes,
             downstreamRejectedCount = downstreamRejectedCount,
+            commitActionFailureCount = commitActionFailureCount,
         )
     }
 

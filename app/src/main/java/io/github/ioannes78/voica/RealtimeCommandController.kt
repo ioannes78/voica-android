@@ -70,8 +70,8 @@ interface RealtimeCommandBoundarySink {
  * Stage 15.6-A command transaction coordinator.
  *
  * START/RESUME arm a generation-aware audio fence before the BLE write. A successful write commits
- * the canonical boundary first, then releases fenced audio. Failed/stale writes abort the fence and
- * therefore cannot fabricate a logical session or epoch.
+ * the canonical boundary atomically inside the fence, then releases fenced audio. Failed/stale or
+ * ambiguous commands therefore cannot fabricate a logical session/epoch boundary.
  */
 class RealtimeCommandController(
     private val transport: RealtimeDeviceTransport,
@@ -101,7 +101,6 @@ class RealtimeCommandController(
                 phase = RealtimeRuntimePhase.IDLE,
                 counter = Counter.START_FAILURE,
             )
-
         if (!result.written) {
             fence.abort(token)
             increment(Counter.START_FAILURE)
@@ -131,21 +130,9 @@ class RealtimeCommandController(
             )
         }
 
-        val boundaryFailure = runCatching { boundarySink.beginRealtimeSession() }.exceptionOrNull()
-        if (boundaryFailure != null) {
-            fence.abort(token)
-            increment(Counter.START_FAILURE)
-            publishPhase(RealtimeRuntimePhase.ERROR, generation, RealtimeControlCommand.START, RealtimeCommandFailure.INTERNAL_ERROR)
-            return@withLock RealtimeCommandOutcome(
-                RealtimeControlCommand.START,
-                false,
-                RealtimeCommandFailure.INTERNAL_ERROR,
-                result,
-            )
-        }
-
-        val commit = fence.commit(token)
-        val failure = commitFailure(commit)
+        val failure = commitFailure(
+            fence.commit(token) { boundarySink.beginRealtimeSession() },
+        )
         if (failure != null) {
             increment(Counter.START_FAILURE)
             if (failure == RealtimeCommandFailure.COMMAND_AMBIGUITY) increment(Counter.AMBIGUITY)
@@ -223,15 +210,9 @@ class RealtimeCommandController(
             return@withLock RealtimeCommandOutcome(RealtimeControlCommand.RESUME, false, RealtimeCommandFailure.STALE_GENERATION, result)
         }
 
-        val boundaryFailure = runCatching { boundarySink.requestControlBoundary() }.exceptionOrNull()
-        if (boundaryFailure != null) {
-            fence.abort(token)
-            increment(Counter.RESUME_FAILURE)
-            publishPhase(RealtimeRuntimePhase.ERROR, generation, RealtimeControlCommand.RESUME, RealtimeCommandFailure.INTERNAL_ERROR)
-            return@withLock RealtimeCommandOutcome(RealtimeControlCommand.RESUME, false, RealtimeCommandFailure.INTERNAL_ERROR, result)
-        }
-        val commit = fence.commit(token)
-        val failure = commitFailure(commit)
+        val failure = commitFailure(
+            fence.commit(token) { boundarySink.requestControlBoundary() },
+        )
         if (failure != null) {
             increment(Counter.RESUME_FAILURE)
             if (failure == RealtimeCommandFailure.COMMAND_AMBIGUITY) increment(Counter.AMBIGUITY)
@@ -321,7 +302,9 @@ class RealtimeCommandController(
             RealtimeCommandFenceCommitResult.COMMITTED -> null
             RealtimeCommandFenceCommitResult.AMBIGUOUS -> RealtimeCommandFailure.COMMAND_AMBIGUITY
             RealtimeCommandFenceCommitResult.DOWNSTREAM_REJECTED -> RealtimeCommandFailure.DOWNSTREAM_REJECTED
-            RealtimeCommandFenceCommitResult.STALE_TOKEN -> RealtimeCommandFailure.INTERNAL_ERROR
+            RealtimeCommandFenceCommitResult.COMMIT_ACTION_FAILED,
+            RealtimeCommandFenceCommitResult.STALE_TOKEN,
+            -> RealtimeCommandFailure.INTERNAL_ERROR
         }
 
     private fun rejected(
