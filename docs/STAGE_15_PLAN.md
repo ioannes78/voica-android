@@ -1,6 +1,6 @@
 # Stage 15 — BLE 实时音频链路 开发规划 V1
 
-状态：**已确认 / 15.0–15.0C 完成 / 15.1–15.2 开发中**
+状态：**已确认 / 15.0–15.2 完成 / 15.3–15.4 开发中**
 
 ## 基线
 
@@ -28,13 +28,6 @@ Stage 15 从 main `d82210cf2b8ce25df92f4f07df200019c501f8ea` 开始。
 - temporary true-device Probe。
 
 ### 15.0 / 15.0B / 15.0C 最终真机事实
-
-第一轮 whole-body 样本曾观察：
-
-- `160B × 524` realtime CMD=1 body；
-- whole-160B Opus inspector `524 valid / 0 invalid`；
-- inspector 返回 mono / `960 samples @48k = 20 ms`；
-- audio CMD=1 protocol SEQ 恒为 `0`。
 
 15.0B 三组 cadence/silence 矩阵：
 
@@ -72,36 +65,57 @@ Stage 15 从 main `d82210cf2b8ce25df92f4f07df200019c501f8ea` 开始。
 - 16k mono decoder 正常每 packet 输出 320 samples；每 block 共 1280 canonical samples。
 - canonical timeline 后续按**实际 decoder 输出 sample count**推进，不硬编码 wall clock/SEQ。
 
-### 15.0 Probe candidate
+### Stage 15 Probe
 
 - QA development identity：versionCode `90` / versionName `1.1.0-stage15`。
 - 临时第二 launcher `Voica Stage15 Probe` 继续作为 Stage 15 真机诊断面；Final Freeze 前必须移除或并入正式诊断入口。
 - Probe 启动时 park 正常 `DeviceRepository`，禁止同一设备双 GATT owner。
-- 15.0C temporary decoder 只用于 packet-boundary 验证，不输出到播放器、Room、Stage 16A。
 
 ## 15.1 — Dedicated realtime packet ingress
-
-实现目标：generation-scoped realtime audio source，彻底取消 generic observer SharedFlow 作为 CMD=1 音频 truth。
 
 正式路径：
 
 `GATT notification → existing FrameParser/CRC → TYPE1/CMD1 classify → RealtimeAudioConsumer → RealtimeAudioIngress`
 
-当前实现约束：
+实现：
 
-- `AndroidDeviceSession` 允许单一 `RealtimeAudioConsumer` 注册；同一 consumer 重复注册幂等，不允许两个不同 consumer 同时占用；
-- realtime CMD=1 不再送 generic `notifications` SharedFlow；非音频 TYPE=1、文件、控制、KEY 行为保持原路径；
+- `AndroidDeviceSession` 允许单一 `RealtimeAudioConsumer` 注册；
+- realtime CMD=1 不再送 generic `notifications` SharedFlow；
 - realtime CMD=1 不再执行每 block `RX ...` 日志；
-- notification diagnostics 对纯 realtime audio 约每 64 block 聚合刷新一次，避免每 80ms 高成本 StateFlow/log 更新；
+- notification diagnostics 对纯 realtime audio 每 64 frame 聚合刷新一次；
 - callback 只执行 parse/classify、一次 160B body copy、bounded offer/counter；不执行 JNI decode、Opus inspect、PCM、Room、ASR；
-- stale GATT generation 仍由现有 `isCurrent(generation)` 在进入 realtime consumer 前拒绝；
-- GATT generation release 会关闭该 generation 的 consumer ownership，并调用 `onSessionClosed(generation)`。
+- stale GATT generation 在 consumer 前拒绝；
+- GATT generation release 调用 `onSessionClosed(generation)`。
+
+### 15.1/15.2 真机 normal-path gate
+
+正式 ingress Probe 真机样本：
+
+- device audio blocks `382`；
+- `acceptedBlocks=382`，100% 对齐；
+- `audioBytes=61120` / `acceptedBytes=61120`；
+- `queueBlocks=0 / queueBytes=0`（STOP 后）；
+- `peakBlocks=1 / peakBytes=160`；
+- `overflowEvents=0`；
+- `malformedBlocks=0`；
+- `droppedBlocks=0 / droppedBytes=0`；
+- `continuityId=0`；
+- 382 blocks → 1528 split40 packets，`1528/1528` valid + decode success；
+- `mediaArrivalSpanRatio=1.003`；
+- Probe queue overflow / generic observer overflow / CRC error 均为 0。
+
+结论：
+
+- **Stage 15.1 normal-path true-device gate PASS**；
+- **Stage 15.2 normal-path true-device gate PASS**；
+- normal load 下 worker 基本即时消费，实际 peak backlog 仅 1 block；
+- `router AE22=320` 是每 64 realtime frame 发布一次 diagnostics 的快照滞后：`320=64×5`，不是 382 中丢失 62 blocks；audio authority 以 ingress `acceptedBlocks=382` 为准。
 
 ## 15.2 — Realtime deaggregation + bounded encoded buffer
 
 正式 transport unit：`160 bytes / 80 ms`。
 
-`RealtimeAudioIngress` 冻结初始硬上限：
+`RealtimeAudioIngress` 初始硬上限：
 
 - `12 blocks`
 - `2048 encoded bytes`
@@ -113,53 +127,86 @@ Stage 15 从 main `d82210cf2b8ce25df92f4f07df200019c501f8ea` 开始。
 
 Ingress 行为：
 
-- 保存 `sessionGeneration`、source characteristic、raw protocol SEQ、monotonic arrival timestamp（仅诊断）、continuityId；
+- 保存 `sessionGeneration`、source、raw protocol SEQ、monotonic arrival timestamp（仅诊断）、continuityId；
 - 不使用 protocol SEQ 排序/去重；
 - body 必须恰好 160B；非 160B 不猜测 framing，标 malformed + continuity advance；
 - queue count/byte 任一越界：记录 overflow，丢弃整个 stale backlog，continuityId++，当前 live block 仍接收并标记 `discontinuityBefore=true`；
-- generation change / session close 同样清理旧 backlog，并形成 continuity boundary；
-- callback 之外由 `RealtimeOpusPacketizer` 按固定顺序拆为：`[0..39] / [40..79] / [80..119] / [120..159]`；
-- 只有第一个 40B packet 继承 block 的 `discontinuityBefore`；4 个 packet 共享 generation / continuity / arrival metadata。
+- generation change / session close 清理旧 backlog并形成 continuity boundary；
+- callback 外由 `RealtimeOpusPacketizer` 固定拆为 4 × 40B；
+- 只有第一个 40B packet 继承 block 的 `discontinuityBefore`。
 
-当前 temporary Probe 已切换为实际注册 `RealtimeAudioIngress`，generic observer 只接收低频非音频 TYPE=1 response。这样后续真机数据直接覆盖正式 15.1/15.2 hot path。
-
-自动化测试覆盖：
-
-- 160B accept + metadata preservation；
-- 4×40B 顺序 deaggregation；
-- count cap overflow → stale backlog 全清 + live-edge discontinuity；
-- byte cap overflow；
-- malformed body 不猜 framing；
-- generation transition；
-- session close；
-- non-audio TYPE=1 ignored。
+异常 overflow 真机故障注入留到 15.7 fault matrix，不阻塞 15.3/15.4。
 
 ## 15.3 — Continuous Opus decode
 
-下一步复用现有 `engine:opus` persistent decoder：
+正式实现：
 
-`RealtimeOpusPacket(40B) → persistent decoder(16k/mono) → ShortArray`
+`RealtimeAudioIngress → 160B block → 4×40B RealtimeOpusPacket → Opus inspect → persistent decoder(16k/mono) → ShortArray`
 
 约束：
 
-- 每个 continuity/epoch 维护连续 decoder state；
-- `discontinuityBefore` 时 reset decoder；
-- 正常 QS668 packet 预期 320 samples，但 canonical timeline 必须使用**实际 decode 返回长度**；
-- decoder error / unknown loss 产生 explicit discontinuity；
-- PLC 仅在未来存在可验证 loss duration 与明确 API 支持时再考虑。
+- 复用 `engine:opus` / `OpusDecoderFactory`，不新增 codec 实现；
+- decoder 创建为 canonical `16kHz / mono`，不增加 resampler；
+- worker 单消费者并运行在 GATT callback 之外；
+- packet inspector 继续校验 `valid / mono / 960 samples@48k`，shape anomaly 只做诊断；
+- 正常 packet 预期 320 samples，但 canonical timeline 使用**实际 decode 返回长度**；
+- invalid packet、decode exception、empty PCM → decoder recovery boundary；
+- recovery 前 reset decoder；若 reset 失败则销毁并重建 decoder；
+- 不做 PLC，不按 wall clock 补 20ms；失败 packet 的未知/缺失媒体时间不进入下一 epoch sample index。
+
+正式统计包括：
+
+- received blocks / packetized packets；
+- invalid Opus / shape anomaly；
+- decode success / failure / zero-sample failure；
+- decoded sample histogram / unexpected sample count；
+- decoder reset / recreate / create failure；
+- block processing time / arrival-to-emit lag（仅性能诊断）。
 
 ## 15.4 — Canonical PCM + timeline
 
-输出固定 `16 kHz / mono / PCM16`。建立 `realtimeSessionId + epochId + epochStartSampleIndex`；sample index 为媒体时间唯一真值。
+`core:audio` 新增 BLE/Opus 无关的 `RealtimeCanonicalPcmFrame` contract：
 
-- 每成功 decode 一 packet，sample index += 实际 PCM sample count；
-- disconnect/reconnect、overflow、decoder fatal、pause/resume（当前安全契约）形成 epoch boundary；
+- opaque `sessionId`；
+- session-local `epochId`；
+- epoch-local `startSampleIndex`；
+- canonical PCM16 `ShortArray samples`；
+- `epochStartReason`：SESSION_START / CONTROL_BOUNDARY / DISCONTINUITY / DECODER_RECOVERY；
+- sampleRate 固定 16kHz，channel 固定 mono。
+
+正式 timeline 语义：
+
+- 同一 GATT 连接里再次 START 也创建新的 realtime session；GATT reconnect 同样创建新 session；
+- ingress continuity/discontinuity 创建新 epoch；
+- RESUME 前请求 control boundary，使恢复后的第一帧创建新 epoch；
+- decoder recovery 创建新 epoch；
+- epoch 内 `startSampleIndex += actual pcm.size`；
+- 新 epoch 的第一个 canonical frame 必须从 sample index `0` 开始并携带明确 reason；
 - 普通自然静音不形成 discontinuity；
-- wall clock / arrival timestamp / protocol SEQ 仅诊断，不反推 canonical sample time。
+- wall clock / BLE arrival timestamp / protocol SEQ 不参与 canonical media timeline。
+
+Probe 从 15.3/15.4 起不再自行执行 temporary decoder，而是直接观察正式 `RealtimeCanonicalAudioPipeline`。另有独立 `Stage15CanonicalProbeAccumulator` 在输出端验证：
+
+- frame/sample 总数；
+- session/epoch 数；
+- epoch 内 sample-index gap；
+- epoch 内 overlap；
+- epoch start 是否从 0 开始并携带 reason。
+
+正常真机 gate 预期：
+
+- `receivedBlocks == ingress.acceptedBlocks`；
+- `packetizedPackets == receivedBlocks × 4`；
+- invalidOpus / shapeAnomalies / decodeFailures / zeroSampleFailures = 0；
+- decoded sample histogram 全部为 `{320=...}`；
+- `canonicalFrames == decodeSuccess`；
+- `canonicalSamples == decodeSuccess × 320`（仅对当前已验证 QS668 正常 packet）；
+- normal START→STOP：session=1 / epoch=1 / discontinuity=0；
+- independent canonicalProbe gap=0 / overlap=0 / invalidEpochStart=0。
 
 ## 15.5 — Consumer / backpressure
 
-建立 `RealtimeCanonicalAudioSource` 或等价 seam，供 Stage 16A 只消费 canonical frame；Stage 16A 不感知 BLE UUID、MTU、Opus 或 transport sequence。PCM consumer queue 保持 bounded、low-latency。
+下一阶段建立 `RealtimeCanonicalAudioSource` 或等价 bounded seam，供 Stage 16A 只消费 canonical frame；Stage 16A 不感知 BLE UUID、MTU、Opus 或 transport sequence。PCM consumer queue 保持 bounded、low-latency。
 
 ## 15.6 — Lifecycle / reconnect / FGS
 
@@ -171,7 +218,8 @@ Ingress 行为：
 
 - START / PAUSE / RESUME / STOP；
 - TYPE3 recording 与 TYPE1 realtime independence；
-- overflow / reconnect / Bluetooth off / user disconnect；
+- synthetic slowdown overflow；
+- reconnect / Bluetooth off / user disconnect；
 - background / screen-off；
 - realtime BLE PCM 与 final device recording waveform cross-correlation alignment。
 
