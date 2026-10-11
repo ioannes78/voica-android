@@ -55,7 +55,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * Stage 15.0 temporary true-device fact-gate surface.
+ * Stage 15.0B temporary true-device cadence/silence fact-gate surface.
  *
  * This activity intentionally uses the existing generic notification observer only to discover
  * TYPE=1 packet facts before the production dedicated realtime ingress is implemented. It must
@@ -81,9 +81,6 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // The normal AppContainer is eagerly created for this process. Park its BLE runtime before
-        // the probe opens a second AndroidDeviceSession, otherwise a previously Ready product
-        // session could still own the same recorder while MainActivity is stopped.
         productRepository = (application as VoicaApplication).container.deviceRepository
         productRepository.setForeground(false)
         if (productRepository.connectionState.value.hasActiveTransport()) {
@@ -196,8 +193,14 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
         builder: (Int) -> ByteArray,
     ) {
         probeScope.launch {
+            val requestedAtNanos = System.nanoTime()
             val result = session.sendFileTransferRequest(builder)
-            accumulator.noteTx(label, result.requestSequence, result.written)
+            accumulator.noteTx(
+                label = label,
+                sequence = result.requestSequence,
+                written = result.written,
+                atNanos = requestedAtNanos,
+            )
             mutableSnapshot.value = accumulator.snapshot()
             mutableAction.value = "$label seq=${result.requestSequence} written=${result.written}"
         }
@@ -270,14 +273,14 @@ private fun Stage15ProbeScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Text("Voica Stage 15.0 Realtime Probe", style = MaterialTheme.typography.headlineSmall)
+            Text("Voica Stage 15.0B Realtime Probe", style = MaterialTheme.typography.headlineSmall)
             Text(
                 "build=${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
                 style = MaterialTheme.typography.labelMedium,
             )
             Text(
-                "临时真机 fact-gate 工具；当前 observer 不是最终 realtime authority。" +
-                    "若 genericObserverOverflow 或 probeQueueOverflow > 0，本轮结果不能用于冻结 packet 语义。",
+                "Cadence/silence fact gate；protocol SEQ 仅作为原始诊断字段，不用于丢包或重复判定。" +
+                    "若 genericObserverOverflow 或 probeQueueOverflow > 0，本轮结果不能用于冻结 cadence 语义。",
                 style = MaterialTheme.typography.bodySmall,
             )
         }
