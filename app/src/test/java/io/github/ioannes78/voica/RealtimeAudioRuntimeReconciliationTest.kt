@@ -189,12 +189,9 @@ class RealtimeAudioRuntimeReconciliationTest {
                     ) + body,
                 ),
             )
-            return when (target.offer(notification, generation, System.nanoTime())) {
-                RealtimeAudioOfferResult.ACCEPTED,
-                RealtimeAudioOfferResult.ACCEPTED_AFTER_DISCONTINUITY,
-                -> true
-                else -> false
-            }
+            val result = target.offer(notification, generation, System.nanoTime())
+            return result == RealtimeAudioOfferResult.ACCEPTED ||
+                result == RealtimeAudioOfferResult.ACCEPTED_AFTER_DISCONTINUITY
         }
     }
 
