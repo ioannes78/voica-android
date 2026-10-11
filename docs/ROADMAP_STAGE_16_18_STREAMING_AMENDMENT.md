@@ -58,6 +58,12 @@ Stage 15 不负责：
 - heartbeat
 - cloud socket reconnect
 - transcript PARTIAL/STABLE/FINAL product logic
+- reconnect 后是否自动恢复 realtime transcription 的产品策略
+- realtime local audio segment 的最终文件命名/持久化产品策略
+
+跨阶段冻结原则：**Device Recording Independence**。
+
+App disconnect、BLE loss、Bluetooth Off、App/手机异常只能终止手机端当前 realtime media session，不得主动停止录音卡本机正在进行的录音。设备录音 lifecycle 与手机 realtime transport/session lifecycle 独立。
 
 当前 Stage 15.6 实施规划：`docs/STAGE_15_6_PLAN_V2.md`。
 
@@ -103,6 +109,24 @@ Stage 15 不负责：
 - SessionEnded
 
 任何 epoch/discontinuity 都不能静默跨越一个连续 recognizer token timeline。
+
+### 3.5 Device recording / realtime segment recovery
+
+同一次录音卡物理录音允许对应手机端多个独立 realtime media segment。
+
+正式产品语义：
+
+- 设备本机录音在 App/BLE/手机断联时继续；
+- 断联立即终止当前手机 canonical/realtime logical session，并保存断联前已收到的 realtime 音频 segment；
+- reconnect 后先确认设备仍处于同一次 recording；
+- 若断联前 realtime transcription 为 ACTIVE 且用户未主动关闭，则由 Stage 16 上层 coordinator 自动重新 START realtime；
+- reconnect 后必须创建新的 transport generation / canonical logical session / local segment；
+- 不得把断联期间缺失的媒体用 silence、wall clock 或 sample-index 跳跃补成连续文件；
+- 全程无断联时，录音结束后手机本地 realtime 音频应在设备正式文件名可确认后尽量使用与录音卡一致的文件名；
+- 发生断联时，各 segment 以可区分的分段文件保存，例如 `part01 / part02`；具体命名规则后续产品化阶段冻结；
+- 内部关联必须依赖 recording/segment/session ID，而不是依赖文件名字符串。
+
+Stage 15 runtime 本身继续保持底层职责：transport close 后安全进入 clean terminal/IDLE boundary，不自行决定产品层是否自动恢复 realtime transcription。
 
 Stage 16A 详细权威契约：`docs/STAGE_16_STREAMING_CONTRACT_V3.md`。
 
@@ -168,6 +192,8 @@ Provider capability驱动：
 
 Reconnect PCM buffer必须 bounded；buffer overflow/长断网必须显式 CloudStreamingDiscontinuity，从 live edge恢复，禁止伪造连续媒体时间。
 
+Cloud/WebSocket failure 不得停止设备本机录音。BLE transport generation 被切断时，Stage 18 只结束或切分相应手机/云端 realtime session；设备录音继续独立运行。
+
 ### 4.7 Privacy
 
 用户必须明确知道 realtime audio 上传到第三方 Provider。不得因本地 ASR 失败静默开启云端实时上传。
@@ -180,11 +206,20 @@ Stage 18详细权威契约：`docs/STAGE_18_CLOUD_STREAMING_CONTRACT_V1.md`。
 
 官方 App 中观察到的 pending PCM queue、flush/feed层、heartbeat、socket error/done与 reconnect 行为可以作为产品/架构事实参考，说明在 BLE 与云 ASR之间进行 bounded audio shaping 和 network lifecycle 管理是合理方向。
 
-Voica 仍必须独立实现：
+新增已确认的官方 App 产品行为参考：
+
+- 实时转录期间断联时，录音卡继续录音；
+- 手机保存断联前已收到的一段 realtime audio，并用文件名区分该 segment；
+- 设备重新连接后，官方 App 自动恢复实时转录；
+- 重连到最终结束的 realtime audio 再保存为另一独立 segment；
+- 全程无断联时，录音结束后手机本地 realtime audio 使用与录音卡一致的正式文件名。
+
+Voica 采用相同的产品语义边界，但仍必须独立实现：
 
 - 不复制官方源码；
 - 不机械翻译实现；
-- 以 Voica Stage 15 真机 canonical facts 与自身测试为最终实现依据。
+- 以 Voica Stage 15 真机 canonical facts 与自身测试为最终实现依据；
+- 不因参考官方行为而破坏 generation/session/discontinuity 隔离。
 
 ---
 
