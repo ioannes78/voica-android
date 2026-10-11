@@ -217,7 +217,7 @@ class AppContainer(
             pcmSourceResolver = pcmSourceResolver,
             diarizationRepository = diarizationRepository,
             transcriptionRepository = transcriptionRepository,
-            loadCanonicalLineage = recordingLibraryRepository::loadCanonicalLineage,
+            loadCanonicalLineage = recordingLibraryRepository::loadCanonicalTranscriptionLineage,
             modelManager = modelManager,
             modelUseRegistry = modelUseRegistry,
             engineProvider = stage9VadReusingDiarizationEngineProvider,
