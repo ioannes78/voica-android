@@ -13,6 +13,7 @@ data class Stage15CanonicalProbeSnapshot(
     val epochStartedEvents: Long = 0,
     val sessionEndedEvents: Long = 0,
     val consumerDiscontinuities: Long = 0,
+    val consumerGapAcknowledged: Long = 0,
     val drainTimeoutEnds: Long = 0,
     val sessionEndMismatchCount: Long = 0,
     val gapCount: Long = 0,
@@ -24,7 +25,7 @@ data class Stage15CanonicalProbeSnapshot(
     val lastEndSampleIndexExclusive: Long = 0,
 )
 
-/** Independent QA observer for the Stage 15.5 canonical consumer seam. */
+/** Independent QA observer for the Stage 15 canonical consumer seam. */
 internal class Stage15CanonicalProbeAccumulator {
     private val lock = Any()
     private var frames = 0L
@@ -35,6 +36,7 @@ internal class Stage15CanonicalProbeAccumulator {
     private var epochStartedEvents = 0L
     private var sessionEndedEvents = 0L
     private var consumerDiscontinuities = 0L
+    private var consumerGapAcknowledged = 0L
     private var drainTimeoutEnds = 0L
     private var sessionEndMismatchCount = 0L
     private var gapCount = 0L
@@ -44,21 +46,29 @@ internal class Stage15CanonicalProbeAccumulator {
     private var lastSessionId: Long? = null
     private var lastEpochId: Long? = null
     private var lastEndSampleIndexExclusive = 0L
+    private var pendingConsumerResume: PendingConsumerResume? = null
 
     fun accept(event: RealtimeCanonicalStreamEvent) = synchronized(lock) {
         when (event) {
             is RealtimeCanonicalStreamEvent.SessionStarted -> {
                 sessionStartedEvents += 1
+                pendingConsumerResume = null
             }
 
             is RealtimeCanonicalStreamEvent.EpochStarted -> {
                 epochStartedEvents += 1
+                pendingConsumerResume = null
             }
 
             is RealtimeCanonicalStreamEvent.PcmFrame -> acceptFrameLocked(event.frame)
 
             is RealtimeCanonicalStreamEvent.ConsumerDiscontinuity -> {
                 consumerDiscontinuities += 1
+                pendingConsumerResume = PendingConsumerResume(
+                    sessionId = event.sessionId,
+                    epochId = event.epochId,
+                    resumeAtSampleIndex = event.resumeAtSampleIndex,
+                )
             }
 
             is RealtimeCanonicalStreamEvent.SessionEnded -> {
@@ -71,6 +81,7 @@ internal class Stage15CanonicalProbeAccumulator {
                 ) {
                     sessionEndMismatchCount += 1
                 }
+                pendingConsumerResume = null
             }
         }
     }
@@ -81,14 +92,27 @@ internal class Stage15CanonicalProbeAccumulator {
         if (sessionChanged) sessionsSeen += 1
         if (epochChanged) {
             epochsSeen += 1
+            pendingConsumerResume = null
             if (frame.startSampleIndex != 0L || frame.epochStartReason == null) {
                 invalidEpochStartCount += 1
             }
         } else {
-            when {
-                frame.startSampleIndex > lastEndSampleIndexExclusive -> gapCount += 1
-                frame.startSampleIndex < lastEndSampleIndexExclusive -> overlapCount += 1
+            val pendingResume = pendingConsumerResume
+            val acknowledgedConsumerGap =
+                pendingResume != null &&
+                    pendingResume.sessionId == frame.sessionId &&
+                    pendingResume.epochId == frame.epochId &&
+                    pendingResume.resumeAtSampleIndex == frame.startSampleIndex &&
+                    frame.startSampleIndex >= lastEndSampleIndexExclusive
+            if (acknowledgedConsumerGap) {
+                consumerGapAcknowledged += 1
+            } else {
+                when {
+                    frame.startSampleIndex > lastEndSampleIndexExclusive -> gapCount += 1
+                    frame.startSampleIndex < lastEndSampleIndexExclusive -> overlapCount += 1
+                }
             }
+            pendingConsumerResume = null
         }
 
         frames += 1
@@ -108,6 +132,7 @@ internal class Stage15CanonicalProbeAccumulator {
             epochStartedEvents = epochStartedEvents,
             sessionEndedEvents = sessionEndedEvents,
             consumerDiscontinuities = consumerDiscontinuities,
+            consumerGapAcknowledged = consumerGapAcknowledged,
             drainTimeoutEnds = drainTimeoutEnds,
             sessionEndMismatchCount = sessionEndMismatchCount,
             gapCount = gapCount,
@@ -129,6 +154,7 @@ internal class Stage15CanonicalProbeAccumulator {
         epochStartedEvents = 0
         sessionEndedEvents = 0
         consumerDiscontinuities = 0
+        consumerGapAcknowledged = 0
         drainTimeoutEnds = 0
         sessionEndMismatchCount = 0
         gapCount = 0
@@ -138,5 +164,12 @@ internal class Stage15CanonicalProbeAccumulator {
         lastSessionId = null
         lastEpochId = null
         lastEndSampleIndexExclusive = 0
+        pendingConsumerResume = null
     }
+
+    private data class PendingConsumerResume(
+        val sessionId: Long,
+        val epochId: Long,
+        val resumeAtSampleIndex: Long,
+    )
 }
