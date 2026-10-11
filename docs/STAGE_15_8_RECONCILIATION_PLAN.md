@@ -1,6 +1,6 @@
 # Stage 15.8 — Realtime / Recording Lifecycle Reconciliation
 
-状态：**需求已确认 / 开发规划已确认 / 实现候选开发中 / 待 CI + 真机 Gate**
+状态：**COMPLETE / CI PASS / 真机 Gate PASS / QA Launcher Cleanup 已完成**
 
 ## 1. 背景
 
@@ -20,7 +20,7 @@ BUT
 
 因此 Stage 15 存在 control-plane reconciliation 缺口：设备媒体生命周期已经结束，但 App runtime/canonical lifecycle 尚未自动终止。
 
-该缺口必须在 Stage 16 streaming ASR 接入前收口，否则下游可能把一个已经没有 PCM 的 session 当作仍在运行。
+该缺口已由 Stage 15.8 收口。
 
 ## 2. Scope
 
@@ -189,9 +189,17 @@ lastResult
 
 这些 counters 只做低频 lifecycle 诊断，不进入 BLE hot path。
 
-## 8. Automated tests
+## 8. Automated tests / CI
 
-实现候选必须覆盖：
+最终候选 `816f6b3e4bf38ce92a4b483b3ddc909b1ff58b1b` 的 Android PR CI #1309：
+
+- Fast PR Gate：SUCCESS；
+- Unit tests and debug compile gate：SUCCESS；
+- production-like QA APK build：SUCCESS；
+- APK verification：SUCCESS；
+- artifact upload：SUCCESS。
+
+自动化覆盖：
 
 - FRESH Recording -> Idle + runtime ACTIVE -> request exactly once；
 - stale Idle 不形成 trusted termination；
@@ -204,80 +212,87 @@ lastResult
 - reconciliation while runtime IDLE -> no transport STOP；
 - fallback 后同连接下一次 realtime START 可正常工作。
 
-## 9. True-device QA Surface
+## 9. True-device final facts
 
-Launcher：
-
-`Voica Stage15.8 Reconcile Probe`
-
-Activity：
-
-`Stage158ReconciliationProbeActivity`
-
-Probe 持续 drain canonical events，避免 QA surface 自己制造 slow-consumer backpressure。
-
-### Gate A — TYPE3 SAVE 自动收敛
+Stage 15.8 真机 Gate 最终：
 
 ```text
-Idle
-→ realtime START
-→ 讲话约 5 秒
-→ production TYPE3 SAVE
-→ 不点击 realtime STOP
-→ 等待自动 reconciliation
+15.8 executionValid=true
+15.8 factStatus=PASS
 ```
 
-必须：
+Gate A — TYPE3 SAVE 自动收敛：
 
 ```text
-recordingStatus=Idle
-runtimePhase=IDLE
-gateOpen=false
-sourceActive=false
+A start outcome=true/-- recording=Recording
+A save eligible=true beforeStatus=Recording afterStatus=Idle
+A runtime afterSave phase=IDLE gateOpen=false sourceActive=false
 lastEnd=DEVICE_RECORDING_ENDED
-reconciliation requested delta=1
-reconciliation completed delta=1
-failure delta=0
+runtime reconciliation delta:
+  attempts=1
+  stopWriteSuccess=1
+  stopWriteFailure=0
+  fallback=0
+  completed=1
+  failure=0
+app reconciliation delta:
+  requested=1
+  completed=1
+  fallback=0
+  failure=0
+A sourceDelta ended=1
+A filesDelta=1
+A facts autoConverged=true noManualRealtimeStop=true
 ```
 
-### Gate B/C — 同连接第二 session + explicit STOP 隔离
+结论：production TYPE3 SAVE 在 device 端结束 TYPE1 media 后，App 能自动收敛 realtime runtime/canonical lifecycle，无需人工补 realtime STOP。
+
+Gate B/C — 同连接第二 session + explicit STOP：
 
 ```text
-Gate A 完成
-→ second realtime START
-→ 讲话约 5 秒
-→ explicit realtime STOP
+BC secondStart outcome=true/-- phase=ACTIVE sourceActive=true
+BC mediaDelta acceptedBlocks=91 canonicalSamples=116480
+BC explicitStop outcome=true/--
+phase=IDLE gateOpen=false sourceActive=false lastEnd=STOP
+BC reconcilerDelta requested=0 completed=0
+BC facts secondSessionHealthy=true explicitStopDidNotReconcile=true
 ```
 
-必须：
+结论：自动 reconciliation 不污染下一 realtime session；正常 explicit STOP 不递归触发 reconciliation。
 
-- second START 成功；
-- canonicalSamples 在第二 session 继续增长；
-- explicit STOP 成功；
-- final runtime = IDLE；
-- lastEnd = STOP；
-- explicit STOP 前后 app `reconciliationRequested` delta = 0。
-
-### Gate D — TYPE3-only 隔离
+Gate D — TYPE3-only 隔离：
 
 ```text
-runtime IDLE
-→ TYPE3 START
-→ 讲话约 5 秒
-→ TYPE3 SAVE
+D TYPE3-only afterStart recording=Recording runtimePhase=IDLE
+D TYPE3-only afterSave recording=Idle runtimePhase=IDLE
+D reconcilerDelta requested=0 completed=0 noOp=1
+D facts type3OnlyDoesNotStartRealtime=true
 ```
 
-必须：
+结论：TYPE3-only lifecycle 不启动、不终止、不污染 realtime runtime。`noOp=1` 仅表示观察到 Recording -> Idle 时 runtime 本来就是 IDLE。
 
-- recording Recording -> Idle；
-- runtime 始终 IDLE；
-- `reconciliationRequested` delta = 0。
+本次真机走正常 reconciliation STOP write success 路径；STOP write failure + local fallback 由自动化测试覆盖，不人为破坏 BLE 链路追加真机故障注入。
 
-App reconciler 可以记录一个 recording-ended observation/no-op；这不等于请求 realtime reconciliation。
+## 10. QA Launcher Cleanup
 
-## 10. Freeze gate
+Stage 15.0–15.8 开发过程中多个 Probe Activity 曾临时声明 `MAIN + LAUNCHER`，导致覆盖安装后桌面显示多个 `Voica Stage...` 图标。
 
-Stage 15.8 只有在以下全部满足后才算完成：
+Stage 15.8 PASS 后已收口：
+
+- `MainActivity` 是唯一 `MAIN + LAUNCHER`；
+- `Stage15RealtimeProbeActivity` 保留源码但改为内部 Activity；
+- `Stage157D0PassiveRealtimeProbeActivity` 保留源码但改为内部 Activity；
+- `Stage157D1DualControlProbeActivity` 保留源码但改为内部 Activity；
+- `Stage157D1CRealtimeOnlyProbeActivity` 保留源码但改为内部 Activity；
+- `Stage157D2ReverseControlProbeActivity` 保留源码但改为内部 Activity；
+- `Stage158ReconciliationProbeActivity` 保留源码但改为内部 Activity；
+- 所有 Probe 均 `android:exported="false"` 且无 launcher intent-filter。
+
+Stage 15.9 如需新的真机诊断操作，优先复用现有 App 内“设备诊断/高级设置”入口，不再创建额外桌面 launcher。
+
+## 11. Completion gate
+
+Stage 15.8 已满足：
 
 ```text
 CI Fast PR Gate PASS
@@ -287,14 +302,18 @@ Gate B/C PASS
 Gate D PASS
 ```
 
-并同时确认：
+同时确认：
 
-- 无 Room schema 变化；
+- Room schema 仍为 v12；
 - app version identity 仍 `90 / 1.1.0-stage15`；
 - production model channel pin 未变；
 - 不包含 Stage 16 streaming ASR 产品逻辑。
 
-真机通过之前：
+Stage 15.8 正式 COMPLETE。
+
+下一步：**Stage 15.9 — Stability / Final Gate**。
+
+在 Stage 15.9 全部稳定性和真机验收完成、用户明确“测试通过”之前：
 
 - PR #27 保持 Draft；
 - 不创建 Stage 15 Final Freeze/Handoff；
