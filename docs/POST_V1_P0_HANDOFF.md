@@ -11,8 +11,8 @@ This document hands the current Post-V1 P0 branch to true-device QA. It is not a
 - Development branch: `post-v1-canonical-audio-p0`
 - Pull request: `#26` — `[APK] Post-V1 P0 — Canonical WAV Performance & UX`
 - Main baseline used for development: `e150589baffcebf03d8697c701dd716097cd70f6`
-- QA2-R1 implementation-code HEAD before this handoff-only commit: `ef6c4fc3996150dbb2b0a5059077e0e292c80373`
-- Fast PR Gate for that implementation HEAD: Android PR CI `#1217` — **SUCCESS**
+- QA2-R2 implementation-code HEAD before this handoff-only commit: `1c268608eba2454f0669c9e82e1ee7410d5feef9`
+- Fast PR Gate for that implementation HEAD: Android PR CI `#1223` — **SUCCESS**
 
 Always re-check the current PR HEAD and CI before further code changes.
 
@@ -96,56 +96,85 @@ The fix:
 
 True-device result: **QA1-R1 PASSED** on the two reported reproducing MP3 files. Captured UI showed `21:22 / 21:22` and `27:44 / 27:44` without processed-duration overrun.
 
-## 6. QA2-R1 — device download notification terminal-state race
+## 6. Device download foreground notification QA
 
-### 6.1 True-device failure
+### 6.1 QA2-R1 result — FAILED on true device
 
-After the first P0 notification fix, CB08/QS668 downloads could still finish locally while the Android connected-device foreground notification remained at `正在下载 · xx%`.
+QA2-R1 changed the repository collector so combined business-state emissions are invalidation signals only and every publish re-reads the latest connection / recording / file-operation / device-info values under one serialization boundary. This removed the stale precomputed-decision race.
 
-Repeated testing showed that the residual percentage was nondeterministic: the same file could remain at `92%`, `100%`, or another late progress value. Most runs remained at `100%`.
+True-device retest nevertheless still reproduced stale notification progress. More importantly, repeated downloads exposed a cumulative pattern:
 
-### 6.2 Root cause
+- the first two downloads could complete normally;
+- from the third download onward stale notification terminal state became much easier to reproduce;
+- observed residual labels included `92%`, `99%` and `100%`;
+- the residual percentage was not deterministic.
 
-The lower service layer already had a generation gate that rejects stale queued `ACTION_ACQUIRE` commands before publishing the notification. That fix remains valid, but it only protects against a command that already carries an old generation.
+This means QA2-R1 fixed an upstream business-decision race but did not address repeated Android foreground-service command / notification updates.
 
-`ServiceBackedDeviceRepository` still had two competing notification decision paths:
+### 6.2 QA2-R2 root cause and architecture
 
-- a long-lived `combine(connectionState, recordingState, fileOperationState, deviceInfo)` collector that precomputed a `DeviceSessionForegroundDecision`;
-- an explicit post-download `finally` reconciliation that read the latest terminal state.
+Before QA2-R2, every changed foreground label could call `DeviceSessionForegroundService.acquire()`. During one download, percentage changes such as 1%, 2%, 3% ... could therefore enqueue many `startForegroundService()` requests, each with a new generation, even though the connected-device foreground lease itself never ended.
 
-A progress decision such as `Active(DOWNLOAD, 92%)` could be computed, then be scheduled late. Meanwhile the download could advance to `Completed` and publish `已连接`. When the older precomputed progress decision later resumed, it requested a **newer** foreground-service generation and therefore legitimately passed the lower generation gate, restoring the stale progress notification.
+That conflated two concepts:
 
-This explains why the frozen percentage varied between runs.
+1. foreground-service lease lifetime;
+2. notification display revision.
 
-### 6.3 QA2-R1 fix
+QA2-R2 separates them.
 
-The repository no longer carries a precomputed device-session decision across the `combine` scheduling boundary.
+### 6.3 QA2-R2 single-lease contract
 
-The combined flow is now only an **invalidation signal**. When the collector actually runs, it calls one reconciliation path that:
+For one continuous device connection/session:
 
-1. enters the existing repository serialization lock;
-2. re-reads the current values of connection, recording, file-operation and device-info StateFlows;
-3. computes the notification decision from those latest values;
-4. publishes the foreground-service state while still under the same serialization boundary.
+- `startForegroundService()` is used to acquire the connected-device foreground lease;
+- that lease generation remains stable while notification text changes;
+- progress/recording/reconnect text changes do **not** acquire a new service generation;
+- when the service is ACTIVE, the existing foreground notification is updated in place with `NotificationManager.notify()` using the same notification id;
+- if business state changes while the initial service is still STARTING, no extra start command is queued; latest business truth is re-projected immediately when the one lease becomes ACTIVE;
+- release/disconnect still invalidates the lease generation.
 
-The explicit post-download `finally` reconciliation uses the same path.
+The existing stale-generation gate in `DeviceSessionForegroundService` remains as protection for genuinely stale lifecycle commands.
 
-Therefore a delayed invalidation originally caused by `Active(DOWNLOAD)` cannot publish an obsolete percentage after `Completed`, `Failed` or `Cancelled` has become current truth. If it executes late, it simply re-reads the terminal state and projects `已连接` (or the current recording/reconnect state).
+### 6.4 Progress coalescing
 
-The lower `DeviceSessionForegroundService` generation gate is retained as a second protection layer against stale queued service intents.
+Download percentage notification updates are coalesced to a minimum interval of 300 ms. The delayed task does not carry an old percentage; it re-reads current business state before publishing.
 
-No BLE protocol, transfer accounting, Room schema, file commit logic, SHA contract or model channel was changed for QA2-R1.
+Terminal/non-progress states are immediate and bypass the progress throttle, including:
 
-### 6.4 Regression coverage
+- `Completed` → `已连接` while still connected;
+- failure/cancellation → current connected state;
+- recording state;
+- reconnect/connection state;
+- disconnect/release.
 
-A dedicated device-download notification terminal-state test now covers:
+Therefore a delayed percentage cannot replay after terminal state.
 
-- active download `92%` → terminal `Completed` → `已连接`;
-- later unrelated state invalidations after terminal must not reintroduce `正在下载`;
-- a new subsequent download operation may publish a new progress state;
-- the second operation terminal state again returns to `已连接`.
+### 6.5 Desired vs rendered diagnostics
 
-Fast PR Gate #1217 passed with the QA2-R1 production fix and test.
+QA2-R2 also separates notification display diagnostics from the foreground-service lease diagnostics. The display snapshot tracks:
+
+- lease generation;
+- desired revision / desired label;
+- rendered revision / rendered label.
+
+This makes future diagnosis able to distinguish business truth, requested display state and successfully rendered in-process notification update.
+
+### 6.6 QA2-R2 regression coverage
+
+Automated coverage now includes:
+
+- one foreground lease across reconnect-label updates;
+- five consecutive download operations on one lease;
+- each download exercises late progress including 92%, 99% and 100%;
+- every `Completed` returns to `已连接`;
+- lease generation remains unchanged across all five downloads;
+- the service acquire count remains one across the continuous session;
+- later unrelated invalidations cannot reintroduce `正在下载`;
+- state changes while the service is STARTING do not enqueue historical progress commands.
+
+Fast PR Gate #1223 passed with the QA2-R2 production implementation and stress tests.
+
+No BLE protocol, transfer accounting, file commit, Room schema, canonical pipeline, version identity or production model channel was changed for QA2-R2.
 
 ## 7. Canonical performance instrumentation
 
@@ -173,19 +202,19 @@ This is intended for the planned 30 / 60 / 120 minute true-device benchmark.
 
 ## 8. Required true-device QA
 
-### QA2-R1 focused retest — highest priority
+### QA2-R2 focused retest — highest priority
 
-Use the same CB08/QS668 file that reproduced the stale system notification and repeat the download multiple times.
+Use the same CB08/QS668 file and connection session that reproduced the cumulative failure.
 
 Required observations:
 
+- perform at least **5 consecutive downloads without disconnecting**;
 - during transfer, system notification displays current `正在下载 · xx%`;
-- after the file has committed and registered successfully, notification must leave download state and show `已连接` while the device remains connected;
+- after every successful local completion, notification returns to `已连接` while the device remains connected;
+- specifically verify downloads #3, #4 and #5 because the previous implementation degraded from the third download onward;
 - no permanent `92%`, `95%`, `99%` or `100%` residue;
-- repeat the same file several times because the original failure was timing-dependent;
 - repeat at least once with the app backgrounded;
 - cancel one download and verify stale percentage disappears;
-- perform two downloads consecutively and verify operation #1 terminal state cannot overwrite operation #2 progress, and operation #2 completion returns to `已连接`;
 - complete a download and immediately start recording; notification must become the recording state and old download progress must not return.
 
 ### Canonical generation UX / functional regression
@@ -212,7 +241,7 @@ Do **not** merge PR #26 and do **not** create Post-V1 P0 Freeze until:
 1. current `[APK]` Fast Gate passes;
 2. current QA APK Gate passes;
 3. QA1-R1 remains accepted;
-4. QA2-R1 is confirmed on repeated true-device downloads;
+4. QA2-R2 is confirmed with at least five consecutive true-device downloads;
 5. remaining functional regression checks pass;
 6. 30 / 60 / 120 minute benchmark evidence is collected or explicitly accepted as deferred by the user;
 7. any additional QA findings are resolved and re-tested.
