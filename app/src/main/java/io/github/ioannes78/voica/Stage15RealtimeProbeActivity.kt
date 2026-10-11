@@ -45,10 +45,11 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * Temporary Stage 15.6 true-device surface over the formal application-scoped realtime runtime.
+ * Temporary Stage 15 true-device surface over the formal application-scoped realtime runtime.
  *
- * This Activity owns UI collectors only. BLE/GATT, reconnect, command fencing, Opus decode,
- * canonical PCM/source and connectedDevice FGS ownership all remain in AppContainer runtimes.
+ * This Activity owns UI collectors and QA diagnostics only. BLE/GATT, reconnect, command fencing,
+ * Opus decode, canonical PCM/source and connectedDevice FGS ownership all remain in AppContainer
+ * runtimes.
  */
 class Stage15RealtimeProbeActivity : ComponentActivity() {
     private val probeJob = SupervisorJob()
@@ -58,9 +59,13 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
 
     private val accumulator = Stage15RealtimeProbeAccumulator()
     private val canonicalAccumulator = Stage15CanonicalProbeAccumulator()
+    private val controlDiagnostics = Stage15ControlDiagnosticsAccumulator()
     private val mutableProbeSnapshot = MutableStateFlow(Stage15ProbeSnapshot())
     private val mutableRuntimeSnapshot = MutableStateFlow(RealtimeAudioRuntimeSnapshot())
     private val mutableCanonicalSnapshot = MutableStateFlow(Stage15CanonicalProbeSnapshot())
+    private val mutableControlSnapshot = MutableStateFlow(Stage15ControlDiagnosticsSnapshot())
+    private val mutableTransportCloseDiagnostic =
+        MutableStateFlow<Stage15TransportCloseDiagnostic?>(null)
     private val mutableAction = MutableStateFlow("等待连接")
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -78,6 +83,14 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
         }
 
         probeScope.launch {
+            deviceRepository.connectionState.collect { state ->
+                classifyTransportClose(state)?.let { diagnostic ->
+                    mutableTransportCloseDiagnostic.value = diagnostic
+                }
+            }
+        }
+
+        probeScope.launch {
             while (isActive) {
                 publishSnapshots()
                 delay(SNAPSHOT_INTERVAL_MS)
@@ -91,6 +104,8 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
                     probeSnapshot = mutableProbeSnapshot,
                     runtimeSnapshot = mutableRuntimeSnapshot,
                     canonicalSnapshot = mutableCanonicalSnapshot,
+                    controlSnapshot = mutableControlSnapshot,
+                    transportCloseDiagnostic = mutableTransportCloseDiagnostic,
                     action = mutableAction,
                     onConnect = ::connect,
                     onDisconnect = ::disconnect,
@@ -156,6 +171,13 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
                 written = transport?.written == true,
                 atNanos = requestedAtNanos,
             )
+            controlDiagnostics.noteTx(
+                command = command,
+                sequence = transport?.requestSequence ?: -1,
+                written = transport?.written == true,
+                transportGeneration = transport?.transportGeneration,
+                atNanos = requestedAtNanos,
+            )
             publishSnapshots()
             mutableAction.value = buildString {
                 append(command.name)
@@ -201,6 +223,13 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
                     written = transport?.written == true,
                     atNanos = requestedAtNanos,
                 )
+                controlDiagnostics.noteTx(
+                    command = RealtimeControlCommand.STOP,
+                    sequence = transport?.requestSequence ?: -1,
+                    written = transport?.written == true,
+                    transportGeneration = transport?.transportGeneration,
+                    atNanos = requestedAtNanos,
+                )
             }
 
             val armDeadlineNanos =
@@ -243,6 +272,8 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
     private fun resetProbe() {
         accumulator.reset()
         canonicalAccumulator.reset()
+        controlDiagnostics.reset()
+        mutableTransportCloseDiagnostic.value = null
         publishSnapshots()
         mutableAction.value = "已清空 Probe 观察统计；正式 runtime/resource 计数保持进程级累计"
     }
@@ -251,6 +282,7 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
         mutableProbeSnapshot.value = accumulator.snapshot()
         mutableRuntimeSnapshot.value = realtimeRuntime.snapshot()
         mutableCanonicalSnapshot.value = canonicalAccumulator.snapshot()
+        mutableControlSnapshot.value = controlDiagnostics.snapshot()
     }
 
     private companion object {
@@ -262,12 +294,144 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
     }
 }
 
+private data class Stage15ControlDiagnosticsSnapshot(
+    val txEvents: List<String> = emptyList(),
+    val currentTimelineOffsetsMs: Map<String, Long> = emptyMap(),
+)
+
+/**
+ * QA-only control diagnostics. Each event is stamped once with its Probe session ordinal and the
+ * transport generation returned by the real command transaction, so later START commands cannot
+ * reinterpret historical PAUSE/RESUME timestamps against a newer session origin.
+ */
+private class Stage15ControlDiagnosticsAccumulator(
+    private val maxEvents: Int = 32,
+) {
+    private val lock = Any()
+    private var sessionOrdinal = 0L
+    private var sessionStartAtNanos: Long? = null
+    private var currentGeneration: Long? = null
+    private val currentTimelineOffsetsMs = linkedMapOf<String, Long>()
+    private val txEvents = ArrayDeque<String>()
+
+    fun noteTx(
+        command: RealtimeControlCommand,
+        sequence: Int,
+        written: Boolean,
+        transportGeneration: Long?,
+        atNanos: Long,
+    ) = synchronized(lock) {
+        if (written && command == RealtimeControlCommand.START) {
+            sessionOrdinal += 1L
+            sessionStartAtNanos = atNanos
+            currentGeneration = transportGeneration
+            currentTimelineOffsetsMs.clear()
+            currentTimelineOffsetsMs["startTx"] = 0L
+        }
+
+        val generation = transportGeneration ?: currentGeneration
+        val relativeMs =
+            sessionStartAtNanos
+                ?.takeIf { atNanos >= it }
+                ?.let { (atNanos - it) / 1_000_000L }
+        if (written && relativeMs != null) {
+            currentTimelineOffsetsMs[command.timelineLabel()] = relativeMs
+        }
+
+        val sessionTag = if (sessionOrdinal > 0L) "S$sessionOrdinal" else "S--"
+        val generationTag = generation?.let { "G$it" } ?: "G--"
+        val offset = relativeMs?.let { " t=+${it}ms" }.orEmpty()
+        if (txEvents.size >= maxEvents) txEvents.removeFirst()
+        txEvents.addLast(
+            "$sessionTag/$generationTag ${command.name} seq=$sequence written=$written$offset",
+        )
+    }
+
+    fun reset() = synchronized(lock) {
+        sessionOrdinal = 0L
+        sessionStartAtNanos = null
+        currentGeneration = null
+        currentTimelineOffsetsMs.clear()
+        txEvents.clear()
+    }
+
+    fun snapshot(): Stage15ControlDiagnosticsSnapshot = synchronized(lock) {
+        Stage15ControlDiagnosticsSnapshot(
+            txEvents = txEvents.toList(),
+            currentTimelineOffsetsMs = currentTimelineOffsetsMs.toMap(),
+        )
+    }
+
+    private fun RealtimeControlCommand.timelineLabel(): String =
+        when (this) {
+            RealtimeControlCommand.START -> "startTx"
+            RealtimeControlCommand.PAUSE -> "pauseTx"
+            RealtimeControlCommand.RESUME -> "resumeTx"
+            RealtimeControlCommand.STOP -> "stopTx"
+        }
+}
+
+private data class Stage15TransportCloseDiagnostic(
+    val reason: String,
+    val rawReason: String,
+    val gattStatus: Int? = null,
+)
+
+private fun classifyTransportClose(
+    state: DeviceConnectionState,
+): Stage15TransportCloseDiagnostic? =
+    when (state) {
+        DeviceConnectionState.BluetoothOff ->
+            Stage15TransportCloseDiagnostic(
+                reason = "BLUETOOTH_OFF",
+                rawReason = "BluetoothOff",
+            )
+
+        is DeviceConnectionState.Disconnected -> {
+            val classified =
+                when (state.reason.name) {
+                    "USER" -> "USER_DISCONNECT"
+                    "REMOTE" -> "REMOTE_DISCONNECT"
+                    "BLUETOOTH_OFF" -> "BLUETOOTH_OFF"
+                    "SETUP_FAILED" -> "GATT_ERROR"
+                    "PERMISSION_REVOKED" -> "PERMISSION_REVOKED"
+                    else -> "OTHER"
+                }
+            Stage15TransportCloseDiagnostic(
+                reason = classified,
+                rawReason = state.reason.name,
+                gattStatus = state.gattStatus,
+            )
+        }
+
+        is DeviceConnectionState.Error -> {
+            val code = state.error.code.name
+            when {
+                code == "REMOTE_DISCONNECTED" ->
+                    Stage15TransportCloseDiagnostic(
+                        reason = "REMOTE_DISCONNECT",
+                        rawReason = code,
+                    )
+                code.startsWith("GATT_") || code.startsWith("CONNECT_") ->
+                    Stage15TransportCloseDiagnostic(
+                        reason = "GATT_ERROR",
+                        rawReason = code,
+                    )
+                else -> null
+            }
+        }
+
+        else -> null
+    }
+
 @Composable
 private fun Stage15ProbeScreen(
     repository: DeviceRepository,
     probeSnapshot: MutableStateFlow<Stage15ProbeSnapshot>,
     runtimeSnapshot: MutableStateFlow<RealtimeAudioRuntimeSnapshot>,
     canonicalSnapshot: MutableStateFlow<Stage15CanonicalProbeSnapshot>,
+    controlSnapshot: MutableStateFlow<Stage15ControlDiagnosticsSnapshot>,
+    transportCloseDiagnostic: MutableStateFlow<Stage15TransportCloseDiagnostic?>,
     action: MutableStateFlow<String>,
     onConnect: (String) -> Unit,
     onDisconnect: () -> Unit,
@@ -289,19 +453,34 @@ private fun Stage15ProbeScreen(
     val facts by probeSnapshot.collectAsState()
     val runtime by runtimeSnapshot.collectAsState()
     val canonical by canonicalSnapshot.collectAsState()
+    val control by controlSnapshot.collectAsState()
+    val closeDiagnostic by transportCloseDiagnostic.collectAsState()
     val actionText by action.collectAsState()
     val fgs by DeviceSessionForegroundDiagnostics.state.collectAsState()
+    val fgsDisplay by DeviceSessionNotificationDisplayDiagnostics.state.collectAsState()
     val missingPermissions = remember(permissionEpoch, connection) {
         repository.missingPermissions()
     }
-    val rendered = remember(facts, runtime, canonical, diagnostics, fgs) {
-        renderStage156Gate(
+    val rendered = remember(
+        facts,
+        runtime,
+        canonical,
+        control,
+        closeDiagnostic,
+        diagnostics,
+        fgs,
+        fgsDisplay,
+    ) {
+        renderStage157Gate(
             facts = facts,
             runtime = runtime,
             canonical = canonical,
+            control = control,
+            closeDiagnostic = closeDiagnostic,
             gattSessionId = diagnostics.sessionId,
             negotiatedMtu = diagnostics.negotiatedMtu,
             fgs = fgs,
+            fgsDisplay = fgsDisplay,
         )
     }
 
@@ -312,7 +491,7 @@ private fun Stage15ProbeScreen(
     ) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Voica Stage 15.6 Runtime Probe", style = MaterialTheme.typography.headlineSmall)
+                Text("Voica Stage 15.7 Runtime Probe", style = MaterialTheme.typography.headlineSmall)
                 Text("连接：${connectionLabel(connection)}")
                 Text("操作：$actionText")
                 if (scan.error != null) {
@@ -408,13 +587,16 @@ private fun DeviceRow(
     }
 }
 
-private fun renderStage156Gate(
+private fun renderStage157Gate(
     facts: Stage15ProbeSnapshot,
     runtime: RealtimeAudioRuntimeSnapshot,
     canonical: Stage15CanonicalProbeSnapshot,
+    control: Stage15ControlDiagnosticsSnapshot,
+    closeDiagnostic: Stage15TransportCloseDiagnostic?,
     gattSessionId: Long,
     negotiatedMtu: Int?,
     fgs: DeviceSessionForegroundSnapshot,
+    fgsDisplay: DeviceSessionNotificationDisplaySnapshot,
 ): String = buildString {
     val command = runtime.command
     val fence = runtime.fence
@@ -422,8 +604,14 @@ private fun renderStage156Gate(
     val pipeline = runtime.pipeline
     val source = runtime.source
     val logicalSessionId = source.activeSessionId ?: canonical.lastSessionId
+    val effectiveFgsLabel =
+        if (fgsDisplay.leaseGeneration == fgs.generation) {
+            fgsDisplay.renderedLabel ?: fgsDisplay.desiredLabel ?: fgs.label
+        } else {
+            fgs.label
+        }
 
-    appendLine("Stage 15.6 Application Realtime Runtime Fact Gate")
+    appendLine("Stage 15.7 Application Realtime Runtime Fact Gate")
     appendLine(
         "runtime phase=${runtime.phase} transportGeneration=${runtime.transportGeneration ?: "--"} " +
             "logicalSessionId=${logicalSessionId ?: "--"} closed=${runtime.closed}",
@@ -457,8 +645,13 @@ private fun renderStage156Gate(
             "ambiguous=${fence.ambiguousCount} overflow=${fence.overflowCount} staleOffer=${fence.staleOfferCount} " +
             "quarantineReject=${fence.quarantinedRejectCount} gatedReject=${fence.gatedRejectCount}",
     )
-    appendLine("control tx=${facts.txEvents.joinToString()}")
-    appendLine("control timelineOffsetsMs=${facts.timelineOffsetsMs}")
+    appendLine("control tx=${control.txEvents.joinToString()}")
+    appendLine("control currentTimelineOffsetsMs=${control.currentTimelineOffsetsMs}")
+    appendLine(
+        "transportCloseDiagnostic reason=${closeDiagnostic?.reason ?: "--"} " +
+            "raw=${closeDiagnostic?.rawReason ?: "--"} " +
+            "gattStatus=${closeDiagnostic?.gattStatus ?: "--"}",
+    )
     appendLine(
         "formalIngress generation=${ingress.activeSessionGeneration ?: "--"} acceptedBlocks=${ingress.acceptedBlocks} " +
             "acceptedBytes=${ingress.acceptedBytes} queueBlocks=${ingress.queueBlocks} queueBytes=${ingress.queueBytes} " +
@@ -521,7 +714,12 @@ private fun renderStage156Gate(
     )
     appendLine(
         "connectedDeviceFGS generation=${fgs.generation} phase=${fgs.phase} " +
-            "label=${fgs.label ?: "--"} failure=${fgs.failureClass ?: "--"}:${fgs.failureMessage ?: "--"}",
+            "label=${effectiveFgsLabel ?: "--"} failure=${fgs.failureClass ?: "--"}:${fgs.failureMessage ?: "--"}",
+    )
+    appendLine(
+        "connectedDeviceFGSDisplay generation=${fgsDisplay.leaseGeneration ?: "--"} " +
+            "desired=${fgsDisplay.desiredLabel ?: "--"} rendered=${fgsDisplay.renderedLabel ?: "--"} " +
+            "desiredRevision=${fgsDisplay.desiredRevision} renderedRevision=${fgsDisplay.renderedRevision}",
     )
     appendLine("gattSession=$gattSessionId mtu=${negotiatedMtu ?: "--"}")
 }
