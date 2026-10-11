@@ -87,65 +87,37 @@
             android:name=".ModelInstallActionReceiver"
             android:exported="false" />
 
+        <!-- Stage 15 QA probes remain available to in-app/internal tooling only.
+             They must never create additional launcher icons. -->
         <activity
             android:name=".Stage158ReconciliationProbeActivity"
-            android:exported="true"
-            android:label="Voica Stage15.8 Reconcile Probe">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:exported="false"
+            android:label="Voica Stage15.8 Reconcile Probe" />
 
         <activity
             android:name=".Stage157D2ReverseControlProbeActivity"
-            android:exported="true"
-            android:label="Voica Stage15 D2 Probe">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:exported="false"
+            android:label="Voica Stage15 D2 Probe" />
 
         <activity
             android:name=".Stage157D1CRealtimeOnlyProbeActivity"
-            android:exported="true"
-            android:label="Voica Stage15 D1C Probe">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:exported="false"
+            android:label="Voica Stage15 D1C Probe" />
 
         <activity
             android:name=".Stage157D1DualControlProbeActivity"
-            android:exported="true"
-            android:label="Voica Stage15 D1 Probe">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:exported="false"
+            android:label="Voica Stage15 D1 Probe" />
 
         <activity
             android:name=".Stage157D0PassiveRealtimeProbeActivity"
-            android:exported="true"
-            android:label="Voica Stage15 D0 Probe">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:exported="false"
+            android:label="Voica Stage15 D0 Probe" />
 
         <activity
             android:name=".Stage15RealtimeProbeActivity"
-            android:exported="true"
-            android:label="Voica Stage15 Probe">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:exported="false"
+            android:label="Voica Stage15 Probe" />
 
         <activity
             android:name=".MainActivity"
