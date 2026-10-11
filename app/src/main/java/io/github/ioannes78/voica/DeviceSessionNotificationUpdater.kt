@@ -5,6 +5,67 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+internal data class DeviceSessionNotificationDisplaySnapshot(
+    val leaseGeneration: Long? = null,
+    val desiredRevision: Long = 0L,
+    val desiredDeviceName: String? = null,
+    val desiredLabel: String? = null,
+    val renderedRevision: Long = 0L,
+    val renderedDeviceName: String? = null,
+    val renderedLabel: String? = null,
+)
+
+internal object DeviceSessionNotificationDisplayDiagnostics {
+    private val revisionSequence = AtomicLong(0L)
+    private val mutableState = MutableStateFlow(DeviceSessionNotificationDisplaySnapshot())
+    val state: StateFlow<DeviceSessionNotificationDisplaySnapshot> = mutableState.asStateFlow()
+
+    @Synchronized
+    fun recordDesired(
+        leaseGeneration: Long,
+        deviceName: String,
+        label: String,
+    ): Long {
+        val revision = revisionSequence.incrementAndGet()
+        val previous = mutableState.value
+        mutableState.value =
+            previous.copy(
+                leaseGeneration = leaseGeneration,
+                desiredRevision = revision,
+                desiredDeviceName = deviceName,
+                desiredLabel = label,
+            )
+        return revision
+    }
+
+    @Synchronized
+    fun markRendered(
+        leaseGeneration: Long,
+        revision: Long,
+        deviceName: String,
+        label: String,
+    ) {
+        val current = mutableState.value
+        if (current.leaseGeneration != leaseGeneration) return
+        if (revision < current.renderedRevision) return
+        mutableState.value =
+            current.copy(
+                renderedRevision = revision,
+                renderedDeviceName = deviceName,
+                renderedLabel = label,
+            )
+    }
+
+    @Synchronized
+    fun reset() {
+        mutableState.value = DeviceSessionNotificationDisplaySnapshot()
+    }
+}
 
 /**
  * Updates the already-running connected-device foreground notification without enqueueing another
