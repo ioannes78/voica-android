@@ -1,6 +1,6 @@
 # Stage 15 — BLE 实时音频链路 开发规划 V1
 
-状态：**已确认**
+状态：**已确认 / 15.0B cadence fact gate 进行中**
 
 ## 基线
 
@@ -25,29 +25,81 @@ Stage 15 从 main `d82210cf2b8ce25df92f4f07df200019c501f8ea` 开始。
 - Gate G1：确认 `TYPE=1 CMD=1 body` 是否为完整 Opus packet。
 - Gate G2：确认 protocol SEQ 的 realtime domain / rollover / sharing semantics。
 
-未通过 G1/G2 前不进入正式 decoder continuity / loss classification。
+### 15.0 第一轮真机事实
+
+第一轮 QS668 真机样本：
+
+- `audioPackets=524`，`audioBytes=83840`
+- CMD=1 body 长度：`160 bytes × 524`
+- Opus inspector：`524 valid / 0 invalid`
+- channels：全部 `1`
+- totalSamples48k：全部 `960`
+- packet duration：全部 `20 ms`
+- audio CMD=1 基本全部来自 AE22；START filename 从 AE23 返回
+- protocol SEQ：所有 audio CMD=1 均为 `0`
+- `probeQueueOverflow=0` / `genericObserverOverflow=0`
+- AE22 / AE23 CRC error 均为 `0`
+- negotiated MTU `517`
+
+结论：
+
+- **G1 PASS**：当前 QS668/CB08 固件下，一个 `TYPE=1/CMD=1 body` 就是一个完整 Opus packet；正式链路不得复用文件下载的 40-byte framing。
+- **G2 为否定性结论**：realtime audio 的 protocol SEQ 恒为 `0`，不可用于 duplicate / loss / reorder / timeline 判定。正式 ingress 只把 SEQ 作为原始诊断字段。
+- 因没有 packet counter，Stage 15 不做基于 SEQ 的 PLC，也不声称精确 packet loss count。
+
+### 15.0B — Cadence / silence semantics fact gate
+
+第一轮样本中每包媒体时长为 `20 ms`，但观测 packet rate 约 `10.70 packets/s`，与连续 20 ms Opus 流理论约 `50 packets/s` 不一致。进入 decoder continuity 前必须确认是否存在 device-side VAD / silence suppression / burst cadence。
+
+15.0B Probe 增加：
+
+- `protocolSeqHistogram`，彻底移除 duplicate/gap candidate 语义；
+- 有效 Opus samples 累加出的 `mediaDurationMs`；
+- START→STOP monotonic `wallElapsedMs` 与 `mediaWallRatio`；
+- packet inter-arrival histogram：`<25 / 25–49 / 50–99 / 100–249 / >=250 ms` 与最大 gap；
+- `beforePause / paused / afterResume` packet 计数；
+- device-reported filename；
+- START、first audio、PAUSE TX、device paused、RESUME TX、device resumed、first audio after resume、STOP、last audio 的 monotonic timeline offsets。
+
+15.0B 真机矩阵：
+
+1. START 后完全静音约 15 秒再 STOP；
+2. START 后持续稳定声音约 15 秒再 STOP；
+3. 约 10 秒持续声音 → 约 5 秒静音 → 约 10 秒持续声音再 STOP。
+
+判定：
+
+- 若三组均接近 `50 packets/s` 且 media/wall 接近 `1.0`，可冻结为连续 Opus cadence；
+- 若静音阶段显著停包、有声阶段恢复接近 `50 packets/s`，确认 device-side silence suppression/VAD；长 packet gap 不得按 wall clock 自动补静音伪造 canonical timeline，而应在缺少设备绝对媒体锚点时形成明确 discontinuity/new epoch。
 
 ### 15.0 Probe candidate
 
 - QA development identity：versionCode `90` / versionName `1.1.0-stage15`。
-- 临时第二 launcher `Voica Stage15 Probe` 只服务 G1/G2 真机事实采集；Final Freeze 前必须移除或并入正式诊断入口。
+- 临时第二 launcher `Voica Stage15 Probe` 只服务真机事实采集；Final Freeze 前必须移除或并入正式诊断入口。
 - Probe 启动时先 park 正常 `DeviceRepository`；若正常产品 session 仍持有活跃 transport，则主动断开后再创建独立 probe session，禁止同一设备双 GATT owner。
 - Probe 只在 worker 线程执行 `OpusPacketInspector.inspect()`，不执行 Opus decode、不输出 PCM、不接 Stage 16A。
-- 采集 CMD=1 body 长度、AE22/AE23 来源、SEQ transition、packet rate、Opus validity/channels/48k samples/duration，以及非音频 TYPE=1 frame 样本。
-- `duplicate/gap` 在 G2 冻结前仅记为 candidate；不得提前解释为真实音频丢包。
-- `probeQueueOverflow > 0` 或 `genericObserverOverflow > 0` 时，本轮数据不得用于冻结 packet 语义。
+- `probeQueueOverflow > 0` 或 `genericObserverOverflow > 0` 时，本轮数据不得用于冻结 cadence 语义。
 
 ## 15.1 — Dedicated realtime packet ingress
 
 建立 generation-scoped realtime packet source，绕开 generic observer SharedFlow 作为音频 truth。BLE callback 只做 parse/classify/enqueue/counter。
 
-## 15.2 — Ordering + bounded encoded buffer
+正式 ingress 顺序语义改为：`TYPE1/CMD1 arrival order → bounded encoded queue → Opus packet validation → persistent decoder`。protocol SEQ 不参与 audio ordering。
 
-以真机 packet duration 冻结约 0.5–1 s 的 bounded queue。验证 rollover、duplicate、gap、bounded reorder、overflow 和 stale generation。
+## 15.2 — Arrival / bounded encoded buffer
+
+以真机已确认的 `160 bytes / 20 ms packet` 为尺度设计 bounded queue；初始候选为 `64 packets + 12 KB` 双重硬上限。是否可把 64 包解释为连续约 1.28 秒媒体时间，必须等待 15.0B cadence/silence semantics 冻结。
+
+没有可用 audio packet sequence 时：
+
+- 不做基于 SEQ 的 duplicate / loss / reorder；
+- 不做 PLC；
+- BLE disconnect、queue overflow、decoder error、无法解释的 transport stall 均产生 explicit discontinuity；
+- 恢复后创建新 epoch，不猜测缺失 packet 数。
 
 ## 15.3 — Continuous Opus decode
 
-复用现有 `engine:opus` persistent decoder。每个连续 epoch 维护 decoder state；decoder error / unknown loss 产生 discontinuity。PLC 仅在真机 loss duration 可确定且 API 明确扩展后考虑。
+复用现有 `engine:opus` persistent decoder。每个连续 epoch 维护 decoder state；decoder error / unknown loss 产生 discontinuity。PLC 仅在未来存在可验证 loss duration 与明确 API 支持时再考虑。
 
 ## 15.4 — Canonical PCM + timeline
 
@@ -77,7 +129,7 @@ Final gate 要求 crash/ANR/native fatal = 0，queue/lag/heap 不持续单向增
 
 ## 版本策略
 
-进入 Stage 15 开发分支后计划使用：
+Stage 15 开发分支使用：
 
 - versionCode `90`
 - versionName `1.1.0-stage15`
@@ -86,4 +138,4 @@ Final Freeze 时再决定是否正式 `1.1.0`。
 
 ## Freeze / merge gate
 
-只有 15.0 fact gate、自动化、真机 QA、30/60/120 分钟稳定性全部通过，且用户明确说“测试通过”，才创建 `STAGE_15_FREEZE.md` / `STAGE_15_HANDOFF.md`、跑 Final CI 并 merge。merge 后重新核验 main/version/Room/model pin 后才解锁 Stage 16A。
+只有 15.0/15.0B fact gate、自动化、真机 QA、30/60/120 分钟稳定性全部通过，且用户明确说“测试通过”，才创建 `STAGE_15_FREEZE.md` / `STAGE_15_HANDOFF.md`、跑 Final CI 并 merge。merge 后重新核验 main/version/Room/model pin 后才解锁 Stage 16A。
