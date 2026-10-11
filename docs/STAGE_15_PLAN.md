@@ -27,6 +27,16 @@ Stage 15 从 main `d82210cf2b8ce25df92f4f07df200019c501f8ea` 开始。
 
 未通过 G1/G2 前不进入正式 decoder continuity / loss classification。
 
+### 15.0 Probe candidate
+
+- QA development identity：versionCode `90` / versionName `1.1.0-stage15`。
+- 临时第二 launcher `Voica Stage15 Probe` 只服务 G1/G2 真机事实采集；Final Freeze 前必须移除或并入正式诊断入口。
+- Probe 启动时先 park 正常 `DeviceRepository`；若正常产品 session 仍持有活跃 transport，则主动断开后再创建独立 probe session，禁止同一设备双 GATT owner。
+- Probe 只在 worker 线程执行 `OpusPacketInspector.inspect()`，不执行 Opus decode、不输出 PCM、不接 Stage 16A。
+- 采集 CMD=1 body 长度、AE22/AE23 来源、SEQ transition、packet rate、Opus validity/channels/48k samples/duration，以及非音频 TYPE=1 frame 样本。
+- `duplicate/gap` 在 G2 冻结前仅记为 candidate；不得提前解释为真实音频丢包。
+- `probeQueueOverflow > 0` 或 `genericObserverOverflow > 0` 时，本轮数据不得用于冻结 packet 语义。
+
 ## 15.1 — Dedicated realtime packet ingress
 
 建立 generation-scoped realtime packet source，绕开 generic observer SharedFlow 作为音频 truth。BLE callback 只做 parse/classify/enqueue/counter。
