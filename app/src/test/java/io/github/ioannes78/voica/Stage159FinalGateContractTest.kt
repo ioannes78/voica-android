@@ -30,13 +30,13 @@ class Stage159FinalGateContractTest {
 
         val delta = current.deltaFrom(baseline)
 
-        assertEquals(45, delta.acceptedBlocks)
-        assertEquals(180, delta.decodeSuccess)
-        assertEquals(57_600, delta.canonicalSamples)
-        assertEquals(0, delta.ingressOverflow)
-        assertEquals(1, delta.sessions)
-        assertEquals(1, delta.fileCount)
-        assertEquals(0, delta.anomalyCount())
+        assertEquals(45L, delta.acceptedBlocks)
+        assertEquals(180L, delta.decodeSuccess)
+        assertEquals(57_600L, delta.canonicalSamples)
+        assertEquals(0L, delta.ingressOverflow)
+        assertEquals(1L, delta.sessions)
+        assertEquals(1L, delta.fileCount)
+        assertEquals(0L, delta.anomalyCount())
     }
 
     @Test
@@ -50,7 +50,7 @@ class Stage159FinalGateContractTest {
                 appReconciliationFailures = 1,
             )
 
-        assertEquals(4, delta.anomalyCount())
+        assertEquals(4L, delta.anomalyCount())
     }
 
     @Test
