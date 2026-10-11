@@ -221,11 +221,6 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
     }
 
     private fun startRealtime() {
-        accumulator.reset()
-        canonicalAccumulator.reset()
-        realtimeIngress.reset()
-        canonicalPipeline.resetDiagnostics()
-        canonicalSource.resetDiagnostics()
         canonicalPipeline.beginRealtimeSession()
         if (!session.registerRealtimeAudioConsumer(realtimeIngress)) {
             mutableAction.value = "Realtime ingress 注册失败"
@@ -243,7 +238,7 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
         canonicalSource.resetDiagnostics()
         canonicalPipeline.requestControlBoundary()
         publishSnapshots()
-        mutableAction.value = "统计已清空；下一音频帧将开启新 epoch"
+        mutableAction.value = "统计已清空；后续 START/STOP 将在同一统计窗口累计"
     }
 
     private fun publishSnapshots() {
@@ -399,7 +394,7 @@ private fun Stage15ProbeScreen(
                     "decoderCreateFailures=${pipeline.decoderCreateFailures} observerFailures=${pipeline.frameObserverFailures}",
             )
             appendLine(
-                "canonicalPipeline activeSession=${pipeline.activeSessionId ?: "--"} activeEpoch=${pipeline.activeEpochId ?: "--"} " +
+                "canonicalPipeline lastSession=${pipeline.activeSessionId ?: "--"} lastEpoch=${pipeline.activeEpochId ?: "--"} " +
                     "nextSampleIndex=${pipeline.nextSampleIndex} maxBlockProcessingMs=${format3(pipeline.maxBlockProcessingMs)} " +
                     "maxArrivalToEmitLagMs=${format3(pipeline.maxArrivalToEmitLagMs)} lastError=${pipeline.lastError ?: "--"}",
             )
@@ -462,6 +457,7 @@ private fun Stage15ProbeScreen(
             Text(
                 "CMD=1 → dedicated ingress → 4×40B Opus → canonical PCM → bounded consumer seam。" +
                     "PCM queue 上限 32 帧 / 10240 samples；STOP 成功写入后等待 250ms canonical quiet，再发 SessionEnded。" +
+                    "START 不自动清空统计；需要新的统计窗口时请手动点击“清空统计”。" +
                     "workerRunning 仅表示 decoder worker 存活，sessionActive 才表示下游 session 生命周期。",
                 style = MaterialTheme.typography.bodySmall,
             )
