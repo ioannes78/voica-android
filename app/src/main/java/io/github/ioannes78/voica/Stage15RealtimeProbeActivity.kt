@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
+import io.github.ioannes78.voica.audio.OpusDecoder
 import io.github.ioannes78.voica.audio.OpusPacketInfo
 import io.github.ioannes78.voica.ble.AndroidBleScanner
 import io.github.ioannes78.voica.ble.AndroidDeviceSession
@@ -55,12 +56,12 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * Stage 15.0B temporary true-device cadence/silence fact-gate surface.
+ * Stage 15.0C temporary true-device packet-boundary fact-gate surface.
  *
  * This activity intentionally uses the existing generic notification observer only to discover
- * TYPE=1 packet facts before the production dedicated realtime ingress is implemented. It must
- * not be treated as the Stage 15 realtime audio authority and must be removed or folded into the
- * normal diagnostics surface before Stage 15 Final Freeze.
+ * TYPE=1 transport/body and Opus packet facts before the production dedicated realtime ingress is
+ * implemented. It must not be treated as the Stage 15 realtime audio authority and must be removed
+ * or folded into the normal diagnostics surface before Stage 15 Final Freeze.
  */
 class Stage15RealtimeProbeActivity : ComponentActivity() {
     private data class QueuedProbeEvent(
@@ -104,20 +105,42 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
         }
 
         probeScope.launch(Dispatchers.Default) {
-            val inspector = NativeOpusBackend()
-            for (queued in probeQueue) {
-                val frame = queued.notification.frame
-                val info = if (frame.command == ProtocolConstants.Realtime.AUDIO_DATA) {
-                    runCatching { inspector.inspect(frame.body) }
-                        .getOrElse { OpusPacketInfo(valid = false, errorCode = PROBE_INSPECT_EXCEPTION) }
-                } else {
-                    null
-                }
-                accumulator.accept(
-                    notification = queued.notification,
-                    receivedAtNanos = queued.receivedAtNanos,
-                    opusInfo = info,
+            val backend = NativeOpusBackend()
+            val decoder = runCatching {
+                backend.create(
+                    sampleRateHz = SPLIT_DECODE_SAMPLE_RATE_HZ,
+                    channelCount = SPLIT_DECODE_CHANNEL_COUNT,
                 )
+            }.getOrNull()
+            try {
+                for (queued in probeQueue) {
+                    val frame = queued.notification.frame
+                    if (frame.command == ProtocolConstants.Realtime.START) {
+                        decoder?.let { runCatching { it.reset() } }
+                    }
+                    val fullBodyInfo = if (frame.command == ProtocolConstants.Realtime.AUDIO_DATA) {
+                        inspectSafely(backend, frame.body)
+                    } else {
+                        null
+                    }
+                    val split40Facts = if (frame.command == ProtocolConstants.Realtime.AUDIO_DATA) {
+                        buildSplit40Facts(
+                            body = frame.body,
+                            backend = backend,
+                            decoder = decoder,
+                        )
+                    } else {
+                        null
+                    }
+                    accumulator.accept(
+                        notification = queued.notification,
+                        receivedAtNanos = queued.receivedAtNanos,
+                        opusInfo = fullBodyInfo,
+                        split40Facts = split40Facts,
+                    )
+                }
+            } finally {
+                decoder?.let { runCatching { it.close() } }
             }
         }
 
@@ -206,6 +229,61 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
         }
     }
 
+    private fun buildSplit40Facts(
+        body: ByteArray,
+        backend: NativeOpusBackend,
+        decoder: OpusDecoder?,
+    ): Stage15Split40Facts {
+        if (body.size != REALTIME_BODY_BYTES) {
+            return Stage15Split40Facts(eligible160ByteBody = false)
+        }
+        val packets = (0 until SPLIT_PACKET_COUNT).map { slot ->
+            val start = slot * SPLIT_PACKET_BYTES
+            val packet = body.copyOfRange(start, start + SPLIT_PACKET_BYTES)
+            val info = inspectSafely(backend, packet)
+            if (!info.valid) {
+                Stage15Split40PacketFact(
+                    slot = slot,
+                    opusInfo = info,
+                )
+            } else if (decoder == null) {
+                Stage15Split40PacketFact(
+                    slot = slot,
+                    opusInfo = info,
+                    decodeErrorCode = PROBE_DECODER_UNAVAILABLE,
+                )
+            } else {
+                runCatching { decoder.decode(packet) }
+                    .fold(
+                        onSuccess = { pcm ->
+                            Stage15Split40PacketFact(
+                                slot = slot,
+                                opusInfo = info,
+                                decodedSamples16k = pcm.size,
+                            )
+                        },
+                        onFailure = {
+                            Stage15Split40PacketFact(
+                                slot = slot,
+                                opusInfo = info,
+                                decodeErrorCode = PROBE_DECODE_EXCEPTION,
+                            )
+                        },
+                    )
+            }
+        }
+        return Stage15Split40Facts(
+            eligible160ByteBody = true,
+            packets = packets,
+        )
+    }
+
+    private fun inspectSafely(
+        backend: NativeOpusBackend,
+        packet: ByteArray,
+    ): OpusPacketInfo = runCatching { backend.inspect(packet) }
+        .getOrElse { OpusPacketInfo(valid = false, errorCode = PROBE_INSPECT_EXCEPTION) }
+
     private fun DeviceConnectionState.hasActiveTransport(): Boolean =
         when (this) {
             is DeviceConnectionState.Connecting,
@@ -223,6 +301,13 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
     private companion object {
         const val SNAPSHOT_INTERVAL_MS = 500L
         const val PROBE_INSPECT_EXCEPTION = -2001
+        const val PROBE_DECODE_EXCEPTION = -2002
+        const val PROBE_DECODER_UNAVAILABLE = -2003
+        const val REALTIME_BODY_BYTES = 160
+        const val SPLIT_PACKET_COUNT = 4
+        const val SPLIT_PACKET_BYTES = 40
+        const val SPLIT_DECODE_SAMPLE_RATE_HZ = 16_000
+        const val SPLIT_DECODE_CHANNEL_COUNT = 1
     }
 }
 
@@ -273,14 +358,14 @@ private fun Stage15ProbeScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Text("Voica Stage 15.0B Realtime Probe", style = MaterialTheme.typography.headlineSmall)
+            Text("Voica Stage 15.0C Packet Boundary Probe", style = MaterialTheme.typography.headlineSmall)
             Text(
                 "build=${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
                 style = MaterialTheme.typography.labelMedium,
             )
             Text(
-                "Cadence/silence fact gate；protocol SEQ 仅作为原始诊断字段，不用于丢包或重复判定。" +
-                    "若 genericObserverOverflow 或 probeQueueOverflow > 0，本轮结果不能用于冻结 cadence 语义。",
+                "验证 160B realtime body 是否为 4×40B Opus 聚合块；full160 inspect 与 split40 inspect/decode 同时统计。" +
+                    "若 genericObserverOverflow 或 probeQueueOverflow > 0，本轮结果不能用于冻结 packet boundary。",
                 style = MaterialTheme.typography.bodySmall,
             )
         }
