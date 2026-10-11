@@ -88,6 +88,16 @@
             android:exported="false" />
 
         <activity
+            android:name=".Stage157D1CRealtimeOnlyProbeActivity"
+            android:exported="true"
+            android:label="Voica Stage15 D1C Probe">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
             android:name=".Stage157D1DualControlProbeActivity"
             android:exported="true"
             android:label="Voica Stage15 D1 Probe">
