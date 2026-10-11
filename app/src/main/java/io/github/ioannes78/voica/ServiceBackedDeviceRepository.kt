@@ -104,9 +104,14 @@ class ServiceBackedDeviceRepository(
                 delegate.recordingState,
                 delegate.fileOperationState,
                 delegate.deviceInfo,
-            ) { connection, recording, operation, info ->
-                decisionFor(connection, recording, operation, info)
-            }.collect(::applyDecision)
+            ) { _, _, _, _ ->
+                Unit
+            }.collect {
+                // Treat combined emissions only as invalidation signals. The business state can
+                // advance again before this collector is scheduled, so never carry a precomputed
+                // notification decision across that scheduling boundary.
+                reconcileCurrentDeviceSessionDecision()
+            }
         }
 
         scope.launch {
@@ -283,14 +288,19 @@ class ServiceBackedDeviceRepository(
     }
 
     private fun reconcileCurrentDeviceSessionDecision() {
-        applyDecision(
-            decisionFor(
-                connection = delegate.connectionState.value,
-                recording = delegate.recordingState.value,
-                operation = delegate.fileOperationState.value,
-                info = delegate.deviceInfo.value,
-            ),
-        )
+        synchronized(lock) {
+            // Read and publish under the same serialization boundary. A delayed invalidation from
+            // Active(DOWNLOAD) therefore cannot allocate a newer foreground-service generation
+            // after Completed/Failed/Cancelled has already become the current business truth.
+            applyDecision(
+                decisionFor(
+                    connection = delegate.connectionState.value,
+                    recording = delegate.recordingState.value,
+                    operation = delegate.fileOperationState.value,
+                    info = delegate.deviceInfo.value,
+                ),
+            )
+        }
     }
 
     private fun decisionFor(
