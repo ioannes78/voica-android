@@ -140,6 +140,7 @@ data class Stage159HeapWindow(
                 peakBytes = maxOf(peakBytes, sample.usedBytes),
                 maxBytes = sample.maxBytes,
             )
+        }
 }
 
 internal fun captureStage159Counters(
