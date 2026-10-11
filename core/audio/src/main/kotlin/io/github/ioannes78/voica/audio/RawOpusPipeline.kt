@@ -66,15 +66,19 @@ class RawOpusValidator(
 
         return when (valid.size) {
             1 -> RawOpusValidationResult.Valid(valid.values.single())
-            0 -> RawOpusValidationResult.UnsupportedFraming(
-                detail = "no supported framing consumed the file as valid Opus packets",
-                attempts = failures,
-            )
-            else -> RawOpusValidationResult.UnsupportedFraming(
-                detail = "ambiguous framing candidates: " +
-                    valid.keys.joinToString { it.name },
-                attempts = failures + valid.keys.associateWith { "valid but ambiguous" },
-            )
+            0 ->
+                RawOpusValidationResult.UnsupportedFraming(
+                    detail = "no supported framing consumed the file as valid Opus packets",
+                    attempts = failures,
+                )
+
+            else ->
+                RawOpusValidationResult.UnsupportedFraming(
+                    detail =
+                        "ambiguous framing candidates: " +
+                            valid.keys.joinToString { it.name },
+                    attempts = failures + valid.keys.associateWith { "valid but ambiguous" },
+                )
         }
     }
 
@@ -131,14 +135,15 @@ class RawOpusValidator(
             }
 
             if (samples.size < MAX_DIAGNOSTIC_SAMPLES) {
-                samples += RawOpusPacketSample(
-                    packetIndex = packetIndex,
-                    packetLength = packet.size,
-                    toc = info.toc,
-                    channels = info.channels,
-                    totalSamples48k = info.totalSamples48k,
-                    bandwidth = info.bandwidth,
-                )
+                samples +=
+                    RawOpusPacketSample(
+                        packetIndex = packetIndex,
+                        packetLength = packet.size,
+                        toc = info.toc,
+                        channels = info.channels,
+                        totalSamples48k = info.totalSamples48k,
+                        bandwidth = info.bandwidth,
+                    )
             }
         }
 
@@ -172,6 +177,7 @@ data class RawOpusConversionResult(
     val sourceSha256: String,
     val decoderVersion: String,
     val wav: CanonicalWavCommit,
+    val timing: CanonicalConversionTiming,
 )
 
 class AudioPipelineException(
@@ -189,21 +195,26 @@ class RawOpusToCanonicalWavConverter(
         sourceFile: File,
         targetFile: File,
         expectedSourceSha256: String? = null,
+        verifiedSourceSha256: String? = null,
+        prevalidated: RawOpusValidation? = null,
         isCancelled: () -> Boolean = { false },
         onStage: (CanonicalAudioStage) -> Unit = {},
+        onProgress: (CanonicalAudioWorkProgress) -> Unit = {},
     ): RawOpusConversionResult {
-        val validation = when (val result = RawOpusValidator(inspector).validate(sourceFile)) {
-            is RawOpusValidationResult.Valid -> result.value
-            is RawOpusValidationResult.UnsupportedFraming -> {
-                throw AudioPipelineException(
-                    code = "UNSUPPORTED_FRAMING",
-                    recoverable = false,
-                    message = result.detail,
-                )
-            }
-        }
+        val validation =
+            prevalidated
+                ?: when (val result = RawOpusValidator(inspector).validate(sourceFile)) {
+                    is RawOpusValidationResult.Valid -> result.value
+                    is RawOpusValidationResult.UnsupportedFraming -> {
+                        throw AudioPipelineException(
+                            code = "UNSUPPORTED_FRAMING",
+                            recoverable = false,
+                            message = result.detail,
+                        )
+                    }
+                }
 
-        val sourceSha = sha256(sourceFile)
+        val sourceSha = verifiedSourceSha256 ?: sha256(sourceFile)
         if (
             expectedSourceSha256 != null &&
             !sourceSha.equals(expectedSourceSha256, ignoreCase = true)
@@ -214,15 +225,22 @@ class RawOpusToCanonicalWavConverter(
                 message = "source SHA-256 changed before decode",
             )
         }
-        val normalizer = StreamingPcm16Normalizer(
-            sourceSampleRateHz = CanonicalPcmProfile.SAMPLE_RATE_HZ,
-            sourceChannelCount = validation.channelCount,
-        )
+        val normalizer =
+            StreamingPcm16Normalizer(
+                sourceSampleRateHz = CanonicalPcmProfile.SAMPLE_RATE_HZ,
+                sourceChannelCount = validation.channelCount,
+            )
 
+        val pipelineStarted = System.nanoTime()
         try {
             onStage(CanonicalAudioStage.DECODING)
             var normalizationReported = false
             var writingReported = false
+            var monoBuffer = ShortArray(0)
+            var processedPackets = 0L
+            var processedSamples48k = 0L
+            var decodeNanos = 0L
+            var normalizeNanos = 0L
             decoderFactory.create(
                 sampleRateHz = CanonicalPcmProfile.SAMPLE_RATE_HZ,
                 channelCount = validation.channelCount,
@@ -246,23 +264,27 @@ class RawOpusToCanonicalWavConverter(
                             )
                         }
 
-                        val totalSamples48k = info.totalSamples48k
-                            ?: throw AudioPipelineException(
-                                code = "INVALID_OPUS_PACKET",
-                                recoverable = false,
-                                message = "packet $packetIndex has no sample count",
-                            )
+                        val totalSamples48k =
+                            info.totalSamples48k
+                                ?: throw AudioPipelineException(
+                                    code = "INVALID_OPUS_PACKET",
+                                    recoverable = false,
+                                    message = "packet $packetIndex has no sample count",
+                                )
                         require(totalSamples48k % 3 == 0) {
                             "Opus packet duration cannot map exactly to 16 kHz"
                         }
                         val expectedFrames16k = totalSamples48k / 3
+                        val decodeStarted = System.nanoTime()
                         val decoded = decoder.decode(packet)
+                        decodeNanos += System.nanoTime() - decodeStarted
                         if (decoded.size != expectedFrames16k * validation.channelCount) {
                             throw AudioPipelineException(
                                 code = "OPUS_DECODE_FAILED",
                                 recoverable = false,
-                                message = "packet $packetIndex decoded ${decoded.size} shorts, " +
-                                    "expected ${expectedFrames16k * validation.channelCount}",
+                                message =
+                                    "packet $packetIndex decoded ${decoded.size} shorts, " +
+                                        "expected ${expectedFrames16k * validation.channelCount}",
                             )
                         }
 
@@ -270,15 +292,35 @@ class RawOpusToCanonicalWavConverter(
                             normalizationReported = true
                             onStage(CanonicalAudioStage.NORMALIZING)
                         }
-                        val mono = normalizer.processInterleaved(
-                            input = decoded,
-                            frameCount = expectedFrames16k,
-                        )
+                        val required = normalizer.requiredOutputCapacity(expectedFrames16k)
+                        if (monoBuffer.size < required) {
+                            monoBuffer = ShortArray(required)
+                        }
+                        val normalizeStarted = System.nanoTime()
+                        val monoCount =
+                            normalizer.processInterleavedInto(
+                                input = decoded,
+                                output = monoBuffer,
+                                frameCount = expectedFrames16k,
+                            )
+                        normalizeNanos += System.nanoTime() - normalizeStarted
                         if (!writingReported) {
                             writingReported = true
                             onStage(CanonicalAudioStage.WRITING)
                         }
-                        writer.writePcm16(mono)
+                        writer.writePcm16(monoBuffer, length = monoCount)
+
+                        processedPackets = packetIndex + 1L
+                        processedSamples48k += totalSamples48k.toLong()
+                        onProgress(
+                            CanonicalAudioWorkProgress(
+                                processedDurationUs =
+                                    processedSamples48k * 1_000_000L / 48_000L,
+                                totalDurationUs = validation.decodedDurationUs,
+                                processedUnits = processedPackets,
+                                totalUnits = validation.packetCount,
+                            ),
+                        )
                     }
 
                     onStage(CanonicalAudioStage.VERIFYING)
@@ -288,6 +330,13 @@ class RawOpusToCanonicalWavConverter(
                         sourceSha256 = sourceSha,
                         decoderVersion = decoderFactory.version,
                         wav = commit,
+                        timing =
+                            CanonicalConversionTiming(
+                                decodeOrReadNanos = decodeNanos,
+                                normalizeNanos = normalizeNanos,
+                                writer = commit.timing,
+                                pipelineNanos = System.nanoTime() - pipelineStarted,
+                            ),
                     )
                 }
             }
@@ -318,42 +367,46 @@ private fun forEachPacket(
 ) {
     RandomAccessFile(file, "r").use { raf ->
         if (framing == RawOpusFraming.FIXED_40_BYTES) {
-            require(raf.length() > 0L && raf.length() % RawOpusValidator.FIXED_DEVICE_PACKET_BYTES == 0L) {
+            require(
+                raf.length() > 0L &&
+                    raf.length() % RawOpusValidator.FIXED_DEVICE_PACKET_BYTES == 0L,
+            ) {
                 "file size is not aligned to 40-byte candidate framing"
             }
         }
 
         var packetIndex = 0L
         while (raf.filePointer < raf.length()) {
-            val packetLength = when (framing) {
-                RawOpusFraming.FIXED_40_BYTES ->
-                    RawOpusValidator.FIXED_DEVICE_PACKET_BYTES
+            val packetLength =
+                when (framing) {
+                    RawOpusFraming.FIXED_40_BYTES ->
+                        RawOpusValidator.FIXED_DEVICE_PACKET_BYTES
 
-                RawOpusFraming.LENGTH_U8 -> {
-                    require(raf.length() - raf.filePointer >= 1L) {
-                        "truncated U8 length prefix at packet $packetIndex"
+                    RawOpusFraming.LENGTH_U8 -> {
+                        require(raf.length() - raf.filePointer >= 1L) {
+                            "truncated U8 length prefix at packet $packetIndex"
+                        }
+                        raf.readUnsignedByte()
                     }
-                    raf.readUnsignedByte()
-                }
 
-                RawOpusFraming.LENGTH_U16_LE -> {
-                    require(raf.length() - raf.filePointer >= 2L) {
-                        "truncated U16LE length prefix at packet $packetIndex"
+                    RawOpusFraming.LENGTH_U16_LE -> {
+                        require(raf.length() - raf.filePointer >= 2L) {
+                            "truncated U16LE length prefix at packet $packetIndex"
+                        }
+                        val lo = raf.readUnsignedByte()
+                        val hi = raf.readUnsignedByte()
+                        lo or (hi shl 8)
                     }
-                    val lo = raf.readUnsignedByte()
-                    val hi = raf.readUnsignedByte()
-                    lo or (hi shl 8)
-                }
 
-                RawOpusFraming.LENGTH_U16_BE -> {
-                    require(raf.length() - raf.filePointer >= 2L) {
-                        "truncated U16BE length prefix at packet $packetIndex"
+                    RawOpusFraming.LENGTH_U16_BE -> {
+                        require(raf.length() - raf.filePointer >= 2L) {
+                            "truncated U16BE length prefix at packet $packetIndex"
+                        }
+                        val hi = raf.readUnsignedByte()
+                        val lo = raf.readUnsignedByte()
+                        (hi shl 8) or lo
                     }
-                    val hi = raf.readUnsignedByte()
-                    val lo = raf.readUnsignedByte()
-                    (hi shl 8) or lo
                 }
-            }
 
             require(packetLength in 1..RawOpusValidator.MAX_OPUS_PACKET_BYTES) {
                 "invalid packet length=$packetLength at packet $packetIndex"

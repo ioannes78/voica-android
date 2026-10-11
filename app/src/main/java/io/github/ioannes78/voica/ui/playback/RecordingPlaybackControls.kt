@@ -21,15 +21,19 @@ import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -42,18 +46,26 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.github.ioannes78.voica.CanonicalGenerationPhase
+import io.github.ioannes78.voica.CanonicalGenerationProgress
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.VoicaApplication
 import io.github.ioannes78.voica.audio.PlaybackState
 import java.io.File
+import java.util.Locale
+import kotlinx.coroutines.delay
 
 @Composable
 fun RecordingPlaybackCard(
     recordingId: String,
     recordingName: String,
     canonicalReady: Boolean,
+    canonicalBusy: Boolean,
+    canonicalProgress: CanonicalGenerationProgress?,
     deviceRecordingActive: Boolean,
     playbackViewModel: PlaybackViewModel,
+    onGenerateCanonical: () -> Unit,
+    onCancelCanonical: () -> Unit,
 ) {
     val snapshot by playbackViewModel.snapshot.collectAsState()
     val context = LocalContext.current
@@ -78,92 +90,390 @@ fun RecordingPlaybackCard(
         }
     }
 
-    if (deviceRecordingActive) {
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
-            colors =
-                CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                ),
+    when {
+        deviceRecordingActive -> {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors =
+                    CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    ),
+            ) {
+                Text(
+                    "设备正在录音，播放已暂停。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(18.dp),
+                )
+            }
+        }
+
+        !canonicalReady && (canonicalProgress != null || canonicalBusy) ->
+            CanonicalGeneratingPlaybackCard(
+                progress = canonicalProgress,
+                onCancel = onCancelCanonical,
+            )
+
+        !canonicalReady ->
+            CanonicalRequiredPlaybackCard(onGenerateCanonical = onGenerateCanonical)
+
+        snapshot.recordingId == recordingId ->
+            PlaybackCard(
+                snapshot = snapshot,
+                recordingName = recordingName,
+                onPlay = playbackViewModel::play,
+                onPause = playbackViewModel::pause,
+                onSeek = playbackViewModel::seekToSample,
+                onSpeed = playbackViewModel::setSpeed,
+                onRetry = playbackViewModel::retryCurrent,
+                waveform = waveform,
+            )
+
+        else ->
+            ReadyPlaybackLaunchCard(
+                recordingId = recordingId,
+                playbackViewModel = playbackViewModel,
+            )
+    }
+}
+
+@Composable
+private fun CanonicalRequiredPlaybackCard(
+    onGenerateCanonical: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            ),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.GraphicEq,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp),
+                )
+                Text(
+                    "需要生成标准 WAV",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
             Text(
-                "设备正在录音，播放已暂停。",
+                "生成后可播放、转写和说话人分析",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(18.dp),
             )
-        }
-    } else if (snapshot.recordingId == recordingId) {
-        PlaybackCard(
-            snapshot = snapshot,
-            recordingName = recordingName,
-            onPlay = playbackViewModel::play,
-            onPause = playbackViewModel::pause,
-            onSeek = playbackViewModel::seekToSample,
-            onSpeed = playbackViewModel::setSpeed,
-            onRetry = playbackViewModel::retryCurrent,
-            waveform = waveform,
-        )
-    } else {
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
-            colors =
-                CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                ),
-        ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+            Button(
+                onClick = onGenerateCanonical,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.GraphicEq,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(24.dp),
-                    )
+                Icon(
+                    imageVector = Icons.Outlined.GraphicEq,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                )
+                Text(
+                    "生成标准 WAV",
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CanonicalGeneratingPlaybackCard(
+    progress: CanonicalGenerationProgress?,
+    onCancel: () -> Unit,
+) {
+    var nowMs by remember(progress?.recordingId, progress?.startedAtMs) {
+        mutableLongStateOf(System.currentTimeMillis())
+    }
+    LaunchedEffect(progress?.recordingId, progress?.startedAtMs) {
+        while (true) {
+            nowMs = System.currentTimeMillis()
+            delay(1_000L)
+        }
+    }
+
+    val fraction = progress?.fraction
+    val percent = fraction?.let { (it * 100f).toInt().coerceIn(0, 100) }
+    val processed = progress?.processedDurationUs?.let(::formatCanonicalWorkTime) ?: "--:--"
+    val total = progress?.totalDurationUs?.let(::formatCanonicalWorkTime) ?: "--:--"
+    val elapsed =
+        progress?.let {
+            formatElapsedMs((nowMs - it.startedAtMs).coerceAtLeast(0L))
+        } ?: "--:--"
+    val cancellable = progress?.cancellable != false
+    val subtitle = canonicalPhaseLabel(progress?.phase)
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            ),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(30.dp),
+                    strokeWidth = 3.dp,
+                )
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        stringResource(R.string.playback_title),
+                        "正在生成标准 WAV",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
-                }
-                Button(
-                    onClick = { playbackViewModel.loadAndPlay(recordingId) },
-                    enabled = canonicalReady,
-                    modifier = Modifier.size(86.dp),
-                    shape = CircleShape,
-                    contentPadding = PaddingValues(0.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.PlayArrow,
-                        contentDescription = stringResource(R.string.playback_play),
-                        modifier = Modifier.size(40.dp),
-                    )
-                }
-                Text(
-                    stringResource(R.string.playback_play),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                if (!canonicalReady) {
                     Text(
-                        stringResource(R.string.detail_canonical_required),
+                        subtitle,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (cancellable && progress?.phase != CanonicalGenerationPhase.CANCELLING) {
+                    TextButton(onClick = onCancel) {
+                        Text("取消")
+                    }
+                }
+            }
+
+            if (fraction != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    LinearProgressIndicator(
+                        progress = { fraction },
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        "${percent ?: 0}%",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    "已处理 $processed / $total",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    "已耗时 $elapsed",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            DisabledPlayerPreview(totalDurationUs = progress?.totalDurationUs)
+
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.55f),
+            ) {
+                Text(
+                    "生成完成后可播放、转写和说话人分析",
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DisabledPlayerPreview(totalDurationUs: Long?) {
+    val waveformColor = MaterialTheme.colorScheme.outlineVariant
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Canvas(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .height(54.dp),
+        ) {
+            val bars = 48
+            val spacing = size.width / bars
+            repeat(bars) { index ->
+                val pattern = intArrayOf(4, 7, 11, 15, 10, 6, 13, 8)[index % 8]
+                val halfHeight = size.height * (pattern / 36f)
+                val x = spacing * index + spacing / 2f
+                drawLine(
+                    color = waveformColor,
+                    start = Offset(x, size.height / 2f - halfHeight),
+                    end = Offset(x, size.height / 2f + halfHeight),
+                    strokeWidth = 3f,
+                    cap = StrokeCap.Round,
+                )
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                "00:00",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
+            Text(
+                totalDurationUs?.let(::formatCanonicalWorkTime) ?: "--:--",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
+        }
+        Button(
+            onClick = {},
+            enabled = false,
+            modifier = Modifier.size(76.dp),
+            shape = CircleShape,
+            contentPadding = PaddingValues(0.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.PlayArrow,
+                contentDescription = null,
+                modifier = Modifier.size(36.dp),
+            )
+        }
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.45f),
+        ) {
+            Row(
+                modifier = Modifier.padding(vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+            ) {
+                listOf("0.75x", "1.0x", "1.5x", "2.0x").forEach { speed ->
+                    Text(
+                        speed,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.outline,
                     )
                 }
             }
         }
     }
+}
+
+@Composable
+private fun ReadyPlaybackLaunchCard(
+    recordingId: String,
+    playbackViewModel: PlaybackViewModel,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            ),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.GraphicEq,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp),
+                )
+                Text(
+                    stringResource(R.string.playback_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            Button(
+                onClick = { playbackViewModel.loadAndPlay(recordingId) },
+                modifier = Modifier.size(86.dp),
+                shape = CircleShape,
+                contentPadding = PaddingValues(0.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.PlayArrow,
+                    contentDescription = stringResource(R.string.playback_play),
+                    modifier = Modifier.size(40.dp),
+                )
+            }
+            Text(
+                stringResource(R.string.playback_play),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
+}
+
+private fun canonicalPhaseLabel(phase: CanonicalGenerationPhase?): String =
+    when (phase) {
+        CanonicalGenerationPhase.PREPARING -> "正在准备"
+        CanonicalGenerationPhase.DECODING,
+        CanonicalGenerationPhase.NORMALIZING,
+        CanonicalGenerationPhase.WRITING,
+        -> "正在解码与转换"
+        CanonicalGenerationPhase.VERIFYING -> "正在校验生成结果"
+        CanonicalGenerationPhase.COMMITTING -> "正在保存生成结果"
+        CanonicalGenerationPhase.CANCELLING -> "正在取消"
+        null -> "正在处理"
+    }
+
+private fun formatCanonicalWorkTime(durationUs: Long): String {
+    val totalSeconds = (durationUs / 1_000_000L).coerceAtLeast(0L)
+    val minutes = totalSeconds / 60L
+    val seconds = totalSeconds % 60L
+    return String.format(Locale.US, "%02d:%02d", minutes, seconds)
+}
+
+private fun formatElapsedMs(durationMs: Long): String {
+    val totalSeconds = (durationMs / 1_000L).coerceAtLeast(0L)
+    val minutes = totalSeconds / 60L
+    val seconds = totalSeconds % 60L
+    return String.format(Locale.US, "%02d:%02d", minutes, seconds)
 }
 
 @Composable

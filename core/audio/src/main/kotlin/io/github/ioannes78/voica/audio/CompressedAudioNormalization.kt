@@ -8,6 +8,7 @@ data class CompressedAudioConversionResult(
     val sourceSha256: String,
     val decoded: CompressedAudioDecodeResult,
     val wav: CanonicalWavCommit,
+    val timing: CanonicalConversionTiming,
 )
 
 class CompressedAudioToCanonicalWavConverter(
@@ -17,10 +18,13 @@ class CompressedAudioToCanonicalWavConverter(
         sourceFile: File,
         targetFile: File,
         expectedSourceSha256: String? = null,
+        verifiedSourceSha256: String? = null,
+        knownDurationUs: Long? = null,
         isCancelled: () -> Boolean = { false },
         onStage: (CanonicalAudioStage) -> Unit = {},
+        onProgress: (CanonicalAudioWorkProgress) -> Unit = {},
     ): CompressedAudioConversionResult {
-        val sourceSha = sha256(sourceFile)
+        val sourceSha = verifiedSourceSha256 ?: sha256(sourceFile)
         if (
             expectedSourceSha256 != null &&
             !sourceSha.equals(expectedSourceSha256, ignoreCase = true)
@@ -32,12 +36,17 @@ class CompressedAudioToCanonicalWavConverter(
             )
         }
 
+        val pipelineStarted = System.nanoTime()
         onStage(CanonicalAudioStage.DECODING)
         CanonicalWavWriter(targetFile).use { writer ->
             var sourceFormat: DecodedPcmFormat? = null
             var normalizer: StreamingPcm16Normalizer? = null
+            var normalizedBuffer = ShortArray(0)
             var normalizationReported = false
             var writingReported = false
+            var processedFrames = 0L
+            var processedTimelineUs = 0L
+            var normalizeNanos = 0L
 
             val sink =
                 object : Pcm16DecodeSink {
@@ -68,11 +77,28 @@ class CompressedAudioToCanonicalWavConverter(
                         samples: ShortArray,
                         frameCount: Int,
                     ) {
+                        consume(samples, frameCount, presentationTimeUs = null)
+                    }
+
+                    override fun onSamplesAt(
+                        samples: ShortArray,
+                        frameCount: Int,
+                        presentationTimeUs: Long?,
+                    ) {
+                        consume(samples, frameCount, presentationTimeUs)
+                    }
+
+                    private fun consume(
+                        samples: ShortArray,
+                        frameCount: Int,
+                        presentationTimeUs: Long?,
+                    ) {
                         if (isCancelled()) {
                             throw CancellationException("media conversion cancelled")
                         }
-                        val format = sourceFormat
-                            ?: error("decoder emitted PCM before output format")
+                        val format =
+                            sourceFormat
+                                ?: error("decoder emitted PCM before output format")
                         require(frameCount >= 0)
                         require(samples.size >= frameCount * format.channelCount)
 
@@ -80,21 +106,57 @@ class CompressedAudioToCanonicalWavConverter(
                             normalizationReported = true
                             onStage(CanonicalAudioStage.NORMALIZING)
                         }
-                        val mono =
-                            requireNotNull(normalizer).processInterleaved(
+                        val activeNormalizer = requireNotNull(normalizer)
+                        val required = activeNormalizer.requiredOutputCapacity(frameCount)
+                        if (normalizedBuffer.size < required) {
+                            normalizedBuffer = ShortArray(required)
+                        }
+                        val normalizeStarted = System.nanoTime()
+                        val monoCount =
+                            activeNormalizer.processInterleavedInto(
                                 input = samples,
+                                output = normalizedBuffer,
                                 frameCount = frameCount,
                             )
-                        if (mono.isNotEmpty()) {
+                        normalizeNanos += System.nanoTime() - normalizeStarted
+                        if (monoCount > 0) {
                             if (!writingReported) {
                                 writingReported = true
                                 onStage(CanonicalAudioStage.WRITING)
                             }
-                            writer.writePcm16(mono)
+                            writer.writePcm16(normalizedBuffer, length = monoCount)
                         }
+
+                        processedFrames += frameCount.toLong()
+                        val frameCountTimelineUs =
+                            sampleIndexToTimeUs(processedFrames, format.sampleRateHz)
+                        val ptsEndUs =
+                            presentationTimeUs
+                                ?.takeIf { it >= 0L }
+                                ?.let { startUs ->
+                                    startUs +
+                                        sampleIndexToTimeUs(
+                                            frameCount.toLong(),
+                                            format.sampleRateHz,
+                                        )
+                                }
+                        processedTimelineUs =
+                            maxOf(
+                                processedTimelineUs,
+                                ptsEndUs ?: frameCountTimelineUs,
+                            )
+                        onProgress(
+                            CanonicalAudioWorkProgress(
+                                processedDurationUs = processedTimelineUs,
+                                totalDurationUs = knownDurationUs?.takeIf { it > 0L },
+                                processedUnits = processedFrames,
+                                totalUnits = null,
+                            ),
+                        )
                     }
                 }
 
+            val decodeStarted = System.nanoTime()
             val decoded =
                 try {
                     decoder.decode(
@@ -114,6 +176,7 @@ class CompressedAudioToCanonicalWavConverter(
                         cause = error,
                     )
                 }
+            val decodeWallNanos = System.nanoTime() - decodeStarted
 
             if (decoded.decodedFrameCount <= 0L) {
                 throw AudioPipelineException(
@@ -123,11 +186,49 @@ class CompressedAudioToCanonicalWavConverter(
                 )
             }
 
+            val decodedFrameDurationUs =
+                sampleIndexToTimeUs(
+                    decoded.decodedFrameCount,
+                    decoded.output.sampleRateHz,
+                )
+            val finalMediaTimelineUs =
+                decoded.presentationEndTimeUs?.takeIf { it > 0L }
+                    ?: processedTimelineUs.takeIf { it > 0L }
+                    ?: decodedFrameDurationUs
+            val metadataDurationUs =
+                knownDurationUs?.takeIf { it > 0L }
+                    ?: decoded.input.durationUs?.takeIf { it > 0L }
+            onProgress(
+                CanonicalAudioWorkProgress(
+                    processedDurationUs = finalMediaTimelineUs,
+                    totalDurationUs = metadataDurationUs,
+                    processedUnits = decoded.decodedFrameCount,
+                    totalUnits = null,
+                    isFinal = true,
+                ),
+            )
+
             onStage(CanonicalAudioStage.VERIFYING)
+            val wav = writer.commit()
+            val pipelineNanos = System.nanoTime() - pipelineStarted
+            val decodeOrReadNanos =
+                (decodeWallNanos - normalizeNanos - wav.timing.writeNanos)
+                    .coerceAtLeast(0L)
             return CompressedAudioConversionResult(
                 sourceSha256 = sourceSha,
                 decoded = decoded,
-                wav = writer.commit(),
+                wav = wav,
+                timing =
+                    CanonicalConversionTiming(
+                        decodeOrReadNanos = decodeOrReadNanos,
+                        normalizeNanos = normalizeNanos,
+                        writer = wav.timing,
+                        pipelineNanos = pipelineNanos,
+                        metadataDurationUs = metadataDurationUs,
+                        decodedFrameDurationUs = decodedFrameDurationUs,
+                        mediaTimelineDurationUs = finalMediaTimelineUs,
+                        canonicalDurationUs = wav.durationUs,
+                    ),
             )
         }
     }

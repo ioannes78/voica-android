@@ -161,24 +161,36 @@ class ServiceBackedDeviceRepositoryTest {
     }
 
     @Test
-    fun reconnectWaitingRefreshesForegroundServiceWithoutReissuingDelegateForeground() {
+    fun reconnectWaitingUsesOneForegroundLeaseAndUpdatesNotificationInPlace() {
         val delegate = FakeDeviceRepository(scanning = false, missingPermissions = emptySet())
         val serviceAcquireCount = AtomicInteger(0)
+        val notificationUpdateCount = AtomicInteger(0)
         val serviceReleaseCount = AtomicInteger(0)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
-        val repository =
-            ServiceBackedDeviceRepository(
-                context = ApplicationProvider.getApplicationContext<Context>(),
-                delegate = delegate,
-                scope = scope,
-                foregroundServiceAcquire = { _, _, _ -> serviceAcquireCount.incrementAndGet().toLong() },
-                foregroundServiceRelease = { serviceReleaseCount.incrementAndGet() },
-            )
+        ServiceBackedDeviceRepository(
+            context = ApplicationProvider.getApplicationContext<Context>(),
+            delegate = delegate,
+            scope = scope,
+            foregroundServiceAcquire = { _, deviceName, label ->
+                serviceAcquireCount.incrementAndGet()
+                DeviceSessionForegroundDiagnostics.begin(deviceName, label)
+            },
+            foregroundServiceRelease = { serviceReleaseCount.incrementAndGet() },
+            foregroundNotificationUpdate = { _, _, _ -> notificationUpdateCount.incrementAndGet() },
+        )
         delegate.events.clear()
 
         delegate.connection.value =
             DeviceConnectionState.ReconnectWaiting(DEVICE_ADDRESS, attempt = 1, delayMs = 1_000L)
         flushUnconfined()
+        val leaseGeneration = DeviceSessionForegroundDiagnostics.state.value.generation
+        DeviceSessionForegroundDiagnostics.markActive(
+            leaseGeneration,
+            "CB08",
+            "正在重连 · 第 1 次",
+        )
+        flushUnconfined()
+
         delegate.connection.value =
             DeviceConnectionState.ReconnectWaiting(DEVICE_ADDRESS, attempt = 2, delayMs = 2_000L)
         flushUnconfined()
@@ -186,7 +198,8 @@ class ServiceBackedDeviceRepositoryTest {
             DeviceConnectionState.ReconnectWaiting(DEVICE_ADDRESS, attempt = 3, delayMs = 4_000L)
         flushUnconfined()
 
-        assertEquals(3, serviceAcquireCount.get())
+        assertEquals(1, serviceAcquireCount.get())
+        assertEquals(2, notificationUpdateCount.get())
         assertEquals(
             listOf("setForeground:true"),
             delegate.events.filter { it.startsWith("setForeground:") },
@@ -202,6 +215,18 @@ class ServiceBackedDeviceRepositoryTest {
             delegate.events.filter { it.startsWith("setForeground:") },
         )
         scope.cancel()
+    }
+
+    @Test
+    fun deviceSessionForegroundGenerationRejectsStaleProgressAndReleasedCommands() {
+        val staleProgress = DeviceSessionForegroundDiagnostics.begin("CB08", "正在下载 · 95%")
+        val terminalConnected = DeviceSessionForegroundDiagnostics.begin("CB08", "已连接")
+
+        assertFalse(DeviceSessionForegroundDiagnostics.isCurrent(staleProgress))
+        assertTrue(DeviceSessionForegroundDiagnostics.isCurrent(terminalConnected))
+
+        DeviceSessionForegroundDiagnostics.markIdle()
+        assertFalse(DeviceSessionForegroundDiagnostics.isCurrent(terminalConnected))
     }
 
     private fun flushUnconfined() {

@@ -65,6 +65,10 @@ internal object DeviceSessionForegroundDiagnostics {
     }
 
     @Synchronized
+    fun isCurrent(generation: Long): Boolean =
+        generation > 0L && mutableState.value.generation == generation
+
+    @Synchronized
     fun markActive(generation: Long, deviceName: String, label: String) {
         if (mutableState.value.generation != generation) return
         mutableState.value =
@@ -125,6 +129,10 @@ class DeviceSessionForegroundService : Service() {
 
             ACTION_ACQUIRE -> {
                 val generation = intent.getLongExtra(EXTRA_GENERATION, 0L)
+                if (!DeviceSessionForegroundDiagnostics.isCurrent(generation)) {
+                    Log.d(TAG, "ignore stale connectedDevice foreground generation=$generation")
+                    return START_NOT_STICKY
+                }
                 val deviceName =
                     intent.getStringExtra(EXTRA_DEVICE_NAME)
                         ?.trim()

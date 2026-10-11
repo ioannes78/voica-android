@@ -48,10 +48,11 @@ class AudioCoreTest {
         try {
             val file = root.resolve("canonical.wav")
             val samples = shortArrayOf(0, 1000, -1000, Short.MAX_VALUE, Short.MIN_VALUE)
-            val commit = CanonicalWavWriter(file).use { writer ->
-                writer.writePcm16(samples)
-                writer.commit()
-            }
+            val commit =
+                CanonicalWavWriter(file).use { writer ->
+                    writer.writePcm16(samples)
+                    writer.commit()
+                }
 
             val parsed = WavPcmParser.parse(file)
             assertTrue(parsed is WavParseResult.Valid)
@@ -80,18 +81,64 @@ class AudioCoreTest {
 
     @Test
     fun stereoDownmixAnd48kTo16kRemainBoundedAndDeterministic() {
-        val normalizer = StreamingPcm16Normalizer(
-            sourceSampleRateHz = 48_000,
-            sourceChannelCount = 2,
-        )
-        val interleaved = ShortArray(48 * 2) { index ->
-            if (index % 2 == 0) 1_000 else 3_000
-        }
+        val normalizer =
+            StreamingPcm16Normalizer(
+                sourceSampleRateHz = 48_000,
+                sourceChannelCount = 2,
+            )
+        val interleaved =
+            ShortArray(48 * 2) { index ->
+                if (index % 2 == 0) 1_000 else 3_000
+            }
 
         val output = normalizer.processInterleaved(interleaved)
 
         assertEquals(16, output.size)
         assertTrue(output.all { it.toInt() == 2_000 })
+        assertEquals(16L, normalizer.outputSampleCount)
+    }
+
+    @Test
+    fun reusableNormalizerOutputPreservesChunkBoundaryTimeline() {
+        val normalizer =
+            StreamingPcm16Normalizer(
+                sourceSampleRateHz = 48_000,
+                sourceChannelCount = 2,
+            )
+        val frames = 48
+        val interleaved =
+            ShortArray(frames * 2) { index ->
+                if (index % 2 == 0) 1_000 else 3_000
+            }
+        val firstFrames = 17
+        val firstInput = interleaved.copyOfRange(0, firstFrames * 2)
+        val secondInput = interleaved.copyOfRange(firstFrames * 2, interleaved.size)
+
+        val firstOutput = ShortArray(normalizer.requiredOutputCapacity(firstFrames))
+        val firstCount =
+            normalizer.processInterleavedInto(
+                input = firstInput,
+                output = firstOutput,
+                frameCount = firstFrames,
+            )
+        val secondFrames = frames - firstFrames
+        val secondOutput = ShortArray(normalizer.requiredOutputCapacity(secondFrames))
+        val secondCount =
+            normalizer.processInterleavedInto(
+                input = secondInput,
+                output = secondOutput,
+                frameCount = secondFrames,
+            )
+        val combined = ShortArray(firstCount + secondCount)
+        firstOutput.copyInto(combined, endIndex = firstCount)
+        secondOutput.copyInto(
+            destination = combined,
+            destinationOffset = firstCount,
+            endIndex = secondCount,
+        )
+
+        assertEquals(16, combined.size)
+        assertTrue(combined.all { it.toInt() == 2_000 })
         assertEquals(16L, normalizer.outputSampleCount)
     }
 
@@ -132,9 +179,10 @@ class AudioCoreTest {
             val source = root.resolve("source-48k-stereo.wav")
             val output = root.resolve("canonical.wav")
             val frames = 48_000
-            val interleaved = ShortArray(frames * 2) { index ->
-                if (index % 2 == 0) 1_000 else 3_000
-            }
+            val interleaved =
+                ShortArray(frames * 2) { index ->
+                    if (index % 2 == 0) 1_000 else 3_000
+                }
             writePcm16Wav(
                 file = source,
                 sampleRateHz = 48_000,
@@ -143,11 +191,12 @@ class AudioCoreTest {
             )
 
             val stages = mutableListOf<CanonicalAudioStage>()
-            val result = PcmWavToCanonicalWavConverter().convert(
-                sourceFile = source,
-                targetFile = output,
-                onStage = stages::add,
-            )
+            val result =
+                PcmWavToCanonicalWavConverter().convert(
+                    sourceFile = source,
+                    targetFile = output,
+                    onStage = stages::add,
+                )
 
             val parsed = WavPcmParser.parse(output)
             assertTrue(parsed is WavParseResult.Valid)

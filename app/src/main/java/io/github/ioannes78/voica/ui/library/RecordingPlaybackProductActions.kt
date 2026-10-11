@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Description
@@ -73,6 +74,11 @@ fun RecordingPlaybackProductActions(
                         .format(DISPLAY_TIME)
                 }
             ?: "--"
+    val duration =
+        (recording.mediaDurationMs ?: recording.deviceReportedDurationMs)
+            ?.takeIf { it >= 0L }
+            ?.let(::formatInfoDuration)
+            ?: "--"
     val source =
         when (recording.sourceType) {
             RecordingSourceType.LOCAL_IMPORT -> "本地导入"
@@ -107,6 +113,11 @@ fun RecordingPlaybackProductActions(
                 icon = Icons.Outlined.CalendarMonth,
                 label = "录制时间",
                 value = recordedAt,
+            )
+            ProductInfoLine(
+                icon = Icons.Outlined.AccessTime,
+                label = "录音时长",
+                value = duration,
             )
             ProductInfoLine(
                 icon = Icons.Outlined.Description,
@@ -308,6 +319,14 @@ private fun AudioVariantDialog(
             TextButton(onClick = onDismiss) { Text("取消") }
         },
     )
+}
+
+private fun formatInfoDuration(durationMs: Long): String {
+    val totalSeconds = (durationMs / 1_000L).coerceAtLeast(0L)
+    val hours = totalSeconds / 3_600L
+    val minutes = (totalSeconds % 3_600L) / 60L
+    val seconds = totalSeconds % 60L
+    return String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
 }
 
 private fun formatInfoBytes(bytes: Long): String {

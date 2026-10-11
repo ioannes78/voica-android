@@ -7,12 +7,20 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 
+data class CanonicalWavTiming(
+    val writeNanos: Long,
+    val syncNanos: Long,
+    val moveNanos: Long,
+    val outputHashNanos: Long,
+)
+
 data class CanonicalWavCommit(
     val file: File,
     val pcmSampleCount: Long,
     val sizeBytes: Long,
     val sha256: String,
     val durationUs: Long,
+    val timing: CanonicalWavTiming,
 )
 
 class CanonicalWavWriter(
@@ -20,7 +28,9 @@ class CanonicalWavWriter(
 ) : AutoCloseable {
     private val partFile = File(finalFile.parentFile, finalFile.name + ".part")
     private val raf: RandomAccessFile
+    private val writeBuffer = ByteArray(WRITE_BUFFER_BYTES)
     private var sampleCount = 0L
+    private var writeNanos = 0L
     private var closed = false
     private var committed = false
 
@@ -37,22 +47,34 @@ class CanonicalWavWriter(
     fun writePcm16(samples: ShortArray, offset: Int = 0, length: Int = samples.size - offset) {
         check(!closed) { "writer closed" }
         require(offset >= 0 && length >= 0 && offset + length <= samples.size)
-        val bytes = ByteArray(length * 2)
-        var out = 0
-        for (index in offset until offset + length) {
-            val sample = samples[index].toInt()
-            bytes[out++] = (sample and 0xFF).toByte()
-            bytes[out++] = ((sample ushr 8) and 0xFF).toByte()
+
+        var inputIndex = offset
+        var remaining = length
+        while (remaining > 0) {
+            val started = System.nanoTime()
+            val chunkSamples = minOf(remaining, writeBuffer.size / CanonicalPcmProfile.BYTES_PER_SAMPLE)
+            var byteIndex = 0
+            val chunkEnd = inputIndex + chunkSamples
+            while (inputIndex < chunkEnd) {
+                val sample = samples[inputIndex++].toInt()
+                writeBuffer[byteIndex++] = (sample and 0xFF).toByte()
+                writeBuffer[byteIndex++] = ((sample ushr 8) and 0xFF).toByte()
+            }
+            raf.write(writeBuffer, 0, byteIndex)
+            writeNanos += System.nanoTime() - started
+            sampleCount += chunkSamples
+            remaining -= chunkSamples
         }
-        raf.write(bytes)
-        sampleCount += length
     }
 
     fun commit(): CanonicalWavCommit {
         check(!closed) { "writer closed" }
         val pcmBytes = sampleCount * CanonicalPcmProfile.BYTES_PER_SAMPLE
         writeHeader(raf, pcmBytes)
+
+        val syncStarted = System.nanoTime()
         raf.fd.sync()
+        val syncNanos = System.nanoTime() - syncStarted
         raf.close()
         closed = true
 
@@ -61,6 +83,7 @@ class CanonicalWavWriter(
             "WAV length mismatch expected=$expectedLength actual=${partFile.length()}"
         }
 
+        val moveStarted = System.nanoTime()
         try {
             Files.move(
                 partFile.toPath(),
@@ -75,18 +98,29 @@ class CanonicalWavWriter(
                 StandardCopyOption.REPLACE_EXISTING,
             )
         }
+        val moveNanos = System.nanoTime() - moveStarted
         committed = true
 
+        val hashStarted = System.nanoTime()
         val digest = sha256(finalFile)
+        val outputHashNanos = System.nanoTime() - hashStarted
         return CanonicalWavCommit(
             file = finalFile,
             pcmSampleCount = sampleCount,
             sizeBytes = finalFile.length(),
             sha256 = digest,
-            durationUs = sampleIndexToTimeUs(
-                sampleCount,
-                CanonicalPcmProfile.SAMPLE_RATE_HZ,
-            ),
+            durationUs =
+                sampleIndexToTimeUs(
+                    sampleCount,
+                    CanonicalPcmProfile.SAMPLE_RATE_HZ,
+                ),
+            timing =
+                CanonicalWavTiming(
+                    writeNanos = writeNanos,
+                    syncNanos = syncNanos,
+                    moveNanos = moveNanos,
+                    outputHashNanos = outputHashNanos,
+                ),
         )
     }
 
@@ -127,8 +161,8 @@ class CanonicalWavWriter(
 
     private fun sha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
-        file.inputStream().buffered(BUFFER_SIZE).use { input ->
-            val buffer = ByteArray(BUFFER_SIZE)
+        file.inputStream().buffered(HASH_BUFFER_BYTES).use { input ->
+            val buffer = ByteArray(HASH_BUFFER_BYTES)
             while (true) {
                 val read = input.read(buffer)
                 if (read < 0) break
@@ -143,6 +177,7 @@ class CanonicalWavWriter(
     private companion object {
         const val WAV_HEADER_BYTES = 44L
         const val UINT32_MAX = 0xFFFF_FFFFL
-        const val BUFFER_SIZE = 64 * 1024
+        const val WRITE_BUFFER_BYTES = 64 * 1024
+        const val HASH_BUFFER_BYTES = 64 * 1024
     }
 }

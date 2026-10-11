@@ -2,6 +2,7 @@ package io.github.ioannes78.voica
 
 import io.github.ioannes78.voica.audio.AudioPipelineException
 import io.github.ioannes78.voica.audio.CanonicalAudioStage
+import io.github.ioannes78.voica.audio.CanonicalConversionTiming
 import io.github.ioannes78.voica.audio.CanonicalPcmProfile
 import io.github.ioannes78.voica.audio.CompressedAudioDecoder
 import io.github.ioannes78.voica.audio.CompressedAudioToCanonicalWavConverter
@@ -66,6 +67,10 @@ class CanonicalAudioCoordinator(
     private val automaticLock = Any()
     private val automaticJobs = mutableMapOf<String, Job>()
     private val automaticRerun = mutableSetOf<String>()
+    private val progressRuntime = CanonicalGenerationProgressRuntime(nowMs)
+    private val performanceRuntime = CanonicalPerformanceRuntime()
+    val progress = progressRuntime.progress
+    val performance = performanceRuntime.latest
 
     fun requestAutomatic(recordingId: String) {
         synchronized(automaticLock) {
@@ -101,6 +106,7 @@ class CanonicalAudioCoordinator(
     }
 
     fun cancel(recordingId: String) {
+        progressRuntime.cancelling(recordingId)
         activeTokens[recordingId]?.set(true)
         synchronized(automaticLock) {
             automaticRerun.remove(recordingId)
@@ -114,6 +120,7 @@ class CanonicalAudioCoordinator(
     }
 
     suspend fun cancelAndAwait(recordingId: String) {
+        progressRuntime.cancelling(recordingId)
         val caller = currentCoroutineContext()[Job]
         activeTokens[recordingId]?.set(true)
         val jobs = linkedSetOf<Job>()
@@ -142,6 +149,7 @@ class CanonicalAudioCoordinator(
             try {
                 generateLocked(recordingId, token)
             } finally {
+                progressRuntime.finish(recordingId)
                 activeTokens.remove(recordingId, token)
                 if (job != null) {
                     activeGenerationJobs.remove(recordingId, job)
@@ -170,14 +178,13 @@ class CanonicalAudioCoordinator(
         cleanupTransientFiles()
 
         interrupted.forEach { derivation ->
-            val target = targetFile(
-                recordingId = derivation.recordingId,
-                sourceSha256 = derivation.sourceSha256,
-                pipelineVersion = derivation.pipelineVersion,
-            )
-            val recovered = withContext(ioDispatcher) {
-                inspectCanonicalFile(target)
-            }
+            val target =
+                targetFile(
+                    recordingId = derivation.recordingId,
+                    sourceSha256 = derivation.sourceSha256,
+                    pipelineVersion = derivation.pipelineVersion,
+                )
+            val recovered = withContext(ioDispatcher) { inspectCanonicalFile(target) }
             if (recovered != null) {
                 repository.commitCanonicalWav(
                     CanonicalWavRegistration(
@@ -204,10 +211,12 @@ class CanonicalAudioCoordinator(
         recordingId: String,
         cancellationToken: AtomicBoolean,
     ): CanonicalGenerationOutcome {
-        val source = repository.loadCanonicalConversionSource(
-            recordingId = recordingId,
-            profileId = PROFILE_ID,
-        ) ?: return CanonicalGenerationOutcome.NoSource
+        val source =
+            repository.loadCanonicalConversionSource(
+                recordingId = recordingId,
+                profileId = PROFILE_ID,
+            ) ?: return CanonicalGenerationOutcome.NoSource
+        val generationStartedNanos = System.nanoTime()
 
         val existingCanonical = source.existingCanonical
         if (
@@ -229,16 +238,17 @@ class CanonicalAudioCoordinator(
             }
         }
 
-        val sourceFile = runCatching {
-            managedFile(source.sourceRelativePath)
-        }.getOrElse { error ->
-            return fail(
-                source = source,
-                code = "RAW_FILE_MISSING",
-                recoverable = false,
-                detail = error.message,
-            )
-        }
+        val sourceFile =
+            runCatching {
+                managedFile(source.sourceRelativePath)
+            }.getOrElse { error ->
+                return fail(
+                    source = source,
+                    code = "RAW_FILE_MISSING",
+                    recoverable = false,
+                    detail = error.message,
+                )
+            }
 
         if (!sourceFile.isFile) {
             repository.markAssetIntegrity(
@@ -267,7 +277,18 @@ class CanonicalAudioCoordinator(
             )
         }
 
+        progressRuntime.begin(
+            recordingId = source.recordingId,
+            totalDurationUs = sourceDurationUs(source),
+        )
+
+        val sourceVerificationStarted = System.nanoTime()
         val verifiedSourceSha = withContext(ioDispatcher) { sha256(sourceFile) }
+        val timingContext =
+            GenerationTimingContext(
+                generationStartedNanos = generationStartedNanos,
+                sourceVerificationNanos = System.nanoTime() - sourceVerificationStarted,
+            )
         if (!verifiedSourceSha.equals(source.sourceSha256, ignoreCase = true)) {
             repository.markAssetIntegrity(
                 assetId = source.sourceAssetId,
@@ -300,6 +321,7 @@ class CanonicalAudioCoordinator(
                         sourceFile,
                         callerJob,
                         cancellationToken,
+                        timingContext,
                     )
 
                 AudioAssetRole.DEVICE_WAV ->
@@ -308,6 +330,7 @@ class CanonicalAudioCoordinator(
                         sourceFile,
                         callerJob,
                         cancellationToken,
+                        timingContext,
                     )
 
                 AudioAssetRole.IMPORTED_ORIGINAL ->
@@ -316,6 +339,7 @@ class CanonicalAudioCoordinator(
                         sourceFile,
                         callerJob,
                         cancellationToken,
+                        timingContext,
                     )
 
                 else ->
@@ -341,11 +365,12 @@ class CanonicalAudioCoordinator(
             withContext(NonCancellable) {
                 terminalFailure(
                     source = source,
-                    state = when {
-                        cancelled -> AudioDerivationState.CANCELLED
-                        error.recoverable -> AudioDerivationState.FAILED_RECOVERABLE
-                        else -> AudioDerivationState.FAILED_PERMANENT
-                    },
+                    state =
+                        when {
+                            cancelled -> AudioDerivationState.CANCELLED
+                            error.recoverable -> AudioDerivationState.FAILED_RECOVERABLE
+                            else -> AudioDerivationState.FAILED_PERMANENT
+                        },
                     code = error.code,
                     detail = error.message,
                 )
@@ -377,11 +402,10 @@ class CanonicalAudioCoordinator(
         sourceFile: File,
         callerJob: Job?,
         cancellationToken: AtomicBoolean,
+        timingContext: GenerationTimingContext,
     ): CanonicalGenerationOutcome {
         val backend = NativeOpusBackend()
-        val validation = withContext(ioDispatcher) {
-            RawOpusValidator(backend).validate(sourceFile)
-        }
+        val validation = withContext(ioDispatcher) { RawOpusValidator(backend).validate(sourceFile) }
         val valid = validation as? RawOpusValidationResult.Valid
         if (valid == null) {
             repository.updateSourceValidation(
@@ -405,29 +429,43 @@ class CanonicalAudioCoordinator(
             codec = "OPUS",
             channelCount = valid.value.channelCount,
         )
+        progressRuntime.stage(
+            recordingId = source.recordingId,
+            phase = CanonicalGenerationPhase.PREPARING,
+            totalDurationUs = valid.value.decodedDurationUs,
+        )
 
         ensureCapacity(valid.value.decodedDurationUs)
         val target = targetFile(source.recordingId, source.sourceSha256, PIPELINE_VERSION)
-        val result = withContext(ioDispatcher) {
-            RawOpusToCanonicalWavConverter(
-                inspector = backend,
-                decoderFactory = backend,
-            ).convert(
-                sourceFile = sourceFile,
-                targetFile = target,
-                expectedSourceSha256 = source.sourceSha256,
-                isCancelled = {
-                    cancellationToken.get() || callerJob?.isActive == false
-                },
-                onStage = { stage -> persistStageBlocking(source, stage) },
-            )
-        }
+        val result =
+            withContext(ioDispatcher) {
+                RawOpusToCanonicalWavConverter(
+                    inspector = backend,
+                    decoderFactory = backend,
+                ).convert(
+                    sourceFile = sourceFile,
+                    targetFile = target,
+                    expectedSourceSha256 = source.sourceSha256,
+                    verifiedSourceSha256 = source.sourceSha256,
+                    prevalidated = valid.value,
+                    isCancelled = {
+                        cancellationToken.get() || callerJob?.isActive == false
+                    },
+                    onStage = { stage -> persistStageBlocking(source, stage) },
+                    onProgress = { work ->
+                        progressRuntime.work(source.recordingId, work)
+                    },
+                )
+            }
 
         return commitResult(
             source = source,
             target = target,
             sizeBytes = result.wav.sizeBytes,
             sha256 = result.wav.sha256,
+            conversionTiming = result.timing,
+            timingContext = timingContext,
+            sourceDurationUs = valid.value.decodedDurationUs,
         )
     }
 
@@ -436,6 +474,7 @@ class CanonicalAudioCoordinator(
         sourceFile: File,
         callerJob: Job?,
         cancellationToken: AtomicBoolean,
+        timingContext: GenerationTimingContext,
     ): CanonicalGenerationOutcome =
         when (source.sourceContainer) {
             "WAV" ->
@@ -444,6 +483,7 @@ class CanonicalAudioCoordinator(
                     sourceFile,
                     callerJob,
                     cancellationToken,
+                    timingContext,
                 )
 
             "RAW_OPUS" ->
@@ -452,6 +492,7 @@ class CanonicalAudioCoordinator(
                     sourceFile,
                     callerJob,
                     cancellationToken,
+                    timingContext,
                 )
 
             "MP3", "MP4", "AAC_ADTS", "FLAC", "OGG_OPUS" ->
@@ -460,6 +501,7 @@ class CanonicalAudioCoordinator(
                     sourceFile,
                     callerJob,
                     cancellationToken,
+                    timingContext,
                 )
 
             else ->
@@ -476,12 +518,9 @@ class CanonicalAudioCoordinator(
         sourceFile: File,
         callerJob: Job?,
         cancellationToken: AtomicBoolean,
+        timingContext: GenerationTimingContext,
     ): CanonicalGenerationOutcome {
-        val durationUs =
-            (source.mediaDurationMs ?: source.deviceReportedDurationMs)
-                ?.coerceAtLeast(0L)
-                ?.times(1_000L)
-                ?: 0L
+        val durationUs = sourceDurationUs(source) ?: 0L
         ensureCapacity(durationUs)
 
         val target =
@@ -497,10 +536,15 @@ class CanonicalAudioCoordinator(
                         sourceFile = sourceFile,
                         targetFile = target,
                         expectedSourceSha256 = source.sourceSha256,
+                        verifiedSourceSha256 = source.sourceSha256,
+                        knownDurationUs = durationUs.takeIf { it > 0L },
                         isCancelled = {
                             cancellationToken.get() || callerJob?.isActive == false
                         },
                         onStage = { stage -> persistStageBlocking(source, stage) },
+                        onProgress = { work ->
+                            progressRuntime.work(source.recordingId, work)
+                        },
                     )
             }
 
@@ -509,6 +553,9 @@ class CanonicalAudioCoordinator(
             target = target,
             sizeBytes = result.wav.sizeBytes,
             sha256 = result.wav.sha256,
+            conversionTiming = result.timing,
+            timingContext = timingContext,
+            sourceDurationUs = durationUs.takeIf { it > 0L } ?: result.wav.durationUs,
         )
     }
 
@@ -517,6 +564,7 @@ class CanonicalAudioCoordinator(
         sourceFile: File,
         callerJob: Job?,
         cancellationToken: AtomicBoolean,
+        timingContext: GenerationTimingContext,
     ): CanonicalGenerationOutcome {
         val parsed = withContext(ioDispatcher) { WavPcmParser.parse(sourceFile) }
         val info = (parsed as? WavParseResult.Valid)?.info
@@ -557,9 +605,21 @@ class CanonicalAudioCoordinator(
             sampleRateHz = info.sampleRateHz,
             channelCount = info.channelCount,
         )
+        progressRuntime.stage(
+            recordingId = source.recordingId,
+            phase = CanonicalGenerationPhase.PREPARING,
+            totalDurationUs = info.durationUs,
+        )
 
         if (info.isCanonical) {
             persistStage(source, CanonicalAudioStage.VERIFYING)
+            progressRuntime.stage(
+                recordingId = source.recordingId,
+                phase = CanonicalGenerationPhase.COMMITTING,
+                totalDurationUs = info.durationUs,
+                cancellable = false,
+            )
+            val roomCommitStarted = System.nanoTime()
             repository.updateCanonicalDerivation(
                 recordingId = source.recordingId,
                 sourceAssetId = source.sourceAssetId,
@@ -583,29 +643,45 @@ class CanonicalAudioCoordinator(
                     verifiedAtMs = nowMs(),
                 ),
             )
+            val roomCommitNanos = System.nanoTime() - roomCommitStarted
             cleanupPreviousCanonical(source, source.sourceRelativePath)
+            publishPerformance(
+                source = source,
+                timingContext = timingContext,
+                conversionTiming = null,
+                roomCommitNanos = roomCommitNanos,
+                durationUs = info.durationUs,
+            )
             return CanonicalGenerationOutcome.Ready
         }
 
         ensureCapacity(info.durationUs)
         val target = targetFile(source.recordingId, source.sourceSha256, PIPELINE_VERSION)
-        val result = withContext(ioDispatcher) {
-            PcmWavToCanonicalWavConverter().convert(
-                sourceFile = sourceFile,
-                targetFile = target,
-                expectedSourceSha256 = source.sourceSha256,
-                isCancelled = {
-                    cancellationToken.get() || callerJob?.isActive == false
-                },
-                onStage = { stage -> persistStageBlocking(source, stage) },
-            )
-        }
+        val result =
+            withContext(ioDispatcher) {
+                PcmWavToCanonicalWavConverter().convert(
+                    sourceFile = sourceFile,
+                    targetFile = target,
+                    expectedSourceSha256 = source.sourceSha256,
+                    verifiedSourceSha256 = source.sourceSha256,
+                    isCancelled = {
+                        cancellationToken.get() || callerJob?.isActive == false
+                    },
+                    onStage = { stage -> persistStageBlocking(source, stage) },
+                    onProgress = { work ->
+                        progressRuntime.work(source.recordingId, work)
+                    },
+                )
+            }
 
         return commitResult(
             source = source,
             target = target,
             sizeBytes = result.wav.sizeBytes,
             sha256 = result.wav.sha256,
+            conversionTiming = result.timing,
+            timingContext = timingContext,
+            sourceDurationUs = info.durationUs,
         )
     }
 
@@ -614,6 +690,9 @@ class CanonicalAudioCoordinator(
         target: File,
         sizeBytes: Long,
         sha256: String,
+        conversionTiming: CanonicalConversionTiming,
+        timingContext: GenerationTimingContext,
+        sourceDurationUs: Long,
     ): CanonicalGenerationOutcome {
         val parsed = withContext(ioDispatcher) { WavPcmParser.parse(target) }
         val info = (parsed as? WavParseResult.Valid)?.info
@@ -625,6 +704,13 @@ class CanonicalAudioCoordinator(
             )
         }
 
+        progressRuntime.stage(
+            recordingId = source.recordingId,
+            phase = CanonicalGenerationPhase.COMMITTING,
+            totalDurationUs = info.durationUs,
+            cancellable = false,
+        )
+        val roomCommitStarted = System.nanoTime()
         repository.updateCanonicalDerivation(
             recordingId = source.recordingId,
             sourceAssetId = source.sourceAssetId,
@@ -649,7 +735,15 @@ class CanonicalAudioCoordinator(
                 verifiedAtMs = nowMs(),
             ),
         )
+        val roomCommitNanos = System.nanoTime() - roomCommitStarted
         cleanupPreviousCanonical(source, relative)
+        publishPerformance(
+            source = source,
+            timingContext = timingContext,
+            conversionTiming = conversionTiming,
+            roomCommitNanos = roomCommitNanos,
+            durationUs = sourceDurationUs.takeIf { it > 0L } ?: info.durationUs,
+        )
         return CanonicalGenerationOutcome.Ready
     }
 
@@ -661,11 +755,12 @@ class CanonicalAudioCoordinator(
     ): CanonicalGenerationOutcome {
         terminalFailure(
             source = source,
-            state = if (recoverable) {
-                AudioDerivationState.FAILED_RECOVERABLE
-            } else {
-                AudioDerivationState.FAILED_PERMANENT
-            },
+            state =
+                if (recoverable) {
+                    AudioDerivationState.FAILED_RECOVERABLE
+                } else {
+                    AudioDerivationState.FAILED_PERMANENT
+                },
             code = code,
             detail = detail,
         )
@@ -703,27 +798,69 @@ class CanonicalAudioCoordinator(
         source: CanonicalConversionSource,
         stage: CanonicalAudioStage,
     ) {
+        progressRuntime.stage(
+            recordingId = source.recordingId,
+            phase =
+                when (stage) {
+                    CanonicalAudioStage.DECODING -> CanonicalGenerationPhase.DECODING
+                    CanonicalAudioStage.NORMALIZING -> CanonicalGenerationPhase.NORMALIZING
+                    CanonicalAudioStage.WRITING -> CanonicalGenerationPhase.WRITING
+                    CanonicalAudioStage.VERIFYING -> CanonicalGenerationPhase.VERIFYING
+                },
+            cancellable = stage != CanonicalAudioStage.VERIFYING,
+        )
         repository.updateCanonicalDerivation(
             recordingId = source.recordingId,
             sourceAssetId = source.sourceAssetId,
             sourceSha256 = source.sourceSha256,
             profileId = PROFILE_ID,
             pipelineVersion = PIPELINE_VERSION,
-            state = when (stage) {
-                CanonicalAudioStage.DECODING -> AudioDerivationState.DECODING
-                CanonicalAudioStage.NORMALIZING -> AudioDerivationState.NORMALIZING
-                CanonicalAudioStage.WRITING -> AudioDerivationState.WRITING
-                CanonicalAudioStage.VERIFYING -> AudioDerivationState.VERIFYING
-            },
+            state =
+                when (stage) {
+                    CanonicalAudioStage.DECODING -> AudioDerivationState.DECODING
+                    CanonicalAudioStage.NORMALIZING -> AudioDerivationState.NORMALIZING
+                    CanonicalAudioStage.WRITING -> AudioDerivationState.WRITING
+                    CanonicalAudioStage.VERIFYING -> AudioDerivationState.VERIFYING
+                },
         )
     }
 
+    private fun publishPerformance(
+        source: CanonicalConversionSource,
+        timingContext: GenerationTimingContext,
+        conversionTiming: CanonicalConversionTiming?,
+        roomCommitNanos: Long,
+        durationUs: Long,
+    ) {
+        performanceRuntime.publish(
+            CanonicalPerformanceSnapshot(
+                recordingId = source.recordingId,
+                sourceRole = source.sourceRole,
+                sourceContainer = source.sourceContainer,
+                sourceBytes = source.sourceSizeBytes,
+                sourceDurationUs = durationUs.takeIf { it > 0L },
+                sourceVerificationNanos = timingContext.sourceVerificationNanos,
+                conversion = conversionTiming,
+                roomCommitNanos = roomCommitNanos,
+                totalWallNanos = System.nanoTime() - timingContext.generationStartedNanos,
+                completedAtMs = nowMs(),
+            ),
+        )
+    }
+
+    private fun sourceDurationUs(source: CanonicalConversionSource): Long? =
+        (source.mediaDurationMs ?: source.deviceReportedDurationMs)
+            ?.coerceAtLeast(0L)
+            ?.times(1_000L)
+            ?.takeIf { it > 0L }
+
     private fun ensureCapacity(durationUs: Long) {
-        val outputBytes = (
-            durationUs.coerceAtLeast(0L) *
-                CanonicalPcmProfile.BYTES_PER_SECOND /
-                1_000_000L
-        ).coerceAtLeast(MINIMUM_OUTPUT_ESTIMATE_BYTES) + WAV_HEADER_BYTES
+        val outputBytes =
+            (
+                durationUs.coerceAtLeast(0L) *
+                    CanonicalPcmProfile.BYTES_PER_SECOND /
+                    1_000_000L
+            ).coerceAtLeast(MINIMUM_OUTPUT_ESTIMATE_BYTES) + WAV_HEADER_BYTES
         val margin = maxOf(MINIMUM_STORAGE_MARGIN_BYTES, outputBytes / 10L)
         val required = outputBytes + margin
         val available = canonicalDir.parentFile?.usableSpace ?: recordingsRoot.usableSpace
@@ -793,6 +930,11 @@ class CanonicalAudioCoordinator(
 
     private data class CanonicalInspection(
         val sha256: String,
+    )
+
+    private data class GenerationTimingContext(
+        val generationStartedNanos: Long,
+        val sourceVerificationNanos: Long,
     )
 
     private fun inspectCanonicalFile(file: File): CanonicalInspection? {
