@@ -1,7 +1,5 @@
 package io.github.ioannes78.voica
 
-import android.annotation.SuppressLint
-import android.bluetooth.BluetoothManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -32,121 +30,49 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
-import io.github.ioannes78.voica.audio.RealtimeCanonicalAudioSource
-import io.github.ioannes78.voica.audio.RealtimeCanonicalAudioSourceSnapshot
-import io.github.ioannes78.voica.audio.RealtimeCanonicalSessionEndReason
-import io.github.ioannes78.voica.ble.AndroidBleScanner
-import io.github.ioannes78.voica.ble.AndroidDeviceSession
-import io.github.ioannes78.voica.ble.BlePermissionPolicy
 import io.github.ioannes78.voica.ble.BleScanDevice
 import io.github.ioannes78.voica.ble.DeviceConnectionState
 import io.github.ioannes78.voica.ble.DeviceRepository
-import io.github.ioannes78.voica.ble.RealtimeAudioIngress
-import io.github.ioannes78.voica.ble.RealtimeAudioIngressSnapshot
-import io.github.ioannes78.voica.ble.RoutedNotification
-import io.github.ioannes78.voica.opus.NativeOpusBackend
-import io.github.ioannes78.voica.protocol.ProtocolConstants
-import io.github.ioannes78.voica.protocol.RealtimeProtocol
+import io.github.ioannes78.voica.ble.RealtimeControlCommand
 import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * Temporary Stage 15 true-device surface.
+ * Temporary Stage 15.6 true-device surface over the formal application-scoped realtime runtime.
  *
- * TYPE=1/CMD=1 audio reaches this probe through the production dedicated ingress, formal canonical
- * decoder/timeline pipeline, and Stage 15.5 bounded canonical consumer seam. The generic observer is
- * retained solely for low-rate TYPE=1 control responses. Final Freeze must remove this second
- * launcher or fold it into diagnostics.
+ * This Activity owns UI collectors only. BLE/GATT, reconnect, command fencing, Opus decode,
+ * canonical PCM/source and connectedDevice FGS ownership all remain in AppContainer runtimes.
  */
 class Stage15RealtimeProbeActivity : ComponentActivity() {
-    private data class QueuedProbeEvent(
-        val notification: RoutedNotification,
-        val receivedAtNanos: Long,
-    )
-
     private val probeJob = SupervisorJob()
     private val probeScope = CoroutineScope(probeJob + Dispatchers.Main.immediate)
-    private lateinit var scanner: AndroidBleScanner
-    private lateinit var session: AndroidDeviceSession
-    private lateinit var productRepository: DeviceRepository
-    private lateinit var canonicalPipeline: RealtimeCanonicalAudioPipeline
+    private lateinit var deviceRepository: DeviceRepository
+    private lateinit var realtimeRuntime: RealtimeAudioRuntime
 
     private val accumulator = Stage15RealtimeProbeAccumulator()
     private val canonicalAccumulator = Stage15CanonicalProbeAccumulator()
-    private val realtimeIngress = RealtimeAudioIngress()
-    private val canonicalSource = RealtimeCanonicalAudioSource()
-    private val mutableSnapshot = MutableStateFlow(Stage15ProbeSnapshot())
-    private val mutableIngressSnapshot = MutableStateFlow(RealtimeAudioIngressSnapshot())
-    private val mutablePipelineSnapshot = MutableStateFlow(RealtimeCanonicalAudioPipelineSnapshot())
-    private val mutableSourceSnapshot = MutableStateFlow(RealtimeCanonicalAudioSourceSnapshot())
+    private val mutableProbeSnapshot = MutableStateFlow(Stage15ProbeSnapshot())
+    private val mutableRuntimeSnapshot = MutableStateFlow(RealtimeAudioRuntimeSnapshot())
     private val mutableCanonicalSnapshot = MutableStateFlow(Stage15CanonicalProbeSnapshot())
     private val mutableAction = MutableStateFlow("等待连接")
-    private val probeQueue = Channel<QueuedProbeEvent>(capacity = 1_024)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        productRepository = (application as VoicaApplication).container.deviceRepository
-        productRepository.setForeground(false)
-        if (productRepository.connectionState.value.hasActiveTransport()) {
-            productRepository.disconnect()
-        }
-
-        scanner = AndroidBleScanner(applicationContext, probeScope)
-        session = AndroidDeviceSession(applicationContext, probeScope)
-        check(session.registerRealtimeAudioConsumer(realtimeIngress)) {
-            "Stage15 probe failed to register realtime ingress"
-        }
-
-        val backend = NativeOpusBackend()
-        canonicalPipeline = RealtimeCanonicalAudioPipeline(
-            ingress = realtimeIngress,
-            packetInspector = backend,
-            decoderFactory = backend,
-            onFrame = { frame -> canonicalSource.offer(frame) },
-        )
-
-        probeScope.launch {
-            session.notifications.collect { notification ->
-                if (notification.frame.type != ProtocolConstants.Type.REALTIME) return@collect
-                if (notification.frame.command == ProtocolConstants.Realtime.AUDIO_DATA) return@collect
-                val accepted = probeQueue.trySend(
-                    QueuedProbeEvent(
-                        notification = notification,
-                        receivedAtNanos = System.nanoTime(),
-                    ),
-                ).isSuccess
-                if (!accepted) accumulator.noteQueueOverflow()
-            }
-        }
-
-        probeScope.launch(Dispatchers.Default) {
-            for (queued in probeQueue) {
-                accumulator.accept(
-                    notification = queued.notification,
-                    receivedAtNanos = queued.receivedAtNanos,
-                    opusInfo = null,
-                    split40Facts = null,
-                )
-            }
-        }
-
-        probeScope.launch(Dispatchers.Default) {
-            canonicalPipeline.run()
-        }
+        val container = (application as VoicaApplication).container
+        deviceRepository = container.deviceRepository
+        realtimeRuntime = container.realtimeAudioRuntime
 
         probeScope.launch(Dispatchers.Default) {
             while (isActive) {
-                val event = canonicalSource.receive() ?: break
+                val event = realtimeRuntime.canonicalSource.receive() ?: break
                 canonicalAccumulator.accept(event)
             }
         }
@@ -161,135 +87,107 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 Stage15ProbeScreen(
-                    scanner = scanner,
-                    session = session,
-                    snapshot = mutableSnapshot,
-                    ingressSnapshot = mutableIngressSnapshot,
-                    pipelineSnapshot = mutablePipelineSnapshot,
-                    sourceSnapshot = mutableSourceSnapshot,
+                    repository = deviceRepository,
+                    probeSnapshot = mutableProbeSnapshot,
+                    runtimeSnapshot = mutableRuntimeSnapshot,
                     canonicalSnapshot = mutableCanonicalSnapshot,
                     action = mutableAction,
                     onConnect = ::connect,
-                    onDisconnect = session::disconnect,
-                    onStartRealtime = ::startRealtime,
-                    onPauseRealtime = { sendRealtime("PAUSE", RealtimeProtocol::buildPause) },
-                    onResumeRealtime = {
-                        canonicalPipeline.requestControlBoundary()
-                        sendRealtime("RESUME", RealtimeProtocol::buildResume)
-                    },
-                    onStopRealtime = { sendRealtime("STOP", RealtimeProtocol::buildStop) },
+                    onDisconnect = ::disconnect,
+                    onCommand = ::sendRealtime,
                     onReset = ::resetProbe,
                 )
             }
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        if (::deviceRepository.isInitialized) {
+            deviceRepository.setForeground(true)
+        }
+    }
+
+    override fun onStop() {
+        if (::deviceRepository.isInitialized) {
+            deviceRepository.setForeground(false)
+        }
+        super.onStop()
+    }
+
     override fun onDestroy() {
-        runCatching { scanner.stop() }
-        runCatching { canonicalPipeline.close() }
-        runCatching { canonicalSource.close() }
-        runCatching { session.close() }
-        runCatching { realtimeIngress.close() }
-        probeQueue.close()
         probeScope.cancel()
         super.onDestroy()
     }
 
-    @SuppressLint("MissingPermission")
     private fun connect(address: String) {
-        if (BlePermissionPolicy.missingPermissions(this).isNotEmpty()) {
+        if (deviceRepository.missingPermissions().isNotEmpty()) {
             mutableAction.value = "缺少蓝牙权限"
             return
         }
-        val manager = getSystemService(BluetoothManager::class.java)
-        val adapter = manager?.adapter
-        if (adapter == null) {
-            mutableAction.value = "Bluetooth adapter 不可用"
-            return
-        }
-        scanner.stop()
-        val device = runCatching { adapter.getRemoteDevice(address) }.getOrNull()
-        if (device == null) {
-            mutableAction.value = "无法取得设备 $address"
-            return
-        }
-        if (!session.registerRealtimeAudioConsumer(realtimeIngress)) {
-            mutableAction.value = "Realtime ingress 注册失败"
-            return
-        }
-        mutableAction.value = if (session.connect(device)) "正在连接 $address" else "连接请求未启动"
+        deviceRepository.stopScan()
+        deviceRepository.connect(address)
+        mutableAction.value = "正在连接 $address"
     }
 
-    private fun startRealtime() {
-        canonicalPipeline.beginRealtimeSession()
-        if (!session.registerRealtimeAudioConsumer(realtimeIngress)) {
-            mutableAction.value = "Realtime ingress 注册失败"
-            return
-        }
+    private fun disconnect() {
+        deviceRepository.disconnect()
+        mutableAction.value = "已请求断开连接"
         publishSnapshots()
-        sendRealtime("START", RealtimeProtocol::buildStart)
+    }
+
+    private fun sendRealtime(command: RealtimeControlCommand) {
+        probeScope.launch {
+            val requestedAtNanos = System.nanoTime()
+            if (command == RealtimeControlCommand.STOP) {
+                mutableAction.value = "STOP 已发起，等待 runtime canonical drain"
+            }
+            val outcome = when (command) {
+                RealtimeControlCommand.START -> realtimeRuntime.start()
+                RealtimeControlCommand.PAUSE -> realtimeRuntime.pause()
+                RealtimeControlCommand.RESUME -> realtimeRuntime.resume()
+                RealtimeControlCommand.STOP -> realtimeRuntime.stop()
+            }
+            val transport = outcome.transportResult
+            accumulator.noteTx(
+                label = command.name,
+                sequence = transport?.requestSequence ?: -1,
+                written = transport?.written == true,
+                atNanos = requestedAtNanos,
+            )
+            publishSnapshots()
+            mutableAction.value = buildString {
+                append(command.name)
+                append(" success=")
+                append(outcome.success)
+                transport?.requestSequence?.let {
+                    append(" seq=")
+                    append(it)
+                }
+                outcome.failure?.let {
+                    append(" failure=")
+                    append(it)
+                }
+                if (command == RealtimeControlCommand.STOP && outcome.success) {
+                    append(" phase=")
+                    append(realtimeRuntime.snapshot().phase)
+                }
+            }
+        }
     }
 
     private fun resetProbe() {
         accumulator.reset()
         canonicalAccumulator.reset()
-        realtimeIngress.reset()
-        canonicalPipeline.resetDiagnostics()
-        canonicalSource.resetDiagnostics()
-        canonicalPipeline.requestControlBoundary()
         publishSnapshots()
-        mutableAction.value = "统计已清空；后续 START/STOP 将在同一统计窗口累计"
+        mutableAction.value = "已清空 Probe 观察统计；正式 runtime/resource 计数保持进程级累计"
     }
 
     private fun publishSnapshots() {
-        mutableSnapshot.value = accumulator.snapshot()
-        mutableIngressSnapshot.value = realtimeIngress.snapshot()
-        mutablePipelineSnapshot.value = canonicalPipeline.snapshot()
-        mutableSourceSnapshot.value = canonicalSource.snapshot()
+        mutableProbeSnapshot.value = accumulator.snapshot()
+        mutableRuntimeSnapshot.value = realtimeRuntime.snapshot()
         mutableCanonicalSnapshot.value = canonicalAccumulator.snapshot()
     }
-
-    private fun sendRealtime(
-        label: String,
-        builder: (Int) -> ByteArray,
-    ) {
-        probeScope.launch {
-            val requestedAtNanos = System.nanoTime()
-            val result = session.sendFileTransferRequest(builder)
-            accumulator.noteTx(
-                label = label,
-                sequence = result.requestSequence,
-                written = result.written,
-                atNanos = requestedAtNanos,
-            )
-            publishSnapshots()
-
-            if (label == "STOP" && result.written) {
-                mutableAction.value = "STOP 已写入，等待 canonical 尾帧 drain"
-                val endResult = canonicalSource.endActiveSessionAfterQuiet(
-                    reason = RealtimeCanonicalSessionEndReason.STOP,
-                )
-                publishSnapshots()
-                mutableAction.value = "STOP seq=${result.requestSequence} written=true drain=$endResult"
-            } else {
-                mutableAction.value = "$label seq=${result.requestSequence} written=${result.written}"
-            }
-        }
-    }
-
-    private fun DeviceConnectionState.hasActiveTransport(): Boolean =
-        when (this) {
-            is DeviceConnectionState.Connecting,
-            is DeviceConnectionState.LinkConnected,
-            is DeviceConnectionState.DiscoveringServices,
-            is DeviceConnectionState.Subscribing,
-            is DeviceConnectionState.NegotiatingMtu,
-            is DeviceConnectionState.Ready,
-            is DeviceConnectionState.Disconnecting,
-            -> true
-
-            else -> false
-        }
 
     private companion object {
         const val SNAPSHOT_INTERVAL_MS = 500L
@@ -298,257 +196,279 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
 
 @Composable
 private fun Stage15ProbeScreen(
-    scanner: AndroidBleScanner,
-    session: AndroidDeviceSession,
-    snapshot: MutableStateFlow<Stage15ProbeSnapshot>,
-    ingressSnapshot: MutableStateFlow<RealtimeAudioIngressSnapshot>,
-    pipelineSnapshot: MutableStateFlow<RealtimeCanonicalAudioPipelineSnapshot>,
-    sourceSnapshot: MutableStateFlow<RealtimeCanonicalAudioSourceSnapshot>,
+    repository: DeviceRepository,
+    probeSnapshot: MutableStateFlow<Stage15ProbeSnapshot>,
+    runtimeSnapshot: MutableStateFlow<RealtimeAudioRuntimeSnapshot>,
     canonicalSnapshot: MutableStateFlow<Stage15CanonicalProbeSnapshot>,
     action: MutableStateFlow<String>,
     onConnect: (String) -> Unit,
     onDisconnect: () -> Unit,
-    onStartRealtime: () -> Unit,
-    onPauseRealtime: () -> Unit,
-    onResumeRealtime: () -> Unit,
-    onStopRealtime: () -> Unit,
+    onCommand: (RealtimeControlCommand) -> Unit,
     onReset: () -> Unit,
 ) {
-    val activity = androidx.compose.ui.platform.LocalContext.current
+    val clipboard = LocalClipboardManager.current
     var permissionEpoch by remember { mutableIntStateOf(0) }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) {
+        repository.onPermissionsChanged()
         permissionEpoch += 1
     }
-    val scan by scanner.state.collectAsState()
-    val connection by session.state.collectAsState()
-    val diagnostics by session.diagnostics.collectAsState()
-    val facts by snapshot.collectAsState()
-    val ingress by ingressSnapshot.collectAsState()
-    val pipeline by pipelineSnapshot.collectAsState()
-    val source by sourceSnapshot.collectAsState()
+    val scan by repository.scanState.collectAsState()
+    val connection by repository.connectionState.collectAsState()
+    val diagnostics by repository.diagnostics.collectAsState()
+    val facts by probeSnapshot.collectAsState()
+    val runtime by runtimeSnapshot.collectAsState()
     val canonical by canonicalSnapshot.collectAsState()
     val actionText by action.collectAsState()
-    val missingPermissions = remember(permissionEpoch) {
-        BlePermissionPolicy.missingPermissions(activity)
+    val fgs by DeviceSessionForegroundDiagnostics.state.collectAsState()
+    val missingPermissions = remember(permissionEpoch, connection) {
+        repository.missingPermissions()
     }
-    val observerOverflow = remember(diagnostics.logs) {
-        diagnostics.logs.count { it.contains("Notification observer overflow") }
+    val rendered = remember(facts, runtime, canonical, diagnostics, fgs) {
+        renderStage156Gate(
+            facts = facts,
+            runtime = runtime,
+            canonical = canonical,
+            gattSessionId = diagnostics.sessionId,
+            negotiatedMtu = diagnostics.negotiatedMtu,
+            fgs = fgs,
+        )
     }
-    val rendered = remember(
-        facts,
-        ingress,
-        pipeline,
-        source,
-        canonical,
-        diagnostics.notifications,
-        diagnostics.sessionId,
-        diagnostics.negotiatedMtu,
-        observerOverflow,
-    ) {
-        buildString {
-            appendLine("Stage 15.5 Realtime Canonical Consumer Fact Gate")
-            appendLine(
-                "control wallElapsedMs=${facts.wallElapsedMs ?: "--"} " +
-                    "deviceReportedFilename=${facts.deviceReportedFilename ?: "--"}",
-            )
-            appendLine("control timelineOffsetsMs=${facts.timelineOffsetsMs}")
-            appendLine("control tx=${facts.txEvents.joinToString()}")
-            appendLine("control nonAudioFrames:")
-            facts.nonAudioFrames.forEach { appendLine("  $it") }
-            appendLine("probeQueueOverflow=${facts.queueOverflowCount} genericObserverOverflow=$observerOverflow")
-            appendLine(
-                "formalIngress acceptedBlocks=${ingress.acceptedBlocks} acceptedBytes=${ingress.acceptedBytes} " +
-                    "queueBlocks=${ingress.queueBlocks} queueBytes=${ingress.queueBytes} " +
-                    "peakBlocks=${ingress.peakQueueBlocks} peakBytes=${ingress.peakQueueBytes}",
-            )
-            appendLine(
-                "formalIngress overflowEvents=${ingress.overflowEvents} malformedBlocks=${ingress.malformedBlocks} " +
-                    "droppedBlocks=${ingress.droppedBlocks} droppedBytes=${ingress.droppedBytes} " +
-                    "continuityId=${ingress.continuityId}",
-            )
-            appendLine(
-                "canonicalPipeline workerRunning=${pipeline.running} sessions=${pipeline.sessionCount} epochs=${pipeline.epochCount} " +
-                    "blocks=${pipeline.receivedBlocks} opusPackets=${pipeline.packetizedPackets}",
-            )
-            appendLine(
-                "canonicalPipeline invalidOpus=${pipeline.invalidOpusPackets} shapeAnomalies=${pipeline.opusShapeAnomalies} " +
-                    "decodeSuccess=${pipeline.decodeSuccess} decodeFailures=${pipeline.decodeFailures} " +
-                    "zeroSampleFailures=${pipeline.zeroSampleDecodeFailures}",
-            )
-            appendLine(
-                "canonicalPipeline decodedSampleHistogram=${pipeline.decodedSampleHistogram.toSortedMap()} " +
-                    "unexpectedDecodedSampleCount=${pipeline.unexpectedDecodedSampleCount}",
-            )
-            appendLine(
-                "canonicalPipeline canonicalFrames=${pipeline.canonicalFrames} canonicalSamples=${pipeline.canonicalSamples} " +
-                    "canonicalDurationMs=${format3(pipeline.canonicalDurationMs)}",
-            )
-            appendLine(
-                "canonicalPipeline discontinuities=${pipeline.discontinuityCount} transportBoundaries=${pipeline.transportBoundaryCount} " +
-                    "controlBoundaries=${pipeline.controlBoundaryCount} decoderRecoveryBoundaries=${pipeline.decoderRecoveryBoundaryCount}",
-            )
-            appendLine(
-                "canonicalPipeline decoderResets=${pipeline.decoderResetCount} decoderRecreates=${pipeline.decoderRecreateCount} " +
-                    "decoderCreateFailures=${pipeline.decoderCreateFailures} observerFailures=${pipeline.frameObserverFailures}",
-            )
-            appendLine(
-                "canonicalPipeline lastSession=${pipeline.activeSessionId ?: "--"} lastEpoch=${pipeline.activeEpochId ?: "--"} " +
-                    "nextSampleIndex=${pipeline.nextSampleIndex} maxBlockProcessingMs=${format3(pipeline.maxBlockProcessingMs)} " +
-                    "maxArrivalToEmitLagMs=${format3(pipeline.maxArrivalToEmitLagMs)} lastError=${pipeline.lastError ?: "--"}",
-            )
-            appendLine(
-                "canonicalSource sessionActive=${source.sessionActive} activeSession=${source.activeSessionId ?: "--"} " +
-                    "activeEpoch=${source.activeEpochId ?: "--"} queueFrames=${source.queuedPcmFrames} " +
-                    "queueSamples=${source.queuedPcmSamples} peakFrames=${source.peakQueuedPcmFrames} " +
-                    "peakSamples=${source.peakQueuedPcmSamples}",
-            )
-            appendLine(
-                "canonicalSource offeredFrames=${source.offeredFrames} offeredSamples=${source.offeredSamples} " +
-                    "sessionStarted=${source.sessionStartedEvents} epochStarted=${source.epochStartedEvents} " +
-                    "sessionEnded=${source.sessionEndedEvents} consumerDiscontinuities=${source.consumerDiscontinuities}",
-            )
-            appendLine(
-                "canonicalSource overflowEvents=${source.overflowEvents} droppedFrames=${source.droppedFrames} " +
-                    "droppedSamples=${source.droppedSamples} rejectedAfterClose=${source.rejectedAfterClose} " +
-                    "lastEndReason=${source.lastSessionEndReason ?: "--"} drainTimedOut=${source.lastSessionEndDrainTimedOut}",
-            )
-            appendLine(
-                "canonicalProbe frames=${canonical.frames} samples=${canonical.samples} sessionsSeen=${canonical.sessionsSeen} " +
-                    "epochsSeen=${canonical.epochsSeen} sessionStartedEvents=${canonical.sessionStartedEvents} " +
-                    "epochStartedEvents=${canonical.epochStartedEvents} sessionEndedEvents=${canonical.sessionEndedEvents}",
-            )
-            appendLine(
-                "canonicalProbe consumerDiscontinuities=${canonical.consumerDiscontinuities} drainTimeoutEnds=${canonical.drainTimeoutEnds} " +
-                    "sessionEndMismatchCount=${canonical.sessionEndMismatchCount} gapCount=${canonical.gapCount} " +
-                    "overlapCount=${canonical.overlapCount} invalidEpochStartCount=${canonical.invalidEpochStartCount}",
-            )
-            appendLine(
-                "canonicalProbe lastSession=${canonical.lastSessionId ?: "--"} lastEpoch=${canonical.lastEpochId ?: "--"} " +
-                    "lastEndSampleIndex=${canonical.lastEndSampleIndexExclusive} " +
-                    "lastEndReason=${canonical.lastSessionEndReason ?: "--"}",
-            )
-            appendLine(
-                "router publishedSnapshot(batched64) AE22=${diagnostics.notifications.ae22Frames} " +
-                    "AE23=${diagnostics.notifications.ae23Frames}",
-            )
-            appendLine(
-                "router CRC AE22=${diagnostics.notifications.ae22CrcErrors} " +
-                    "AE23=${diagnostics.notifications.ae23CrcErrors}",
-            )
-            appendLine("gattSession=${diagnostics.sessionId} mtu=${diagnostics.negotiatedMtu}")
-        }
-    }
-    val clipboard = LocalClipboardManager.current
-    val ready = connection is DeviceConnectionState.Ready
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Text("Voica Stage 15.5 Canonical Consumer Probe", style = MaterialTheme.typography.headlineSmall)
-            Text(
-                "build=${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
-                style = MaterialTheme.typography.labelMedium,
-            )
-            Text(
-                "CMD=1 → dedicated ingress → 4×40B Opus → canonical PCM → bounded consumer seam。" +
-                    "PCM queue 上限 32 帧 / 10240 samples；STOP 成功写入后等待 250ms canonical quiet，再发 SessionEnded。" +
-                    "START 不自动清空统计；需要新的统计窗口时请手动点击“清空统计”。" +
-                    "workerRunning 仅表示 decoder worker 存活，sessionActive 才表示下游 session 生命周期。",
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text("连接")
-                    Text("state=$connection")
-                    Text("action=$actionText")
-                    if (missingPermissions.isNotEmpty()) {
-                        Button(
-                            onClick = { permissionLauncher.launch(missingPermissions.toTypedArray()) },
-                        ) {
-                            Text("授予蓝牙权限")
-                        }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            enabled = missingPermissions.isEmpty(),
-                            onClick = scanner::start,
-                        ) {
-                            Text(if (scan.isScanning) "扫描中" else "扫描设备")
-                        }
-                        OutlinedButton(onClick = onDisconnect) { Text("断开") }
-                    }
-                    if (scan.error != null) Text("scanError=${scan.error}")
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Voica Stage 15.6 Runtime Probe", style = MaterialTheme.typography.headlineSmall)
+                Text("连接：${connectionLabel(connection)}")
+                Text("操作：$actionText")
+                if (scan.error != null) {
+                    Text("扫描错误：${scan.error?.code} ${scan.error?.detail.orEmpty()}")
                 }
             }
         }
 
-        if (scan.devices.isNotEmpty()) {
-            item { Text("发现设备", style = MaterialTheme.typography.titleMedium) }
-            items(scan.devices, key = BleScanDevice::address) { device ->
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(device.name ?: "未命名设备")
-                            Text("${device.address}  RSSI=${device.rssi}  AE20=${device.advertisesAe20}")
-                        }
-                        Button(onClick = { onConnect(device.address) }) { Text("连接") }
-                    }
+        if (missingPermissions.isNotEmpty()) {
+            item {
+                Button(onClick = { permissionLauncher.launch(missingPermissions.toTypedArray()) }) {
+                    Text("授权蓝牙权限")
+                }
+            }
+        }
+
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        if (scan.isScanning) repository.stopScan() else repository.startScan()
+                    },
+                ) {
+                    Text(if (scan.isScanning) "停止扫描" else "扫描设备")
+                }
+                OutlinedButton(onClick = onDisconnect) {
+                    Text("断开连接")
+                }
+            }
+        }
+
+        items(scan.devices, key = BleScanDevice::address) { device ->
+            DeviceRow(device = device, onConnect = onConnect)
+        }
+
+        item { HorizontalDivider() }
+
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { onCommand(RealtimeControlCommand.START) }) { Text("START") }
+                Button(onClick = { onCommand(RealtimeControlCommand.PAUSE) }) { Text("PAUSE") }
+            }
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { onCommand(RealtimeControlCommand.RESUME) }) { Text("RESUME") }
+                Button(onClick = { onCommand(RealtimeControlCommand.STOP) }) { Text("STOP") }
+            }
+        }
+
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onReset) { Text("重置观察统计") }
+                OutlinedButton(onClick = { clipboard.setText(AnnotatedString(rendered)) }) {
+                    Text("复制 Gate")
                 }
             }
         }
 
         item {
             Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
+                Text(
+                    text = rendered,
                     modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text("TYPE=1 控制", style = MaterialTheme.typography.titleMedium)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(enabled = ready, onClick = onStartRealtime) { Text("开始") }
-                        Button(enabled = ready, onClick = onPauseRealtime) { Text("暂停") }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(enabled = ready, onClick = onResumeRealtime) { Text("继续") }
-                        Button(enabled = ready, onClick = onStopRealtime) { Text("停止") }
-                    }
-                    OutlinedButton(onClick = onReset) { Text("清空统计") }
-                }
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
-        }
-
-        item {
-            HorizontalDivider()
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text("Fact Gate 结果", style = MaterialTheme.typography.titleMedium)
-                OutlinedButton(
-                    onClick = { clipboard.setText(AnnotatedString(rendered)) },
-                ) {
-                    Text("复制")
-                }
-            }
-            Text(rendered, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
+
+@Composable
+private fun DeviceRow(
+    device: BleScanDevice,
+    onConnect: (String) -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(device.name ?: "未命名设备")
+                Text("${device.address} · RSSI ${device.rssi} · QS668=${device.likelyQs668}")
+            }
+            Button(onClick = { onConnect(device.address) }) { Text("连接") }
+        }
+    }
+}
+
+private fun renderStage156Gate(
+    facts: Stage15ProbeSnapshot,
+    runtime: RealtimeAudioRuntimeSnapshot,
+    canonical: Stage15CanonicalProbeSnapshot,
+    gattSessionId: Long,
+    negotiatedMtu: Int?,
+    fgs: DeviceSessionForegroundSnapshot,
+): String = buildString {
+    val command = runtime.command
+    val fence = runtime.fence
+    val ingress = runtime.ingress
+    val pipeline = runtime.pipeline
+    val source = runtime.source
+    val logicalSessionId = source.activeSessionId ?: canonical.lastSessionId
+
+    appendLine("Stage 15.6 Application Realtime Runtime Fact Gate")
+    appendLine(
+        "runtime phase=${runtime.phase} transportGeneration=${runtime.transportGeneration ?: "--"} " +
+            "logicalSessionId=${logicalSessionId ?: "--"} closed=${runtime.closed}",
+    )
+    appendLine(
+        "runtime owners create=${runtime.transportRuntimeCreates} release=${runtime.transportRuntimeReleases} " +
+            "transportClose=${runtime.transportCloseCount} closeWhileActive=${runtime.transportCloseWhileActiveCount}",
+    )
+    appendLine(
+        "runtime decoderCreate=${runtime.decoderCreateCount} decoderRelease=${runtime.decoderReleaseCount} " +
+            "decoderBalance=${runtime.decoderCreateCount - runtime.decoderReleaseCount}",
+    )
+    appendLine(
+        "command last=${command.lastCommand ?: "--"} failure=${command.lastFailure ?: "--"} " +
+            "start=${command.startSuccess}/${command.startFailure} " +
+            "pause=${command.pauseSuccess}/${command.pauseFailure} " +
+            "resume=${command.resumeSuccess}/${command.resumeFailure} " +
+            "stop=${command.stopSuccess}/${command.stopFailure}",
+    )
+    appendLine(
+        "command ambiguity=${command.commandAmbiguityCount} staleCompletion=${command.staleCommandCompletionCount} " +
+            "controllerGeneration=${command.transportGeneration ?: "--"}",
+    )
+    appendLine(
+        "fence gateOpen=${fence.audioGateOpen} active=${fence.activeCommand ?: "--"} " +
+            "generation=${fence.activeGeneration ?: "--"} quarantine=${fence.quarantinedGeneration ?: "--"} " +
+            "buffer=${fence.bufferedFrames}/${fence.bufferedBytes} peak=${fence.peakBufferedFrames}/${fence.peakBufferedBytes}",
+    )
+    appendLine(
+        "fence prepared=${fence.preparedCount} committed=${fence.committedCount} aborted=${fence.abortedCount} " +
+            "ambiguous=${fence.ambiguousCount} overflow=${fence.overflowCount} staleOffer=${fence.staleOfferCount} " +
+            "quarantineReject=${fence.quarantinedRejectCount} gatedReject=${fence.gatedRejectCount}",
+    )
+    appendLine("control tx=${facts.txEvents.joinToString()}")
+    appendLine("control timelineOffsetsMs=${facts.timelineOffsetsMs}")
+    appendLine(
+        "formalIngress generation=${ingress.activeSessionGeneration ?: "--"} acceptedBlocks=${ingress.acceptedBlocks} " +
+            "acceptedBytes=${ingress.acceptedBytes} queueBlocks=${ingress.queueBlocks} queueBytes=${ingress.queueBytes} " +
+            "peakBlocks=${ingress.peakQueueBlocks} peakBytes=${ingress.peakQueueBytes}",
+    )
+    appendLine(
+        "formalIngress overflow=${ingress.overflowEvents} malformed=${ingress.malformedBlocks} " +
+            "generationTransitions=${ingress.generationTransitions} closures=${ingress.sessionClosures} " +
+            "droppedBlocks=${ingress.droppedBlocks} droppedBytes=${ingress.droppedBytes}",
+    )
+    appendLine(
+        "canonicalPipeline workerRunning=${pipeline.running} sessions=${pipeline.sessionCount} epochs=${pipeline.epochCount} " +
+            "blocks=${pipeline.receivedBlocks} opusPackets=${pipeline.packetizedPackets}",
+    )
+    appendLine(
+        "canonicalPipeline decodeSuccess=${pipeline.decodeSuccess} decodeFailures=${pipeline.decodeFailures} " +
+            "invalidOpus=${pipeline.invalidOpusPackets} shapeAnomalies=${pipeline.opusShapeAnomalies} " +
+            "zeroSampleFailures=${pipeline.zeroSampleDecodeFailures}",
+    )
+    appendLine(
+        "canonicalPipeline canonicalFrames=${pipeline.canonicalFrames} canonicalSamples=${pipeline.canonicalSamples} " +
+            "durationMs=${format3(pipeline.canonicalDurationMs)} nextSampleIndex=${pipeline.nextSampleIndex}",
+    )
+    appendLine(
+        "canonicalPipeline boundaries transport=${pipeline.transportBoundaryCount} control=${pipeline.controlBoundaryCount} " +
+            "recovery=${pipeline.decoderRecoveryBoundaryCount} discontinuities=${pipeline.discontinuityCount} " +
+            "decoderResets=${pipeline.decoderResetCount} decoderRecreates=${pipeline.decoderRecreateCount}",
+    )
+    appendLine(
+        "canonicalPipeline maxBlockMs=${format3(pipeline.maxBlockProcessingMs)} " +
+            "maxArrivalToEmitLagMs=${format3(pipeline.maxArrivalToEmitLagMs)} lastError=${pipeline.lastError ?: "--"}",
+    )
+    appendLine(
+        "canonicalSource sessionActive=${source.sessionActive} activeSession=${source.activeSessionId ?: "--"} " +
+            "activeEpoch=${source.activeEpochId ?: "--"} queueFrames=${source.queuedPcmFrames} " +
+            "queueSamples=${source.queuedPcmSamples} peakFrames=${source.peakQueuedPcmFrames} peakSamples=${source.peakQueuedPcmSamples}",
+    )
+    appendLine(
+        "canonicalSource offeredFrames=${source.offeredFrames} offeredSamples=${source.offeredSamples} " +
+            "sessionStarted=${source.sessionStartedEvents} epochStarted=${source.epochStartedEvents} " +
+            "sessionEnded=${source.sessionEndedEvents} consumerDiscontinuities=${source.consumerDiscontinuities}",
+    )
+    appendLine(
+        "canonicalSource overflow=${source.overflowEvents} droppedFrames=${source.droppedFrames} droppedSamples=${source.droppedSamples} " +
+            "lastEndReason=${source.lastSessionEndReason ?: "--"} drainTimedOut=${source.lastSessionEndDrainTimedOut}",
+    )
+    appendLine(
+        "canonicalProbe frames=${canonical.frames} samples=${canonical.samples} sessionsSeen=${canonical.sessionsSeen} " +
+            "epochsSeen=${canonical.epochsSeen} started=${canonical.sessionStartedEvents} epochStarted=${canonical.epochStartedEvents} " +
+            "ended=${canonical.sessionEndedEvents}",
+    )
+    appendLine(
+        "canonicalProbe discontinuities=${canonical.consumerDiscontinuities} drainTimeoutEnds=${canonical.drainTimeoutEnds} " +
+            "endMismatch=${canonical.sessionEndMismatchCount} gap=${canonical.gapCount} overlap=${canonical.overlapCount} " +
+            "invalidEpochStart=${canonical.invalidEpochStartCount}",
+    )
+    appendLine(
+        "canonicalProbe lastSession=${canonical.lastSessionId ?: "--"} lastEpoch=${canonical.lastEpochId ?: "--"} " +
+            "lastEndSampleIndex=${canonical.lastEndSampleIndexExclusive} lastEndReason=${canonical.lastSessionEndReason ?: "--"}",
+    )
+    appendLine(
+        "connectedDeviceFGS generation=${fgs.generation} phase=${fgs.phase} " +
+            "label=${fgs.label ?: "--"} failure=${fgs.failureClass ?: "--"}:${fgs.failureMessage ?: "--"}",
+    )
+    appendLine("gattSession=$gattSessionId mtu=${negotiatedMtu ?: "--"}")
+}
+
+private fun connectionLabel(state: DeviceConnectionState): String =
+    when (state) {
+        DeviceConnectionState.Unavailable -> "Unavailable"
+        is DeviceConnectionState.PermissionRequired -> "PermissionRequired ${state.permissions}"
+        DeviceConnectionState.BluetoothOff -> "BluetoothOff"
+        DeviceConnectionState.Idle -> "Idle"
+        DeviceConnectionState.Scanning -> "Scanning"
+        is DeviceConnectionState.Connecting -> "Connecting ${state.address}"
+        is DeviceConnectionState.LinkConnected -> "LinkConnected ${state.address}"
+        is DeviceConnectionState.DiscoveringServices -> "DiscoveringServices ${state.address}"
+        is DeviceConnectionState.Subscribing -> "Subscribing ${state.address} ${state.source}"
+        is DeviceConnectionState.NegotiatingMtu -> "NegotiatingMtu ${state.address} ${state.requestedMtu}"
+        is DeviceConnectionState.Ready -> "Ready ${state.address} mtu=${state.negotiatedMtu}"
+        is DeviceConnectionState.Disconnecting -> "Disconnecting ${state.address ?: "--"}"
+        is DeviceConnectionState.Disconnected -> "Disconnected ${state.reason} ${state.address ?: "--"}"
+        is DeviceConnectionState.ReconnectWaiting -> "ReconnectWaiting attempt=${state.attempt} ${state.delayMs}ms"
+        is DeviceConnectionState.Error -> "Error ${state.error.code} ${state.error.detail.orEmpty()}"
+    }
 
 private fun format3(value: Double): String = String.format(Locale.US, "%.3f", value)
