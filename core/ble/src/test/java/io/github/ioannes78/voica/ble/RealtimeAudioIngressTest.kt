@@ -54,6 +54,42 @@ class RealtimeAudioIngressTest {
     }
 
     @Test
+    fun defaultCapacityAccepts32BlocksAnd33rdRecoversAtLiveEdge() {
+        val ingress = RealtimeAudioIngress()
+
+        repeat(RealtimeAudioIngress.DEFAULT_MAX_BLOCKS) { index ->
+            assertEquals(
+                RealtimeAudioOfferResult.ACCEPTED,
+                ingress.offer(audio(fill = index), 1L, index.toLong()),
+            )
+        }
+
+        var snapshot = ingress.snapshot()
+        assertEquals(0L, snapshot.overflowEvents)
+        assertEquals(RealtimeAudioIngress.DEFAULT_MAX_BLOCKS, snapshot.queueBlocks)
+        assertEquals(RealtimeAudioIngress.DEFAULT_MAX_ENCODED_BYTES, snapshot.queueBytes)
+        assertEquals(RealtimeAudioIngress.DEFAULT_MAX_BLOCKS, snapshot.peakQueueBlocks)
+        assertEquals(RealtimeAudioIngress.DEFAULT_MAX_ENCODED_BYTES, snapshot.peakQueueBytes)
+
+        val overflowResult = ingress.offer(audio(fill = 99), 1L, 99L)
+        assertEquals(RealtimeAudioOfferResult.ACCEPTED_AFTER_DISCONTINUITY, overflowResult)
+
+        snapshot = ingress.snapshot()
+        assertEquals(1L, snapshot.overflowEvents)
+        assertEquals(RealtimeAudioIngress.DEFAULT_MAX_BLOCKS.toLong(), snapshot.droppedBlocks)
+        assertEquals(RealtimeAudioIngress.DEFAULT_MAX_ENCODED_BYTES.toLong(), snapshot.droppedBytes)
+        assertEquals(1, snapshot.queueBlocks)
+        assertEquals(RealtimeAudioIngress.REALTIME_BLOCK_BYTES, snapshot.queueBytes)
+        assertEquals(1L, snapshot.continuityId)
+
+        val live = ingress.poll() ?: error("missing live-edge block")
+        assertTrue(live.discontinuityBefore)
+        assertEquals(1L, live.continuityId)
+        assertEquals(99.toByte(), live.encodedBytes.first())
+        assertNull(ingress.poll())
+    }
+
+    @Test
     fun overflowDropsStaleBacklogAndAcceptsLiveEdgeWithDiscontinuity() {
         val ingress = RealtimeAudioIngress(maxBlocks = 3, maxEncodedBytes = 640)
         repeat(3) { index ->
