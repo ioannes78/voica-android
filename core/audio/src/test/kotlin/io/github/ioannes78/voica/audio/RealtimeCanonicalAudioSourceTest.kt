@@ -71,7 +71,8 @@ class RealtimeCanonicalAudioSourceTest {
         assertEquals(2L, snapshot.droppedFrames)
         assertEquals(640L, snapshot.droppedSamples)
         assertEquals(1L, snapshot.consumerDiscontinuities)
-        assertEquals(1, snapshot.queuedPcmFrames)
+        assertEquals(0, snapshot.queuedPcmFrames)
+        assertEquals(2, snapshot.peakQueuedPcmFrames)
     }
 
     @Test
