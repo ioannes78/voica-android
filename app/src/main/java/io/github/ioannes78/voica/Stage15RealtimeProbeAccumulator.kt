@@ -6,6 +6,18 @@ import io.github.ioannes78.voica.ble.RoutedNotification
 import io.github.ioannes78.voica.protocol.ProtocolConstants
 import java.util.Locale
 
+internal data class Stage15Split40PacketFact(
+    val slot: Int,
+    val opusInfo: OpusPacketInfo,
+    val decodedSamples16k: Int? = null,
+    val decodeErrorCode: Int? = null,
+)
+
+internal data class Stage15Split40Facts(
+    val eligible160ByteBody: Boolean,
+    val packets: List<Stage15Split40PacketFact> = emptyList(),
+)
+
 internal data class Stage15ProbeSnapshot(
     val realtimeFrames: Long = 0,
     val audioPackets: Long = 0,
@@ -34,9 +46,28 @@ internal data class Stage15ProbeSnapshot(
     val queueOverflowCount: Long = 0,
     val nonAudioFrames: List<String> = emptyList(),
     val txEvents: List<String> = emptyList(),
+    val split40EligibleBodies: Long = 0,
+    val split40RejectedBodies: Long = 0,
+    val split40PacketCount: Long = 0,
+    val split40Valid: Long = 0,
+    val split40Invalid: Long = 0,
+    val split40DecodeSuccess: Long = 0,
+    val split40DecodeFailure: Long = 0,
+    val split40DecodeErrorCounts: Map<Int, Long> = emptyMap(),
+    val split40SlotValidCounts: Map<Int, Long> = emptyMap(),
+    val split40SlotInvalidCounts: Map<Int, Long> = emptyMap(),
+    val split40SlotChannelCounts: Map<Int, Map<Int, Long>> = emptyMap(),
+    val split40SlotSamples48kCounts: Map<Int, Map<Int, Long>> = emptyMap(),
+    val split40SlotDurationMsCounts: Map<Int, Map<Int, Long>> = emptyMap(),
+    val split40SlotDecodedSamples16kCounts: Map<Int, Map<Int, Long>> = emptyMap(),
+    val split40MediaDurationMs: Double = 0.0,
+    val split40DecodedDurationMs: Double = 0.0,
+    val split40MediaWallRatio: Double = 0.0,
+    val split40MediaArrivalSpanRatio: Double = 0.0,
+    val audioArrivalSpanMs: Double = 0.0,
 ) {
     fun render(observerOverflowCount: Int = 0): String = buildString {
-        appendLine("Stage 15.0B Realtime Cadence Fact Gate")
+        appendLine("Stage 15.0C Realtime Packet Boundary Fact Gate")
         appendLine("realtimeFrames=$realtimeFrames audioPackets=$audioPackets audioBytes=$audioBytes")
         appendLine("source AE22=$ae22Frames AE23=$ae23Frames")
         appendLine("commands=${commandCounts.toSortedMap()}")
@@ -44,24 +75,55 @@ internal data class Stage15ProbeSnapshot(
         appendLine("protocolSeqHistogram=${protocolSequenceHistogram.toSortedMap()}")
         appendLine("probeQueueOverflow=$queueOverflowCount genericObserverOverflow=$observerOverflowCount")
         appendLine(
-            "wallElapsedMs=${wallElapsedMs ?: "--"} mediaDurationMs=${format(mediaDurationMs)} " +
-                "mediaWallRatio=${format(mediaWallRatio)} rate=${format(packetsPerSecond)} packets/s",
+            "wallElapsedMs=${wallElapsedMs ?: "--"} full160MediaDurationMs=${format(mediaDurationMs)} " +
+                "full160MediaWallRatio=${format(mediaWallRatio)} bodyRate=${format(packetsPerSecond)} bodies/s",
         )
         appendLine("arrivalGapHistogram=$arrivalGapHistogram maxArrivalGapMs=${format(maxArrivalGapMs)}")
         appendLine("phasePackets=$phasePacketCounts")
         appendLine("deviceReportedFilename=${deviceReportedFilename ?: "--"}")
         appendLine("sessionStartMonotonicMs=${sessionStartMonotonicMs ?: "--"}")
         appendLine("timelineOffsetsMs=$timelineOffsetsMs")
-        appendLine("opus valid=$opusValid invalid=$opusInvalid errors=${opusErrorCounts.toSortedMap()}")
-        appendLine("opus channels=${opusChannelCounts.toSortedMap()}")
-        appendLine("opus totalSamples48k=${opusTotalSamples48k.toSortedMap()}")
-        appendLine("opus durationMs=${opusPacketDurationMs.toSortedMap()}")
+        appendLine("full160 opus valid=$opusValid invalid=$opusInvalid errors=${opusErrorCounts.toSortedMap()}")
+        appendLine("full160 opus channels=${opusChannelCounts.toSortedMap()}")
+        appendLine("full160 opus totalSamples48k=${opusTotalSamples48k.toSortedMap()}")
+        appendLine("full160 opus durationMs=${opusPacketDurationMs.toSortedMap()}")
+        appendLine(
+            "split40 eligibleBodies=$split40EligibleBodies rejectedBodies=$split40RejectedBodies " +
+                "packets=$split40PacketCount valid=$split40Valid invalid=$split40Invalid",
+        )
+        appendLine(
+            "split40 decodeSuccess=$split40DecodeSuccess decodeFailure=$split40DecodeFailure " +
+                "decodeErrors=${split40DecodeErrorCounts.toSortedMap()}",
+        )
+        appendLine(
+            "split40 mediaDurationMs=${format(split40MediaDurationMs)} " +
+                "decodedDurationMs=${format(split40DecodedDurationMs)} " +
+                "audioArrivalSpanMs=${format(audioArrivalSpanMs)}",
+        )
+        appendLine(
+            "split40 mediaWallRatio=${format(split40MediaWallRatio)} " +
+                "mediaArrivalSpanRatio=${format(split40MediaArrivalSpanRatio)}",
+        )
+        for (slot in 0 until SPLIT_PACKET_COUNT) {
+            appendLine(
+                "split40 slot$slot valid=${split40SlotValidCounts[slot] ?: 0L} " +
+                    "invalid=${split40SlotInvalidCounts[slot] ?: 0L} " +
+                    "channels=${split40SlotChannelCounts[slot].orEmpty().toSortedMap()} " +
+                    "samples48k=${split40SlotSamples48kCounts[slot].orEmpty().toSortedMap()} " +
+                    "durationMs=${split40SlotDurationMsCounts[slot].orEmpty().toSortedMap()} " +
+                    "decodedSamples16k=${split40SlotDecodedSamples16kCounts[slot].orEmpty().toSortedMap()}",
+            )
+        }
         appendLine("tx=${txEvents.joinToString()}")
         appendLine("nonAudioFrames:")
         nonAudioFrames.forEach { appendLine("  $it") }
     }
 
     private fun format(value: Double): String = String.format(Locale.US, "%.3f", value)
+
+    private companion object {
+        const val SPLIT_PACKET_COUNT = 4
+    }
 }
 
 internal class Stage15RealtimeProbeAccumulator(
@@ -117,6 +179,23 @@ internal class Stage15RealtimeProbeAccumulator(
     private val nonAudioFrames = ArrayDeque<String>()
     private val txEvents = ArrayDeque<String>()
 
+    private var split40EligibleBodies = 0L
+    private var split40RejectedBodies = 0L
+    private var split40PacketCount = 0L
+    private var split40Valid = 0L
+    private var split40Invalid = 0L
+    private var split40DecodeSuccess = 0L
+    private var split40DecodeFailure = 0L
+    private val split40DecodeErrorCounts = linkedMapOf<Int, Long>()
+    private val split40SlotValidCounts = linkedMapOf<Int, Long>()
+    private val split40SlotInvalidCounts = linkedMapOf<Int, Long>()
+    private val split40SlotChannelCounts = linkedMapOf<Int, MutableMap<Int, Long>>()
+    private val split40SlotSamples48kCounts = linkedMapOf<Int, MutableMap<Int, Long>>()
+    private val split40SlotDurationMsCounts = linkedMapOf<Int, MutableMap<Int, Long>>()
+    private val split40SlotDecodedSamples16kCounts = linkedMapOf<Int, MutableMap<Int, Long>>()
+    private var split40Samples48k = 0L
+    private var split40DecodedSamples16k = 0L
+
     fun reset() = synchronized(lock) {
         realtimeFrames = 0
         audioPackets = 0
@@ -150,6 +229,22 @@ internal class Stage15RealtimeProbeAccumulator(
         deviceReportedFilename = null
         nonAudioFrames.clear()
         txEvents.clear()
+        split40EligibleBodies = 0
+        split40RejectedBodies = 0
+        split40PacketCount = 0
+        split40Valid = 0
+        split40Invalid = 0
+        split40DecodeSuccess = 0
+        split40DecodeFailure = 0
+        split40DecodeErrorCounts.clear()
+        split40SlotValidCounts.clear()
+        split40SlotInvalidCounts.clear()
+        split40SlotChannelCounts.clear()
+        split40SlotSamples48kCounts.clear()
+        split40SlotDurationMsCounts.clear()
+        split40SlotDecodedSamples16kCounts.clear()
+        split40Samples48k = 0
+        split40DecodedSamples16k = 0
     }
 
     fun noteQueueOverflow() = synchronized(lock) {
@@ -181,6 +276,7 @@ internal class Stage15RealtimeProbeAccumulator(
         notification: RoutedNotification,
         receivedAtNanos: Long,
         opusInfo: OpusPacketInfo?,
+        split40Facts: Stage15Split40Facts? = null,
     ) = synchronized(lock) {
         val frame = notification.frame
         if (frame.type != ProtocolConstants.Type.REALTIME) return@synchronized
@@ -248,6 +344,8 @@ internal class Stage15RealtimeProbeAccumulator(
                 opusInfo.errorCode?.let { increment(opusErrorCounts, it) }
             }
         }
+
+        recordSplit40Facts(split40Facts)
     }
 
     fun snapshot(nowNanos: Long = System.nanoTime()): Stage15ProbeSnapshot = synchronized(lock) {
@@ -258,6 +356,19 @@ internal class Stage15RealtimeProbeAccumulator(
         val ratio = if (wallElapsedMs != null && wallElapsedMs > 0L) mediaDurationMs / wallElapsedMs else 0.0
         val pps = if (wallElapsedMs != null && wallElapsedMs > 0L) {
             audioPackets / (wallElapsedMs / 1_000.0)
+        } else {
+            0.0
+        }
+        val split40MediaDurationMs = split40Samples48k / 48.0
+        val split40DecodedDurationMs = split40DecodedSamples16k / 16.0
+        val split40MediaWallRatio = if (wallElapsedMs != null && wallElapsedMs > 0L) {
+            split40MediaDurationMs / wallElapsedMs
+        } else {
+            0.0
+        }
+        val audioArrivalSpanMs = audioArrivalSpanMs()
+        val split40MediaArrivalSpanRatio = if (audioArrivalSpanMs > 0.0) {
+            split40MediaDurationMs / audioArrivalSpanMs
         } else {
             0.0
         }
@@ -289,7 +400,71 @@ internal class Stage15RealtimeProbeAccumulator(
             queueOverflowCount = queueOverflowCount,
             nonAudioFrames = nonAudioFrames.toList(),
             txEvents = txEvents.toList(),
+            split40EligibleBodies = split40EligibleBodies,
+            split40RejectedBodies = split40RejectedBodies,
+            split40PacketCount = split40PacketCount,
+            split40Valid = split40Valid,
+            split40Invalid = split40Invalid,
+            split40DecodeSuccess = split40DecodeSuccess,
+            split40DecodeFailure = split40DecodeFailure,
+            split40DecodeErrorCounts = split40DecodeErrorCounts.toMap(),
+            split40SlotValidCounts = split40SlotValidCounts.toMap(),
+            split40SlotInvalidCounts = split40SlotInvalidCounts.toMap(),
+            split40SlotChannelCounts = nestedSnapshot(split40SlotChannelCounts),
+            split40SlotSamples48kCounts = nestedSnapshot(split40SlotSamples48kCounts),
+            split40SlotDurationMsCounts = nestedSnapshot(split40SlotDurationMsCounts),
+            split40SlotDecodedSamples16kCounts = nestedSnapshot(split40SlotDecodedSamples16kCounts),
+            split40MediaDurationMs = split40MediaDurationMs,
+            split40DecodedDurationMs = split40DecodedDurationMs,
+            split40MediaWallRatio = split40MediaWallRatio,
+            split40MediaArrivalSpanRatio = split40MediaArrivalSpanRatio,
+            audioArrivalSpanMs = audioArrivalSpanMs,
         )
+    }
+
+    private fun recordSplit40Facts(facts: Stage15Split40Facts?) {
+        if (facts == null || !facts.eligible160ByteBody) {
+            split40RejectedBodies += 1
+            return
+        }
+        split40EligibleBodies += 1
+        facts.packets.forEach { fact ->
+            split40PacketCount += 1
+            val slot = fact.slot
+            val info = fact.opusInfo
+            if (info.valid) {
+                split40Valid += 1
+                increment(split40SlotValidCounts, slot)
+                info.channels?.let { incrementNested(split40SlotChannelCounts, slot, it) }
+                info.totalSamples48k?.let { samples ->
+                    incrementNested(split40SlotSamples48kCounts, slot, samples)
+                    if (samples > 0) split40Samples48k += samples.toLong()
+                    if (samples % 48 == 0) {
+                        incrementNested(split40SlotDurationMsCounts, slot, samples / 48)
+                    }
+                }
+            } else {
+                split40Invalid += 1
+                increment(split40SlotInvalidCounts, slot)
+            }
+
+            val decoded = fact.decodedSamples16k
+            if (decoded != null) {
+                split40DecodeSuccess += 1
+                split40DecodedSamples16k += decoded.toLong()
+                incrementNested(split40SlotDecodedSamples16kCounts, slot, decoded)
+            } else if (fact.decodeErrorCode != null) {
+                split40DecodeFailure += 1
+                increment(split40DecodeErrorCounts, fact.decodeErrorCode)
+            }
+        }
+    }
+
+    private fun audioArrivalSpanMs(): Double {
+        val first = firstAudioAtNanos ?: return 0.0
+        val last = lastAudioAtNanos ?: return 0.0
+        if (last <= first) return 0.0
+        return (last - first) / 1_000_000.0
     }
 
     private fun buildTimelineOffsets(): Map<String, Long> = linkedMapOf<String, Long>().apply {
@@ -335,6 +510,19 @@ internal class Stage15RealtimeProbeAccumulator(
     private fun increment(map: MutableMap<Int, Long>, key: Int) {
         map[key] = (map[key] ?: 0L) + 1L
     }
+
+    private fun incrementNested(
+        map: MutableMap<Int, MutableMap<Int, Long>>,
+        outerKey: Int,
+        innerKey: Int,
+    ) {
+        val nested = map.getOrPut(outerKey) { linkedMapOf() }
+        nested[innerKey] = (nested[innerKey] ?: 0L) + 1L
+    }
+
+    private fun nestedSnapshot(
+        map: Map<Int, MutableMap<Int, Long>>,
+    ): Map<Int, Map<Int, Long>> = map.mapValues { it.value.toMap() }
 
     private fun addBounded(queue: ArrayDeque<String>, value: String) {
         if (queue.size >= maxSamples) queue.removeFirst()
