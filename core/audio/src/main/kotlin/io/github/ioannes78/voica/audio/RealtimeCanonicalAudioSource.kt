@@ -6,6 +6,7 @@ import kotlinx.coroutines.delay
 
 enum class RealtimeCanonicalSessionEndReason {
     STOP,
+    DEVICE_RECORDING_ENDED,
     TRANSPORT_CLOSED,
     SUPERSEDED_BY_NEW_SESSION,
     RUNTIME_CLOSED,
