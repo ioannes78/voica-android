@@ -1,5 +1,6 @@
 package io.github.ioannes78.voica
 
+import io.github.ioannes78.voica.audio.RealtimeCanonicalConsumerDiscontinuityReason
 import io.github.ioannes78.voica.audio.RealtimeCanonicalEpochStartReason
 import io.github.ioannes78.voica.audio.RealtimeCanonicalPcmFrame
 import io.github.ioannes78.voica.audio.RealtimeCanonicalSessionEndReason
@@ -47,6 +48,53 @@ class Stage15CanonicalProbeAccumulatorTest {
         val snapshot = accumulator.snapshot()
         assertEquals(1L, snapshot.gapCount)
         assertEquals(1L, snapshot.overlapCount)
+    }
+
+    @Test
+    fun acknowledgedConsumerDiscontinuityDoesNotCountAsUnexpectedGap() {
+        val accumulator = Stage15CanonicalProbeAccumulator()
+        accumulator.accept(pcmEvent(start = 0, reason = RealtimeCanonicalEpochStartReason.SESSION_START))
+        accumulator.accept(pcmEvent(start = 320))
+        accumulator.accept(
+            RealtimeCanonicalStreamEvent.ConsumerDiscontinuity(
+                sessionId = 1,
+                epochId = 1,
+                resumeAtSampleIndex = 1_600,
+                reason = RealtimeCanonicalConsumerDiscontinuityReason.BACKPRESSURE,
+                droppedFrames = 3,
+                droppedSamples = 960,
+            ),
+        )
+        accumulator.accept(pcmEvent(start = 1_600))
+
+        val snapshot = accumulator.snapshot()
+        assertEquals(1L, snapshot.consumerDiscontinuities)
+        assertEquals(1L, snapshot.consumerGapAcknowledged)
+        assertEquals(0L, snapshot.gapCount)
+        assertEquals(0L, snapshot.overlapCount)
+    }
+
+    @Test
+    fun mismatchedConsumerResumeStillCountsAsUnexpectedGap() {
+        val accumulator = Stage15CanonicalProbeAccumulator()
+        accumulator.accept(pcmEvent(start = 0, reason = RealtimeCanonicalEpochStartReason.SESSION_START))
+        accumulator.accept(pcmEvent(start = 320))
+        accumulator.accept(
+            RealtimeCanonicalStreamEvent.ConsumerDiscontinuity(
+                sessionId = 1,
+                epochId = 1,
+                resumeAtSampleIndex = 1_600,
+                reason = RealtimeCanonicalConsumerDiscontinuityReason.BACKPRESSURE,
+                droppedFrames = 3,
+                droppedSamples = 960,
+            ),
+        )
+        accumulator.accept(pcmEvent(start = 1_920))
+
+        val snapshot = accumulator.snapshot()
+        assertEquals(1L, snapshot.consumerDiscontinuities)
+        assertEquals(0L, snapshot.consumerGapAcknowledged)
+        assertEquals(1L, snapshot.gapCount)
     }
 
     @Test
