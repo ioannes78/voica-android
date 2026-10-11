@@ -32,6 +32,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
+import io.github.ioannes78.voica.audio.RealtimeCanonicalAudioSource
+import io.github.ioannes78.voica.audio.RealtimeCanonicalAudioSourceSnapshot
+import io.github.ioannes78.voica.audio.RealtimeCanonicalSessionEndReason
 import io.github.ioannes78.voica.ble.AndroidBleScanner
 import io.github.ioannes78.voica.ble.AndroidDeviceSession
 import io.github.ioannes78.voica.ble.BlePermissionPolicy
@@ -59,9 +62,10 @@ import kotlinx.coroutines.launch
 /**
  * Temporary Stage 15 true-device surface.
  *
- * TYPE=1/CMD=1 audio reaches this probe only through the production dedicated ingress and formal
- * Stage 15.3/15.4 canonical pipeline. The generic observer is retained solely for low-rate TYPE=1
- * control responses. Final Freeze must remove this second launcher or fold it into diagnostics.
+ * TYPE=1/CMD=1 audio reaches this probe through the production dedicated ingress, formal canonical
+ * decoder/timeline pipeline, and Stage 15.5 bounded canonical consumer seam. The generic observer is
+ * retained solely for low-rate TYPE=1 control responses. Final Freeze must remove this second
+ * launcher or fold it into diagnostics.
  */
 class Stage15RealtimeProbeActivity : ComponentActivity() {
     private data class QueuedProbeEvent(
@@ -79,9 +83,11 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
     private val accumulator = Stage15RealtimeProbeAccumulator()
     private val canonicalAccumulator = Stage15CanonicalProbeAccumulator()
     private val realtimeIngress = RealtimeAudioIngress()
+    private val canonicalSource = RealtimeCanonicalAudioSource()
     private val mutableSnapshot = MutableStateFlow(Stage15ProbeSnapshot())
     private val mutableIngressSnapshot = MutableStateFlow(RealtimeAudioIngressSnapshot())
     private val mutablePipelineSnapshot = MutableStateFlow(RealtimeCanonicalAudioPipelineSnapshot())
+    private val mutableSourceSnapshot = MutableStateFlow(RealtimeCanonicalAudioSourceSnapshot())
     private val mutableCanonicalSnapshot = MutableStateFlow(Stage15CanonicalProbeSnapshot())
     private val mutableAction = MutableStateFlow("等待连接")
     private val probeQueue = Channel<QueuedProbeEvent>(capacity = 1_024)
@@ -106,7 +112,7 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
             ingress = realtimeIngress,
             packetInspector = backend,
             decoderFactory = backend,
-            onFrame = canonicalAccumulator::accept,
+            onFrame = { frame -> canonicalSource.offer(frame) },
         )
 
         probeScope.launch {
@@ -138,6 +144,13 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
             canonicalPipeline.run()
         }
 
+        probeScope.launch(Dispatchers.Default) {
+            while (isActive) {
+                val event = canonicalSource.receive() ?: break
+                canonicalAccumulator.accept(event)
+            }
+        }
+
         probeScope.launch {
             while (isActive) {
                 publishSnapshots()
@@ -153,6 +166,7 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
                     snapshot = mutableSnapshot,
                     ingressSnapshot = mutableIngressSnapshot,
                     pipelineSnapshot = mutablePipelineSnapshot,
+                    sourceSnapshot = mutableSourceSnapshot,
                     canonicalSnapshot = mutableCanonicalSnapshot,
                     action = mutableAction,
                     onConnect = ::connect,
@@ -173,6 +187,7 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
     override fun onDestroy() {
         runCatching { scanner.stop() }
         runCatching { canonicalPipeline.close() }
+        runCatching { canonicalSource.close() }
         runCatching { session.close() }
         runCatching { realtimeIngress.close() }
         probeQueue.close()
@@ -210,6 +225,7 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
         canonicalAccumulator.reset()
         realtimeIngress.reset()
         canonicalPipeline.resetDiagnostics()
+        canonicalSource.resetDiagnostics()
         canonicalPipeline.beginRealtimeSession()
         if (!session.registerRealtimeAudioConsumer(realtimeIngress)) {
             mutableAction.value = "Realtime ingress 注册失败"
@@ -224,6 +240,7 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
         canonicalAccumulator.reset()
         realtimeIngress.reset()
         canonicalPipeline.resetDiagnostics()
+        canonicalSource.resetDiagnostics()
         canonicalPipeline.requestControlBoundary()
         publishSnapshots()
         mutableAction.value = "统计已清空；下一音频帧将开启新 epoch"
@@ -233,6 +250,7 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
         mutableSnapshot.value = accumulator.snapshot()
         mutableIngressSnapshot.value = realtimeIngress.snapshot()
         mutablePipelineSnapshot.value = canonicalPipeline.snapshot()
+        mutableSourceSnapshot.value = canonicalSource.snapshot()
         mutableCanonicalSnapshot.value = canonicalAccumulator.snapshot()
     }
 
@@ -250,7 +268,17 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
                 atNanos = requestedAtNanos,
             )
             publishSnapshots()
-            mutableAction.value = "$label seq=${result.requestSequence} written=${result.written}"
+
+            if (label == "STOP" && result.written) {
+                mutableAction.value = "STOP 已写入，等待 canonical 尾帧 drain"
+                val endResult = canonicalSource.endActiveSessionAfterQuiet(
+                    reason = RealtimeCanonicalSessionEndReason.STOP,
+                )
+                publishSnapshots()
+                mutableAction.value = "STOP seq=${result.requestSequence} written=true drain=$endResult"
+            } else {
+                mutableAction.value = "$label seq=${result.requestSequence} written=${result.written}"
+            }
         }
     }
 
@@ -280,6 +308,7 @@ private fun Stage15ProbeScreen(
     snapshot: MutableStateFlow<Stage15ProbeSnapshot>,
     ingressSnapshot: MutableStateFlow<RealtimeAudioIngressSnapshot>,
     pipelineSnapshot: MutableStateFlow<RealtimeCanonicalAudioPipelineSnapshot>,
+    sourceSnapshot: MutableStateFlow<RealtimeCanonicalAudioSourceSnapshot>,
     canonicalSnapshot: MutableStateFlow<Stage15CanonicalProbeSnapshot>,
     action: MutableStateFlow<String>,
     onConnect: (String) -> Unit,
@@ -303,6 +332,7 @@ private fun Stage15ProbeScreen(
     val facts by snapshot.collectAsState()
     val ingress by ingressSnapshot.collectAsState()
     val pipeline by pipelineSnapshot.collectAsState()
+    val source by sourceSnapshot.collectAsState()
     val canonical by canonicalSnapshot.collectAsState()
     val actionText by action.collectAsState()
     val missingPermissions = remember(permissionEpoch) {
@@ -315,6 +345,7 @@ private fun Stage15ProbeScreen(
         facts,
         ingress,
         pipeline,
+        source,
         canonical,
         diagnostics.notifications,
         diagnostics.sessionId,
@@ -322,7 +353,7 @@ private fun Stage15ProbeScreen(
         observerOverflow,
     ) {
         buildString {
-            appendLine("Stage 15.3/15.4 Realtime Canonical PCM Fact Gate")
+            appendLine("Stage 15.5 Realtime Canonical Consumer Fact Gate")
             appendLine(
                 "control wallElapsedMs=${facts.wallElapsedMs ?: "--"} " +
                     "deviceReportedFilename=${facts.deviceReportedFilename ?: "--"}",
@@ -343,7 +374,7 @@ private fun Stage15ProbeScreen(
                     "continuityId=${ingress.continuityId}",
             )
             appendLine(
-                "canonicalPipeline running=${pipeline.running} sessions=${pipeline.sessionCount} epochs=${pipeline.epochCount} " +
+                "canonicalPipeline workerRunning=${pipeline.running} sessions=${pipeline.sessionCount} epochs=${pipeline.epochCount} " +
                     "blocks=${pipeline.receivedBlocks} opusPackets=${pipeline.packetizedPackets}",
             )
             appendLine(
@@ -373,13 +404,35 @@ private fun Stage15ProbeScreen(
                     "maxArrivalToEmitLagMs=${format3(pipeline.maxArrivalToEmitLagMs)} lastError=${pipeline.lastError ?: "--"}",
             )
             appendLine(
+                "canonicalSource sessionActive=${source.sessionActive} activeSession=${source.activeSessionId ?: "--"} " +
+                    "activeEpoch=${source.activeEpochId ?: "--"} queueFrames=${source.queuedPcmFrames} " +
+                    "queueSamples=${source.queuedPcmSamples} peakFrames=${source.peakQueuedPcmFrames} " +
+                    "peakSamples=${source.peakQueuedPcmSamples}",
+            )
+            appendLine(
+                "canonicalSource offeredFrames=${source.offeredFrames} offeredSamples=${source.offeredSamples} " +
+                    "sessionStarted=${source.sessionStartedEvents} epochStarted=${source.epochStartedEvents} " +
+                    "sessionEnded=${source.sessionEndedEvents} consumerDiscontinuities=${source.consumerDiscontinuities}",
+            )
+            appendLine(
+                "canonicalSource overflowEvents=${source.overflowEvents} droppedFrames=${source.droppedFrames} " +
+                    "droppedSamples=${source.droppedSamples} rejectedAfterClose=${source.rejectedAfterClose} " +
+                    "lastEndReason=${source.lastSessionEndReason ?: "--"} drainTimedOut=${source.lastSessionEndDrainTimedOut}",
+            )
+            appendLine(
                 "canonicalProbe frames=${canonical.frames} samples=${canonical.samples} sessionsSeen=${canonical.sessionsSeen} " +
-                    "epochsSeen=${canonical.epochsSeen} gapCount=${canonical.gapCount} overlapCount=${canonical.overlapCount} " +
-                    "invalidEpochStartCount=${canonical.invalidEpochStartCount}",
+                    "epochsSeen=${canonical.epochsSeen} sessionStartedEvents=${canonical.sessionStartedEvents} " +
+                    "epochStartedEvents=${canonical.epochStartedEvents} sessionEndedEvents=${canonical.sessionEndedEvents}",
+            )
+            appendLine(
+                "canonicalProbe consumerDiscontinuities=${canonical.consumerDiscontinuities} drainTimeoutEnds=${canonical.drainTimeoutEnds} " +
+                    "sessionEndMismatchCount=${canonical.sessionEndMismatchCount} gapCount=${canonical.gapCount} " +
+                    "overlapCount=${canonical.overlapCount} invalidEpochStartCount=${canonical.invalidEpochStartCount}",
             )
             appendLine(
                 "canonicalProbe lastSession=${canonical.lastSessionId ?: "--"} lastEpoch=${canonical.lastEpochId ?: "--"} " +
-                    "lastEndSampleIndex=${canonical.lastEndSampleIndexExclusive}",
+                    "lastEndSampleIndex=${canonical.lastEndSampleIndexExclusive} " +
+                    "lastEndReason=${canonical.lastSessionEndReason ?: "--"}",
             )
             appendLine(
                 "router publishedSnapshot(batched64) AE22=${diagnostics.notifications.ae22Frames} " +
@@ -401,14 +454,15 @@ private fun Stage15ProbeScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Text("Voica Stage 15.3/15.4 Canonical PCM Probe", style = MaterialTheme.typography.headlineSmall)
+            Text("Voica Stage 15.5 Canonical Consumer Probe", style = MaterialTheme.typography.headlineSmall)
             Text(
                 "build=${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
                 style = MaterialTheme.typography.labelMedium,
             )
             Text(
-                "CMD=1 走正式 dedicated ingress → 4×40B packetizer → persistent Opus decoder → canonical 16k mono PCM16。" +
-                    "媒体时间只按实际 decoder PCM sample 数推进；router 计数是每 64 realtime frame 批量发布的诊断快照。",
+                "CMD=1 → dedicated ingress → 4×40B Opus → canonical PCM → bounded consumer seam。" +
+                    "PCM queue 上限 32 帧 / 10240 samples；STOP 成功写入后等待 250ms canonical quiet，再发 SessionEnded。" +
+                    "workerRunning 仅表示 decoder worker 存活，sessionActive 才表示下游 session 生命周期。",
                 style = MaterialTheme.typography.bodySmall,
             )
         }
