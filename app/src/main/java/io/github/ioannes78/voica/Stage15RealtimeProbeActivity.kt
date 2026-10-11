@@ -95,6 +95,7 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
                     onConnect = ::connect,
                     onDisconnect = ::disconnect,
                     onCommand = ::sendRealtime,
+                    onStopDrainFault = ::stopAndDisconnectDuringDrain,
                     onReset = ::resetProbe,
                 )
             }
@@ -176,6 +177,69 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Stage 15.6-F QA-only deterministic fault injection.
+     *
+     * It runs the production STOP path, observes the public runtime phase until the successful STOP
+     * write has moved the controller into DRAINING, then uses the existing DeviceRepository
+     * disconnect path while the canonical quiet drain is still in flight. No production runtime,
+     * transport, or media behavior is bypassed or modified.
+     */
+    private fun stopAndDisconnectDuringDrain() {
+        probeScope.launch {
+            val requestedAtNanos = System.nanoTime()
+            mutableAction.value = "QA：STOP 已发起，等待 DRAINING"
+
+            var stopOutcome: RealtimeCommandOutcome? = null
+            val stopJob = launch {
+                val outcome = realtimeRuntime.stop()
+                stopOutcome = outcome
+                val transport = outcome.transportResult
+                accumulator.noteTx(
+                    label = RealtimeControlCommand.STOP.name,
+                    sequence = transport?.requestSequence ?: -1,
+                    written = transport?.written == true,
+                    atNanos = requestedAtNanos,
+                )
+            }
+
+            val armDeadlineNanos =
+                System.nanoTime() + STOP_DRAIN_ARM_TIMEOUT_MS * NANOS_PER_MILLISECOND
+            var drainingObserved = false
+            while (stopJob.isActive && System.nanoTime() < armDeadlineNanos) {
+                if (realtimeRuntime.snapshot().phase == RealtimeRuntimePhase.DRAINING) {
+                    drainingObserved = true
+                    break
+                }
+                delay(STOP_DRAIN_POLL_INTERVAL_MS)
+            }
+
+            var disconnectInjected = false
+            if (drainingObserved) {
+                mutableAction.value =
+                    "QA：已命中 DRAINING，${STOP_DRAIN_FAULT_DELAY_MS}ms 后请求断开"
+                delay(STOP_DRAIN_FAULT_DELAY_MS)
+                if (realtimeRuntime.snapshot().phase == RealtimeRuntimePhase.DRAINING) {
+                    deviceRepository.disconnect()
+                    disconnectInjected = true
+                    mutableAction.value = "QA：已在 DRAINING 中请求断开；等待 runtime 收口"
+                }
+            }
+
+            stopJob.join()
+            publishSnapshots()
+            val outcome = stopOutcome
+            mutableAction.value = when {
+                disconnectInjected ->
+                    "QA：STOP drain 断联已注入；STOP success=${outcome?.success == true}"
+                drainingObserved ->
+                    "QA：观察到 DRAINING，但断开前 drain 已结束；请重试"
+                else ->
+                    "QA：未观察到 DRAINING；STOP success=${outcome?.success == true} failure=${outcome?.failure ?: "--"}"
+            }
+        }
+    }
+
     private fun resetProbe() {
         accumulator.reset()
         canonicalAccumulator.reset()
@@ -191,6 +255,10 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
 
     private companion object {
         const val SNAPSHOT_INTERVAL_MS = 500L
+        const val STOP_DRAIN_POLL_INTERVAL_MS = 5L
+        const val STOP_DRAIN_FAULT_DELAY_MS = 80L
+        const val STOP_DRAIN_ARM_TIMEOUT_MS = 750L
+        const val NANOS_PER_MILLISECOND = 1_000_000L
     }
 }
 
@@ -204,6 +272,7 @@ private fun Stage15ProbeScreen(
     onConnect: (String) -> Unit,
     onDisconnect: () -> Unit,
     onCommand: (RealtimeControlCommand) -> Unit,
+    onStopDrainFault: () -> Unit,
     onReset: () -> Unit,
 ) {
     val clipboard = LocalClipboardManager.current
@@ -291,6 +360,11 @@ private fun Stage15ProbeScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { onCommand(RealtimeControlCommand.RESUME) }) { Text("RESUME") }
                 Button(onClick = { onCommand(RealtimeControlCommand.STOP) }) { Text("STOP") }
+            }
+        }
+        item {
+            OutlinedButton(onClick = onStopDrainFault) {
+                Text("QA STOP→80ms断开")
             }
         }
 
