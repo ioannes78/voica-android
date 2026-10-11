@@ -272,6 +272,10 @@ private fun Stage15ProbeScreen(
         item {
             Text("Voica Stage 15.0 Realtime Probe", style = MaterialTheme.typography.headlineSmall)
             Text(
+                "build=${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                style = MaterialTheme.typography.labelMedium,
+            )
+            Text(
                 "临时真机 fact-gate 工具；当前 observer 不是最终 realtime authority。" +
                     "若 genericObserverOverflow 或 probeQueueOverflow > 0，本轮结果不能用于冻结 packet 语义。",
                 style = MaterialTheme.typography.bodySmall,
