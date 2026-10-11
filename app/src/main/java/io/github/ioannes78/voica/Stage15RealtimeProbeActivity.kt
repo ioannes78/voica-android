@@ -32,8 +32,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
-import io.github.ioannes78.voica.audio.OpusDecoder
-import io.github.ioannes78.voica.audio.OpusPacketInfo
 import io.github.ioannes78.voica.ble.AndroidBleScanner
 import io.github.ioannes78.voica.ble.AndroidDeviceSession
 import io.github.ioannes78.voica.ble.BlePermissionPolicy
@@ -42,14 +40,11 @@ import io.github.ioannes78.voica.ble.DeviceConnectionState
 import io.github.ioannes78.voica.ble.DeviceRepository
 import io.github.ioannes78.voica.ble.RealtimeAudioIngress
 import io.github.ioannes78.voica.ble.RealtimeAudioIngressSnapshot
-import io.github.ioannes78.voica.ble.RealtimeOpusPacket
-import io.github.ioannes78.voica.ble.RealtimeOpusPacketizer
 import io.github.ioannes78.voica.ble.RoutedNotification
 import io.github.ioannes78.voica.opus.NativeOpusBackend
 import io.github.ioannes78.voica.protocol.ProtocolConstants
-import io.github.ioannes78.voica.protocol.ProtocolFrame
 import io.github.ioannes78.voica.protocol.RealtimeProtocol
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -64,10 +59,9 @@ import kotlinx.coroutines.launch
 /**
  * Temporary Stage 15 true-device surface.
  *
- * Starting with Stage 15.1/15.2, TYPE=1/CMD=1 audio reaches this probe through the production
- * dedicated RealtimeAudioIngress. The generic notification observer is retained only for low-rate
- * non-audio TYPE=1 responses such as START filename and pause/resume state. Final Freeze must remove
- * this second launcher or fold the diagnostics into the normal product surface.
+ * TYPE=1/CMD=1 audio reaches this probe only through the production dedicated ingress and formal
+ * Stage 15.3/15.4 canonical pipeline. The generic observer is retained solely for low-rate TYPE=1
+ * control responses. Final Freeze must remove this second launcher or fold it into diagnostics.
  */
 class Stage15RealtimeProbeActivity : ComponentActivity() {
     private data class QueuedProbeEvent(
@@ -80,11 +74,15 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
     private lateinit var scanner: AndroidBleScanner
     private lateinit var session: AndroidDeviceSession
     private lateinit var productRepository: DeviceRepository
+    private lateinit var canonicalPipeline: RealtimeCanonicalAudioPipeline
+
     private val accumulator = Stage15RealtimeProbeAccumulator()
+    private val canonicalAccumulator = Stage15CanonicalProbeAccumulator()
     private val realtimeIngress = RealtimeAudioIngress()
-    private val decodeResetEpoch = AtomicInteger(0)
     private val mutableSnapshot = MutableStateFlow(Stage15ProbeSnapshot())
     private val mutableIngressSnapshot = MutableStateFlow(RealtimeAudioIngressSnapshot())
+    private val mutablePipelineSnapshot = MutableStateFlow(RealtimeCanonicalAudioPipelineSnapshot())
+    private val mutableCanonicalSnapshot = MutableStateFlow(Stage15CanonicalProbeSnapshot())
     private val mutableAction = MutableStateFlow("等待连接")
     private val probeQueue = Channel<QueuedProbeEvent>(capacity = 1_024)
 
@@ -102,6 +100,14 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
         check(session.registerRealtimeAudioConsumer(realtimeIngress)) {
             "Stage15 probe failed to register realtime ingress"
         }
+
+        val backend = NativeOpusBackend()
+        canonicalPipeline = RealtimeCanonicalAudioPipeline(
+            ingress = realtimeIngress,
+            packetInspector = backend,
+            decoderFactory = backend,
+            onFrame = canonicalAccumulator::accept,
+        )
 
         probeScope.launch {
             session.notifications.collect { notification ->
@@ -129,56 +135,12 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
         }
 
         probeScope.launch(Dispatchers.Default) {
-            val backend = NativeOpusBackend()
-            val decoder = runCatching {
-                backend.create(
-                    sampleRateHz = SPLIT_DECODE_SAMPLE_RATE_HZ,
-                    channelCount = SPLIT_DECODE_CHANNEL_COUNT,
-                )
-            }.getOrNull()
-            var appliedResetEpoch = -1
-            try {
-                while (isActive) {
-                    val block = realtimeIngress.receive() ?: break
-                    val requestedResetEpoch = decodeResetEpoch.get()
-                    if (block.discontinuityBefore || requestedResetEpoch != appliedResetEpoch) {
-                        decoder?.let { runCatching { it.reset() } }
-                        appliedResetEpoch = requestedResetEpoch
-                    }
-
-                    val fullBodyInfo = inspectSafely(backend, block.encodedBytes)
-                    val packets = RealtimeOpusPacketizer.split(block)
-                    val split40Facts = buildSplit40Facts(
-                        packets = packets,
-                        backend = backend,
-                        decoder = decoder,
-                    )
-                    val syntheticNotification = RoutedNotification(
-                        source = block.source,
-                        frame = ProtocolFrame(
-                            sequence = block.protocolSequence,
-                            data = byteArrayOf(
-                                ProtocolConstants.Type.REALTIME.toByte(),
-                                ProtocolConstants.Realtime.AUDIO_DATA.toByte(),
-                            ) + block.encodedBytes,
-                        ),
-                    )
-                    accumulator.accept(
-                        notification = syntheticNotification,
-                        receivedAtNanos = block.receivedAtNanos,
-                        opusInfo = fullBodyInfo,
-                        split40Facts = split40Facts,
-                    )
-                }
-            } finally {
-                decoder?.let { runCatching { it.close() } }
-            }
+            canonicalPipeline.run()
         }
 
         probeScope.launch {
             while (isActive) {
-                mutableSnapshot.value = accumulator.snapshot()
-                mutableIngressSnapshot.value = realtimeIngress.snapshot()
+                publishSnapshots()
                 delay(SNAPSHOT_INTERVAL_MS)
             }
         }
@@ -190,12 +152,17 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
                     session = session,
                     snapshot = mutableSnapshot,
                     ingressSnapshot = mutableIngressSnapshot,
+                    pipelineSnapshot = mutablePipelineSnapshot,
+                    canonicalSnapshot = mutableCanonicalSnapshot,
                     action = mutableAction,
                     onConnect = ::connect,
                     onDisconnect = session::disconnect,
                     onStartRealtime = ::startRealtime,
                     onPauseRealtime = { sendRealtime("PAUSE", RealtimeProtocol::buildPause) },
-                    onResumeRealtime = { sendRealtime("RESUME", RealtimeProtocol::buildResume) },
+                    onResumeRealtime = {
+                        canonicalPipeline.requestControlBoundary()
+                        sendRealtime("RESUME", RealtimeProtocol::buildResume)
+                    },
                     onStopRealtime = { sendRealtime("STOP", RealtimeProtocol::buildStop) },
                     onReset = ::resetProbe,
                 )
@@ -205,6 +172,7 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
 
     override fun onDestroy() {
         runCatching { scanner.stop() }
+        runCatching { canonicalPipeline.close() }
         runCatching { session.close() }
         runCatching { realtimeIngress.close() }
         probeQueue.close()
@@ -239,24 +207,33 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
 
     private fun startRealtime() {
         accumulator.reset()
+        canonicalAccumulator.reset()
         realtimeIngress.reset()
-        decodeResetEpoch.incrementAndGet()
+        canonicalPipeline.resetDiagnostics()
+        canonicalPipeline.beginRealtimeSession()
         if (!session.registerRealtimeAudioConsumer(realtimeIngress)) {
             mutableAction.value = "Realtime ingress 注册失败"
             return
         }
-        mutableSnapshot.value = accumulator.snapshot()
-        mutableIngressSnapshot.value = realtimeIngress.snapshot()
+        publishSnapshots()
         sendRealtime("START", RealtimeProtocol::buildStart)
     }
 
     private fun resetProbe() {
         accumulator.reset()
+        canonicalAccumulator.reset()
         realtimeIngress.reset()
-        decodeResetEpoch.incrementAndGet()
+        canonicalPipeline.resetDiagnostics()
+        canonicalPipeline.requestControlBoundary()
+        publishSnapshots()
+        mutableAction.value = "统计已清空；下一音频帧将开启新 epoch"
+    }
+
+    private fun publishSnapshots() {
         mutableSnapshot.value = accumulator.snapshot()
         mutableIngressSnapshot.value = realtimeIngress.snapshot()
-        mutableAction.value = "统计已清空"
+        mutablePipelineSnapshot.value = canonicalPipeline.snapshot()
+        mutableCanonicalSnapshot.value = canonicalAccumulator.snapshot()
     }
 
     private fun sendRealtime(
@@ -272,64 +249,10 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
                 written = result.written,
                 atNanos = requestedAtNanos,
             )
-            mutableSnapshot.value = accumulator.snapshot()
-            mutableIngressSnapshot.value = realtimeIngress.snapshot()
+            publishSnapshots()
             mutableAction.value = "$label seq=${result.requestSequence} written=${result.written}"
         }
     }
-
-    private fun buildSplit40Facts(
-        packets: List<RealtimeOpusPacket>,
-        backend: NativeOpusBackend,
-        decoder: OpusDecoder?,
-    ): Stage15Split40Facts {
-        if (packets.size != RealtimeAudioIngress.OPUS_PACKETS_PER_BLOCK) {
-            return Stage15Split40Facts(eligible160ByteBody = false)
-        }
-        val packetFacts = packets.map { packet ->
-            val info = inspectSafely(backend, packet.encodedBytes)
-            if (!info.valid) {
-                Stage15Split40PacketFact(
-                    slot = packet.packetIndexInBlock,
-                    opusInfo = info,
-                )
-            } else if (decoder == null) {
-                Stage15Split40PacketFact(
-                    slot = packet.packetIndexInBlock,
-                    opusInfo = info,
-                    decodeErrorCode = PROBE_DECODER_UNAVAILABLE,
-                )
-            } else {
-                runCatching { decoder.decode(packet.encodedBytes) }
-                    .fold(
-                        onSuccess = { pcm ->
-                            Stage15Split40PacketFact(
-                                slot = packet.packetIndexInBlock,
-                                opusInfo = info,
-                                decodedSamples16k = pcm.size,
-                            )
-                        },
-                        onFailure = {
-                            Stage15Split40PacketFact(
-                                slot = packet.packetIndexInBlock,
-                                opusInfo = info,
-                                decodeErrorCode = PROBE_DECODE_EXCEPTION,
-                            )
-                        },
-                    )
-            }
-        }
-        return Stage15Split40Facts(
-            eligible160ByteBody = true,
-            packets = packetFacts,
-        )
-    }
-
-    private fun inspectSafely(
-        backend: NativeOpusBackend,
-        packet: ByteArray,
-    ): OpusPacketInfo = runCatching { backend.inspect(packet) }
-        .getOrElse { OpusPacketInfo(valid = false, errorCode = PROBE_INSPECT_EXCEPTION) }
 
     private fun DeviceConnectionState.hasActiveTransport(): Boolean =
         when (this) {
@@ -347,11 +270,6 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
 
     private companion object {
         const val SNAPSHOT_INTERVAL_MS = 500L
-        const val PROBE_INSPECT_EXCEPTION = -2001
-        const val PROBE_DECODE_EXCEPTION = -2002
-        const val PROBE_DECODER_UNAVAILABLE = -2003
-        const val SPLIT_DECODE_SAMPLE_RATE_HZ = 16_000
-        const val SPLIT_DECODE_CHANNEL_COUNT = 1
     }
 }
 
@@ -361,6 +279,8 @@ private fun Stage15ProbeScreen(
     session: AndroidDeviceSession,
     snapshot: MutableStateFlow<Stage15ProbeSnapshot>,
     ingressSnapshot: MutableStateFlow<RealtimeAudioIngressSnapshot>,
+    pipelineSnapshot: MutableStateFlow<RealtimeCanonicalAudioPipelineSnapshot>,
+    canonicalSnapshot: MutableStateFlow<Stage15CanonicalProbeSnapshot>,
     action: MutableStateFlow<String>,
     onConnect: (String) -> Unit,
     onDisconnect: () -> Unit,
@@ -382,6 +302,8 @@ private fun Stage15ProbeScreen(
     val diagnostics by session.diagnostics.collectAsState()
     val facts by snapshot.collectAsState()
     val ingress by ingressSnapshot.collectAsState()
+    val pipeline by pipelineSnapshot.collectAsState()
+    val canonical by canonicalSnapshot.collectAsState()
     val actionText by action.collectAsState()
     val missingPermissions = remember(permissionEpoch) {
         BlePermissionPolicy.missingPermissions(activity)
@@ -389,17 +311,86 @@ private fun Stage15ProbeScreen(
     val observerOverflow = remember(diagnostics.logs) {
         diagnostics.logs.count { it.contains("Notification observer overflow") }
     }
-    val rendered = remember(facts, ingress, diagnostics.notifications, observerOverflow) {
-        facts.render(observerOverflow) +
-            "\nformalIngress acceptedBlocks=${ingress.acceptedBlocks} acceptedBytes=${ingress.acceptedBytes}" +
-            " queueBlocks=${ingress.queueBlocks} queueBytes=${ingress.queueBytes}" +
-            " peakBlocks=${ingress.peakQueueBlocks} peakBytes=${ingress.peakQueueBytes}" +
-            "\nformalIngress overflowEvents=${ingress.overflowEvents} malformedBlocks=${ingress.malformedBlocks}" +
-            " droppedBlocks=${ingress.droppedBlocks} droppedBytes=${ingress.droppedBytes}" +
-            " continuityId=${ingress.continuityId}" +
-            "\nrouter AE22=${diagnostics.notifications.ae22Frames} AE23=${diagnostics.notifications.ae23Frames}" +
-            "\nrouter CRC AE22=${diagnostics.notifications.ae22CrcErrors} AE23=${diagnostics.notifications.ae23CrcErrors}" +
-            "\nsession=${diagnostics.sessionId} mtu=${diagnostics.negotiatedMtu}"
+    val rendered = remember(
+        facts,
+        ingress,
+        pipeline,
+        canonical,
+        diagnostics.notifications,
+        diagnostics.sessionId,
+        diagnostics.negotiatedMtu,
+        observerOverflow,
+    ) {
+        buildString {
+            appendLine("Stage 15.3/15.4 Realtime Canonical PCM Fact Gate")
+            appendLine(
+                "control wallElapsedMs=${facts.wallElapsedMs ?: "--"} " +
+                    "deviceReportedFilename=${facts.deviceReportedFilename ?: "--"}",
+            )
+            appendLine("control timelineOffsetsMs=${facts.timelineOffsetsMs}")
+            appendLine("control tx=${facts.txEvents.joinToString()}")
+            appendLine("control nonAudioFrames:")
+            facts.nonAudioFrames.forEach { appendLine("  $it") }
+            appendLine("probeQueueOverflow=${facts.queueOverflowCount} genericObserverOverflow=$observerOverflow")
+            appendLine(
+                "formalIngress acceptedBlocks=${ingress.acceptedBlocks} acceptedBytes=${ingress.acceptedBytes} " +
+                    "queueBlocks=${ingress.queueBlocks} queueBytes=${ingress.queueBytes} " +
+                    "peakBlocks=${ingress.peakQueueBlocks} peakBytes=${ingress.peakQueueBytes}",
+            )
+            appendLine(
+                "formalIngress overflowEvents=${ingress.overflowEvents} malformedBlocks=${ingress.malformedBlocks} " +
+                    "droppedBlocks=${ingress.droppedBlocks} droppedBytes=${ingress.droppedBytes} " +
+                    "continuityId=${ingress.continuityId}",
+            )
+            appendLine(
+                "canonicalPipeline running=${pipeline.running} sessions=${pipeline.sessionCount} epochs=${pipeline.epochCount} " +
+                    "blocks=${pipeline.receivedBlocks} opusPackets=${pipeline.packetizedPackets}",
+            )
+            appendLine(
+                "canonicalPipeline invalidOpus=${pipeline.invalidOpusPackets} shapeAnomalies=${pipeline.opusShapeAnomalies} " +
+                    "decodeSuccess=${pipeline.decodeSuccess} decodeFailures=${pipeline.decodeFailures} " +
+                    "zeroSampleFailures=${pipeline.zeroSampleDecodeFailures}",
+            )
+            appendLine(
+                "canonicalPipeline decodedSampleHistogram=${pipeline.decodedSampleHistogram.toSortedMap()} " +
+                    "unexpectedDecodedSampleCount=${pipeline.unexpectedDecodedSampleCount}",
+            )
+            appendLine(
+                "canonicalPipeline canonicalFrames=${pipeline.canonicalFrames} canonicalSamples=${pipeline.canonicalSamples} " +
+                    "canonicalDurationMs=${format3(pipeline.canonicalDurationMs)}",
+            )
+            appendLine(
+                "canonicalPipeline discontinuities=${pipeline.discontinuityCount} transportBoundaries=${pipeline.transportBoundaryCount} " +
+                    "controlBoundaries=${pipeline.controlBoundaryCount} decoderRecoveryBoundaries=${pipeline.decoderRecoveryBoundaryCount}",
+            )
+            appendLine(
+                "canonicalPipeline decoderResets=${pipeline.decoderResetCount} decoderRecreates=${pipeline.decoderRecreateCount} " +
+                    "decoderCreateFailures=${pipeline.decoderCreateFailures} observerFailures=${pipeline.frameObserverFailures}",
+            )
+            appendLine(
+                "canonicalPipeline activeSession=${pipeline.activeSessionId ?: "--"} activeEpoch=${pipeline.activeEpochId ?: "--"} " +
+                    "nextSampleIndex=${pipeline.nextSampleIndex} maxBlockProcessingMs=${format3(pipeline.maxBlockProcessingMs)} " +
+                    "maxArrivalToEmitLagMs=${format3(pipeline.maxArrivalToEmitLagMs)} lastError=${pipeline.lastError ?: "--"}",
+            )
+            appendLine(
+                "canonicalProbe frames=${canonical.frames} samples=${canonical.samples} sessionsSeen=${canonical.sessionsSeen} " +
+                    "epochsSeen=${canonical.epochsSeen} gapCount=${canonical.gapCount} overlapCount=${canonical.overlapCount} " +
+                    "invalidEpochStartCount=${canonical.invalidEpochStartCount}",
+            )
+            appendLine(
+                "canonicalProbe lastSession=${canonical.lastSessionId ?: "--"} lastEpoch=${canonical.lastEpochId ?: "--"} " +
+                    "lastEndSampleIndex=${canonical.lastEndSampleIndexExclusive}",
+            )
+            appendLine(
+                "router publishedSnapshot(batched64) AE22=${diagnostics.notifications.ae22Frames} " +
+                    "AE23=${diagnostics.notifications.ae23Frames}",
+            )
+            appendLine(
+                "router CRC AE22=${diagnostics.notifications.ae22CrcErrors} " +
+                    "AE23=${diagnostics.notifications.ae23CrcErrors}",
+            )
+            appendLine("gattSession=${diagnostics.sessionId} mtu=${diagnostics.negotiatedMtu}")
+        }
     }
     val clipboard = LocalClipboardManager.current
     val ready = connection is DeviceConnectionState.Ready
@@ -410,14 +401,14 @@ private fun Stage15ProbeScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Text("Voica Stage 15.1/15.2 Realtime Ingress Probe", style = MaterialTheme.typography.headlineSmall)
+            Text("Voica Stage 15.3/15.4 Canonical PCM Probe", style = MaterialTheme.typography.headlineSmall)
             Text(
                 "build=${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
                 style = MaterialTheme.typography.labelMedium,
             )
             Text(
-                "Realtime CMD=1 已走正式 dedicated ingress；generic observer 只保留低频非音频 TYPE=1 响应。" +
-                    "正式 ingress 上限为 12×160B / 2048B，overflow 时丢弃 stale backlog 并标记 discontinuity。",
+                "CMD=1 走正式 dedicated ingress → 4×40B packetizer → persistent Opus decoder → canonical 16k mono PCM16。" +
+                    "媒体时间只按实际 decoder PCM sample 数推进；router 计数是每 64 realtime frame 批量发布的诊断快照。",
                 style = MaterialTheme.typography.bodySmall,
             )
         }
@@ -433,9 +424,7 @@ private fun Stage15ProbeScreen(
                     Text("action=$actionText")
                     if (missingPermissions.isNotEmpty()) {
                         Button(
-                            onClick = {
-                                permissionLauncher.launch(missingPermissions.toTypedArray())
-                            },
+                            onClick = { permissionLauncher.launch(missingPermissions.toTypedArray()) },
                         ) {
                             Text("授予蓝牙权限")
                         }
@@ -511,3 +500,5 @@ private fun Stage15ProbeScreen(
         }
     }
 }
+
+private fun format3(value: Double): String = String.format(Locale.US, "%.3f", value)
