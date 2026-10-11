@@ -1,6 +1,6 @@
 # Stage 15 — BLE 实时音频链路 开发规划 V1
 
-状态：**已确认 / 15.0–15.2 完成 / 15.3–15.4 开发中**
+状态：**已确认 / 15.0–15.4 normal-path 完成 / 15.5 开发中**
 
 ## 基线
 
@@ -135,7 +135,7 @@ Ingress 行为：
 - callback 外由 `RealtimeOpusPacketizer` 固定拆为 4 × 40B；
 - 只有第一个 40B packet 继承 block 的 `discontinuityBefore`。
 
-异常 overflow 真机故障注入留到 15.7 fault matrix，不阻塞 15.3/15.4。
+异常 overflow 真机故障注入留到 15.7 fault matrix。
 
 ## 15.3 — Continuous Opus decode
 
@@ -154,18 +154,9 @@ Ingress 行为：
 - recovery 前 reset decoder；若 reset 失败则销毁并重建 decoder；
 - 不做 PLC，不按 wall clock 补 20ms；失败 packet 的未知/缺失媒体时间不进入下一 epoch sample index。
 
-正式统计包括：
-
-- received blocks / packetized packets；
-- invalid Opus / shape anomaly；
-- decode success / failure / zero-sample failure；
-- decoded sample histogram / unexpected sample count；
-- decoder reset / recreate / create failure；
-- block processing time / arrival-to-emit lag（仅性能诊断）。
-
 ## 15.4 — Canonical PCM + timeline
 
-`core:audio` 新增 BLE/Opus 无关的 `RealtimeCanonicalPcmFrame` contract：
+`core:audio` 提供 BLE/Opus 无关的 `RealtimeCanonicalPcmFrame` contract：
 
 - opaque `sessionId`；
 - session-local `epochId`；
@@ -185,40 +176,129 @@ Ingress 行为：
 - 普通自然静音不形成 discontinuity；
 - wall clock / BLE arrival timestamp / protocol SEQ 不参与 canonical media timeline。
 
-Probe 从 15.3/15.4 起不再自行执行 temporary decoder，而是直接观察正式 `RealtimeCanonicalAudioPipeline`。另有独立 `Stage15CanonicalProbeAccumulator` 在输出端验证：
+### 15.3/15.4 真机 normal-path gate
 
-- frame/sample 总数；
-- session/epoch 数；
-- epoch 内 sample-index gap；
-- epoch 内 overlap；
-- epoch start 是否从 0 开始并携带 reason。
+30 秒级正式 canonical pipeline 样本：
 
-正常真机 gate 预期：
+- `acceptedBlocks=403 / canonicalPipeline blocks=403`；
+- `opusPackets=1612 = 403×4`；
+- `decodeSuccess=1612 / decodeFailures=0`；
+- `decodedSampleHistogram={320=1612}`；
+- `unexpectedDecodedSampleCount=0`；
+- `canonicalFrames=1612`；
+- `canonicalSamples=515840 = 1612×320`；
+- `canonicalDurationMs=32240.000`；
+- `sessions=1 / epochs=1`；
+- `discontinuities=0 / transportBoundaries=0 / controlBoundaries=0 / decoderRecoveryBoundaries=0`；
+- `gapCount=0 / overlapCount=0 / invalidEpochStartCount=0`；
+- `peak ingress blocks=2 / 320 bytes`；
+- `maxBlockProcessingMs=2.682`；
+- `maxArrivalToEmitLagMs=4.384`；
+- ingress overflow / malformed / drop / CRC 均为 0。
 
-- `receivedBlocks == ingress.acceptedBlocks`；
-- `packetizedPackets == receivedBlocks × 4`；
-- invalidOpus / shapeAnomalies / decodeFailures / zeroSampleFailures = 0；
-- decoded sample histogram 全部为 `{320=...}`；
-- `canonicalFrames == decodeSuccess`；
-- `canonicalSamples == decodeSuccess × 320`（仅对当前已验证 QS668 正常 packet）；
-- normal START→STOP：session=1 / epoch=1 / discontinuity=0；
-- independent canonicalProbe gap=0 / overlap=0 / invalidEpochStart=0。
+结论：
 
-## 15.5 — Consumer / backpressure
+- **Stage 15.3 normal-path true-device gate PASS**；
+- **Stage 15.4 normal-path true-device gate PASS**；
+- pipeline snapshot 中原 `running=true` 仅表示 decoder worker coroutine 存活，不代表 realtime session 仍活动；15.5 Probe 显示时改称 `workerRunning`，真实 session 生命周期由 canonical consumer seam 的 `sessionActive` 表示。
 
-下一阶段建立 `RealtimeCanonicalAudioSource` 或等价 bounded seam，供 Stage 16A 只消费 canonical frame；Stage 16A 不感知 BLE UUID、MTU、Opus 或 transport sequence。PCM consumer queue 保持 bounded、low-latency。
+控制/异常边界真机 gate 留到 15.5–15.7 联合矩阵。
+
+## 15.5 — Canonical consumer / backpressure + STOP lifecycle
+
+正式 Stage 16A seam：
+
+`RealtimeCanonicalAudioPipeline → RealtimeCanonicalAudioSource → RealtimeCanonicalStreamEvent`
+
+Stage 16A 以后只能消费 canonical stream event，不感知 BLE UUID、MTU、Opus packet、transport SEQ 或 GATT generation。
+
+### 15.5.1 Lifecycle event contract
+
+`RealtimeCanonicalStreamEvent` 包括：
+
+- `SessionStarted(sessionId)`；
+- `EpochStarted(sessionId, epochId, reason)`；
+- `PcmFrame(RealtimeCanonicalPcmFrame)`；
+- `ConsumerDiscontinuity(...)`；
+- `SessionEnded(sessionId, finalEpochId, finalSampleIndexExclusive, reason, drainTimedOut)`。
+
+规则：
+
+- SessionStarted 在该 session 第一帧 PCM 前输出；
+- EpochStarted 在该 epoch 第一帧 PCM 前输出；
+- SessionEnded 排在该 session 已接受的所有 PCM 后；
+- 若新的 session frame 到达而上一 session 未正常 STOP close，source 自动先发 `SessionEnded(SUPERSEDED_BY_NEW_SESSION)`，避免下游生命周期悬空；
+- event 自带 session/epoch identity；Stage 16A 不从 wall clock 推断媒体状态。
+
+### 15.5.2 Bounded PCM consumer queue
+
+正式初始硬上限：
+
+- `32 PCM frames`
+- `10,240 canonical samples`
+- 当前正常 320 samples/frame 时约 `640 ms` PCM backlog。
+
+Backpressure 规则：
+
+- pipeline `onFrame` 只做 non-blocking source offer，慢 consumer 不反向阻塞 decoder/GATT；
+- count/sample 任一越界时，丢弃 queue 中 stale PCM frames，保留低频 lifecycle events；
+- 当前 live-edge PCM 仍接收；
+- live-edge PCM 前插入 `ConsumerDiscontinuity(BACKPRESSURE)`，包含 dropped frame/sample 数与 resume sample index；
+- 不按 wall clock 补被丢 PCM，不伪造连续媒体时间；
+- Stage 16A 收到 ConsumerDiscontinuity 必须 reset/finalize 当前 streaming recognizer continuity。
+
+### 15.5.3 STOP drain contract
+
+STOP command 成功写入后：
+
+1. 不立即发送 SessionEnded；
+2. 继续接受/解码已经到达的尾部 realtime audio；
+3. canonical source 等待 `250 ms` 无新 canonical frame的 quiet window；
+4. 然后按事件队列顺序追加 `SessionEnded(STOP)`；
+5. hard drain cap 为 `1500 ms`，超时仍结束但 `drainTimedOut=true`，作为异常诊断；
+6. quiet/drain wall clock **只决定 lifecycle finalize 时点**，绝不推进 canonical sample index。
+
+当前真机 cadence ~80ms/body、历史 max arrival gap <154ms，因此 250ms quiet window 为保守的尾包 drain gate；仍需 15.5 真机 STOP gate 验证。
+
+自动化覆盖：
+
+- first frame → SessionStarted → EpochStarted → PcmFrame 顺序；
+- 同 epoch 连续 frame 不重复生命周期事件；
+- 新 epoch 明确 EpochStarted；
+- PCM overflow → stale PCM drop + ConsumerDiscontinuity + live edge；
+- STOP quiet drain → PCM 后 SessionEnded；
+- 未 STOP 的旧 session 被新 session supersede 时自动闭合；
+- independent Probe observer 校验 lifecycle count 与 SessionEnded final sample 一致性。
 
 ## 15.6 — Lifecycle / reconnect / FGS
 
 复用现有 BLE reconnect 与 `ServiceBackedDeviceRepository` 单 connectedDevice FGS lease；禁止第二套 reconnect manager、第二个 realtime FGS 或 per-packet FGS 操作。
 
+15.6/15.7 联合真机矩阵至少覆盖：
+
+- START → STOP；
+- START → PAUSE → RESUME → STOP；
+- STOP 后同连接再次 START；
+- user disconnect → reconnect → START；
+- Bluetooth off/on；
+- background / screen-off。
+
+预期：
+
+- Pause/Resume：同 realtime session、新 canonical epoch；
+- 第二次 START：新 realtime session，epoch 从 1 开始；
+- reconnect：新 realtime session；
+- STOP：明确 SessionEnded，且 final sample 与最后 canonical frame end 对齐；
+- 每个 epoch 内 sample index 从 0 连续推进；
+- 不跨未知 discontinuity 拼接媒体时间。
+
 ## 15.7 — Diagnostics + true-device integration
 
-低频聚合 transport / queue / decoder / timeline / lifecycle / performance counters。完成：
+低频聚合 transport / queue / decoder / timeline / consumer lifecycle / performance counters。完成：
 
-- START / PAUSE / RESUME / STOP；
 - TYPE3 recording 与 TYPE1 realtime independence；
-- synthetic slowdown overflow；
+- synthetic slowdown encoded overflow；
+- synthetic/controlled canonical consumer slowdown overflow；
 - reconnect / Bluetooth off / user disconnect；
 - background / screen-off；
 - realtime BLE PCM 与 final device recording waveform cross-correlation alignment。
