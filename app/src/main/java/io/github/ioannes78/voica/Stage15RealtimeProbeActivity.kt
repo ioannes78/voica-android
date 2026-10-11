@@ -40,10 +40,16 @@ import io.github.ioannes78.voica.ble.BlePermissionPolicy
 import io.github.ioannes78.voica.ble.BleScanDevice
 import io.github.ioannes78.voica.ble.DeviceConnectionState
 import io.github.ioannes78.voica.ble.DeviceRepository
+import io.github.ioannes78.voica.ble.RealtimeAudioIngress
+import io.github.ioannes78.voica.ble.RealtimeAudioIngressSnapshot
+import io.github.ioannes78.voica.ble.RealtimeOpusPacket
+import io.github.ioannes78.voica.ble.RealtimeOpusPacketizer
 import io.github.ioannes78.voica.ble.RoutedNotification
 import io.github.ioannes78.voica.opus.NativeOpusBackend
 import io.github.ioannes78.voica.protocol.ProtocolConstants
+import io.github.ioannes78.voica.protocol.ProtocolFrame
 import io.github.ioannes78.voica.protocol.RealtimeProtocol
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -56,12 +62,12 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * Stage 15.0C temporary true-device packet-boundary fact-gate surface.
+ * Temporary Stage 15 true-device surface.
  *
- * This activity intentionally uses the existing generic notification observer only to discover
- * TYPE=1 transport/body and Opus packet facts before the production dedicated realtime ingress is
- * implemented. It must not be treated as the Stage 15 realtime audio authority and must be removed
- * or folded into the normal diagnostics surface before Stage 15 Final Freeze.
+ * Starting with Stage 15.1/15.2, TYPE=1/CMD=1 audio reaches this probe through the production
+ * dedicated RealtimeAudioIngress. The generic notification observer is retained only for low-rate
+ * non-audio TYPE=1 responses such as START filename and pause/resume state. Final Freeze must remove
+ * this second launcher or fold the diagnostics into the normal product surface.
  */
 class Stage15RealtimeProbeActivity : ComponentActivity() {
     private data class QueuedProbeEvent(
@@ -75,7 +81,10 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
     private lateinit var session: AndroidDeviceSession
     private lateinit var productRepository: DeviceRepository
     private val accumulator = Stage15RealtimeProbeAccumulator()
+    private val realtimeIngress = RealtimeAudioIngress()
+    private val decodeResetEpoch = AtomicInteger(0)
     private val mutableSnapshot = MutableStateFlow(Stage15ProbeSnapshot())
+    private val mutableIngressSnapshot = MutableStateFlow(RealtimeAudioIngressSnapshot())
     private val mutableAction = MutableStateFlow("等待连接")
     private val probeQueue = Channel<QueuedProbeEvent>(capacity = 1_024)
 
@@ -90,10 +99,14 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
 
         scanner = AndroidBleScanner(applicationContext, probeScope)
         session = AndroidDeviceSession(applicationContext, probeScope)
+        check(session.registerRealtimeAudioConsumer(realtimeIngress)) {
+            "Stage15 probe failed to register realtime ingress"
+        }
 
         probeScope.launch {
             session.notifications.collect { notification ->
                 if (notification.frame.type != ProtocolConstants.Type.REALTIME) return@collect
+                if (notification.frame.command == ProtocolConstants.Realtime.AUDIO_DATA) return@collect
                 val accepted = probeQueue.trySend(
                     QueuedProbeEvent(
                         notification = notification,
@@ -105,6 +118,17 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
         }
 
         probeScope.launch(Dispatchers.Default) {
+            for (queued in probeQueue) {
+                accumulator.accept(
+                    notification = queued.notification,
+                    receivedAtNanos = queued.receivedAtNanos,
+                    opusInfo = null,
+                    split40Facts = null,
+                )
+            }
+        }
+
+        probeScope.launch(Dispatchers.Default) {
             val backend = NativeOpusBackend()
             val decoder = runCatching {
                 backend.create(
@@ -112,29 +136,36 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
                     channelCount = SPLIT_DECODE_CHANNEL_COUNT,
                 )
             }.getOrNull()
+            var appliedResetEpoch = -1
             try {
-                for (queued in probeQueue) {
-                    val frame = queued.notification.frame
-                    if (frame.command == ProtocolConstants.Realtime.START) {
+                while (isActive) {
+                    val block = realtimeIngress.receive() ?: break
+                    val requestedResetEpoch = decodeResetEpoch.get()
+                    if (block.discontinuityBefore || requestedResetEpoch != appliedResetEpoch) {
                         decoder?.let { runCatching { it.reset() } }
+                        appliedResetEpoch = requestedResetEpoch
                     }
-                    val fullBodyInfo = if (frame.command == ProtocolConstants.Realtime.AUDIO_DATA) {
-                        inspectSafely(backend, frame.body)
-                    } else {
-                        null
-                    }
-                    val split40Facts = if (frame.command == ProtocolConstants.Realtime.AUDIO_DATA) {
-                        buildSplit40Facts(
-                            body = frame.body,
-                            backend = backend,
-                            decoder = decoder,
-                        )
-                    } else {
-                        null
-                    }
+
+                    val fullBodyInfo = inspectSafely(backend, block.encodedBytes)
+                    val packets = RealtimeOpusPacketizer.split(block)
+                    val split40Facts = buildSplit40Facts(
+                        packets = packets,
+                        backend = backend,
+                        decoder = decoder,
+                    )
+                    val syntheticNotification = RoutedNotification(
+                        source = block.source,
+                        frame = ProtocolFrame(
+                            sequence = block.protocolSequence,
+                            data = byteArrayOf(
+                                ProtocolConstants.Type.REALTIME.toByte(),
+                                ProtocolConstants.Realtime.AUDIO_DATA.toByte(),
+                            ) + block.encodedBytes,
+                        ),
+                    )
                     accumulator.accept(
-                        notification = queued.notification,
-                        receivedAtNanos = queued.receivedAtNanos,
+                        notification = syntheticNotification,
+                        receivedAtNanos = block.receivedAtNanos,
                         opusInfo = fullBodyInfo,
                         split40Facts = split40Facts,
                     )
@@ -147,6 +178,7 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
         probeScope.launch {
             while (isActive) {
                 mutableSnapshot.value = accumulator.snapshot()
+                mutableIngressSnapshot.value = realtimeIngress.snapshot()
                 delay(SNAPSHOT_INTERVAL_MS)
             }
         }
@@ -157,6 +189,7 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
                     scanner = scanner,
                     session = session,
                     snapshot = mutableSnapshot,
+                    ingressSnapshot = mutableIngressSnapshot,
                     action = mutableAction,
                     onConnect = ::connect,
                     onDisconnect = session::disconnect,
@@ -173,6 +206,7 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
     override fun onDestroy() {
         runCatching { scanner.stop() }
         runCatching { session.close() }
+        runCatching { realtimeIngress.close() }
         probeQueue.close()
         probeScope.cancel()
         super.onDestroy()
@@ -196,18 +230,32 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
             mutableAction.value = "无法取得设备 $address"
             return
         }
+        if (!session.registerRealtimeAudioConsumer(realtimeIngress)) {
+            mutableAction.value = "Realtime ingress 注册失败"
+            return
+        }
         mutableAction.value = if (session.connect(device)) "正在连接 $address" else "连接请求未启动"
     }
 
     private fun startRealtime() {
         accumulator.reset()
+        realtimeIngress.reset()
+        decodeResetEpoch.incrementAndGet()
+        if (!session.registerRealtimeAudioConsumer(realtimeIngress)) {
+            mutableAction.value = "Realtime ingress 注册失败"
+            return
+        }
         mutableSnapshot.value = accumulator.snapshot()
+        mutableIngressSnapshot.value = realtimeIngress.snapshot()
         sendRealtime("START", RealtimeProtocol::buildStart)
     }
 
     private fun resetProbe() {
         accumulator.reset()
+        realtimeIngress.reset()
+        decodeResetEpoch.incrementAndGet()
         mutableSnapshot.value = accumulator.snapshot()
+        mutableIngressSnapshot.value = realtimeIngress.snapshot()
         mutableAction.value = "统计已清空"
     }
 
@@ -225,46 +273,45 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
                 atNanos = requestedAtNanos,
             )
             mutableSnapshot.value = accumulator.snapshot()
+            mutableIngressSnapshot.value = realtimeIngress.snapshot()
             mutableAction.value = "$label seq=${result.requestSequence} written=${result.written}"
         }
     }
 
     private fun buildSplit40Facts(
-        body: ByteArray,
+        packets: List<RealtimeOpusPacket>,
         backend: NativeOpusBackend,
         decoder: OpusDecoder?,
     ): Stage15Split40Facts {
-        if (body.size != REALTIME_BODY_BYTES) {
+        if (packets.size != RealtimeAudioIngress.OPUS_PACKETS_PER_BLOCK) {
             return Stage15Split40Facts(eligible160ByteBody = false)
         }
-        val packets = (0 until SPLIT_PACKET_COUNT).map { slot ->
-            val start = slot * SPLIT_PACKET_BYTES
-            val packet = body.copyOfRange(start, start + SPLIT_PACKET_BYTES)
-            val info = inspectSafely(backend, packet)
+        val packetFacts = packets.map { packet ->
+            val info = inspectSafely(backend, packet.encodedBytes)
             if (!info.valid) {
                 Stage15Split40PacketFact(
-                    slot = slot,
+                    slot = packet.packetIndexInBlock,
                     opusInfo = info,
                 )
             } else if (decoder == null) {
                 Stage15Split40PacketFact(
-                    slot = slot,
+                    slot = packet.packetIndexInBlock,
                     opusInfo = info,
                     decodeErrorCode = PROBE_DECODER_UNAVAILABLE,
                 )
             } else {
-                runCatching { decoder.decode(packet) }
+                runCatching { decoder.decode(packet.encodedBytes) }
                     .fold(
                         onSuccess = { pcm ->
                             Stage15Split40PacketFact(
-                                slot = slot,
+                                slot = packet.packetIndexInBlock,
                                 opusInfo = info,
                                 decodedSamples16k = pcm.size,
                             )
                         },
                         onFailure = {
                             Stage15Split40PacketFact(
-                                slot = slot,
+                                slot = packet.packetIndexInBlock,
                                 opusInfo = info,
                                 decodeErrorCode = PROBE_DECODE_EXCEPTION,
                             )
@@ -274,7 +321,7 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
         }
         return Stage15Split40Facts(
             eligible160ByteBody = true,
-            packets = packets,
+            packets = packetFacts,
         )
     }
 
@@ -303,9 +350,6 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
         const val PROBE_INSPECT_EXCEPTION = -2001
         const val PROBE_DECODE_EXCEPTION = -2002
         const val PROBE_DECODER_UNAVAILABLE = -2003
-        const val REALTIME_BODY_BYTES = 160
-        const val SPLIT_PACKET_COUNT = 4
-        const val SPLIT_PACKET_BYTES = 40
         const val SPLIT_DECODE_SAMPLE_RATE_HZ = 16_000
         const val SPLIT_DECODE_CHANNEL_COUNT = 1
     }
@@ -316,6 +360,7 @@ private fun Stage15ProbeScreen(
     scanner: AndroidBleScanner,
     session: AndroidDeviceSession,
     snapshot: MutableStateFlow<Stage15ProbeSnapshot>,
+    ingressSnapshot: MutableStateFlow<RealtimeAudioIngressSnapshot>,
     action: MutableStateFlow<String>,
     onConnect: (String) -> Unit,
     onDisconnect: () -> Unit,
@@ -336,6 +381,7 @@ private fun Stage15ProbeScreen(
     val connection by session.state.collectAsState()
     val diagnostics by session.diagnostics.collectAsState()
     val facts by snapshot.collectAsState()
+    val ingress by ingressSnapshot.collectAsState()
     val actionText by action.collectAsState()
     val missingPermissions = remember(permissionEpoch) {
         BlePermissionPolicy.missingPermissions(activity)
@@ -343,8 +389,14 @@ private fun Stage15ProbeScreen(
     val observerOverflow = remember(diagnostics.logs) {
         diagnostics.logs.count { it.contains("Notification observer overflow") }
     }
-    val rendered = remember(facts, diagnostics.notifications, observerOverflow) {
+    val rendered = remember(facts, ingress, diagnostics.notifications, observerOverflow) {
         facts.render(observerOverflow) +
+            "\nformalIngress acceptedBlocks=${ingress.acceptedBlocks} acceptedBytes=${ingress.acceptedBytes}" +
+            " queueBlocks=${ingress.queueBlocks} queueBytes=${ingress.queueBytes}" +
+            " peakBlocks=${ingress.peakQueueBlocks} peakBytes=${ingress.peakQueueBytes}" +
+            "\nformalIngress overflowEvents=${ingress.overflowEvents} malformedBlocks=${ingress.malformedBlocks}" +
+            " droppedBlocks=${ingress.droppedBlocks} droppedBytes=${ingress.droppedBytes}" +
+            " continuityId=${ingress.continuityId}" +
             "\nrouter AE22=${diagnostics.notifications.ae22Frames} AE23=${diagnostics.notifications.ae23Frames}" +
             "\nrouter CRC AE22=${diagnostics.notifications.ae22CrcErrors} AE23=${diagnostics.notifications.ae23CrcErrors}" +
             "\nsession=${diagnostics.sessionId} mtu=${diagnostics.negotiatedMtu}"
@@ -358,14 +410,14 @@ private fun Stage15ProbeScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Text("Voica Stage 15.0C Packet Boundary Probe", style = MaterialTheme.typography.headlineSmall)
+            Text("Voica Stage 15.1/15.2 Realtime Ingress Probe", style = MaterialTheme.typography.headlineSmall)
             Text(
                 "build=${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
                 style = MaterialTheme.typography.labelMedium,
             )
             Text(
-                "验证 160B realtime body 是否为 4×40B Opus 聚合块；full160 inspect 与 split40 inspect/decode 同时统计。" +
-                    "若 genericObserverOverflow 或 probeQueueOverflow > 0，本轮结果不能用于冻结 packet boundary。",
+                "Realtime CMD=1 已走正式 dedicated ingress；generic observer 只保留低频非音频 TYPE=1 响应。" +
+                    "正式 ingress 上限为 12×160B / 2048B，overflow 时丢弃 stale backlog 并标记 discontinuity。",
                 style = MaterialTheme.typography.bodySmall,
             )
         }
