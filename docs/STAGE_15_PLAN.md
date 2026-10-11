@@ -1,6 +1,6 @@
 # Stage 15 — BLE 实时音频链路 开发规划 V1
 
-状态：**已确认 / 15.0–15.4 normal-path 完成 / 15.5 开发中**
+状态：**已确认 / 15.0–15.7 真机事实与媒体链已完成 / 15.8 Reconciliation 实现候选开发中 / 待 CI + 真机 Gate**
 
 ## 基线
 
@@ -14,6 +14,13 @@ Stage 15 从 main `d82210cf2b8ce25df92f4f07df200019c501f8ea` 开始。
 - production model channel main `be74c7065ce22a5f9b207a7cf1c88d3be0e872ec`
 - production manifestVersion `7`
 - Stage 16 Streaming Contract V2 保持冻结
+
+Stage 15 当前 QA development identity：
+
+- versionCode `90`
+- versionName `1.1.0-stage15`
+- Room 仍为 `v12`
+- production model channel pin 不变
 
 开发分支：`stage15-ble-realtime-audio`
 
@@ -258,7 +265,7 @@ STOP command 成功写入后：
 5. hard drain cap 为 `1500 ms`，超时仍结束但 `drainTimedOut=true`，作为异常诊断；
 6. quiet/drain wall clock **只决定 lifecycle finalize 时点**，绝不推进 canonical sample index。
 
-当前真机 cadence ~80ms/body、历史 max arrival gap <154ms，因此 250ms quiet window 为保守的尾包 drain gate；仍需 15.5 真机 STOP gate 验证。
+当前真机 cadence ~80ms/body、历史 max arrival gap <154ms，因此 250ms quiet window 为保守的尾包 drain gate。
 
 自动化覆盖：
 
@@ -274,7 +281,7 @@ STOP command 成功写入后：
 
 复用现有 BLE reconnect 与 `ServiceBackedDeviceRepository` 单 connectedDevice FGS lease；禁止第二套 reconnect manager、第二个 realtime FGS 或 per-packet FGS 操作。
 
-15.6/15.7 联合真机矩阵至少覆盖：
+15.6/15.7 联合真机矩阵覆盖：
 
 - START → STOP；
 - START → PAUSE → RESUME → STOP；
@@ -283,7 +290,7 @@ STOP command 成功写入后：
 - Bluetooth off/on；
 - background / screen-off。
 
-预期：
+生命周期规则：
 
 - Pause/Resume：同 realtime session、新 canonical epoch；
 - 第二次 START：新 realtime session，epoch 从 1 开始；
@@ -292,24 +299,78 @@ STOP command 成功写入后：
 - 每个 epoch 内 sample index 从 0 连续推进；
 - 不跨未知 discontinuity 拼接媒体时间。
 
-## 15.7 — Diagnostics + true-device integration
+## 15.7 — Diagnostics + true-device integration（COMPLETE）
 
-低频聚合 transport / queue / decoder / timeline / consumer lifecycle / performance counters。完成：
+Stage 15.7 已完成 diagnostics / fault / true-device integration，并额外完成 D0–D2 TYPE3 / TYPE1 控制面事实矩阵。
 
-- TYPE3 recording 与 TYPE1 realtime independence；
-- synthetic slowdown encoded overflow；
-- synthetic/controlled canonical consumer slowdown overflow；
-- reconnect / Bluetooth off / user disconnect；
-- background / screen-off；
-- realtime BLE PCM 与 final device recording waveform cross-correlation alignment。
+权威事实文档：
 
-## 15.8 — Stability / final gate
+- `docs/STAGE_15_7_D0_D1_TEST.md`
 
-- automated tests + Android PR CI + QA APK
-- true-device 功能矩阵
-- development 10–15 min
-- candidate 30 min / 60 min
-- final 120 min
+D0–D2 最终结论：
+
+- TYPE3 START 不会隐式启动 TYPE1；
+- TYPE1 START 会同时开启 device recording/file lifecycle；
+- TYPE1 STOP 会终止 device recording lifecycle；
+- TYPE3 START while TYPE1 ACTIVE 因 production Idle guard 而 NO-OP；
+- **TYPE3 SAVE while TYPE1 ACTIVE 会停止 device TYPE1 media，但 pre-15.8 App runtime 会错误保持 ACTIVE / gateOpen / sourceActive**。
+
+D2 正式事实：
+
+```text
+D2 reverseEffect=DEVICE_MEDIA_STOPS_RUNTIME_STAYS_ACTIVE
+D2 factStatus=RESOLVED
+Stage15.7=COMPLETE
+```
+
+这个生产 lifecycle 缺口不在 15.7 继续增加协议 Probe，而进入 Stage 15.8 专项收口。
+
+## 15.8 — Realtime / Recording Lifecycle Reconciliation
+
+权威规划：
+
+- `docs/STAGE_15_8_RECONCILIATION_PLAN.md`
+
+目标：
+
+```text
+trusted FRESH Recording/Paused -> FRESH Idle
+AND realtime runtime still ACTIVE/PAUSED
+→ app-layer reconciliation
+→ best-effort TYPE1 STOP
+→ STOP write failure 时 local convergence fallback
+→ canonical SessionEnded(DEVICE_RECORDING_ENDED)
+→ runtime IDLE / gate closed / source inactive
+```
+
+约束：
+
+- 不让 `core:ble` 反向依赖 app runtime；
+- explicit realtime STOP 已进入 STOPPING/DRAINING/IDLE 时不得重复 reconciliation；
+- TYPE3-only lifecycle 不得启动/停止 realtime runtime；
+- stale/failed/not-synced recording state 不得触发；
+- fallback 不得伪造 ordinary STOP success；
+- canonical timeline 不补 wall clock / 不生成假 PCM；
+- quiet drain / hard cap 继续为 250 ms / 1500 ms。
+
+Stage 15.8 当前状态：实现候选已进入 CI，仍需真机 Gate：
+
+1. realtime START → TYPE3 SAVE → **无需手工 realtime STOP** 自动收敛；
+2. 同连接第二次 realtime START 能正常出流；
+3. explicit realtime STOP 不触发 reconciliation request；
+4. TYPE3-only START/SAVE 不触发 realtime reconciliation request。
+
+Stage 15.8 真机通过前不得 Final Freeze/Handoff。
+
+## 15.9 — Stability / final gate
+
+Stage 15.8 reconciliation 真机通过后才进入最终稳定性收口：
+
+- automated tests + Android PR CI + production-like QA APK；
+- true-device 全功能矩阵；
+- development 10–15 min；
+- candidate 30 min / 60 min；
+- final 120 min。
 
 Final gate 要求 crash/ANR/native fatal = 0，queue/lag/heap 不持续单向增长，人工断线必须产生明确 discontinuity/new epoch，stop 后资源完全释放且可再次 START。
 
