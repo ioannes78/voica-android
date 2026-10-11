@@ -1,6 +1,8 @@
 package io.github.ioannes78.voica
 
 import android.content.Context
+import android.os.SystemClock
+import android.util.Log
 import io.github.ioannes78.voica.ble.BleDiagnostics
 import io.github.ioannes78.voica.ble.BleScanState
 import io.github.ioannes78.voica.ble.DeviceAudioFormat
@@ -56,6 +58,12 @@ class ServiceBackedDeviceRepository(
         },
     private val foregroundServiceRelease: (Context) -> Unit =
         { serviceContext -> DeviceSessionForegroundService.release(serviceContext) },
+    private val foregroundNotificationUpdate: (Context, String, String) -> Unit =
+        { serviceContext, deviceName, label ->
+            DeviceSessionNotificationUpdater.update(serviceContext, deviceName, label)
+        },
+    private val elapsedRealtimeMs: () -> Long = SystemClock::elapsedRealtime,
+    private val progressUpdateMinIntervalMs: Long = PROGRESS_NOTIFICATION_MIN_INTERVAL_MS,
 ) : DeviceRepository {
     private val appContext = context.applicationContext
     private val scope = scope
@@ -79,6 +87,8 @@ class ServiceBackedDeviceRepository(
     private var lastPublishedDeviceName: String? = null
     private var lastPublishedLabel: String? = null
     private var pendingConnectJob: Job? = null
+    private var pendingProgressNotificationJob: Job? = null
+    private var lastProgressNotificationElapsedMs: Long? = null
     private var connectGeneration = 0L
     private var scanToConnectTransitionInFlight = false
 
@@ -107,31 +117,37 @@ class ServiceBackedDeviceRepository(
             ) { _, _, _, _ ->
                 Unit
             }.collect {
-                // Treat combined emissions only as invalidation signals. The business state can
-                // advance again before this collector is scheduled, so never carry a precomputed
-                // notification decision across that scheduling boundary.
+                // Combined emissions are invalidation signals only. Always re-read current business
+                // truth at publication time so an old progress emission can never carry a stale label.
                 reconcileCurrentDeviceSessionDecision()
             }
         }
 
         scope.launch {
             DeviceSessionForegroundDiagnostics.state.collect { snapshot ->
-                val shouldDropLease =
-                    synchronized(lock) {
+                val shouldDropLease: Boolean
+                val shouldRefreshLatest: Boolean
+                synchronized(lock) {
+                    shouldDropLease =
                         snapshot.phase == DeviceSessionForegroundPhase.FAILED &&
                             snapshot.generation == serviceGeneration
+                    shouldRefreshLatest =
+                        snapshot.phase == DeviceSessionForegroundPhase.ACTIVE &&
+                            snapshot.generation == serviceGeneration
+                    if (shouldDropLease) {
+                        serviceHeld = false
+                        serviceGeneration = null
+                        lastPublishedDeviceName = null
+                        lastPublishedLabel = null
+                        foregroundStartFailedThisSession = true
                     }
+                }
                 if (shouldDropLease) {
-                    synchronized(lock) {
-                        if (snapshot.generation == serviceGeneration) {
-                            serviceHeld = false
-                            serviceGeneration = null
-                            lastPublishedDeviceName = null
-                            lastPublishedLabel = null
-                            foregroundStartFailedThisSession = true
-                        }
-                    }
                     reconcileDelegateForeground()
+                } else if (shouldRefreshLatest) {
+                    // State may have advanced while startForegroundService was still STARTING.
+                    // Re-project the latest business truth once the single lease becomes ACTIVE.
+                    reconcileCurrentDeviceSessionDecision(forceImmediate = true)
                 }
             }
         }
@@ -260,10 +276,8 @@ class ServiceBackedDeviceRepository(
         try {
             delegate.downloadDeviceFile(file, format)
         } finally {
-            // The explicit pre-download foreground publish can race the delegate's terminal state
-            // emission on some OEMs. Re-project the latest terminal business state after the
-            // suspending operation returns so a stale 95%/100% "正在下载" label cannot survive.
-            reconcileCurrentDeviceSessionDecision()
+            // Terminal business state must override any coalesced progress immediately.
+            reconcileCurrentDeviceSessionDecision(forceImmediate = true)
         }
     }
 
@@ -287,19 +301,16 @@ class ServiceBackedDeviceRepository(
         pending?.cancel()
     }
 
-    private fun reconcileCurrentDeviceSessionDecision() {
+    private fun reconcileCurrentDeviceSessionDecision(forceImmediate: Boolean = false) {
         synchronized(lock) {
-            // Read and publish under the same serialization boundary. A delayed invalidation from
-            // Active(DOWNLOAD) therefore cannot allocate a newer foreground-service generation
-            // after Completed/Failed/Cancelled has already become the current business truth.
-            applyDecision(
+            val decision =
                 decisionFor(
                     connection = delegate.connectionState.value,
                     recording = delegate.recordingState.value,
                     operation = delegate.fileOperationState.value,
                     info = delegate.deviceInfo.value,
-                ),
-            )
+                )
+            applyDecision(decision, forceImmediate)
         }
     }
 
@@ -313,22 +324,72 @@ class ServiceBackedDeviceRepository(
             info.name?.trim()?.takeIf { it.isNotEmpty() }
                 ?: currentDeviceName
                 ?: FALLBACK_DEVICE_NAME
+        val activeOperation = operation as? FileOperationState.Active
+        val coalescibleProgress =
+            activeOperation?.operation == DeviceFileOperationType.DOWNLOAD &&
+                activeOperation.progress?.expectedBytes?.let { it > 0L } == true
         return DeviceSessionForegroundDecision(
             keep =
                 !userDisconnectedThisProcess &&
                     shouldKeepDeviceSession(connection),
             deviceName = resolvedName,
             label = deviceSessionLabel(connection, recording, operation),
+            coalescibleProgress = coalescibleProgress,
         )
     }
 
-    private fun applyDecision(decision: DeviceSessionForegroundDecision) {
+    private fun applyDecision(
+        decision: DeviceSessionForegroundDecision,
+        forceImmediate: Boolean,
+    ) {
         currentDeviceName = decision.deviceName.takeIf { it != FALLBACK_DEVICE_NAME } ?: currentDeviceName
-        if (decision.keep) {
-            holdService(decision.deviceName, decision.label)
-        } else {
+        if (!decision.keep) {
+            cancelPendingProgressNotificationLocked()
             releaseService()
+            return
         }
+
+        if (!decision.coalescibleProgress || forceImmediate || progressUpdateMinIntervalMs <= 0L) {
+            cancelPendingProgressNotificationLocked()
+            publishDecisionNow(decision)
+            return
+        }
+
+        val now = elapsedRealtimeMs()
+        val previous = lastProgressNotificationElapsedMs
+        val elapsed = previous?.let { now - it } ?: Long.MAX_VALUE
+        if (elapsed >= progressUpdateMinIntervalMs) {
+            cancelPendingProgressNotificationLocked()
+            publishDecisionNow(decision)
+            return
+        }
+
+        if (pendingProgressNotificationJob == null) {
+            val waitMs = (progressUpdateMinIntervalMs - elapsed).coerceAtLeast(1L)
+            pendingProgressNotificationJob =
+                scope.launch {
+                    delay(waitMs)
+                    synchronized(lock) {
+                        pendingProgressNotificationJob = null
+                    }
+                    // Re-read current truth. If the download already reached a terminal state this
+                    // publishes that state instead of replaying the coalesced historical percentage.
+                    reconcileCurrentDeviceSessionDecision(forceImmediate = true)
+                }
+        }
+    }
+
+    private fun publishDecisionNow(decision: DeviceSessionForegroundDecision) {
+        if (decision.coalescibleProgress) {
+            lastProgressNotificationElapsedMs = elapsedRealtimeMs()
+        }
+        holdService(decision.deviceName, decision.label)
+    }
+
+    private fun cancelPendingProgressNotificationLocked() {
+        pendingProgressNotificationJob?.cancel()
+        pendingProgressNotificationJob = null
+        lastProgressNotificationElapsedMs = null
     }
 
     private fun holdService(deviceName: String, label: String): Boolean {
@@ -357,39 +418,92 @@ class ServiceBackedDeviceRepository(
                     lastPublishedLabel == safeLabel
                 ) {
                     true
-                } else {
-                    val generation =
-                        foregroundServiceAcquire(
-                            appContext,
-                            safeName,
-                            safeLabel,
-                        )
-                    if (generation != null) {
-                        serviceHeld = true
-                        serviceGeneration = generation
-                        lastPublishedDeviceName = safeName
-                        lastPublishedLabel = safeLabel
-                    } else if (!serviceHeld) {
-                        foregroundStartFailedThisSession = true
-                        serviceGeneration = null
-                        lastPublishedDeviceName = null
-                        lastPublishedLabel = null
+                } else if (serviceHeld && serviceGeneration != null) {
+                    val generation = serviceGeneration!!
+                    val foregroundSnapshot = DeviceSessionForegroundDiagnostics.state.value
+                    when {
+                        foregroundSnapshot.generation == generation &&
+                            foregroundSnapshot.phase == DeviceSessionForegroundPhase.ACTIVE -> {
+                            val revision =
+                                DeviceSessionNotificationDisplayDiagnostics.recordDesired(
+                                    leaseGeneration = generation,
+                                    deviceName = safeName,
+                                    label = safeLabel,
+                                )
+                            try {
+                                foregroundNotificationUpdate(appContext, safeName, safeLabel)
+                                DeviceSessionNotificationDisplayDiagnostics.markRendered(
+                                    leaseGeneration = generation,
+                                    revision = revision,
+                                    deviceName = safeName,
+                                    label = safeLabel,
+                                )
+                                lastPublishedDeviceName = safeName
+                                lastPublishedLabel = safeLabel
+                            } catch (error: RuntimeException) {
+                                Log.e(TAG, "connectedDevice notification update failed", error)
+                            }
+                            true
+                        }
+
+                        foregroundSnapshot.generation == generation &&
+                            foregroundSnapshot.phase == DeviceSessionForegroundPhase.STARTING -> {
+                            // Do not enqueue another startForegroundService command. Remember the
+                            // desired display state and publish it when the one lease becomes ACTIVE.
+                            DeviceSessionNotificationDisplayDiagnostics.recordDesired(
+                                leaseGeneration = generation,
+                                deviceName = safeName,
+                                label = safeLabel,
+                            )
+                            true
+                        }
+
+                        else -> {
+                            acquireServiceLeaseLocked(safeName, safeLabel)
+                        }
                     }
-                    serviceHeld
+                } else {
+                    acquireServiceLeaseLocked(safeName, safeLabel)
                 }
             }
         reconcileDelegateForeground()
         return held
     }
 
+    private fun acquireServiceLeaseLocked(
+        safeName: String,
+        safeLabel: String,
+    ): Boolean {
+        val generation = foregroundServiceAcquire(appContext, safeName, safeLabel)
+        if (generation != null) {
+            serviceHeld = true
+            serviceGeneration = generation
+            lastPublishedDeviceName = safeName
+            lastPublishedLabel = safeLabel
+            DeviceSessionNotificationDisplayDiagnostics.recordDesired(
+                leaseGeneration = generation,
+                deviceName = safeName,
+                label = safeLabel,
+            )
+        } else if (!serviceHeld) {
+            foregroundStartFailedThisSession = true
+            serviceGeneration = null
+            lastPublishedDeviceName = null
+            lastPublishedLabel = null
+        }
+        return serviceHeld
+    }
+
     private fun releaseService() {
         val shouldRelease =
             synchronized(lock) {
+                cancelPendingProgressNotificationLocked()
                 val hadLease = serviceHeld || serviceGeneration != null
                 serviceHeld = false
                 serviceGeneration = null
                 lastPublishedDeviceName = null
                 lastPublishedLabel = null
+                DeviceSessionNotificationDisplayDiagnostics.reset()
                 hadLease
             }
         if (shouldRelease) {
@@ -492,11 +606,14 @@ class ServiceBackedDeviceRepository(
         val keep: Boolean,
         val deviceName: String,
         val label: String,
+        val coalescibleProgress: Boolean,
     )
 
     private companion object {
+        const val TAG = "VoicaDeviceSessionOwner"
         const val FALLBACK_DEVICE_NAME = "录音卡"
         const val SCAN_TO_CONNECT_SETTLE_MS = 250L
         const val FAST_RECONNECT_VISIBLE_ATTEMPTS = 3
+        const val PROGRESS_NOTIFICATION_MIN_INTERVAL_MS = 300L
     }
 }
