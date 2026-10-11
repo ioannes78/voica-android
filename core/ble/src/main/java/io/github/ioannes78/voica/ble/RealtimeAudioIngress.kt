@@ -75,9 +75,10 @@ data class RealtimeAudioIngressSnapshot(
  * Stage 15 production encoded ingress.
  *
  * True-device gates froze the realtime transport unit as one 160-byte TYPE=1/CMD=1 body every
- * ~80 ms. The queue is therefore bounded to roughly one second of encoded media. Overflow prefers
- * current/live data: stale queued blocks are discarded, continuity advances, and the incoming block
- * is accepted as the first block of the new continuity segment.
+ * ~80 ms. The queue is bounded to 32 blocks (~2.56 s) so short Android scheduling/background
+ * bursts do not create avoidable media loss while the pipeline can still catch up quickly. Overflow
+ * still prefers current/live data: stale queued blocks are discarded, continuity advances, and the
+ * incoming block is accepted as the first block of the new continuity segment.
  */
 class RealtimeAudioIngress(
     private val maxBlocks: Int = DEFAULT_MAX_BLOCKS,
@@ -279,8 +280,8 @@ class RealtimeAudioIngress(
         const val REALTIME_BLOCK_BYTES = 160
         const val OPUS_PACKET_BYTES = 40
         const val OPUS_PACKETS_PER_BLOCK = 4
-        const val DEFAULT_MAX_BLOCKS = 12
-        const val DEFAULT_MAX_ENCODED_BYTES = 2_048
+        const val DEFAULT_MAX_BLOCKS = 32
+        const val DEFAULT_MAX_ENCODED_BYTES = DEFAULT_MAX_BLOCKS * REALTIME_BLOCK_BYTES
         private const val PROTOCOL_PREFIX_BYTES = 2
     }
 }
