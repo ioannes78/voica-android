@@ -38,6 +38,7 @@ import io.github.ioannes78.voica.ble.AndroidDeviceSession
 import io.github.ioannes78.voica.ble.BlePermissionPolicy
 import io.github.ioannes78.voica.ble.BleScanDevice
 import io.github.ioannes78.voica.ble.DeviceConnectionState
+import io.github.ioannes78.voica.ble.DeviceRepository
 import io.github.ioannes78.voica.ble.RoutedNotification
 import io.github.ioannes78.voica.opus.NativeOpusBackend
 import io.github.ioannes78.voica.protocol.ProtocolConstants
@@ -71,6 +72,7 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
     private val probeScope = CoroutineScope(probeJob + Dispatchers.Main.immediate)
     private lateinit var scanner: AndroidBleScanner
     private lateinit var session: AndroidDeviceSession
+    private lateinit var productRepository: DeviceRepository
     private val accumulator = Stage15RealtimeProbeAccumulator()
     private val mutableSnapshot = MutableStateFlow(Stage15ProbeSnapshot())
     private val mutableAction = MutableStateFlow("等待连接")
@@ -78,6 +80,16 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // The normal AppContainer is eagerly created for this process. Park its BLE runtime before
+        // the probe opens a second AndroidDeviceSession, otherwise a previously Ready product
+        // session could still own the same recorder while MainActivity is stopped.
+        productRepository = (application as VoicaApplication).container.deviceRepository
+        productRepository.setForeground(false)
+        if (productRepository.connectionState.value.hasActiveTransport()) {
+            productRepository.disconnect()
+        }
+
         scanner = AndroidBleScanner(applicationContext, probeScope)
         session = AndroidDeviceSession(applicationContext, probeScope)
 
@@ -190,6 +202,20 @@ class Stage15RealtimeProbeActivity : ComponentActivity() {
             mutableAction.value = "$label seq=${result.requestSequence} written=${result.written}"
         }
     }
+
+    private fun DeviceConnectionState.hasActiveTransport(): Boolean =
+        when (this) {
+            is DeviceConnectionState.Connecting,
+            is DeviceConnectionState.LinkConnected,
+            is DeviceConnectionState.DiscoveringServices,
+            is DeviceConnectionState.Subscribing,
+            is DeviceConnectionState.NegotiatingMtu,
+            is DeviceConnectionState.Ready,
+            is DeviceConnectionState.Disconnecting,
+            -> true
+
+            else -> false
+        }
 
     private companion object {
         const val SNAPSHOT_INTERVAL_MS = 500L
