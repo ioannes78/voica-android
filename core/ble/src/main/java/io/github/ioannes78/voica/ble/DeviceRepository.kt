@@ -107,6 +107,8 @@ class DefaultDeviceRepository(
         applicationContext.getSystemService(BluetoothManager::class.java)
     private val scanner = AndroidBleScanner(applicationContext, scope)
     private val session = AndroidDeviceSession(applicationContext, scope)
+    val realtimeTransport: RealtimeDeviceTransport =
+        AndroidDeviceSessionRealtimeTransport(session)
     private val recordingFrameRouter = RecordingFrameRouter()
     private val fileListFrameRouter = FileListFrameRouter()
     private val fileListSessionCoordinator = FileListSessionCoordinator()

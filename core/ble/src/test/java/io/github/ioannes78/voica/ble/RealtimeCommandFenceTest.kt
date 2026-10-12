@@ -1,0 +1,214 @@
+package io.github.ioannes78.voica.ble
+
+import io.github.ioannes78.voica.protocol.ProtocolConstants
+import io.github.ioannes78.voica.protocol.ProtocolFrame
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class RealtimeCommandFenceTest {
+    @Test
+    fun audioGateIsClosedBeforeStartAndAfterExplicitClose() {
+        val downstream = CapturingConsumer()
+        val fence = RealtimeCommandFence(downstream)
+
+        assertEquals(
+            RealtimeAudioOfferResult.REJECTED,
+            fence.offer(audioNotification(sequence = 1), 7, 100),
+        )
+        assertEquals(1L, fence.snapshot().gatedRejectCount)
+        assertFalse(fence.snapshot().audioGateOpen)
+
+        val token = fence.prepare(RealtimeControlCommand.START, transportGeneration = 7)
+        assertEquals(RealtimeCommandFenceCommitResult.COMMITTED, fence.commit(token))
+        assertTrue(fence.snapshot().audioGateOpen)
+
+        assertEquals(
+            RealtimeAudioOfferResult.ACCEPTED,
+            fence.offer(audioNotification(sequence = 2), 7, 200),
+        )
+        assertEquals(1, downstream.frames.size)
+
+        fence.closeAudioGate()
+        assertFalse(fence.snapshot().audioGateOpen)
+        assertEquals(
+            RealtimeAudioOfferResult.REJECTED,
+            fence.offer(audioNotification(sequence = 3), 7, 300),
+        )
+        assertEquals(2L, fence.snapshot().gatedRejectCount)
+        assertEquals(1, downstream.frames.size)
+    }
+
+    @Test
+    fun startFenceCommitsBoundaryBeforeBufferedFrames() {
+        val events = mutableListOf<String>()
+        val downstream = CapturingConsumer(onFrame = { events += "frame:${it.notification.frame.sequence}" })
+        val fence = RealtimeCommandFence(downstream)
+        val token = fence.prepare(RealtimeControlCommand.START, transportGeneration = 7)
+
+        assertEquals(
+            RealtimeAudioOfferResult.ACCEPTED,
+            fence.offer(audioNotification(sequence = 1), 7, 100),
+        )
+        assertEquals(
+            RealtimeAudioOfferResult.ACCEPTED,
+            fence.offer(audioNotification(sequence = 2), 7, 200),
+        )
+        assertTrue(downstream.frames.isEmpty())
+
+        assertEquals(
+            RealtimeCommandFenceCommitResult.COMMITTED,
+            fence.commit(token) { events += "boundary" },
+        )
+        assertEquals(listOf("boundary", "frame:1", "frame:2"), events)
+        assertEquals(2, fence.snapshot().peakBufferedFrames)
+        assertEquals(1L, fence.snapshot().committedCount)
+        assertTrue(fence.snapshot().audioGateOpen)
+        assertNull(fence.snapshot().quarantinedGeneration)
+    }
+
+    @Test
+    fun abortDropsBufferedAudioWithoutForwarding() {
+        val downstream = CapturingConsumer()
+        val fence = RealtimeCommandFence(downstream)
+        val token = fence.prepare(RealtimeControlCommand.START, transportGeneration = 3)
+        fence.offer(audioNotification(sequence = 4), 3, 100)
+
+        assertTrue(fence.abort(token))
+        assertTrue(downstream.frames.isEmpty())
+        assertEquals(1L, fence.snapshot().droppedFrames)
+        assertEquals(1L, fence.snapshot().abortedCount)
+        assertFalse(fence.snapshot().audioGateOpen)
+        assertNull(fence.snapshot().quarantinedGeneration)
+    }
+
+    @Test
+    fun overflowMakesFenceAmbiguousAndQuarantinesGeneration() {
+        val downstream = CapturingConsumer()
+        val fence = RealtimeCommandFence(
+            downstream = downstream,
+            maxBufferedFrames = 1,
+            maxBufferedBytes = 400,
+        )
+        val token = fence.prepare(RealtimeControlCommand.RESUME, transportGeneration = 5)
+        fence.offer(audioNotification(sequence = 1), 5, 100)
+
+        assertEquals(
+            RealtimeAudioOfferResult.REJECTED,
+            fence.offer(audioNotification(sequence = 2), 5, 200),
+        )
+        var boundaryCreated = false
+        assertEquals(
+            RealtimeCommandFenceCommitResult.AMBIGUOUS,
+            fence.commit(token) { boundaryCreated = true },
+        )
+        assertFalse(boundaryCreated)
+        assertFalse(fence.snapshot().audioGateOpen)
+        assertTrue(downstream.frames.isEmpty())
+        assertEquals(5L, fence.snapshot().quarantinedGeneration)
+
+        assertEquals(
+            RealtimeAudioOfferResult.REJECTED,
+            fence.offer(audioNotification(sequence = 3), 5, 300),
+        )
+        assertTrue(downstream.frames.isEmpty())
+        assertEquals(1L, fence.snapshot().quarantinedRejectCount)
+
+        fence.onSessionClosed(5)
+        assertNull(fence.snapshot().quarantinedGeneration)
+        assertEquals(1L, fence.snapshot().overflowCount)
+        assertEquals(1L, fence.snapshot().ambiguousCount)
+        assertEquals(2L, fence.snapshot().droppedFrames)
+    }
+
+    @Test
+    fun failedBoundaryActionDropsBufferedAudioAndQuarantinesGeneration() {
+        val downstream = CapturingConsumer()
+        val fence = RealtimeCommandFence(downstream)
+        val token = fence.prepare(RealtimeControlCommand.START, transportGeneration = 6)
+        fence.offer(audioNotification(sequence = 1), 6, 100)
+
+        assertEquals(
+            RealtimeCommandFenceCommitResult.COMMIT_ACTION_FAILED,
+            fence.commit(token) { error("boundary failure") },
+        )
+        assertTrue(downstream.frames.isEmpty())
+        assertFalse(fence.snapshot().audioGateOpen)
+        assertEquals(6L, fence.snapshot().quarantinedGeneration)
+        assertEquals(1L, fence.snapshot().commitActionFailureCount)
+        assertEquals(1L, fence.snapshot().droppedFrames)
+    }
+
+    @Test
+    fun staleGenerationOfferMarksFenceAmbiguous() {
+        val downstream = CapturingConsumer()
+        val fence = RealtimeCommandFence(downstream)
+        val token = fence.prepare(RealtimeControlCommand.START, transportGeneration = 10)
+
+        assertEquals(
+            RealtimeAudioOfferResult.REJECTED,
+            fence.offer(audioNotification(sequence = 1), 11, 100),
+        )
+        assertEquals(RealtimeCommandFenceCommitResult.AMBIGUOUS, fence.commit(token))
+        assertEquals(10L, fence.snapshot().quarantinedGeneration)
+        assertEquals(1L, fence.snapshot().staleOfferCount)
+        assertTrue(downstream.frames.isEmpty())
+    }
+
+    @Test
+    fun sessionCloseAbortsMatchingFenceAndPropagatesClose() {
+        val downstream = CapturingConsumer()
+        val fence = RealtimeCommandFence(downstream)
+        val token = fence.prepare(RealtimeControlCommand.START, transportGeneration = 9)
+        fence.offer(audioNotification(sequence = 1), 9, 100)
+
+        fence.onSessionClosed(9)
+
+        assertEquals(listOf(9L), downstream.closedGenerations)
+        assertFalse(fence.abort(token))
+        assertFalse(fence.snapshot().audioGateOpen)
+        assertEquals(1L, fence.snapshot().droppedFrames)
+    }
+
+    private fun audioNotification(sequence: Int): RoutedNotification =
+        RoutedNotification(
+            source = NotificationSource.AE22,
+            frame = ProtocolFrame(
+                sequence = sequence,
+                data = byteArrayOf(
+                    ProtocolConstants.Type.REALTIME.toByte(),
+                    ProtocolConstants.Realtime.AUDIO_DATA.toByte(),
+                ) + ByteArray(RealtimeAudioIngress.REALTIME_BLOCK_BYTES) { index -> index.toByte() },
+            ),
+        )
+
+    private class CapturingConsumer(
+        private val onFrame: (CapturedFrame) -> Unit = {},
+    ) : RealtimeAudioConsumer {
+        val frames = mutableListOf<CapturedFrame>()
+        val closedGenerations = mutableListOf<Long>()
+
+        override fun offer(
+            notification: RoutedNotification,
+            sessionGeneration: Long,
+            receivedAtNanos: Long,
+        ): RealtimeAudioOfferResult {
+            val captured = CapturedFrame(notification, sessionGeneration, receivedAtNanos)
+            frames += captured
+            onFrame(captured)
+            return RealtimeAudioOfferResult.ACCEPTED
+        }
+
+        override fun onSessionClosed(sessionGeneration: Long) {
+            closedGenerations += sessionGeneration
+        }
+    }
+
+    private data class CapturedFrame(
+        val notification: RoutedNotification,
+        val sessionGeneration: Long,
+        val receivedAtNanos: Long,
+    )
+}

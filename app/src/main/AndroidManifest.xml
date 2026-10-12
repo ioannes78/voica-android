@@ -87,6 +87,43 @@
             android:name=".ModelInstallActionReceiver"
             android:exported="false" />
 
+        <!-- Stage 15 QA probes remain available to in-app/internal tooling only.
+             They must never create additional launcher icons. -->
+        <activity
+            android:name=".Stage159FinalGateActivity"
+            android:exported="false"
+            android:label="Stage 15 Final Gate" />
+
+        <activity
+            android:name=".Stage158ReconciliationProbeActivity"
+            android:exported="false"
+            android:label="Voica Stage15.8 Reconcile Probe" />
+
+        <activity
+            android:name=".Stage157D2ReverseControlProbeActivity"
+            android:exported="false"
+            android:label="Voica Stage15 D2 Probe" />
+
+        <activity
+            android:name=".Stage157D1CRealtimeOnlyProbeActivity"
+            android:exported="false"
+            android:label="Voica Stage15 D1C Probe" />
+
+        <activity
+            android:name=".Stage157D1DualControlProbeActivity"
+            android:exported="false"
+            android:label="Voica Stage15 D1 Probe" />
+
+        <activity
+            android:name=".Stage157D0PassiveRealtimeProbeActivity"
+            android:exported="false"
+            android:label="Voica Stage15 D0 Probe" />
+
+        <activity
+            android:name=".Stage15RealtimeProbeActivity"
+            android:exported="false"
+            android:label="Voica Stage15 Probe" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true">
