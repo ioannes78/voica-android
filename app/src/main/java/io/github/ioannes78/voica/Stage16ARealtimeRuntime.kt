@@ -1,5 +1,6 @@
 package io.github.ioannes78.voica
 
+import io.github.ioannes78.voica.audio.RealtimeCanonicalSessionEndReason
 import io.github.ioannes78.voica.audio.Stage15CanonicalRealtimeEventSourceAdapter
 import io.github.ioannes78.voica.database.RealtimeAudioSourceTypeValue
 import io.github.ioannes78.voica.database.RealtimeTranscriptPersistenceRepository
@@ -154,7 +155,7 @@ class Stage16ARealtimeRuntime(
 
         val run = ActiveRun(runId, persistence, bundle)
         activeRun = run
-        run.runnerJob =
+        val runnerJob =
             scope.launch {
                 try {
                     bundle.runner.run()
@@ -166,6 +167,12 @@ class Stage16ARealtimeRuntime(
                         failure.message ?: failure.javaClass.simpleName,
                     )
                 }
+            }
+        run.runnerJob = runnerJob
+        run.completionJob =
+            scope.launch {
+                runnerJob.join()
+                finalizeCompletedRunner(run)
             }
 
         liveStateStore.starting()
@@ -346,6 +353,119 @@ class Stage16ARealtimeRuntime(
             decision = decision,
             attached = true,
         )
+    }
+
+    /**
+     * Runner termination can be initiated by DEVICE_RECORDING_ENDED or runtime/source shutdown
+     * without a UI command. This watcher is intentionally separate from runnerJob: stop() holds the
+     * command mutex while joining runnerJob, so runnerJob itself must never wait for that mutex.
+     */
+    private suspend fun finalizeCompletedRunner(run: ActiveRun) {
+        commandMutex.withLock {
+            if (activeRun !== run) return@withLock
+
+            val snapshot = run.bundle.runner.snapshot()
+            when (snapshot.state) {
+                RealtimeTranscriptionSessionRunnerState.FAILED -> {
+                    terminalizeRunnerLocked(
+                        run = run,
+                        terminalState = RealtimeTranscriptionStateValue.FAILED,
+                        endReason = "RUNNER_FAILED",
+                        errorCode = "REALTIME_RUNNER_FAILED",
+                        errorMessage = snapshot.lastFailure ?: "实时转写处理失败",
+                        completed = false,
+                    )
+                }
+
+                RealtimeTranscriptionSessionRunnerState.TERMINATED -> {
+                    val reason = snapshot.terminalReason
+                    when (reason) {
+                        RealtimeCanonicalSessionEndReason.DEVICE_RECORDING_ENDED,
+                        RealtimeCanonicalSessionEndReason.STOP,
+                        ->
+                            terminalizeRunnerLocked(
+                                run = run,
+                                terminalState = RealtimeTranscriptionStateValue.COMPLETED,
+                                endReason = reason.name,
+                                errorCode = null,
+                                errorMessage = null,
+                                completed = true,
+                            )
+
+                        RealtimeCanonicalSessionEndReason.RUNTIME_CLOSED,
+                        RealtimeCanonicalSessionEndReason.TRANSPORT_CLOSED,
+                        RealtimeCanonicalSessionEndReason.SUPERSEDED_BY_NEW_SESSION,
+                        null,
+                        ->
+                            terminalizeRunnerLocked(
+                                run = run,
+                                terminalState = RealtimeTranscriptionStateValue.INTERRUPTED,
+                                endReason = reason?.name ?: "SOURCE_CLOSED",
+                                errorCode = null,
+                                errorMessage = null,
+                                completed = false,
+                            )
+                    }
+                }
+
+                RealtimeTranscriptionSessionRunnerState.NEW,
+                RealtimeTranscriptionSessionRunnerState.RUNNING,
+                ->
+                    terminalizeRunnerLocked(
+                        run = run,
+                        terminalState = RealtimeTranscriptionStateValue.FAILED,
+                        endReason = "RUNNER_JOB_ENDED_WITHOUT_TERMINAL_STATE",
+                        errorCode = "RUNNER_STATE_INVALID",
+                        errorMessage = "实时转写任务结束时运行状态无效",
+                        completed = false,
+                    )
+            }
+        }
+    }
+
+    private suspend fun terminalizeRunnerLocked(
+        run: ActiveRun,
+        terminalState: String,
+        endReason: String,
+        errorCode: String?,
+        errorMessage: String?,
+        completed: Boolean,
+    ) {
+        val releaseFailure = runCatching { run.bundle.release() }.exceptionOrNull()
+        val persistenceFailure =
+            runCatching {
+                run.persistence.finalizeRun(
+                    state = terminalState,
+                    endReason = endReason,
+                    errorCode = errorCode,
+                    errorMessage = errorMessage,
+                )
+            }.exceptionOrNull()
+        if (activeRun === run) activeRun = null
+
+        val cleanupFailure = releaseFailure ?: persistenceFailure
+        if (cleanupFailure != null) {
+            liveStateStore.failed(
+                "REALTIME_TERMINALIZATION_FAILED",
+                cleanupFailure.message ?: "实时转写结束清理失败",
+            )
+            return
+        }
+
+        when {
+            completed -> liveStateStore.completed()
+            terminalState == RealtimeTranscriptionStateValue.FAILED ->
+                liveStateStore.failed(
+                    errorCode ?: "REALTIME_RUNNER_FAILED",
+                    errorMessage ?: "实时转写处理失败",
+                )
+            else ->
+                liveStateStore.interrupted(
+                    message = "实时转写已中断",
+                    code = errorCode,
+                    errorMessage = errorMessage,
+                )
+        }
     }
 
     private suspend fun awaitPauseDrain(
@@ -537,6 +657,7 @@ class Stage16ARealtimeRuntime(
         val bundle: Stage16ARealtimePipelineBundle,
     ) {
         var runnerJob: Job? = null
+        var completionJob: Job? = null
     }
 
     private data class PauseDrainResult(
