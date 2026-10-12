@@ -114,17 +114,21 @@ class RealtimePcmWavSegmentWriter(
         file.fd.sync()
         file.close()
         randomAccess = null
-        closed = true
 
-        moveAtomicallyBestEffort(stagingFile, targetFile)
-        finalized = true
-        return RealtimePcmWavSegmentFinalization(
-            file = targetFile,
-            sampleCount = sampleCount,
-            sizeBytes = targetFile.length(),
-            sha256 = sha256(targetFile),
-            hadDiscontinuity = hadDiscontinuity,
-        )
+        try {
+            moveAtomicallyBestEffort(stagingFile, targetFile)
+            finalized = true
+            return RealtimePcmWavSegmentFinalization(
+                file = targetFile,
+                sampleCount = sampleCount,
+                sizeBytes = targetFile.length(),
+                sha256 = sha256(targetFile),
+                hadDiscontinuity = hadDiscontinuity,
+            )
+        } finally {
+            closed = true
+            if (!finalized) stagingFile.delete()
+        }
     }
 
     override fun close() {
