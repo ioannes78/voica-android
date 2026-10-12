@@ -19,6 +19,7 @@ enum class Stage16ARealtimeUiPhase {
     RESUMING,
     FINALIZING,
     INTERRUPTED,
+    COMPLETED,
     FAILED,
 }
 
@@ -109,6 +110,41 @@ class Stage16ARealtimeLiveStateStore : RealtimeTranscriptionOutputSink {
         it.copy(
             phase = Stage16ARealtimeUiPhase.FINALIZING,
             lifecycleMessage = "正在完成最后内容…",
+        )
+    }
+
+    fun interrupted(
+        message: String,
+        code: String? = null,
+        errorMessage: String? = null,
+    ) = mutate {
+        it.copy(
+            phase = Stage16ARealtimeUiPhase.INTERRUPTED,
+            stableText = "",
+            partialText = "",
+            lifecycleMessage = message,
+            errorCode = code,
+            errorMessage = errorMessage,
+        )
+    }
+
+    fun completed() = mutate {
+        it.copy(
+            phase = Stage16ARealtimeUiPhase.COMPLETED,
+            stableText = "",
+            partialText = "",
+            lifecycleMessage = null,
+            errorCode = null,
+            errorMessage = null,
+        )
+    }
+
+    /** Reports a degraded side branch without turning off recorder media or realtime inference. */
+    fun degraded(code: String, message: String) = mutate {
+        it.copy(
+            lifecycleMessage = message,
+            errorCode = code,
+            errorMessage = message,
         )
     }
 

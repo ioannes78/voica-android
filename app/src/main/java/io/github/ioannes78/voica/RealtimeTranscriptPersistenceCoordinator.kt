@@ -86,6 +86,11 @@ class RealtimeTranscriptPersistenceCoordinator(
         reconnectMarkerPending = true
     }
 
+    /** Clears a pre-armed reconnect marker when local-only attach fails before a new session opens. */
+    suspend fun cancelPendingReconnectMarker() = mutex.withLock {
+        reconnectMarkerPending = false
+    }
+
     /**
      * Completes local media independently from text processing. Unknown-yet session ids are retained
      * until their ordered SessionStarted event creates the matching Room segment.
