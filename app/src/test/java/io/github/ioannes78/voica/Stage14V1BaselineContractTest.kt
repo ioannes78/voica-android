@@ -21,14 +21,29 @@ class Stage14V1BaselineContractTest {
     }
 
     @Test
-    fun v1RoomRuntimeStartsDirectlyFromSchema12() {
+    fun postV1RoomRuntimeRegistersOnlySupported12To13Migration() {
         val source = databaseProductionSource("VoicaDatabase.kt")
 
-        assertTrue(source.contains("version = 12"))
-        assertFalse(
-            "pre-V1 Room migrations must not be registered in the V1 production database builder",
-            source.contains(".addMigrations("),
-        )
+        assertTrue(source.contains("version = 13"))
+        assertTrue(source.contains(".addMigrations(MIGRATION_12_13)"))
+        for (legacyMigration in listOf(
+            "MIGRATION_1_2",
+            "MIGRATION_2_3",
+            "MIGRATION_3_4",
+            "MIGRATION_4_5",
+            "MIGRATION_5_6",
+            "MIGRATION_6_7",
+            "MIGRATION_7_8",
+            "MIGRATION_8_9",
+            "MIGRATION_9_10",
+            "MIGRATION_10_11",
+            "MIGRATION_11_12",
+        )) {
+            assertFalse(
+                "pre-V1 migrations remain historical evidence and must not be registered at runtime: $legacyMigration",
+                source.contains(legacyMigration),
+            )
+        }
     }
 
     private fun appProductionSource(relative: String): String {

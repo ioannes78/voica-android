@@ -1,0 +1,84 @@
+name: Stage 16A Room Schema Generator
+
+on:
+  push:
+    branches:
+      - stage16a-local-true-streaming-asr
+    paths:
+      - "core/database/src/main/**"
+      - ".github/workflows/stage16a-room-schema-generate.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stage16a-room-schema-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  generate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v5
+        with:
+          ref: stage16a-local-true-streaming-asr
+          fetch-depth: 0
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+
+      - name: Install Android platform
+        shell: bash
+        run: sdkmanager "platforms;android-37.1" "build-tools;36.0.0"
+
+      - name: Setup Gradle 9.6
+        uses: gradle/actions/setup-gradle@v5.0.2
+        with:
+          gradle-version: "9.6.0"
+          cache-read-only: true
+          cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+
+      - name: Generate Room schema 13 with Room KSP
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle :core:database:kspDebugKotlin --no-configuration-cache --stacktrace
+          test -f core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/13.json
+          git diff --exit-code -- core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/1.json \
+            core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/2.json \
+            core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/3.json \
+            core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/4.json \
+            core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/5.json \
+            core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/6.json \
+            core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/7.json \
+            core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/8.json \
+            core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/9.json \
+            core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/10.json \
+            core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/11.json \
+            core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/12.json
+
+      - name: Commit compiler-generated schema 13
+        shell: bash
+        run: |
+          set -euo pipefail
+          schema=core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/13.json
+          git add "$schema"
+          if git diff --cached --quiet; then
+            echo "Schema 13 already matches Room KSP output."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(stage16a): commit Room v13 generated schema"
+          git push origin HEAD:stage16a-local-true-streaming-asr
