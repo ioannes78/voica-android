@@ -351,10 +351,11 @@ class Stage16ARealtimeRuntime(
     private suspend fun awaitPauseDrain(
         runner: RealtimeTranscriptionSessionRunner,
     ): PauseDrainResult {
-        val result =
+        val result: PauseDrainResult? =
             withTimeoutOrNull(PAUSE_DRAIN_TIMEOUT_MS) {
                 var consecutiveDrainedObservations = 0
-                while (true) {
+                var boundary: RealtimeProcessedCanonicalBoundary? = null
+                while (consecutiveDrainedObservations < 2) {
                     val source = recorderRuntime.snapshot().source
                     val runnerSnapshot = runner.snapshot()
                     val drained =
@@ -363,17 +364,19 @@ class Stage16ARealtimeRuntime(
                             runnerSnapshot.coordinator.consumedSourceEvents
                     if (drained) {
                         consecutiveDrainedObservations += 1
-                        if (consecutiveDrainedObservations >= 2) {
-                            return@withTimeoutOrNull PauseDrainResult(
-                                drained = true,
-                                boundary = runnerSnapshot.lastProcessedBoundary,
-                            )
-                        }
+                        boundary = runnerSnapshot.lastProcessedBoundary
                     } else {
                         consecutiveDrainedObservations = 0
+                        boundary = null
                     }
-                    delay(PAUSE_DRAIN_POLL_MS)
+                    if (consecutiveDrainedObservations < 2) {
+                        delay(PAUSE_DRAIN_POLL_MS)
+                    }
                 }
+                PauseDrainResult(
+                    drained = true,
+                    boundary = boundary,
+                )
             }
         return result ?: PauseDrainResult(
             drained = false,
