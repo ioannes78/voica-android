@@ -201,6 +201,31 @@ class RealtimeStreamingAsrProcessor(
         }
     }
 
+    /**
+     * Called by the Stage 16 product coordinator immediately after a PAUSE command is confirmed.
+     *
+     * Stage 15 intentionally emits CONTROL_BOUNDARY only when resumed PCM begins, so waiting for the
+     * next EpochStarted event would leave the current recognizer continuity open for the entire pause.
+     * This local-only boundary finalizes already accepted audio now, without sending any additional
+     * recorder command or fabricating canonical samples. The following RESUME EpochStarted event will
+     * create a fresh recognizer continuity.
+     *
+     * Repeated calls are idempotent while paused: once the active epoch has been detached, no second
+     * FINAL can be produced.
+     */
+    suspend fun onPauseCommitted(): List<RealtimeAsrPipelineEvent> {
+        check(!closed) { "RealtimeStreamingAsrProcessor is closed" }
+        if (activeSessionId == null || activeEpochId == null) return emptyList()
+        return buildList {
+            terminateCurrentContinuity(
+                RealtimeAsrFinalizationReason.EPOCH_BOUNDARY,
+                this,
+            )
+            activeEpochId = null
+            epochReason = null
+        }
+    }
+
     override fun close() {
         if (closed) return
         closed = true

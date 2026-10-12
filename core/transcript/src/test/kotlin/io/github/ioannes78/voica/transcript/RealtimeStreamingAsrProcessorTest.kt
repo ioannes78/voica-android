@@ -119,6 +119,86 @@ class RealtimeStreamingAsrProcessorTest {
     }
 
     @Test
+    fun `pause commit finalizes immediately and repeated pause is idempotent`() {
+        runBlocking {
+            val vadEngine = FakeVadEngine(
+                updates = listOf(StreamingVadUpdate(true), StreamingVadUpdate(true)),
+            )
+            val asrEngine = FakeAsrEngine()
+            val processor =
+                RealtimeStreamingAsrProcessor(
+                    asrEngine,
+                    vadEngine,
+                    RealtimeStreamingAsrConfig(targetChunkSamples = 4, vadPrerollSamples = 8),
+                )
+            processor.accept(StreamingAudioEvent.SessionStarted(11))
+            processor.accept(
+                StreamingAudioEvent.EpochStarted(11, 21, RealtimeCanonicalEpochStartReason.SESSION_START),
+            )
+            processor.accept(StreamingAudioEvent.PcmFrame(frame(start = 0, sessionId = 11, epochId = 21)))
+
+            val pauseOutputs = processor.onPauseCommitted()
+            val pausedFinal = pauseOutputs.filterIsInstance<RealtimeAsrPipelineEvent.Hypothesis>().single()
+            assertTrue(pausedFinal.hypothesis.isFinal)
+            assertEquals(RealtimeAsrFinalizationReason.EPOCH_BOUNDARY, pausedFinal.finalizationReason)
+            assertEquals(1, asrEngine.sessions.single().finishCalls)
+
+            assertTrue(processor.onPauseCommitted().isEmpty())
+            assertEquals(1, asrEngine.sessions.single().finishCalls)
+
+            processor.accept(
+                StreamingAudioEvent.EpochStarted(11, 22, RealtimeCanonicalEpochStartReason.CONTROL_BOUNDARY),
+            )
+            val resumedOutputs =
+                processor.accept(
+                    StreamingAudioEvent.PcmFrame(frame(start = 0, sessionId = 11, epochId = 22)),
+                )
+            val resumedPartial = resumedOutputs.filterIsInstance<RealtimeAsrPipelineEvent.Hypothesis>().single()
+            assertFalse(resumedPartial.hypothesis.isFinal)
+            assertTrue(resumedPartial.continuityIndex > pausedFinal.continuityIndex)
+            assertEquals(2, asrEngine.sessions.size)
+        }
+    }
+
+    @Test
+    fun `session end after pause does not emit duplicate final`() {
+        runBlocking {
+            val vadEngine = FakeVadEngine(updates = listOf(StreamingVadUpdate(true)))
+            val asrEngine = FakeAsrEngine()
+            val processor =
+                RealtimeStreamingAsrProcessor(
+                    asrEngine,
+                    vadEngine,
+                    RealtimeStreamingAsrConfig(targetChunkSamples = 4, vadPrerollSamples = 8),
+                )
+            processor.accept(StreamingAudioEvent.SessionStarted(31))
+            processor.accept(
+                StreamingAudioEvent.EpochStarted(31, 41, RealtimeCanonicalEpochStartReason.SESSION_START),
+            )
+            processor.accept(StreamingAudioEvent.PcmFrame(frame(start = 0, sessionId = 31, epochId = 41)))
+
+            val pauseFinal = processor.onPauseCommitted()
+                .filterIsInstance<RealtimeAsrPipelineEvent.Hypothesis>()
+                .single()
+            assertTrue(pauseFinal.hypothesis.isFinal)
+
+            val endOutputs =
+                processor.accept(
+                    StreamingAudioEvent.SessionEnded(
+                        sessionId = 31,
+                        finalEpochId = 41,
+                        finalSampleIndexExclusive = 4,
+                        reason = RealtimeCanonicalSessionEndReason.STOP,
+                        drainTimedOut = false,
+                    ),
+                )
+            assertTrue(endOutputs.none { it is RealtimeAsrPipelineEvent.Hypothesis })
+            assertTrue(endOutputs.single() is RealtimeAsrPipelineEvent.SessionEnded)
+            assertEquals(1, asrEngine.sessions.single().finishCalls)
+        }
+    }
+
+    @Test
     fun `session end flushes short tail and finalizes exactly once`() {
         runBlocking {
             val vadEngine = FakeVadEngine(
