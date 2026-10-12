@@ -52,6 +52,9 @@ interface RealtimeTranscriptionDao {
     )
     suspend fun getSegments(runId: String): List<RealtimeMediaSegmentEntity>
 
+    @Query("SELECT * FROM realtime_media_segments WHERE id = :segmentId LIMIT 1")
+    suspend fun getSegment(segmentId: String): RealtimeMediaSegmentEntity?
+
     @Query(
         """
         SELECT * FROM realtime_media_segments
@@ -60,6 +63,15 @@ interface RealtimeTranscriptionDao {
         """,
     )
     suspend fun getSegmentForRun(runId: String, segmentId: String): RealtimeMediaSegmentEntity?
+
+    @Query(
+        """
+        SELECT COALESCE(MAX(segmentIndex), -1) + 1
+        FROM realtime_media_segments
+        WHERE runId = :runId
+        """,
+    )
+    suspend fun nextSegmentIndex(runId: String): Int
 
     @Query(
         """
@@ -97,6 +109,15 @@ interface RealtimeTranscriptionDao {
 
     @Query(
         """
+        SELECT COALESCE(MAX(utteranceIndex), -1) + 1
+        FROM realtime_utterances
+        WHERE segmentId = :segmentId
+        """,
+    )
+    suspend fun nextUtteranceIndex(segmentId: String): Int
+
+    @Query(
+        """
         SELECT * FROM realtime_utterances
         WHERE segmentId = :segmentId
         ORDER BY utteranceIndex ASC
@@ -129,6 +150,31 @@ interface RealtimeTranscriptionDao {
     suspend fun deleteRun(runId: String): Int
 }
 
+data class NewRealtimeMediaSegment(
+    val runId: String,
+    val transportGeneration: Long?,
+    val canonicalSessionId: Long,
+    val startedAtMs: Long,
+    val localRelativePath: String? = null,
+    val localFilename: String? = null,
+)
+
+data class NewRealtimeFinalUtterance(
+    val segmentId: String,
+    val canonicalEpochId: Long,
+    val startSampleIndex: Long,
+    val endSampleIndexExclusive: Long,
+    val rawFinalText: String,
+    val finalText: String,
+    val detectedLanguage: String?,
+    val createdAtMs: Long,
+) {
+    init {
+        require(startSampleIndex >= 0L)
+        require(endSampleIndexExclusive >= startSampleIndex)
+    }
+}
+
 data class NewRealtimeTimelineMarker(
     val runId: String,
     val segmentId: String?,
@@ -154,9 +200,11 @@ data class RealtimeMediaSegmentFinalization(
     val isCompleteDeviceRecording: Boolean,
 ) {
     init {
-        require(terminalState != RealtimeMediaSegmentStateValue.ACTIVE) {
-            "segment finalization requires a terminal state"
-        }
+        require(
+            terminalState == RealtimeMediaSegmentStateValue.FINALIZED ||
+                terminalState == RealtimeMediaSegmentStateValue.INTERRUPTED ||
+                terminalState == RealtimeMediaSegmentStateValue.FAILED,
+        ) { "segment finalization requires a known terminal state" }
         require(canonicalSampleCount >= 0L) {
             "canonicalSampleCount must be non-negative"
         }
@@ -181,11 +229,40 @@ class RealtimeTranscriptPersistenceRepository(
     suspend fun getRunsForRecording(recordingId: String): List<RealtimeTranscriptionRunEntity> =
         dao.getRunsForRecording(recordingId)
 
+    /** Raw insert retained for migration/exact-index tests. Product code should prefer [createNextSegment]. */
     suspend fun createSegment(segment: RealtimeMediaSegmentEntity) = dao.insertSegment(segment)
+
+    suspend fun createNextSegment(segment: NewRealtimeMediaSegment): RealtimeMediaSegmentEntity =
+        database.withTransaction {
+            require(dao.getRun(segment.runId) != null) { "realtime run does not exist" }
+            val entity =
+                RealtimeMediaSegmentEntity(
+                    id = idFactory(),
+                    runId = segment.runId,
+                    segmentIndex = dao.nextSegmentIndex(segment.runId),
+                    transportGeneration = segment.transportGeneration,
+                    canonicalSessionId = segment.canonicalSessionId,
+                    state = RealtimeMediaSegmentStateValue.ACTIVE,
+                    startedAtMs = segment.startedAtMs,
+                    endedAtMs = null,
+                    endReason = null,
+                    canonicalSampleCount = 0,
+                    localRelativePath = segment.localRelativePath,
+                    localFilename = segment.localFilename,
+                    deviceFilename = null,
+                    sizeBytes = null,
+                    sha256 = null,
+                    isCompleteDeviceRecording = false,
+                )
+            dao.insertSegment(entity)
+            entity
+        }
 
     suspend fun updateSegment(segment: RealtimeMediaSegmentEntity) = dao.updateSegment(segment)
 
     suspend fun getSegments(runId: String): List<RealtimeMediaSegmentEntity> = dao.getSegments(runId)
+
+    suspend fun getSegment(segmentId: String): RealtimeMediaSegmentEntity? = dao.getSegment(segmentId)
 
     /**
      * Completes an ACTIVE local realtime media segment exactly once.
@@ -209,7 +286,28 @@ class RealtimeTranscriptPersistenceRepository(
             isCompleteDeviceRecording = finalization.isCompleteDeviceRecording,
         ) == 1
 
+    /** Raw insert retained for migration/exact-index tests. Product code should prefer the overload below. */
     suspend fun persistFinalUtterance(utterance: RealtimeUtteranceEntity) = dao.insertUtterance(utterance)
+
+    suspend fun persistFinalUtterance(utterance: NewRealtimeFinalUtterance): RealtimeUtteranceEntity =
+        database.withTransaction {
+            require(dao.getSegment(utterance.segmentId) != null) { "realtime media segment does not exist" }
+            val entity =
+                RealtimeUtteranceEntity(
+                    id = idFactory(),
+                    segmentId = utterance.segmentId,
+                    utteranceIndex = dao.nextUtteranceIndex(utterance.segmentId),
+                    canonicalEpochId = utterance.canonicalEpochId,
+                    startSampleIndex = utterance.startSampleIndex,
+                    endSampleIndexExclusive = utterance.endSampleIndexExclusive,
+                    rawFinalText = utterance.rawFinalText,
+                    finalText = utterance.finalText,
+                    detectedLanguage = utterance.detectedLanguage,
+                    createdAtMs = utterance.createdAtMs,
+                )
+            dao.insertUtterance(entity)
+            entity
+        }
 
     suspend fun getFinalUtterances(segmentId: String): List<RealtimeUtteranceEntity> =
         dao.getUtterances(segmentId)

@@ -29,6 +29,75 @@ class RealtimeTranscriptPersistenceRepositoryTest {
     }
 
     @Test
+    fun `segment and final utterance indexes allocate atomically per parent`() = runBlocking {
+        val ids =
+            ArrayDeque(
+                listOf(
+                    "segment-a0",
+                    "segment-a1",
+                    "utterance-a0",
+                    "utterance-a1",
+                    "segment-b0",
+                    "utterance-b0",
+                ),
+            )
+        val repository = RealtimeTranscriptPersistenceRepository(database) { ids.removeFirst() }
+        repository.createRun(runEntity("run-a"))
+        repository.createRun(runEntity("run-b"))
+
+        val segmentA0 = repository.createNextSegment(NewRealtimeMediaSegment("run-a", 10, 100, 1))
+        val segmentA1 = repository.createNextSegment(NewRealtimeMediaSegment("run-a", 11, 101, 2))
+        assertEquals(0, segmentA0.segmentIndex)
+        assertEquals(1, segmentA1.segmentIndex)
+
+        val utteranceA0 =
+            repository.persistFinalUtterance(
+                NewRealtimeFinalUtterance(
+                    segmentId = segmentA0.id,
+                    canonicalEpochId = 1,
+                    startSampleIndex = 0,
+                    endSampleIndexExclusive = 16_000,
+                    rawFinalText = "第一句",
+                    finalText = "第一句。",
+                    detectedLanguage = "zh",
+                    createdAtMs = 10,
+                ),
+            )
+        val utteranceA1 =
+            repository.persistFinalUtterance(
+                NewRealtimeFinalUtterance(
+                    segmentId = segmentA0.id,
+                    canonicalEpochId = 1,
+                    startSampleIndex = 16_000,
+                    endSampleIndexExclusive = 32_000,
+                    rawFinalText = "第二句",
+                    finalText = "第二句。",
+                    detectedLanguage = "zh",
+                    createdAtMs = 11,
+                ),
+            )
+        assertEquals(0, utteranceA0.utteranceIndex)
+        assertEquals(1, utteranceA1.utteranceIndex)
+
+        val segmentB0 = repository.createNextSegment(NewRealtimeMediaSegment("run-b", 20, 200, 3))
+        val utteranceB0 =
+            repository.persistFinalUtterance(
+                NewRealtimeFinalUtterance(
+                    segmentId = segmentB0.id,
+                    canonicalEpochId = 1,
+                    startSampleIndex = 0,
+                    endSampleIndexExclusive = 8_000,
+                    rawFinalText = "另一段",
+                    finalText = "另一段。",
+                    detectedLanguage = "zh",
+                    createdAtMs = 12,
+                ),
+            )
+        assertEquals(0, segmentB0.segmentIndex)
+        assertEquals(0, utteranceB0.utteranceIndex)
+    }
+
+    @Test
     fun `timeline markers allocate deterministic per-run order`() = runBlocking {
         val ids = ArrayDeque(listOf("marker-0", "marker-1", "marker-2", "marker-3", "marker-4", "marker-b"))
         val repository = RealtimeTranscriptPersistenceRepository(database) { ids.removeFirst() }
