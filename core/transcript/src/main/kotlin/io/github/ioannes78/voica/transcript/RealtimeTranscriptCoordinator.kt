@@ -9,6 +9,22 @@ import io.github.ioannes78.voica.audio.StreamingAudioEvent
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
+enum class StreamingAudioSideSinkOfferResult {
+    ACCEPTED,
+    REJECTED,
+}
+
+/**
+ * Non-blocking canonical fan-out seam owned by the unique Stage 16 source pump.
+ *
+ * Implementations must only enqueue/copy work and return. Disk IO, Room, native inference, or any
+ * other blocking work belongs on the sink's own worker. Rejection is explicit and never backpressures
+ * Stage 15 canonical ingest.
+ */
+fun interface StreamingAudioSideSink {
+    fun offer(event: StreamingAudioEvent): StreamingAudioSideSinkOfferResult
+}
+
 data class RealtimeTranscriptCoordinatorSnapshot(
     val started: Boolean,
     val completed: Boolean,
@@ -16,25 +32,34 @@ data class RealtimeTranscriptCoordinatorSnapshot(
     val consumedPcmFrames: Long,
     val consumedPcmSamples: Long,
     val consumedUpstreamDiscontinuities: Long,
+    val sideSinkOffers: Long,
+    val sideSinkRejects: Long,
+    val sideSinkFailures: Long,
 )
 
 /**
  * Single production consumer of the Stage 15 canonical realtime source.
  *
  * Stage 16 code must fan out below this coordinator instead of allowing multiple modules to race on
- * the destructive Stage 15 `receive()` seam. This P1 coordinator only normalizes/queues media; VAD,
- * recognizer, persistence, and UI ownership are added in later Stage 16A steps.
+ * the destructive Stage 15 `receive()` seam. The ASR path uses its own bounded buffer. Canonical side
+ * sinks receive every source event before ASR-buffer admission so local audio persistence can remain
+ * independent from recognizer slowdown/overflow.
  */
 class RealtimeTranscriptCoordinator(
     private val source: CanonicalRealtimeEventSource,
     private val outputBuffer: StreamingAudioBuffer,
+    sideSinks: List<StreamingAudioSideSink> = emptyList(),
 ) {
+    private val sideSinks = sideSinks.toList()
     private val started = AtomicBoolean(false)
     private val completed = AtomicBoolean(false)
     private val consumedSourceEvents = AtomicLong(0)
     private val consumedPcmFrames = AtomicLong(0)
     private val consumedPcmSamples = AtomicLong(0)
     private val consumedUpstreamDiscontinuities = AtomicLong(0)
+    private val sideSinkOffers = AtomicLong(0)
+    private val sideSinkRejects = AtomicLong(0)
+    private val sideSinkFailures = AtomicLong(0)
 
     /** Runs the unique Stage 15 source pump. It may be invoked exactly once per coordinator. */
     suspend fun run() {
@@ -50,6 +75,8 @@ class RealtimeTranscriptCoordinator(
                 } else if (event is StreamingAudioEvent.Discontinuity) {
                     consumedUpstreamDiscontinuities.incrementAndGet()
                 }
+
+                fanOut(event)
 
                 when (outputBuffer.offer(event)) {
                     StreamingAudioBufferOfferResult.ACCEPTED,
@@ -78,7 +105,23 @@ class RealtimeTranscriptCoordinator(
         consumedPcmFrames = consumedPcmFrames.get(),
         consumedPcmSamples = consumedPcmSamples.get(),
         consumedUpstreamDiscontinuities = consumedUpstreamDiscontinuities.get(),
+        sideSinkOffers = sideSinkOffers.get(),
+        sideSinkRejects = sideSinkRejects.get(),
+        sideSinkFailures = sideSinkFailures.get(),
     )
+
+    private fun fanOut(event: StreamingAudioEvent) {
+        sideSinks.forEach { sink ->
+            sideSinkOffers.incrementAndGet()
+            try {
+                if (sink.offer(event) == StreamingAudioSideSinkOfferResult.REJECTED) {
+                    sideSinkRejects.incrementAndGet()
+                }
+            } catch (_: Exception) {
+                sideSinkFailures.incrementAndGet()
+            }
+        }
+    }
 
     private fun RealtimeCanonicalStreamEvent.toStreamingAudioEvent(): StreamingAudioEvent = when (this) {
         is RealtimeCanonicalStreamEvent.SessionStarted ->

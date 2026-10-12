@@ -58,6 +58,78 @@ class RealtimeTranscriptCoordinatorTest {
     }
 
     @Test
+    fun `canonical side sink receives every pcm frame even when asr buffer overflows`() {
+        runBlocking {
+            val tapped = mutableListOf<StreamingAudioEvent>()
+            val sink = StreamingAudioSideSink { event ->
+                tapped += event
+                StreamingAudioSideSinkOfferResult.ACCEPTED
+            }
+            val source =
+                FakeSource(
+                    listOf(
+                        RealtimeCanonicalStreamEvent.SessionStarted(1),
+                        RealtimeCanonicalStreamEvent.EpochStarted(1, 1, RealtimeCanonicalEpochStartReason.SESSION_START),
+                        RealtimeCanonicalStreamEvent.PcmFrame(frame(start = 0)),
+                        RealtimeCanonicalStreamEvent.PcmFrame(frame(start = 320)),
+                        RealtimeCanonicalStreamEvent.PcmFrame(frame(start = 640)),
+                        RealtimeCanonicalStreamEvent.SessionEnded(
+                            sessionId = 1,
+                            finalEpochId = 1,
+                            finalSampleIndexExclusive = 960,
+                            reason = RealtimeCanonicalSessionEndReason.STOP,
+                            drainTimedOut = false,
+                        ),
+                    ),
+                )
+            val coordinator =
+                RealtimeTranscriptCoordinator(
+                    source = source,
+                    outputBuffer = StreamingAudioBuffer(maxQueuedPcmFrames = 1, maxQueuedPcmSamples = 320),
+                    sideSinks = listOf(sink),
+                )
+
+            coordinator.run()
+
+            assertEquals(
+                listOf(0L, 320L, 640L),
+                tapped.filterIsInstance<StreamingAudioEvent.PcmFrame>().map { it.frame.startSampleIndex },
+            )
+            val snapshot = coordinator.snapshot()
+            assertEquals(6L, snapshot.sideSinkOffers)
+            assertEquals(0L, snapshot.sideSinkRejects)
+            assertEquals(0L, snapshot.sideSinkFailures)
+            assertTrue(coordinator.receive() is StreamingAudioEvent.SessionStarted)
+            assertTrue(coordinator.receive() is StreamingAudioEvent.EpochStarted)
+            assertTrue(coordinator.receive() is StreamingAudioEvent.Discontinuity)
+        }
+    }
+
+    @Test
+    fun `side sink rejection or failure never blocks canonical pump`() {
+        runBlocking {
+            val rejecting = StreamingAudioSideSink { StreamingAudioSideSinkOfferResult.REJECTED }
+            val failing = StreamingAudioSideSink { error("sink failed") }
+            val source = FakeSource(listOf(RealtimeCanonicalStreamEvent.SessionStarted(9)))
+            val coordinator =
+                RealtimeTranscriptCoordinator(
+                    source,
+                    StreamingAudioBuffer(maxQueuedPcmFrames = 2, maxQueuedPcmSamples = 640),
+                    sideSinks = listOf(rejecting, failing),
+                )
+
+            coordinator.run()
+
+            assertTrue(coordinator.receive() is StreamingAudioEvent.SessionStarted)
+            assertNull(coordinator.receive())
+            val snapshot = coordinator.snapshot()
+            assertEquals(2L, snapshot.sideSinkOffers)
+            assertEquals(1L, snapshot.sideSinkRejects)
+            assertEquals(1L, snapshot.sideSinkFailures)
+        }
+    }
+
+    @Test
     fun `upstream consumer discontinuity is normalized without hiding loss`() {
         runBlocking {
             val source = FakeSource(
@@ -101,12 +173,12 @@ class RealtimeTranscriptCoordinatorTest {
         }
     }
 
-    private fun frame() = RealtimeCanonicalPcmFrame(
+    private fun frame(start: Long = 0) = RealtimeCanonicalPcmFrame(
         sessionId = 1,
         epochId = 1,
-        startSampleIndex = 0,
+        startSampleIndex = start,
         samples = ShortArray(320) { 4 },
-        epochStartReason = RealtimeCanonicalEpochStartReason.SESSION_START,
+        epochStartReason = if (start == 0L) RealtimeCanonicalEpochStartReason.SESSION_START else null,
     )
 
     private class FakeSource(
