@@ -1,6 +1,7 @@
 package io.github.ioannes78.voica
 
 import io.github.ioannes78.voica.audio.CanonicalRealtimeEventSource
+import io.github.ioannes78.voica.audio.RealtimeCanonicalStreamEvent
 import io.github.ioannes78.voica.model.ActiveModel
 import io.github.ioannes78.voica.model.AsrExecutionMode
 import io.github.ioannes78.voica.model.ModelCapabilities
@@ -13,7 +14,6 @@ import io.github.ioannes78.voica.model.ModelUseRegistry
 import io.github.ioannes78.voica.model.RedistributionPolicy
 import io.github.ioannes78.voica.model.TimestampCapability
 import io.github.ioannes78.voica.transcript.AsrCapabilities
-import io.github.ioannes78.voica.transcript.AsrHypothesis
 import io.github.ioannes78.voica.transcript.PunctuationCapability
 import io.github.ioannes78.voica.transcript.PunctuationEngine
 import io.github.ioannes78.voica.transcript.StreamingAsrEngine
@@ -65,7 +65,10 @@ class Stage16ARealtimePipelineBundleTest {
         try {
             val bundle =
                 factory.create(
-                    source = CanonicalRealtimeEventSource { null },
+                    source =
+                        object : CanonicalRealtimeEventSource {
+                            override suspend fun receive(): RealtimeCanonicalStreamEvent? = null
+                        },
                     models = leases,
                     localAudioRoot = root,
                     persistDurableOutput = {},
