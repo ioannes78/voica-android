@@ -40,6 +40,89 @@ class Stage159FinalGateContractTest {
     }
 
     @Test
+    fun crossGenerationAccountingAddsCompletedAndNewRuntimeCounters() {
+        val accumulator = Stage159GenerationAccumulator()
+        accumulator.reset(
+            generation = 1,
+            counters = Stage159CounterSnapshot(),
+        )
+
+        accumulator.observe(
+            generation = 1,
+            counters =
+                Stage159CounterSnapshot(
+                    acceptedBlocks = 100,
+                    acceptedBytes = 16_000,
+                    opusPackets = 400,
+                    decodeSuccess = 400,
+                    canonicalFrames = 400,
+                    canonicalSamples = 128_000,
+                    sessions = 1,
+                    epochs = 1,
+                    startSuccess = 1,
+                    stopSuccess = 1,
+                ),
+        )
+        val afterReconnect =
+            accumulator.observe(
+                generation = 2,
+                counters =
+                    Stage159CounterSnapshot(
+                        acceptedBlocks = 40,
+                        acceptedBytes = 6_400,
+                        opusPackets = 160,
+                        decodeSuccess = 160,
+                        canonicalFrames = 160,
+                        canonicalSamples = 51_200,
+                        sessions = 1,
+                        epochs = 1,
+                        startSuccess = 1,
+                        stopSuccess = 1,
+                    ),
+            )
+
+        assertEquals(1L, afterReconnect.baselineGeneration)
+        assertEquals(2L, afterReconnect.currentGeneration)
+        assertEquals(1, afterReconnect.generationTransitions)
+        assertEquals(140L, afterReconnect.transportDelta.acceptedBlocks)
+        assertEquals(560L, afterReconnect.transportDelta.opusPackets)
+        assertEquals(179_200L, afterReconnect.transportDelta.canonicalSamples)
+        assertEquals(2L, afterReconnect.transportDelta.sessions)
+        assertEquals(2L, afterReconnect.transportDelta.startSuccess)
+        assertEquals(2L, afterReconnect.transportDelta.stopSuccess)
+        assertTrue(afterReconnect.transportDelta.acceptedBlocks >= 0)
+        assertTrue(afterReconnect.transportDelta.canonicalSamples >= 0)
+    }
+
+    @Test
+    fun crossGenerationTransportDeltaDoesNotOverwritePersistentCounters() {
+        val direct =
+            Stage159CounterSnapshot(
+                acceptedBlocks = -60,
+                canonicalSamples = -76_800,
+                sourceSessionStarted = 2,
+                sourceSessionEnded = 2,
+                canonicalGaps = 0,
+                appReconciliationFailures = 0,
+                fileCount = 1,
+            )
+        val transport =
+            Stage159CounterSnapshot(
+                acceptedBlocks = 140,
+                canonicalSamples = 179_200,
+                sessions = 2,
+            )
+
+        val merged = mergeStage159TransportDelta(direct, transport)
+
+        assertEquals(140L, merged.acceptedBlocks)
+        assertEquals(179_200L, merged.canonicalSamples)
+        assertEquals(2L, merged.sourceSessionStarted)
+        assertEquals(2L, merged.sourceSessionEnded)
+        assertEquals(1L, merged.fileCount)
+    }
+
+    @Test
     fun finalGateAnomalySummaryCountsOnlyFaultSignals() {
         val delta =
             Stage159CounterSnapshot(
