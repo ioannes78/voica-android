@@ -1,6 +1,6 @@
 # Stage 15.9 — Stability / Final Gate
 
-状态：**需求已确认 / 开发规划已确认 / Final Gate 实现候选开发中 / 待 CI + 真机短矩阵**
+状态：**需求已确认 / 开发规划已确认 / S1–S4 真机 PASS / QA1 Cross-generation Accounting CI PASS / 待 S5–S8 重测**
 
 ## 1. 目标
 
@@ -57,13 +57,15 @@ Final Gate 只调用现有 production API：
 
 QA 页面不新增协议写入、不绕过 production guard、不持有第二个 GATT owner、不实现第二套 reconnect / FGS / decoder。
 
-Final Gate Activity 持续消费现有 canonical source，并复用 `Stage15CanonicalProbeAccumulator` 检查：
+Final Gate QA session 持续消费现有 canonical source，并复用 `Stage15CanonicalProbeAccumulator` 检查：
 
 - gap；
 - overlap；
 - invalid epoch start；
 - SessionEnded final sample mismatch；
 - drain timeout。
+
+QA session 为 process-lifetime、仅在内部 Final Gate 首次打开后懒创建；正式 production release 没有入口，不会主动创建该 QA session。
 
 ## 4. Baseline / delta
 
@@ -80,6 +82,34 @@ Baseline 固定：
 - monotonic test start time。
 
 后续结果全部输出 baseline-relative delta，避免把前一轮测试累计值误判成本轮异常。
+
+### 4.1 QA1 — Cross-generation Counter Accounting
+
+首轮 S5 / S6 真机暴露的是 Final Gate 诊断统计问题，不是 production realtime media failure：
+
+- S5 reconnect 后 Activity-local baseline 丢失，结果为 `NO_BASELINE`；
+- S6 transport generation 从 2 进入 3 后，新的 ingress / pipeline / command counters 从 0 重建，旧实现仍直接执行 `newCounter - oldBaseline`，因此出现 `acceptedBlocks=-33`、`opusPackets=-132`、`canonicalSamples=-42240`；
+- 同轮 production 证据仍显示 owner / decoder 正确 release + recreate、source started / ended 成对、最终 runtime IDLE，且 decode / overflow / canonical gap / overlap 等 anomaly 全部为 0。
+
+QA1 修订规则：
+
+1. baseline、计时、heap window、canonical QA observer 与上次设备地址移入 process-lifetime QA session，不再由单个 Activity instance 持有；
+2. Activity recreate / reconnect 不得清空同一轮 Final Gate baseline；
+3. transport generation-owned counters 单独累计；generation 切换时先封存旧 generation delta，再从新 runtime 的 0 基线继续累计；
+4. source / canonical observer / reconciliation / file count 等 process-lifetime counters 仍按原 baseline 直接做差，不被 transport generation 累计重复计算；
+5. 输出新增：
+
+```text
+generationAccounting baselineGeneration=...
+currentGeneration=...
+generationTransitions=...
+mediaDeltaAcrossGenerations=...
+```
+
+6. 单元 contract 固定覆盖：generation 1 累计 100 blocks，reconnect 后 generation 2 累计 40 blocks，最终必须为 140，不能出现 -60；
+7. QA1 不修改 BLE protocol、RealtimeAudioRuntime production lifecycle、Opus decoder、canonical media algorithm、Room、production model channel 或 app version。
+
+QA1 代码候选在 branch HEAD `b67475dbb109cfd050cdef69f984ac5f558dfa2e` 已通过 Android PR CI #1323：Fast PR Gate、unit/debug compile、production-like releaseQa build、APK verify/upload 均成功。文档提交后仍需以新的最终 HEAD CI 为准。
 
 ## 5. Memory / queue sampling
 
@@ -142,6 +172,8 @@ START → speak ~10s → STOP
 
 要求：PCM 增长、无 normal-window anomaly、STOP 后 IDLE / gate closed / source inactive / lastEnd=STOP / drainTimedOut=false。
 
+真机状态：**PASS**。acceptedBlocks / canonicalSamples 正常增长，normal-window anomaly 全 0，最终 IDLE / gate closed / source inactive / `lastEnd=STOP`。
+
 ### S2 — PAUSE / RESUME
 
 ```text
@@ -149,6 +181,8 @@ START → speak ~5s → PAUSE → wait ~3s → RESUME → speak ~5s → STOP
 ```
 
 要求：同一个 realtime session；RESUME 产生新 canonical epoch/control boundary；不按暂停 wall clock 补媒体时间。
+
+真机状态：**PASS**。同一 session 内 `epochs=2`、`discontinuities=1`、`control boundary=1`，gap / overlap / invalidEpochStart 全 0。
 
 ### S3 — second START
 
@@ -158,6 +192,8 @@ START → STOP → START → STOP
 
 要求：第二 session 有新 session identity，PCM 正常增长并最终释放。
 
+真机状态：**PASS**。`start=2`、`stop=2`、`sessions=2`、source started / ended 均为 2，第二 session PCM 正常。
+
 ### S4 — TYPE3 SAVE reconciliation
 
 ```text
@@ -166,11 +202,15 @@ realtime START → TYPE3 SAVE
 
 不手工 realtime STOP。要求自动 IDLE，`lastEnd=DEVICE_RECORDING_ENDED`，reconciliation completed +1。
 
+真机状态：**PASS**。runtime / app reconciliation 均 completed +1、failure=0，自动 IDLE，`lastEnd=DEVICE_RECORDING_ENDED`，device file delta=1。
+
 ### S5 — user disconnect / reconnect
 
 realtime ACTIVE 时使用 production `disconnect()`，再使用上次 Ready address 调 production `connect()`；重连后再次 START。
 
 要求旧 session 明确结束；新 transport generation / new session；不跨断线拼 sample timeline。
+
+首轮状态：**INVALID / 需 QA1 后重跑**。production owner / decoder release/recreate 正常、最终 IDLE 且 anomaly=0，但 Activity-local baseline 在 reconnect 后丢失，无法形成有效 gate 证据。
 
 ### S6 — Bluetooth off / on
 
@@ -178,17 +218,45 @@ realtime ACTIVE 时关闭系统 Bluetooth；重新开启并 reconnect / START。
 
 要求同 S5。
 
+首轮状态：**INVALID / 需 QA1 后重跑**。generation 2→3、owner / decoder release/recreate、source started / ended 成对且 anomaly=0；旧统计算法跨 generation 直接相减产生负 media delta，证据口径无效。
+
 ### S7 — background
 
 realtime ACTIVE → Home → 后台约 3–5 分钟 → 回前台。
 
 要求 connectedDevice lifecycle 正常，acceptedBlocks / canonicalSamples 持续增长，无重新 START 才恢复的假死。
 
+首轮状态：**SHORT SANITY PASS / 完整 3 分钟 Gate 未执行**。37 秒窗口 media 正常增长、anomaly=0、最终 IDLE；不能代替正式 3–5 分钟 gate。
+
 ### S8 — screen off
 
 realtime ACTIVE → 熄屏约 3–5 分钟 → 点亮。
 
 要求 session 持续、PCM 持续增长、无异常 counters。
+
+首轮状态：**SHORT SANITY PASS / 完整 3 分钟 Gate 未执行**。52 秒窗口 media 正常增长、anomaly=0、最终 IDLE；不能代替正式 3–5 分钟 gate。
+
+### 7.1 QA1 后重测范围
+
+S1–S4 证据继续有效，不要求重复执行。
+
+QA1 releaseQa 只重跑：
+
+```text
+S5 — production disconnect / reconnect
+S6 — Bluetooth off / on
+S7 — background >= 3 min
+S8 — screen off >= 3 min
+```
+
+S5 / S6 额外要求：
+
+- baseline 在 reconnect / Activity recreate 后仍存在；
+- `generationTransitions >= 1`；
+- `mediaDeltaAcrossGenerations=true`；
+- acceptedBlocks / opusPackets / canonicalSamples 等跨 generation delta 均为非负且有实际增长；
+- old session 明确结束，新 generation / new session 正常 START；
+- normal-window anomaly 仍为 0。
 
 ## 8. Development stability gate
 
@@ -243,6 +311,8 @@ Final Gate 记录：
 - baseline file count；
 - current / final file count；
 - delta。
+
+最终快照前必须执行一次“刷新设备事实”，避免 file count 使用旧列表缓存。
 
 测试工具不自动删除设备已有文件。
 
