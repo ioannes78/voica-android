@@ -1,7 +1,6 @@
 package io.github.ioannes78.voica
 
 import android.os.Bundle
-import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
@@ -46,19 +45,10 @@ class Stage159FinalGateActivity : ComponentActivity() {
     private lateinit var repository: DeviceRepository
     private lateinit var runtime: RealtimeAudioRuntime
     private lateinit var reconciler: RealtimeRecordingLifecycleReconciler
+    private lateinit var finalGateSession: Stage159FinalGateSession
 
-    private val canonicalAccumulator = Stage15CanonicalProbeAccumulator()
     private val runtimeSnapshot = MutableStateFlow(RealtimeAudioRuntimeSnapshot())
-    private val canonicalSnapshot = MutableStateFlow(Stage15CanonicalProbeSnapshot())
-    private val baseline = MutableStateFlow<Stage159Baseline?>(null)
-    private val heapWindow = MutableStateFlow(Stage159HeapWindow())
-    private val elapsedMs = MutableStateFlow(0L)
     private val action = MutableStateFlow("先连接录音卡；开始测试前建立 Final Gate 基线")
-
-    private var startedAtElapsedMs: Long? = null
-    private var finishedAtElapsedMs: Long? = null
-    private var nextHeapSampleAtElapsedMs = 0L
-    private var lastDeviceAddress: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -66,17 +56,11 @@ class Stage159FinalGateActivity : ComponentActivity() {
         repository = container.deviceRepository
         runtime = container.realtimeAudioRuntime
         reconciler = container.realtimeRecordingLifecycleReconciler
+        finalGateSession = Stage159FinalGateSessionRegistry.get(runtime)
 
-        qaScope.launch(Dispatchers.Default) {
-            while (isActive) {
-                val event = runtime.canonicalSource.receive() ?: break
-                canonicalAccumulator.accept(event)
-            }
-        }
         qaScope.launch {
             while (isActive) {
                 publishSnapshots()
-                updateElapsedAndMemory()
                 delay(UI_REFRESH_MS)
             }
         }
@@ -86,10 +70,7 @@ class Stage159FinalGateActivity : ComponentActivity() {
                 Stage159FinalGateScreen(
                     repository = repository,
                     runtimeSnapshot = runtimeSnapshot,
-                    canonicalSnapshot = canonicalSnapshot,
-                    baseline = baseline,
-                    heapWindow = heapWindow,
-                    elapsedMs = elapsedMs,
+                    session = finalGateSession,
                     action = action,
                     reconciler = reconciler,
                     onRealtime = ::sendRealtime,
@@ -176,14 +157,16 @@ class Stage159FinalGateActivity : ComponentActivity() {
     }
 
     private fun disconnect() {
+        // Seal the latest old-generation counters before production disconnect tears down transport.
+        finalGateSession.observeRuntime(runtime.snapshot())
         val state = repository.connectionState.value
-        if (state is DeviceConnectionState.Ready) lastDeviceAddress = state.address
+        if (state is DeviceConnectionState.Ready) finalGateSession.lastDeviceAddress = state.address
         repository.disconnect()
-        action.value = "已请求正常断开；上次设备=${lastDeviceAddress ?: "--"}"
+        action.value = "已请求正常断开；上次设备=${finalGateSession.lastDeviceAddress ?: "--"}"
     }
 
     private fun reconnectLastDevice() {
-        val address = lastDeviceAddress
+        val address = finalGateSession.lastDeviceAddress
         if (address == null) {
             action.value = "没有可重连地址；请先从 Ready 状态执行一次断开"
             return
@@ -208,58 +191,30 @@ class Stage159FinalGateActivity : ComponentActivity() {
             repository.refreshDeviceFiles()
             delay(FILE_SETTLE_MS)
             publishSnapshots()
-            val now = SystemClock.elapsedRealtime()
-            val heap = readStage159HeapSample()
-            val canonical = canonicalAccumulator.snapshot()
-            val reconcilerSnapshot = reconciler.snapshot.value
-            val runtimeNow = runtime.snapshot()
             val files = repository.deviceFileListState.value.files.size
-            baseline.value = Stage159Baseline(
-                counters = captureStage159Counters(runtimeNow, canonical, reconcilerSnapshot, files),
-                transportGeneration = runtimeNow.transportGeneration,
-                canonicalSessionId = canonical.lastSessionId,
+            finalGateSession.startBaseline(
+                reconciler = reconciler.snapshot.value,
                 fileCount = files,
             )
-            heapWindow.value = Stage159HeapWindow().withSample(heap)
-            startedAtElapsedMs = now
-            finishedAtElapsedMs = null
-            nextHeapSampleAtElapsedMs = now + HEAP_SAMPLE_INTERVAL_MS
-            elapsedMs.value = 0L
+            publishSnapshots()
             action.value = "基线已建立；稳定性计时开始"
         }
     }
 
     private fun finishTiming() {
-        val started = startedAtElapsedMs
-        if (started == null) {
+        if (finalGateSession.baseline.value == null) {
             action.value = "尚未建立基线"
             return
         }
-        finishedAtElapsedMs = SystemClock.elapsedRealtime()
-        elapsedMs.value = (finishedAtElapsedMs!! - started).coerceAtLeast(0L)
-        sampleHeap()
+        finalGateSession.finishTiming()
         publishSnapshots()
         action.value = "计时已冻结；请复制完整 Final Gate"
     }
 
     private fun publishSnapshots() {
-        runtimeSnapshot.value = runtime.snapshot()
-        canonicalSnapshot.value = canonicalAccumulator.snapshot()
-    }
-
-    private fun updateElapsedAndMemory() {
-        val started = startedAtElapsedMs ?: return
-        val now = SystemClock.elapsedRealtime()
-        val end = finishedAtElapsedMs ?: now
-        elapsedMs.value = (end - started).coerceAtLeast(0L)
-        if (finishedAtElapsedMs == null && now >= nextHeapSampleAtElapsedMs) {
-            sampleHeap()
-            nextHeapSampleAtElapsedMs = now + HEAP_SAMPLE_INTERVAL_MS
-        }
-    }
-
-    private fun sampleHeap() {
-        heapWindow.value = heapWindow.value.withSample(readStage159HeapSample())
+        val current = runtime.snapshot()
+        runtimeSnapshot.value = current
+        finalGateSession.observeRuntime(current)
     }
 
     private companion object {
@@ -267,25 +222,14 @@ class Stage159FinalGateActivity : ComponentActivity() {
         const val COMMAND_SETTLE_MS = 600L
         const val TYPE3_SAVE_SETTLE_MS = 1_000L
         const val FILE_SETTLE_MS = 750L
-        const val HEAP_SAMPLE_INTERVAL_MS = 30_000L
     }
 }
-
-private data class Stage159Baseline(
-    val counters: Stage159CounterSnapshot,
-    val transportGeneration: Long?,
-    val canonicalSessionId: Long?,
-    val fileCount: Int,
-)
 
 @Composable
 private fun Stage159FinalGateScreen(
     repository: DeviceRepository,
     runtimeSnapshot: MutableStateFlow<RealtimeAudioRuntimeSnapshot>,
-    canonicalSnapshot: MutableStateFlow<Stage15CanonicalProbeSnapshot>,
-    baseline: MutableStateFlow<Stage159Baseline?>,
-    heapWindow: MutableStateFlow<Stage159HeapWindow>,
-    elapsedMs: MutableStateFlow<Long>,
+    session: Stage159FinalGateSession,
     action: MutableStateFlow<String>,
     reconciler: RealtimeRecordingLifecycleReconciler,
     onRealtime: (RealtimeControlCommand) -> Unit,
@@ -302,10 +246,11 @@ private fun Stage159FinalGateScreen(
     val recording by repository.recordingState.collectAsState()
     val files by repository.deviceFileListState.collectAsState()
     val runtime by runtimeSnapshot.collectAsState()
-    val canonical by canonicalSnapshot.collectAsState()
-    val base by baseline.collectAsState()
-    val heap by heapWindow.collectAsState()
-    val elapsed by elapsedMs.collectAsState()
+    val canonical by session.canonicalSnapshot.collectAsState()
+    val base by session.baseline.collectAsState()
+    val generationAccounting by session.generationAccounting.collectAsState()
+    val heap by session.heapWindow.collectAsState()
+    val elapsed by session.elapsedMs.collectAsState()
     val actionText by action.collectAsState()
     val reconcilerSnapshot by reconciler.snapshot.collectAsState()
 
@@ -320,6 +265,7 @@ private fun Stage159FinalGateScreen(
         reconciler = reconcilerSnapshot,
         fileCount = files.files.size,
         baseline = base,
+        generationAccounting = generationAccounting,
         heap = heap,
         elapsedMs = elapsed,
     )
@@ -422,11 +368,18 @@ private fun renderStage159FinalGate(
     reconciler: RealtimeRecordingLifecycleReconcilerSnapshot,
     fileCount: Int,
     baseline: Stage159Baseline?,
+    generationAccounting: Stage159GenerationAccountingSnapshot,
     heap: Stage159HeapWindow,
     elapsedMs: Long,
 ): String = buildString {
     val current = captureStage159Counters(runtime, canonical, reconciler, fileCount)
-    val delta = baseline?.let { current.deltaFrom(it.counters) }
+    val directDelta = baseline?.let { current.deltaFrom(it.counters) }
+    val delta = directDelta?.let {
+        mergeStage159TransportDelta(
+            direct = it,
+            transport = generationAccounting.transportDelta,
+        )
+    }
     val ingress = runtime.ingress
     val pipeline = runtime.pipeline
     val source = runtime.source
@@ -445,6 +398,12 @@ private fun renderStage159FinalGate(
     appendLine("elapsed=${formatStage159Elapsed(elapsedMs)}")
     appendLine("connection=${stage159ConnectionLabel(connection)}")
     appendLine("transportGeneration baseline=${baseline?.transportGeneration ?: "--"} current=${runtime.transportGeneration ?: "--"}")
+    appendLine(
+        "generationAccounting baselineGeneration=${generationAccounting.baselineGeneration ?: "--"} " +
+            "currentGeneration=${generationAccounting.currentGeneration ?: "--"} " +
+            "generationTransitions=${generationAccounting.generationTransitions}",
+    )
+    appendLine("mediaDeltaAcrossGenerations=${generationAccounting.generationTransitions > 0}")
     appendLine(
         "recording status=${recordingStatus ?: "--"} freshness=$recordingFreshness " +
             "commandState=$recordingCommandState filename=${recordingFilename ?: "--"}",
