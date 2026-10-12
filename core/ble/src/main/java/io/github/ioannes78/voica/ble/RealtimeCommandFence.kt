@@ -11,6 +11,15 @@ enum class RealtimeCommandFenceCommitResult {
     STALE_TOKEN,
 }
 
+enum class RealtimeConfirmedExistingRecordingAttachResult {
+    ATTACHED,
+    ACTIVE_COMMAND,
+    GATE_ALREADY_OPEN,
+    QUARANTINED,
+    STALE_GENERATION,
+    COMMIT_ACTION_FAILED,
+}
+
 data class RealtimeCommandFenceToken(
     val id: Long,
     val command: RealtimeControlCommand,
@@ -39,14 +48,17 @@ data class RealtimeCommandFenceSnapshot(
     val commitActionFailureCount: Long = 0,
     val quarantinedRejectCount: Long = 0,
     val gatedRejectCount: Long = 0,
+    val confirmedExistingRecordingAttachSuccessCount: Long = 0,
+    val confirmedExistingRecordingAttachFailureCount: Long = 0,
 )
 
 /**
  * Bounded generation-aware fence used while START/RESUME write completion is unresolved.
  *
- * The realtime audio gate is closed by default. Only a committed START/RESUME opens it; PAUSE,
- * STOP finalization and transport close close it again. This prevents pre-START or PAUSED audio
- * from reaching canonical ingress even during tiny registration/command windows.
+ * The realtime audio gate is closed by default. Only a committed START/RESUME or an explicit local
+ * attach to an already-confirmed device recording opens it. PAUSE, STOP finalization and transport
+ * close close it again. This prevents pre-START or PAUSED audio from reaching canonical ingress even
+ * during tiny registration/command windows.
  *
  * A failed/ambiguous commit quarantines that transport generation. Later realtime audio from the
  * same generation is rejected until the generation closes rather than leaking into ingress without
@@ -81,6 +93,8 @@ class RealtimeCommandFence(
     private var commitActionFailureCount = 0L
     private var quarantinedRejectCount = 0L
     private var gatedRejectCount = 0L
+    private var confirmedExistingRecordingAttachSuccessCount = 0L
+    private var confirmedExistingRecordingAttachFailureCount = 0L
     private var peakBufferedFrames = 0
     private var peakBufferedBytes = 0
 
@@ -223,6 +237,57 @@ class RealtimeCommandFence(
         }
     }
 
+    /**
+     * Opens the local realtime audio gate for a new transport generation that has already been
+     * confirmed by the Stage 16 recovery policy to belong to the same still-active device recording.
+     *
+     * This path never fabricates a START/RESUME command. The caller must create the new canonical
+     * session boundary in [beforeOpen]; the gate opens only after that action succeeds and the
+     * transport generation remains current.
+     */
+    fun attachConfirmedExistingRecording(
+        transportGeneration: Long,
+        isGenerationCurrent: () -> Boolean,
+        beforeOpen: () -> Unit,
+    ): RealtimeConfirmedExistingRecordingAttachResult = synchronized(lock) {
+        require(transportGeneration > 0L)
+        if (active != null) {
+            confirmedExistingRecordingAttachFailureCount += 1
+            return@synchronized RealtimeConfirmedExistingRecordingAttachResult.ACTIVE_COMMAND
+        }
+        if (audioGateOpen) {
+            confirmedExistingRecordingAttachFailureCount += 1
+            return@synchronized RealtimeConfirmedExistingRecordingAttachResult.GATE_ALREADY_OPEN
+        }
+        if (quarantinedGeneration == transportGeneration) {
+            confirmedExistingRecordingAttachFailureCount += 1
+            return@synchronized RealtimeConfirmedExistingRecordingAttachResult.QUARANTINED
+        }
+        if (!isGenerationCurrent()) {
+            confirmedExistingRecordingAttachFailureCount += 1
+            return@synchronized RealtimeConfirmedExistingRecordingAttachResult.STALE_GENERATION
+        }
+
+        try {
+            beforeOpen()
+        } catch (_: Throwable) {
+            commitActionFailureCount += 1
+            confirmedExistingRecordingAttachFailureCount += 1
+            quarantinedGeneration = transportGeneration
+            audioGateOpen = false
+            return@synchronized RealtimeConfirmedExistingRecordingAttachResult.COMMIT_ACTION_FAILED
+        }
+        if (!isGenerationCurrent()) {
+            confirmedExistingRecordingAttachFailureCount += 1
+            audioGateOpen = false
+            return@synchronized RealtimeConfirmedExistingRecordingAttachResult.STALE_GENERATION
+        }
+
+        audioGateOpen = true
+        confirmedExistingRecordingAttachSuccessCount += 1
+        RealtimeConfirmedExistingRecordingAttachResult.ATTACHED
+    }
+
     fun abort(token: RealtimeCommandFenceToken): Boolean = synchronized(lock) {
         val current = active
         if (current == null || current.token != token) {
@@ -279,6 +344,8 @@ class RealtimeCommandFence(
             commitActionFailureCount = commitActionFailureCount,
             quarantinedRejectCount = quarantinedRejectCount,
             gatedRejectCount = gatedRejectCount,
+            confirmedExistingRecordingAttachSuccessCount = confirmedExistingRecordingAttachSuccessCount,
+            confirmedExistingRecordingAttachFailureCount = confirmedExistingRecordingAttachFailureCount,
         )
     }
 

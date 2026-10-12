@@ -2,6 +2,7 @@ package io.github.ioannes78.voica
 
 import io.github.ioannes78.voica.ble.RealtimeCommandFence
 import io.github.ioannes78.voica.ble.RealtimeCommandFenceCommitResult
+import io.github.ioannes78.voica.ble.RealtimeConfirmedExistingRecordingAttachResult
 import io.github.ioannes78.voica.ble.RealtimeControlCommand
 import io.github.ioannes78.voica.ble.RealtimeDeviceTransport
 import io.github.ioannes78.voica.ble.RealtimeTransportCommandResult
@@ -37,11 +38,26 @@ enum class RealtimeCommandFailure {
     CLOSED,
 }
 
+enum class RealtimeExistingRecordingAttachFailure {
+    INVALID_PHASE,
+    TRANSPORT_NOT_READY,
+    STALE_GENERATION,
+    FENCE_REJECTED,
+    INTERNAL_ERROR,
+    CLOSED,
+}
+
 data class RealtimeCommandOutcome(
     val command: RealtimeControlCommand,
     val success: Boolean,
     val failure: RealtimeCommandFailure? = null,
     val transportResult: RealtimeTransportCommandResult? = null,
+)
+
+data class RealtimeExistingRecordingAttachOutcome(
+    val success: Boolean,
+    val failure: RealtimeExistingRecordingAttachFailure? = null,
+    val transportGeneration: Long? = null,
 )
 
 data class RealtimeCommandControllerSnapshot(
@@ -59,6 +75,9 @@ data class RealtimeCommandControllerSnapshot(
     val stopFailure: Long = 0,
     val staleCommandCompletionCount: Long = 0,
     val commandAmbiguityCount: Long = 0,
+    val existingRecordingAttachSuccess: Long = 0,
+    val existingRecordingAttachFailure: Long = 0,
+    val lastExistingRecordingAttachFailure: RealtimeExistingRecordingAttachFailure? = null,
 )
 
 interface RealtimeCommandBoundarySink {
@@ -72,6 +91,10 @@ interface RealtimeCommandBoundarySink {
  * START/RESUME arm a generation-aware audio fence before the BLE write. A successful write commits
  * the canonical boundary atomically inside the fence, then releases fenced audio. Failed/stale or
  * ambiguous commands therefore cannot fabricate a logical session/epoch boundary.
+ *
+ * Stage 16 may also attach locally to a newly connected transport generation after higher-level
+ * recovery has already confirmed that the device is still recording the same physical recording.
+ * That path does not send or fabricate a BLE START/RESUME command.
  */
 class RealtimeCommandController(
     private val transport: RealtimeDeviceTransport,
@@ -144,6 +167,79 @@ class RealtimeCommandController(
         publishPhase(RealtimeRuntimePhase.ACTIVE, generation, RealtimeControlCommand.START, null)
         RealtimeCommandOutcome(RealtimeControlCommand.START, true, transportResult = result)
     }
+
+    /**
+     * Local-only recovery seam for a newly connected transport generation that has already been
+     * verified by the Stage 16 recovery policy as the same still-active physical device recording.
+     * No BLE command is sent by this method.
+     */
+    suspend fun attachConfirmedExistingRecording(): RealtimeExistingRecordingAttachOutcome =
+        commandMutex.withLock {
+            val current = mutableSnapshot.value
+            if (current.phase == RealtimeRuntimePhase.CLOSED) {
+                return@withLock existingRecordingAttachFailure(
+                    RealtimeExistingRecordingAttachFailure.CLOSED,
+                    generation = transport.currentGeneration,
+                )
+            }
+            if (current.phase != RealtimeRuntimePhase.IDLE && current.phase != RealtimeRuntimePhase.TRANSPORT_CLOSED) {
+                return@withLock existingRecordingAttachFailure(
+                    RealtimeExistingRecordingAttachFailure.INVALID_PHASE,
+                    generation = current.transportGeneration ?: transport.currentGeneration,
+                )
+            }
+            val generation = transport.currentGeneration
+                ?: return@withLock existingRecordingAttachFailure(
+                    RealtimeExistingRecordingAttachFailure.TRANSPORT_NOT_READY,
+                    generation = null,
+                )
+
+            return@withLock when (
+                fence.attachConfirmedExistingRecording(
+                    transportGeneration = generation,
+                    isGenerationCurrent = { transport.currentGeneration == generation },
+                    beforeOpen = { boundarySink.beginRealtimeSession() },
+                )
+            ) {
+                RealtimeConfirmedExistingRecordingAttachResult.ATTACHED -> {
+                    val latest = mutableSnapshot.value
+                    mutableSnapshot.value = latest.copy(
+                        phase = RealtimeRuntimePhase.ACTIVE,
+                        transportGeneration = generation,
+                        lastFailure = null,
+                        existingRecordingAttachSuccess = latest.existingRecordingAttachSuccess + 1,
+                        lastExistingRecordingAttachFailure = null,
+                    )
+                    RealtimeExistingRecordingAttachOutcome(
+                        success = true,
+                        transportGeneration = generation,
+                    )
+                }
+
+                RealtimeConfirmedExistingRecordingAttachResult.STALE_GENERATION ->
+                    existingRecordingAttachFailure(
+                        RealtimeExistingRecordingAttachFailure.STALE_GENERATION,
+                        generation = transport.currentGeneration,
+                        phase = RealtimeRuntimePhase.TRANSPORT_CLOSED,
+                    )
+
+                RealtimeConfirmedExistingRecordingAttachResult.COMMIT_ACTION_FAILED ->
+                    existingRecordingAttachFailure(
+                        RealtimeExistingRecordingAttachFailure.INTERNAL_ERROR,
+                        generation = generation,
+                        phase = RealtimeRuntimePhase.ERROR,
+                    )
+
+                RealtimeConfirmedExistingRecordingAttachResult.ACTIVE_COMMAND,
+                RealtimeConfirmedExistingRecordingAttachResult.GATE_ALREADY_OPEN,
+                RealtimeConfirmedExistingRecordingAttachResult.QUARANTINED,
+                -> existingRecordingAttachFailure(
+                    RealtimeExistingRecordingAttachFailure.FENCE_REJECTED,
+                    generation = generation,
+                    phase = RealtimeRuntimePhase.ERROR,
+                )
+            }
+        }
 
     suspend fun pause(): RealtimeCommandOutcome = commandMutex.withLock {
         val current = mutableSnapshot.value
@@ -337,6 +433,25 @@ class RealtimeCommandController(
     ): RealtimeCommandOutcome {
         mutableSnapshot.value = mutableSnapshot.value.copy(lastCommand = command, lastFailure = failure)
         return RealtimeCommandOutcome(command, false, failure)
+    }
+
+    private fun existingRecordingAttachFailure(
+        failure: RealtimeExistingRecordingAttachFailure,
+        generation: Long?,
+        phase: RealtimeRuntimePhase? = null,
+    ): RealtimeExistingRecordingAttachOutcome {
+        val current = mutableSnapshot.value
+        mutableSnapshot.value = current.copy(
+            phase = phase ?: current.phase,
+            transportGeneration = if (phase == RealtimeRuntimePhase.TRANSPORT_CLOSED) null else generation,
+            existingRecordingAttachFailure = current.existingRecordingAttachFailure + 1,
+            lastExistingRecordingAttachFailure = failure,
+        )
+        return RealtimeExistingRecordingAttachOutcome(
+            success = false,
+            failure = failure,
+            transportGeneration = generation,
+        )
     }
 
     private fun failureAfterException(
