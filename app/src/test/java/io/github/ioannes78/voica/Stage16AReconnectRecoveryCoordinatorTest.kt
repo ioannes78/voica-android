@@ -84,6 +84,71 @@ class Stage16AReconnectRecoveryCoordinatorTest {
     }
 
     @Test
+    fun `explicit physical anchor survives stale repository state before disconnect`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        try {
+            val connection = MutableStateFlow<DeviceConnectionState>(ready("AA:BB"))
+            val recording =
+                MutableStateFlow(
+                    RecordingDeviceState(
+                        status = RecordingStatus.Idle,
+                        filename = null,
+                        freshness = RecordingFreshness.STALE,
+                    ),
+                )
+            val realtime = MutableStateFlow(activeRealtime())
+            var generation = 1L
+            val contexts = mutableListOf<RealtimeAutoRecoveryContext>()
+            val anchor =
+                Stage16APhysicalRecordingAnchor(
+                    runId = "run-a",
+                    deviceIdentity = "AA:BB",
+                    recordingIdentity = "note-a.opus",
+                    transportGeneration = 1L,
+                    establishedAtMs = 1L,
+                )
+            val coordinator =
+                Stage16AReconnectRecoveryCoordinator(
+                    scope = scope,
+                    connectionStates = connection,
+                    recordingStates = recording,
+                    realtimeState = realtime,
+                    transportGeneration = { generation },
+                    syncRecordingState = { recording.value = activeRecording("note-a.opus") },
+                    recover = { context ->
+                        contexts += context
+                        val decision = RealtimeAutoRecoveryPolicy.evaluate(context)
+                        Stage16ARealtimeRecoveryOutcome(
+                            decision = decision,
+                            attached = decision == RealtimeAutoRecoveryDecision.RESUME,
+                        )
+                    },
+                    recordingAnchorProvider = { runId -> anchor.takeIf { it.runId == runId } },
+                    startCollectors = false,
+                )
+
+            val disconnected = DeviceConnectionState.Disconnected("AA:BB", DisconnectReason.USER)
+            connection.value = disconnected
+            coordinator.handleConnectionState(disconnected)
+            assertTrue(coordinator.snapshot().pendingRecovery)
+
+            realtime.value = realtime.value.copy(phase = Stage16ARealtimeUiPhase.INTERRUPTED)
+            generation = 2L
+            connection.value = ready("AA:BB")
+            coordinator.handleConnectionState(connection.value)
+
+            assertEquals(1, contexts.size)
+            assertEquals("note-a.opus", contexts.single().previousRecordingIdentity)
+            assertEquals("note-a.opus", contexts.single().currentRecordingIdentity)
+            assertEquals(RealtimeAutoRecoveryDecision.RESUME, coordinator.snapshot().lastDecision)
+            assertEquals(1L, coordinator.snapshot().recoveryAttached)
+            assertFalse(coordinator.snapshot().pendingRecovery)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun `recording identity mismatch refuses recovery`() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         try {
