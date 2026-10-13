@@ -51,10 +51,14 @@ import io.github.ioannes78.voica.protocol.RecordingStatus
 import io.github.ioannes78.voica.ui.DeviceActionMessage
 import io.github.ioannes78.voica.ui.DeviceViewModel
 import io.github.ioannes78.voica.ui.files.CompactDeviceFilesScreen
+import io.github.ioannes78.voica.ui.realtime.LocalStage16ARealtimeRuntime
+import io.github.ioannes78.voica.ui.realtime.RealtimeTranscriptionEntryCard
+import io.github.ioannes78.voica.ui.realtime.RealtimeTranscriptionScreen
 import io.github.ioannes78.voica.ui.recording.RecordingCard
 
 private enum class DevicePage {
     HOME,
+    REALTIME,
     FILES,
     ALL_DEVICES,
     DIAGNOSTICS,
@@ -81,6 +85,8 @@ fun DeviceProductScreen(
     val actionMessage by viewModel.actionMessage.collectAsState()
     val batchDeleteState by viewModel.remoteDeleteBatchState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val realtimeRuntime = LocalStage16ARealtimeRuntime.current
+    val realtimeState by realtimeRuntime.state.collectAsState()
 
     var page by rememberSaveable { mutableStateOf(DevicePage.HOME) }
 
@@ -127,6 +133,11 @@ fun DeviceProductScreen(
         scan.devices.filter { it.advertisesAe20 || it.likelyQs668 }
     val otherDevices =
         scan.devices.filterNot { it.advertisesAe20 || it.likelyQs668 }
+    val canStartRealtime =
+        connection is DeviceConnectionState.Ready &&
+            recording.status == RecordingStatus.Idle &&
+            recording.freshness == RecordingFreshness.FRESH &&
+            recording.commandState == RecordingCommandState.IDLE
 
     Box(modifier = Modifier.fillMaxSize()) {
     when (page) {
@@ -208,6 +219,14 @@ fun DeviceProductScreen(
                     }
 
                     item {
+                        RealtimeTranscriptionEntryCard(
+                            state = realtimeState,
+                            canStart = canStartRealtime,
+                            onClick = { page = DevicePage.REALTIME },
+                        )
+                    }
+
+                    item {
                         DeviceFilesEntry(
                             count = deviceFiles.files.size,
                             latestName = deviceFiles.files.firstOrNull()?.displayFilename,
@@ -216,6 +235,15 @@ fun DeviceProductScreen(
                     }
                 }
             }
+        }
+
+        DevicePage.REALTIME -> {
+            RealtimeTranscriptionScreen(
+                padding = padding,
+                runtime = realtimeRuntime,
+                canStart = canStartRealtime,
+                onBack = { page = DevicePage.HOME },
+            )
         }
 
         DevicePage.FILES -> {

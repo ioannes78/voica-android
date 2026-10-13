@@ -1,0 +1,353 @@
+package io.github.ioannes78.voica.ui.realtime
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import io.github.ioannes78.voica.Stage16ARealtimeActionOutcome
+import io.github.ioannes78.voica.Stage16ARealtimeRuntime
+import io.github.ioannes78.voica.Stage16ARealtimeUiPhase
+import io.github.ioannes78.voica.Stage16ARealtimeUiState
+import kotlinx.coroutines.launch
+
+val LocalStage16ARealtimeRuntime = staticCompositionLocalOf<Stage16ARealtimeRuntime> {
+    error("Stage16ARealtimeRuntime was not provided")
+}
+
+@Composable
+fun RealtimeTranscriptionEntryCard(
+    state: Stage16ARealtimeUiState,
+    canStart: Boolean,
+    onClick: () -> Unit,
+) {
+    val supporting =
+        when {
+            state.phase == Stage16ARealtimeUiPhase.IDLE && !canStart ->
+                "当前设备录音状态暂不允许启动实时转写"
+            state.modelLabel != null ->
+                realtimePhaseLabel(state.phase) + " · " + state.modelLabel
+            else -> realtimePhaseLabel(state.phase)
+        }
+
+    Card(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick),
+    ) {
+        ListItem(
+            headlineContent = { Text("实时转写") },
+            supportingContent = { Text(supporting, maxLines = 1) },
+            trailingContent = {
+                Icon(Icons.Outlined.ChevronRight, contentDescription = null)
+            },
+        )
+    }
+}
+
+@Composable
+fun RealtimeTranscriptionScreen(
+    padding: PaddingValues,
+    runtime: Stage16ARealtimeRuntime,
+    canStart: Boolean,
+    onBack: () -> Unit,
+) {
+    val state by runtime.state.collectAsState()
+    val scope = rememberCoroutineScope()
+    var actionInFlight by remember { mutableStateOf(false) }
+    var actionMessage by remember { mutableStateOf<String?>(null) }
+
+    fun launchAction(action: suspend () -> Stage16ARealtimeActionOutcome) {
+        if (actionInFlight) return
+        actionInFlight = true
+        actionMessage = null
+        scope.launch {
+            val outcome = action()
+            actionInFlight = false
+            if (!outcome.success || outcome.degraded) {
+                actionMessage = outcome.message ?: outcome.code ?: "操作未完成"
+            }
+        }
+    }
+
+    Column(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(horizontal = 12.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.AutoMirrored.Outlined.ArrowBack,
+                    contentDescription = "返回",
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "实时转写",
+                    style = MaterialTheme.typography.headlineSmall,
+                )
+                Text(
+                    state.modelLabel ?: realtimePhaseLabel(state.phase),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text(
+                realtimePhaseLabel(state.phase),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        HorizontalDivider()
+
+        LazyColumn(
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+            contentPadding = PaddingValues(vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (
+                state.finalized.isEmpty() &&
+                state.stableText.isBlank() &&
+                state.partialText.isBlank()
+            ) {
+                item {
+                    Text(
+                        emptyReaderMessage(state.phase),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            items(
+                items = state.finalized,
+                key = { item ->
+                    "${item.sessionId}:${item.epochId}:${item.continuityIndex}"
+                },
+            ) { item ->
+                Text(
+                    item.text,
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+            }
+
+            if (state.stableText.isNotBlank()) {
+                item(key = "stable") {
+                    Text(
+                        state.stableText,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+            }
+
+            if (state.mutablePartialTail.isNotBlank()) {
+                item(key = "partial") {
+                    Text(
+                        state.mutablePartialTail,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            state.lifecycleMessage?.let { message ->
+                item(key = "lifecycle") {
+                    Text(
+                        message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        val visibleMessage = actionMessage ?: state.errorMessage
+        if (!visibleMessage.isNullOrBlank()) {
+            Text(
+                visibleMessage,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+        }
+
+        RealtimeControls(
+            state = state,
+            canStart = canStart,
+            actionInFlight = actionInFlight,
+            onStart = { launchAction(runtime::start) },
+            onPause = { launchAction(runtime::pause) },
+            onResume = { launchAction(runtime::resume) },
+            onStop = { launchAction(runtime::stop) },
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun RealtimeControls(
+    state: Stage16ARealtimeUiState,
+    canStart: Boolean,
+    actionInFlight: Boolean,
+    onStart: () -> Unit,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
+    onStop: () -> Unit,
+) {
+    when (state.phase) {
+        Stage16ARealtimeUiPhase.IDLE,
+        Stage16ARealtimeUiPhase.COMPLETED,
+        Stage16ARealtimeUiPhase.FAILED,
+        -> {
+            Button(
+                onClick = onStart,
+                enabled = canStart && !actionInFlight,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("开始实时转写")
+            }
+        }
+
+        Stage16ARealtimeUiPhase.ACTIVE -> {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = onPause,
+                    enabled = !actionInFlight,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("暂停")
+                }
+                Button(
+                    onClick = onStop,
+                    enabled = !actionInFlight,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("停止")
+                }
+            }
+        }
+
+        Stage16ARealtimeUiPhase.PAUSED -> {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(
+                    onClick = onResume,
+                    enabled = !actionInFlight,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("继续")
+                }
+                OutlinedButton(
+                    onClick = onStop,
+                    enabled = !actionInFlight,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("停止")
+                }
+            }
+        }
+
+        Stage16ARealtimeUiPhase.PREPARING,
+        Stage16ARealtimeUiPhase.STARTING,
+        Stage16ARealtimeUiPhase.RESUMING,
+        Stage16ARealtimeUiPhase.FINALIZING,
+        -> {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CircularProgressIndicator()
+                Text(
+                    realtimePhaseLabel(state.phase),
+                    modifier = Modifier.padding(start = 12.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
+
+        Stage16ARealtimeUiPhase.INTERRUPTED -> {
+            Text(
+                state.lifecycleMessage ?: "实时转写已中断",
+                modifier = Modifier.fillMaxWidth(),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+internal fun realtimePhaseLabel(phase: Stage16ARealtimeUiPhase): String =
+    when (phase) {
+        Stage16ARealtimeUiPhase.IDLE -> "未开始"
+        Stage16ARealtimeUiPhase.PREPARING -> "正在准备"
+        Stage16ARealtimeUiPhase.STARTING -> "正在启动"
+        Stage16ARealtimeUiPhase.ACTIVE -> "实时转写中"
+        Stage16ARealtimeUiPhase.PAUSED -> "已暂停"
+        Stage16ARealtimeUiPhase.RESUMING -> "正在继续"
+        Stage16ARealtimeUiPhase.FINALIZING -> "正在完成最后内容…"
+        Stage16ARealtimeUiPhase.INTERRUPTED -> "连接已中断"
+        Stage16ARealtimeUiPhase.COMPLETED -> "已完成"
+        Stage16ARealtimeUiPhase.FAILED -> "启动失败"
+    }
+
+private fun emptyReaderMessage(phase: Stage16ARealtimeUiPhase): String =
+    when (phase) {
+        Stage16ARealtimeUiPhase.IDLE,
+        Stage16ARealtimeUiPhase.COMPLETED,
+        Stage16ARealtimeUiPhase.FAILED,
+        -> "开始后，实时识别内容会显示在这里。"
+        Stage16ARealtimeUiPhase.PAUSED -> "录音已暂停，已确认的内容会保留在这里。"
+        Stage16ARealtimeUiPhase.INTERRUPTED -> "连接已中断，已完成的转写内容仍会保留。"
+        else -> "正在等待语音内容…"
+    }
