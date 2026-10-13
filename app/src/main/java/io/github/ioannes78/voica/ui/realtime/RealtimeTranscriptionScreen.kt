@@ -61,6 +61,14 @@ fun RealtimeTranscriptionEntryCard(
     canStart: Boolean,
     onClick: () -> Unit,
 ) {
+    if (shouldShowRealtimeMiniLiveBar(state.phase)) {
+        RealtimeMiniLiveBar(
+            state = state,
+            onClick = onClick,
+        )
+        return
+    }
+
     val supporting =
         when {
             state.phase == Stage16ARealtimeUiPhase.IDLE && !canStart ->
@@ -81,6 +89,49 @@ fun RealtimeTranscriptionEntryCard(
             supportingContent = { Text(supporting, maxLines = 1) },
             trailingContent = {
                 Icon(Icons.Outlined.ChevronRight, contentDescription = null)
+            },
+        )
+    }
+}
+
+@Composable
+private fun RealtimeMiniLiveBar(
+    state: Stage16ARealtimeUiState,
+    onClick: () -> Unit,
+) {
+    val modelLabel = state.modelLabel?.trim()?.takeIf { it.isNotEmpty() }
+    val headline =
+        if (modelLabel == null) {
+            realtimePhaseLabel(state.phase)
+        } else {
+            realtimePhaseLabel(state.phase) + " · " + modelLabel
+        }
+
+    Card(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick),
+    ) {
+        ListItem(
+            headlineContent = {
+                Text(
+                    headline,
+                    maxLines = 1,
+                    fontWeight = FontWeight.Medium,
+                )
+            },
+            supportingContent = {
+                Text(
+                    realtimeMiniPreview(state),
+                    maxLines = 1,
+                )
+            },
+            trailingContent = {
+                Icon(
+                    Icons.Outlined.ChevronRight,
+                    contentDescription = "返回实时转写",
+                )
             },
         )
     }
@@ -381,6 +432,31 @@ private fun shouldShowRealtimeWaveform(phase: Stage16ARealtimeUiPhase): Boolean 
 
         else -> false
     }
+
+internal fun shouldShowRealtimeMiniLiveBar(phase: Stage16ARealtimeUiPhase): Boolean =
+    when (phase) {
+        Stage16ARealtimeUiPhase.PREPARING,
+        Stage16ARealtimeUiPhase.STARTING,
+        Stage16ARealtimeUiPhase.ACTIVE,
+        Stage16ARealtimeUiPhase.PAUSED,
+        Stage16ARealtimeUiPhase.RESUMING,
+        Stage16ARealtimeUiPhase.FINALIZING,
+        Stage16ARealtimeUiPhase.INTERRUPTED,
+        -> true
+
+        Stage16ARealtimeUiPhase.IDLE,
+        Stage16ARealtimeUiPhase.COMPLETED,
+        Stage16ARealtimeUiPhase.FAILED,
+        -> false
+    }
+
+internal fun realtimeMiniPreview(state: Stage16ARealtimeUiState): String {
+    state.partialText.trim().takeIf { it.isNotEmpty() }?.let { return it }
+    state.stableText.trim().takeIf { it.isNotEmpty() }?.let { return it }
+    state.finalized.lastOrNull()?.text?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+    state.lifecycleMessage?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+    return "实时内容将在这里持续更新"
+}
 
 @Composable
 private fun RealtimeControls(
