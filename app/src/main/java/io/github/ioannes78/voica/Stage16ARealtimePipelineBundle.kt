@@ -1,5 +1,6 @@
 package io.github.ioannes78.voica
 
+import android.content.Context
 import io.github.ioannes78.voica.audio.CanonicalRealtimeEventSource
 import io.github.ioannes78.voica.audio.StreamingAudioBuffer
 import io.github.ioannes78.voica.sherpa.SherpaRuntime
@@ -74,6 +75,7 @@ class Stage16ARealtimePipelineBundle internal constructor(
     private val buffer: StreamingAudioBuffer,
     private val performanceProbe: Stage16ARealtimePerformanceProbe,
     private val outputLatencyProbe: Stage16ARealtimeOutputLatencyProbe,
+    private val systemMetricsProbe: Stage16ARealtimeSystemMetricsProbe?,
     private val performanceConfig: Stage16ARealtimePipelineConfig,
     private val audioActivitySink: Stage16ARealtimeAudioActivitySink?,
     private val asrEngine: StreamingAsrEngine,
@@ -84,7 +86,10 @@ class Stage16ARealtimePipelineBundle internal constructor(
 
     init {
         Stage16ARealtimePerformanceDiagnostics.attach(this) {
-            performanceSnapshot().toDiagnosticsSnapshot(outputLatencyProbe.snapshot())
+            performanceSnapshot().toDiagnosticsSnapshot(
+                outputLatency = outputLatencyProbe.snapshot(),
+                systemMetrics = systemMetricsProbe?.snapshot(),
+            )
         }
     }
 
@@ -109,7 +114,10 @@ class Stage16ARealtimePipelineBundle internal constructor(
             "Stage 16A pipeline cannot release while realtime runner is active"
         }
         val finalDiagnostics = runCatching {
-            performanceSnapshot().toDiagnosticsSnapshot(outputLatencyProbe.snapshot())
+            performanceSnapshot().toDiagnosticsSnapshot(
+                outputLatency = outputLatencyProbe.snapshot(),
+                systemMetrics = systemMetricsProbe?.snapshot(),
+            )
         }.getOrNull()
 
         try {
@@ -142,6 +150,7 @@ class Stage16ARealtimePipelineBundle internal constructor(
 class Stage16ARealtimePipelineBundleFactory(
     private val scope: kotlinx.coroutines.CoroutineScope,
     private val engineProvider: Stage16ARealtimeEngineProvider,
+    private val context: Context? = null,
     private val config: Stage16ARealtimePipelineConfig = Stage16ARealtimePipelineConfig(),
 ) {
     fun create(
@@ -160,6 +169,7 @@ class Stage16ARealtimePipelineBundleFactory(
         require(models.models.asr.descriptor.runtimeId == SherpaRuntime.RUNTIME_ID)
 
         val performanceProbe = Stage16ARealtimePerformanceProbe()
+        val systemMetricsProbe = context?.let(Stage16ARealtimeSystemMetricsProbe::android)
         var asrEngine: StreamingAsrEngine? = null
         var vadEngine: StreamingVadEngine? = null
         var punctuationEngine: PunctuationEngine? = null
@@ -254,6 +264,7 @@ class Stage16ARealtimePipelineBundleFactory(
                 buffer = buffer,
                 performanceProbe = performanceProbe,
                 outputLatencyProbe = outputLatencyProbe,
+                systemMetricsProbe = systemMetricsProbe,
                 performanceConfig = config,
                 audioActivitySink = audioActivitySink,
                 asrEngine = asrEngine,
