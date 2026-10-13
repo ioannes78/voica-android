@@ -9,6 +9,17 @@ import androidx.room.PrimaryKey
 object TranscriptionModeValue {
     const val FAST = "FAST"
     const val HIGH_QUALITY = "HIGH_QUALITY"
+    const val REALTIME = "REALTIME"
+}
+
+/**
+ * Non-file canonical profile used only for a realtime transcript that spans multiple local media
+ * segments (for example a recorder-card disconnect/reconnect). The sample coordinates are a compact
+ * concatenation of actually captured local PCM segments; they must never be treated as the physical
+ * recorder timeline or as playback-compatible canonical audio.
+ */
+object RealtimeTranscriptProfileValue {
+    const val SEGMENTED_CAPTURE = "STAGE16A_REALTIME_SEGMENTED_CAPTURE_V1"
 }
 
 object TranscriptionStateValue {
