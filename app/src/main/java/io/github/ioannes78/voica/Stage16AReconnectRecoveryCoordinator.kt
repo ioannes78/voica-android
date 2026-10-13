@@ -60,6 +60,7 @@ class Stage16AReconnectRecoveryCoordinator(
     init {
         require(freshStateTimeoutMs > 0L)
         if (startCollectors) {
+            Stage16ALifecycleDiagnosticsRegistry.installReconnect(::snapshot)
             scope.launch {
                 connectionStates.collect { state -> handleConnectionState(state) }
             }
