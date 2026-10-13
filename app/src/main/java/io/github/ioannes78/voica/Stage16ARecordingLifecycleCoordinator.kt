@@ -2,6 +2,7 @@ package io.github.ioannes78.voica
 
 import androidx.room.withTransaction
 import io.github.ioannes78.voica.audio.CanonicalPcmProfile
+import io.github.ioannes78.voica.ble.DeviceAudioFormat
 import io.github.ioannes78.voica.ble.DeviceConnectionState
 import io.github.ioannes78.voica.ble.DeviceFileListState
 import io.github.ioannes78.voica.ble.DeviceRepository
@@ -9,7 +10,6 @@ import io.github.ioannes78.voica.ble.FileListFreshness
 import io.github.ioannes78.voica.ble.RecordingDeviceState
 import io.github.ioannes78.voica.ble.RecordingFreshness
 import io.github.ioannes78.voica.ble.RemoteDeviceFile
-import io.github.ioannes78.voica.database.AudioAssetEntity
 import io.github.ioannes78.voica.database.AudioAssetRole
 import io.github.ioannes78.voica.database.AudioIntegrityState
 import io.github.ioannes78.voica.database.AudioValidationState
@@ -17,8 +17,10 @@ import io.github.ioannes78.voica.database.RecordingDisplayNamePolicy
 import io.github.ioannes78.voica.database.RecordingEntity
 import io.github.ioannes78.voica.database.RecordingSourceType
 import io.github.ioannes78.voica.database.RecordingUserMetadataEntity
+import io.github.ioannes78.voica.database.RealtimeCanonicalCapture
 import io.github.ioannes78.voica.database.RealtimeMediaSegmentEntity
 import io.github.ioannes78.voica.database.RealtimeMediaSegmentStateValue
+import io.github.ioannes78.voica.database.RealtimeRecordingIntegrationRepository
 import io.github.ioannes78.voica.database.RealtimeTranscriptPersistenceRepository
 import io.github.ioannes78.voica.database.SearchIndexRebuilder
 import io.github.ioannes78.voica.database.VoicaDatabase
@@ -46,10 +48,22 @@ data class Stage16APhysicalRecordingAnchor(
 
 enum class Stage16ALibraryReconciliationResult {
     NOT_RUN,
+    /** Retained so older QA/source contracts continue to compile; new code uses explicit states below. */
     COMPLETED,
+    COMPLETED_LOCAL_CANONICAL,
+    REMOTE_SOURCE_DOWNLOAD_PENDING,
+    COMPLETED_DEVICE_SOURCE,
+    REMOTE_ONLY_PENDING_DOWNLOAD,
     ANCHOR_UNCONFIRMED,
     DEVICE_FILE_UNCONFIRMED,
     LOCAL_MEDIA_UNAVAILABLE,
+    FAILED,
+}
+
+enum class Stage16ARemoteFallbackState {
+    NOT_REQUIRED,
+    PENDING,
+    DOWNLOADED,
     FAILED,
 }
 
@@ -57,6 +71,7 @@ data class Stage16ATerminalReconciliationOutcome(
     val recordingId: String?,
     val remoteIdentity: String?,
     val completeLocalWavRegistered: Boolean,
+    val realtimeTranscriptionId: String? = null,
     val result: Stage16ALibraryReconciliationResult,
     val error: String? = null,
 )
@@ -72,11 +87,20 @@ data class Stage16ARecordingLifecycleSnapshot(
     val terminalRefreshRequests: Long = 0,
     val resolvedRemoteIdentity: String? = null,
     val resolvedRecordingId: String? = null,
+    val realtimeTranscriptionId: String? = null,
     val localSegmentCount: Int = 0,
     val completeLocalWavRegistered: Boolean = false,
+    val remoteFallbackState: Stage16ARemoteFallbackState = Stage16ARemoteFallbackState.NOT_REQUIRED,
+    val repairedCanonicalLineages: Long = 0,
+    val repairedRealtimeTranscripts: Long = 0,
     val libraryReconciliationResult: Stage16ALibraryReconciliationResult =
         Stage16ALibraryReconciliationResult.NOT_RUN,
     val lastError: String? = null,
+)
+
+private data class Stage16ADirectCanonicalResult(
+    val assetId: String,
+    val sha256: String,
 )
 
 /**
@@ -96,6 +120,7 @@ class Stage16ARecordingLifecycleCoordinator(
     startCollectors: Boolean = true,
 ) {
     private val realtimeRepository = RealtimeTranscriptPersistenceRepository(database)
+    private val integrationRepository = RealtimeRecordingIntegrationRepository(database, clockMs)
     private val stateLock = Any()
 
     @Volatile
@@ -110,6 +135,15 @@ class Stage16ARecordingLifecycleCoordinator(
     init {
         if (startCollectors) {
             Stage16ALifecycleDiagnosticsRegistry.installLifecycle(::snapshot)
+            scope.launch {
+                runCatching { repairExistingRealtimeArtifacts() }
+                    .onFailure { failure ->
+                        latestSnapshot =
+                            latestSnapshot.copy(
+                                lastError = failure.message ?: failure.javaClass.simpleName,
+                            )
+                    }
+            }
             scope.launch {
                 realtimeState
                     .map { state -> state.runId to state.phase }
@@ -326,25 +360,59 @@ class Stage16ARecordingLifecycleCoordinator(
                 }
             }
             val reconciledSegments = realtimeRepository.getSegments(runId)
-            val completeLocal = registerCompleteLocalWav(recordingId, remote, reconciledSegments)
+            val directCanonical = registerCompleteLocalWav(recordingId, remote, reconciledSegments)
+
+            if (directCanonical == null) {
+                integrationRepository.ensureRemotePendingAsset(
+                    recordingId = recordingId,
+                    remoteIdentity = remote.identity,
+                    filename = remoteFilename,
+                    sizeBytes = remote.sizeBytes,
+                )
+            }
+
+            val projected =
+                integrationRepository.projectCompletedRealtimeRun(
+                    runId = runId,
+                    recordingId = recordingId,
+                    canonicalAssetId = directCanonical?.assetId,
+                    canonicalSha256 = directCanonical?.sha256,
+                    canonicalProfileId = CanonicalPcmProfile.PROFILE_ID,
+                    canonicalPipelineVersion = CanonicalAudioCoordinator.PIPELINE_VERSION,
+                )
             searchIndexRebuilder.reindexRecording(recordingId)
             activeAnchor = null
+
+            val initialResult =
+                if (directCanonical != null) {
+                    Stage16ALibraryReconciliationResult.COMPLETED_LOCAL_CANONICAL
+                } else {
+                    Stage16ALibraryReconciliationResult.REMOTE_SOURCE_DOWNLOAD_PENDING
+                }
             val outcome =
                 publishTerminal(
                     Stage16ATerminalReconciliationOutcome(
                         recordingId = recordingId,
                         remoteIdentity = remote.identity,
-                        completeLocalWavRegistered = completeLocal,
-                        result =
-                            if (completeLocal || reconciledSegments.isNotEmpty()) {
-                                Stage16ALibraryReconciliationResult.COMPLETED
-                            } else {
-                                Stage16ALibraryReconciliationResult.LOCAL_MEDIA_UNAVAILABLE
-                            },
+                        completeLocalWavRegistered = directCanonical != null,
+                        realtimeTranscriptionId = projected.transcriptionId,
+                        result = initialResult,
                     ),
                     segmentCount = reconciledSegments.size,
+                    remoteFallbackState =
+                        if (directCanonical != null) {
+                            Stage16ARemoteFallbackState.NOT_REQUIRED
+                        } else {
+                            Stage16ARemoteFallbackState.PENDING
+                        },
                 )
             AppRecordingNavigation.publish(recordingId, RecordingDetailDestination.PLAYBACK)
+
+            if (directCanonical == null) {
+                scope.launch {
+                    downloadRemoteFallback(recordingId, remote)
+                }
+            }
             outcome
         } catch (failure: Throwable) {
             publishTerminal(
@@ -356,6 +424,144 @@ class Stage16ARecordingLifecycleCoordinator(
                     error = failure.message ?: failure.javaClass.simpleName,
                 ),
             )
+        }
+    }
+
+    private suspend fun downloadRemoteFallback(
+        recordingId: String,
+        remote: RemoteDeviceFile,
+    ) {
+        if (integrationRepository.hasVerifiedDeviceOpus(recordingId)) {
+            integrationRepository.clearRemotePendingAsset(recordingId)
+            publishRemoteFallback(
+                state = Stage16ARemoteFallbackState.DOWNLOADED,
+                result = Stage16ALibraryReconciliationResult.COMPLETED_DEVICE_SOURCE,
+                error = null,
+            )
+            return
+        }
+        val failure =
+            runCatching {
+                deviceRepository.downloadDeviceFile(remote, DeviceAudioFormat.OPUS)
+            }.exceptionOrNull()
+        val downloaded = integrationRepository.hasVerifiedDeviceOpus(recordingId)
+        if (downloaded) {
+            integrationRepository.clearRemotePendingAsset(recordingId)
+            searchIndexRebuilder.reindexRecording(recordingId)
+            publishRemoteFallback(
+                state = Stage16ARemoteFallbackState.DOWNLOADED,
+                result = Stage16ALibraryReconciliationResult.COMPLETED_DEVICE_SOURCE,
+                error = null,
+            )
+        } else {
+            publishRemoteFallback(
+                state = Stage16ARemoteFallbackState.FAILED,
+                result = Stage16ALibraryReconciliationResult.REMOTE_ONLY_PENDING_DOWNLOAD,
+                error =
+                    failure?.let { it.message ?: it.javaClass.simpleName }
+                        ?: "device OPUS fallback download did not complete",
+            )
+        }
+    }
+
+    private fun publishRemoteFallback(
+        state: Stage16ARemoteFallbackState,
+        result: Stage16ALibraryReconciliationResult,
+        error: String?,
+    ) {
+        latestSnapshot =
+            latestSnapshot.copy(
+                remoteFallbackState = state,
+                libraryReconciliationResult = result,
+                lastError = error,
+            )
+    }
+
+    private suspend fun repairExistingRealtimeArtifacts() {
+        var repairedLineages = 0L
+        var repairedTranscripts = 0L
+        integrationRepository.completedAttachedRuns().forEach { run ->
+            val recordingId = run.recordingId ?: return@forEach
+            val segments = realtimeRepository.getSegments(run.id)
+            val recording = database.recordingDao().findWithAssets(recordingId) ?: return@forEach
+            val canonical =
+                recording.assets.firstOrNull { asset ->
+                    asset.role == AudioAssetRole.CANONICAL_WAV &&
+                        asset.integrityState == AudioIntegrityState.VERIFIED &&
+                        asset.formatValidationState == AudioValidationState.VALID &&
+                        asset.relativePath.startsWith("realtime/")
+                }
+            var canonicalResult: Stage16ADirectCanonicalResult? = null
+            if (segments.size == 1 && canonical != null) {
+                val file = managedRecordingFile(canonical.relativePath)
+                if (file?.isFile == true && file.length() == canonical.sizeBytes) {
+                    val existingLineage =
+                        database.recordingDao().findDerivation(
+                            recordingId = recordingId,
+                            profileId = CanonicalPcmProfile.PROFILE_ID,
+                            sourceSha256 = canonical.sha256,
+                        )
+                    integrationRepository.commitDirectCanonicalCapture(
+                        RealtimeCanonicalCapture(
+                            recordingId = recordingId,
+                            relativePath = canonical.relativePath,
+                            sizeBytes = canonical.sizeBytes,
+                            sha256 = canonical.sha256,
+                            profileId = CanonicalPcmProfile.PROFILE_ID,
+                            pipelineVersion = CanonicalAudioCoordinator.PIPELINE_VERSION,
+                            sampleRateHz = CanonicalPcmProfile.SAMPLE_RATE_HZ,
+                            channelCount = CanonicalPcmProfile.CHANNEL_COUNT,
+                            verifiedAtMs = canonical.verifiedAtMs ?: clockMs(),
+                        ),
+                    )
+                    if (existingLineage == null) repairedLineages += 1
+                    canonicalResult = Stage16ADirectCanonicalResult(canonical.assetId, canonical.sha256)
+                }
+            }
+
+            if (canonicalResult == null && segments.size > 1) {
+                val remoteIdentity = recording.recording.sourceRemoteIdentity
+                val remoteSize = remoteIdentity.remoteSizeBytesOrNull()
+                if (remoteIdentity != null && remoteSize != null) {
+                    integrationRepository.ensureRemotePendingAsset(
+                        recordingId = recordingId,
+                        remoteIdentity = remoteIdentity,
+                        filename = recording.recording.originalFilename,
+                        sizeBytes = remoteSize,
+                    )
+                }
+            }
+
+            val beforeId = "stage16a-realtime-${run.id}"
+            val existed = database.transcriptionDao().findTranscription(beforeId) != null
+            val projected =
+                integrationRepository.projectCompletedRealtimeRun(
+                    runId = run.id,
+                    recordingId = recordingId,
+                    canonicalAssetId = canonicalResult?.assetId,
+                    canonicalSha256 = canonicalResult?.sha256,
+                    canonicalProfileId = CanonicalPcmProfile.PROFILE_ID,
+                    canonicalPipelineVersion = CanonicalAudioCoordinator.PIPELINE_VERSION,
+                )
+            if (!existed && projected.transcriptionId != null) repairedTranscripts += 1
+        }
+        if (repairedLineages > 0 || repairedTranscripts > 0) {
+            latestSnapshot =
+                latestSnapshot.copy(
+                    repairedCanonicalLineages =
+                        latestSnapshot.repairedCanonicalLineages + repairedLineages,
+                    repairedRealtimeTranscripts =
+                        latestSnapshot.repairedRealtimeTranscripts + repairedTranscripts,
+                )
+        }
+    }
+
+    private fun managedRecordingFile(relativePath: String): File? {
+        val root = recordingsRoot.canonicalFile
+        val candidate = runCatching { File(recordingsRoot, relativePath).canonicalFile }.getOrNull()
+            ?: return null
+        return candidate.takeIf {
+            it.path == root.path || it.path.startsWith(root.path + File.separator)
         }
     }
 
@@ -417,59 +623,56 @@ class Stage16ARecordingLifecycleCoordinator(
         recordingId: String,
         remote: RemoteDeviceFile,
         segments: List<RealtimeMediaSegmentEntity>,
-    ): Boolean {
-        if (segments.size != 1) return false
+    ): Stage16ADirectCanonicalResult? {
+        if (segments.size != 1) return null
         val segment = segments.single()
-        if (segment.state != RealtimeMediaSegmentStateValue.FINALIZED) return false
-        val storedPath = segment.localRelativePath ?: return false
-        val expectedSize = segment.sizeBytes ?: return false
-        val expectedSha = segment.sha256 ?: return false
+        if (segment.state != RealtimeMediaSegmentStateValue.FINALIZED) return null
+        val storedPath = segment.localRelativePath ?: return null
+        val expectedSize = segment.sizeBytes ?: return null
+        val expectedSha = segment.sha256 ?: return null
         val realtimeRoot = File(recordingsRoot, "realtime").canonicalFile
-        val file = runCatching { File(realtimeRoot, storedPath).canonicalFile }.getOrNull() ?: return false
+        val file = runCatching { File(realtimeRoot, storedPath).canonicalFile }.getOrNull() ?: return null
         if (file.path != realtimeRoot.path && !file.path.startsWith(realtimeRoot.path + File.separator)) {
-            return false
+            return null
         }
-        if (!file.isFile || file.length() != expectedSize) return false
+        if (!file.isFile || file.length() != expectedSize) return null
         val relativeToRecordings = file.relativeTo(recordingsRoot.canonicalFile).path
-        val now = clockMs()
-        database.recordingDao().upsertAsset(
-            AudioAssetEntity(
-                assetId = stableId("$recordingId|canonical=${CanonicalPcmProfile.PROFILE_ID}"),
-                recordingId = recordingId,
-                role = AudioAssetRole.CANONICAL_WAV,
-                relativePath = relativeToRecordings,
-                container = "WAV",
-                codec = "PCM",
-                sampleFormat = "PCM16_LE",
-                sampleRateHz = CanonicalPcmProfile.SAMPLE_RATE_HZ,
-                channelCount = CanonicalPcmProfile.CHANNEL_COUNT,
-                sizeBytes = expectedSize,
-                sha256 = expectedSha.lowercase(),
-                integrityState = AudioIntegrityState.VERIFIED,
-                formatValidationState = AudioValidationState.VALID,
-                createdAtMs = now,
-                verifiedAtMs = now,
-            ),
-        )
+        val assetId =
+            integrationRepository.commitDirectCanonicalCapture(
+                RealtimeCanonicalCapture(
+                    recordingId = recordingId,
+                    relativePath = relativeToRecordings,
+                    sizeBytes = expectedSize,
+                    sha256 = expectedSha,
+                    profileId = CanonicalPcmProfile.PROFILE_ID,
+                    pipelineVersion = CanonicalAudioCoordinator.PIPELINE_VERSION,
+                    sampleRateHz = CanonicalPcmProfile.SAMPLE_RATE_HZ,
+                    channelCount = CanonicalPcmProfile.CHANNEL_COUNT,
+                    verifiedAtMs = clockMs(),
+                ),
+            )
         realtimeRepository.updateSegment(
             segment.copy(
                 deviceFilename = remote.resolvedFilename ?: remote.displayFilename,
                 isCompleteDeviceRecording = true,
             ),
         )
-        return true
+        return Stage16ADirectCanonicalResult(assetId = assetId, sha256 = expectedSha.lowercase())
     }
 
     private fun publishTerminal(
         outcome: Stage16ATerminalReconciliationOutcome,
         segmentCount: Int = latestSnapshot.localSegmentCount,
+        remoteFallbackState: Stage16ARemoteFallbackState = latestSnapshot.remoteFallbackState,
     ): Stage16ATerminalReconciliationOutcome {
         latestSnapshot =
             latestSnapshot.copy(
                 resolvedRemoteIdentity = outcome.remoteIdentity,
                 resolvedRecordingId = outcome.recordingId,
+                realtimeTranscriptionId = outcome.realtimeTranscriptionId,
                 localSegmentCount = segmentCount,
                 completeLocalWavRegistered = outcome.completeLocalWavRegistered,
+                remoteFallbackState = remoteFallbackState,
                 libraryReconciliationResult = outcome.result,
                 lastError = outcome.error,
             )
@@ -490,6 +693,12 @@ class Stage16ARecordingLifecycleCoordinator(
                 file.resolvedFilename?.substringBeforeLast('.')
                     ?.equals(filename.substringBeforeLast('.'), ignoreCase = true) == true
         }
+
+    private fun String?.remoteSizeBytesOrNull(): Long? {
+        val parts = this?.split('|') ?: return null
+        if (parts.size < 4) return null
+        return parts[parts.lastIndex - 1].toLongOrNull()?.takeIf { it > 0L }
+    }
 
     private fun stableId(value: String): String =
         MessageDigest.getInstance("SHA-256")
@@ -529,7 +738,11 @@ fun Stage16ARecordingLifecycleSnapshot.toDiagnosticsText(
     )
     appendLine(
         "localSegments=$localSegmentCount completeLocalWav=$completeLocalWavRegistered " +
-            "libraryReconciliation=${libraryReconciliationResult.name}",
+            "remoteFallback=${remoteFallbackState.name} libraryReconciliation=${libraryReconciliationResult.name}",
+    )
+    appendLine(
+        "realtimeTranscriptionId=${realtimeTranscriptionId ?: "n/a"} " +
+            "repairedLineages=$repairedCanonicalLineages repairedRealtimeTranscripts=$repairedRealtimeTranscripts",
     )
     append("lifecycleLastError=${lastError ?: "n/a"}")
 }
