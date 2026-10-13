@@ -370,6 +370,7 @@ class AppContainer(
             context = application,
             delegate = deviceRuntime,
             scope = applicationScope,
+            realtimeState = stage16ARealtimeRuntime.state,
         )
 
     val realtimeRecordingLifecycleReconciler =
