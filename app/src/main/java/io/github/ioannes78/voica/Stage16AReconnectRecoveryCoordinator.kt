@@ -30,11 +30,11 @@ data class Stage16AReconnectRecoverySnapshot(
 /**
  * App-scoped Stage 16A reconnect owner.
  *
- * A transport close never fabricates media continuity. Before the disconnect we remember only a
- * trusted FRESH active device-recording identity. When the same device reaches Ready on a new
- * transport generation, we explicitly refresh recording truth and delegate the final conservative
- * decision to [RealtimeAutoRecoveryPolicy] through [Stage16ARealtimeRuntime.recoverAfterReconnect].
- * The recovery path is local-only: it never sends recorder START/RESUME.
+ * A transport close never fabricates media continuity. The preferred disconnect anchor is the
+ * explicitly converged Stage 16A physical-recording anchor; fresh RecordingDeviceState remains a
+ * compatible fallback. When the same device reaches Ready on a new transport generation, recording
+ * truth is refreshed before the conservative recovery policy may attach locally. No recorder
+ * START/RESUME command is sent during recovery.
  */
 class Stage16AReconnectRecoveryCoordinator(
     private val scope: CoroutineScope,
@@ -44,6 +44,7 @@ class Stage16AReconnectRecoveryCoordinator(
     private val transportGeneration: () -> Long?,
     private val syncRecordingState: suspend () -> Unit,
     private val recover: suspend (RealtimeAutoRecoveryContext) -> Stage16ARealtimeRecoveryOutcome,
+    private val recordingAnchorProvider: (String) -> Stage16APhysicalRecordingAnchor? = { null },
     private val freshStateTimeoutMs: Long = DEFAULT_FRESH_STATE_TIMEOUT_MS,
     startCollectors: Boolean = true,
 ) {
@@ -137,10 +138,14 @@ class Stage16AReconnectRecoveryCoordinator(
         val realtime = realtimeState.value
         if (!realtime.phase.canRemainActiveAcrossTransportClose()) return
         val runId = realtime.runId ?: return
-        val trusted = lastTrustedActiveRecording ?: return
-        if (trusted.runId != runId) return
+        val trusted =
+            lastTrustedActiveRecording
+                ?.takeIf { it.runId == runId }
+                ?: recordingAnchorProvider(runId)?.toTrustedActiveRecording()
+                ?: return
         if (lastReadyAddress != null && trusted.deviceIdentity != lastReadyAddress) return
 
+        lastTrustedActiveRecording = trusted
         pendingRecovery =
             PendingRecovery(
                 runId = trusted.runId,
@@ -306,6 +311,14 @@ class Stage16AReconnectRecoveryCoordinator(
         this == Stage16ARealtimeUiPhase.IDLE ||
             this == Stage16ARealtimeUiPhase.COMPLETED ||
             this == Stage16ARealtimeUiPhase.FAILED
+
+    private fun Stage16APhysicalRecordingAnchor.toTrustedActiveRecording(): TrustedActiveRecording =
+        TrustedActiveRecording(
+            runId = runId,
+            deviceIdentity = deviceIdentity,
+            recordingIdentity = recordingIdentity,
+            transportGeneration = transportGeneration,
+        )
 
     private data class TrustedActiveRecording(
         val runId: String,
