@@ -113,6 +113,58 @@ data class Stage16ARealtimePerformanceDiagnosticsSnapshot(
     private fun format4(value: Double): String = String.format(Locale.US, "%.4f", value)
 }
 
+/**
+ * Process-local read seam for the manual diagnostics screen.
+ *
+ * The active provider is pull-only. The last snapshot is retained when a run is released so QA can
+ * stop the recording first and then copy the evidence. Owner identity prevents a stale run from
+ * replacing a newer run's diagnostics.
+ */
+object Stage16ARealtimePerformanceDiagnostics {
+    private val lock = Any()
+    private var activeOwner: Any? = null
+    private var activeProvider: (() -> Stage16ARealtimePerformanceDiagnosticsSnapshot)? = null
+    private var retainedSnapshot: Stage16ARealtimePerformanceDiagnosticsSnapshot? = null
+
+    fun snapshot(): Stage16ARealtimePerformanceDiagnosticsSnapshot? {
+        val provider = synchronized(lock) { activeProvider }
+        val live = provider?.let { runCatching(it).getOrNull() }
+        if (live != null) return live
+        return synchronized(lock) { retainedSnapshot }
+    }
+
+    internal fun attach(
+        owner: Any,
+        provider: () -> Stage16ARealtimePerformanceDiagnosticsSnapshot,
+    ) {
+        synchronized(lock) {
+            activeOwner = owner
+            activeProvider = provider
+            retainedSnapshot = null
+        }
+    }
+
+    internal fun retainAndDetach(
+        owner: Any,
+        snapshot: Stage16ARealtimePerformanceDiagnosticsSnapshot?,
+    ) {
+        synchronized(lock) {
+            if (activeOwner !== owner) return
+            if (snapshot != null) retainedSnapshot = snapshot
+            activeOwner = null
+            activeProvider = null
+        }
+    }
+
+    internal fun clearForTest() {
+        synchronized(lock) {
+            activeOwner = null
+            activeProvider = null
+            retainedSnapshot = null
+        }
+    }
+}
+
 internal fun Stage16ARealtimePipelinePerformanceSnapshot.toDiagnosticsSnapshot():
     Stage16ARealtimePerformanceDiagnosticsSnapshot {
     val coordinator = runner.coordinator
