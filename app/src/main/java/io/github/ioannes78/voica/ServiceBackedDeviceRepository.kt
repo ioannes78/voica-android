@@ -28,6 +28,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
@@ -62,6 +64,7 @@ class ServiceBackedDeviceRepository(
         { serviceContext, deviceName, label ->
             DeviceSessionNotificationUpdater.update(serviceContext, deviceName, label)
         },
+    private val realtimeState: StateFlow<Stage16ARealtimeUiState>? = null,
     private val elapsedRealtimeMs: () -> Long = SystemClock::elapsedRealtime,
     private val progressUpdateMinIntervalMs: Long = PROGRESS_NOTIFICATION_MIN_INTERVAL_MS,
 ) : DeviceRepository {
@@ -120,6 +123,19 @@ class ServiceBackedDeviceRepository(
                 // Combined emissions are invalidation signals only. Always re-read current business
                 // truth at publication time so an old progress emission can never carry a stale label.
                 reconcileCurrentDeviceSessionDecision()
+            }
+        }
+
+        realtimeState?.let { states ->
+            scope.launch {
+                states
+                    .map(Stage16ARealtimeNotificationPolicy::project)
+                    .distinctUntilChanged()
+                    .collect {
+                        // Hypothesis/audio-envelope churn is intentionally absent from the projected
+                        // state, so only lifecycle/model changes can invalidate the notification.
+                        reconcileCurrentDeviceSessionDecision(forceImmediate = true)
+                    }
             }
         }
 
@@ -325,15 +341,23 @@ class ServiceBackedDeviceRepository(
                 ?: currentDeviceName
                 ?: FALLBACK_DEVICE_NAME
         val activeOperation = operation as? FileOperationState.Active
+        val downloadActive = activeOperation?.operation == DeviceFileOperationType.DOWNLOAD
         val coalescibleProgress =
-            activeOperation?.operation == DeviceFileOperationType.DOWNLOAD &&
+            downloadActive &&
                 activeOperation.progress?.expectedBytes?.let { it > 0L } == true
+        val baseLabel = deviceSessionLabel(connection, recording, operation)
+        val realtimeProjection = realtimeState?.value?.let(Stage16ARealtimeNotificationPolicy::project)
         return DeviceSessionForegroundDecision(
             keep =
                 !userDisconnectedThisProcess &&
                     shouldKeepDeviceSession(connection),
             deviceName = resolvedName,
-            label = deviceSessionLabel(connection, recording, operation),
+            label =
+                Stage16ARealtimeNotificationPolicy.label(
+                    baseDeviceLabel = baseLabel,
+                    realtime = realtimeProjection,
+                    downloadActive = downloadActive,
+                ),
             coalescibleProgress = coalescibleProgress,
         )
     }
