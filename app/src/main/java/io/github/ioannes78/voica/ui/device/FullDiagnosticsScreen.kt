@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
+import io.github.ioannes78.voica.Stage16ARealtimePerformanceDiagnostics
 import io.github.ioannes78.voica.ble.BleDiagnostics
 import io.github.ioannes78.voica.ble.FileTransferDiagnostics
 import io.github.ioannes78.voica.ble.RangeProbeDiagnostics
@@ -44,6 +45,7 @@ private enum class DiagnosticSection {
     TRANSFER,
     DELETE,
     RANGE,
+    REALTIME,
     ERRORS_LOGS,
 }
 
@@ -61,6 +63,7 @@ fun FullDiagnosticsScreen(
     }
     var menuExpanded by rememberSaveable { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
+    val realtimePerformance = Stage16ARealtimePerformanceDiagnostics.snapshot()
 
     LazyColumn(
         modifier = Modifier
@@ -368,6 +371,40 @@ fun FullDiagnosticsScreen(
 
         item {
             DiagnosticExpandableSection(
+                title = "Stage 16A 实时性能",
+                expanded = DiagnosticSection.REALTIME in expanded,
+                onToggle = {
+                    expanded = expanded.toggle(DiagnosticSection.REALTIME)
+                },
+            ) {
+                val p = realtimePerformance
+                if (p == null) {
+                    DiagnosticLine("Status", "暂无实时性能数据")
+                } else {
+                    DiagnosticLine("Model", p.modelLabel)
+                    DiagnosticLine("Model ID", p.modelId)
+                    DiagnosticLine("Threads", p.effectiveThreads)
+                    DiagnosticLine("Chunk", "${p.targetChunkSamples} / ${p.targetChunkDurationMs} ms")
+                    DiagnosticLine("Audio", "%.3f s".format(p.canonicalAudioSeconds))
+                    DiagnosticLine("Native RTF", p.nativeRtf?.let { "%.4f".format(it) })
+                    DiagnosticLine("Buffer depth", "%.1f ms".format(p.currentBufferDepthMs))
+                    DiagnosticLine("Peak buffer", "%.1f ms".format(p.peakBufferDepthMs))
+                    DiagnosticLine("Overflow", p.bufferOverflowEvents)
+                    DiagnosticLine("Dropped frames", p.bufferDroppedFrames)
+                    DiagnosticLine("Dropped samples", p.bufferDroppedSamples)
+                    DiagnosticLine("Output rejects", p.outputSinkRejects)
+                    DiagnosticLine("Output failures", p.outputSinkFailures)
+                    DiagnosticLine("Side sink rejects", p.sideSinkRejects)
+                    DiagnosticLine("Side sink failures", p.sideSinkFailures)
+                    DiagnosticLine("Runner", p.runnerState)
+                    DiagnosticLine("Terminal", p.terminalReason)
+                    DiagnosticLine("Last failure", p.lastFailure)
+                }
+            }
+        }
+
+        item {
+            DiagnosticExpandableSection(
                 title = "错误与日志",
                 expanded = DiagnosticSection.ERRORS_LOGS in expanded,
                 onToggle = {
@@ -521,4 +558,8 @@ private fun buildDiagnosticsText(
         appendLine()
         appendLine("[Recent logs]")
         diagnostics.logs.takeLast(50).forEach(::appendLine)
+        Stage16ARealtimePerformanceDiagnostics.snapshot()?.let { performance ->
+            appendLine()
+            appendLine(performance.toDiagnosticsText())
+        }
     }
