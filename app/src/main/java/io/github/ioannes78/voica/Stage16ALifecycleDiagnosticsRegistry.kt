@@ -6,23 +6,28 @@ package io.github.ioannes78.voica
  */
 object Stage16ALifecycleDiagnosticsRegistry {
     private val lock = Any()
-    private var provider: (() -> String)? = null
+    private var lifecycleProvider: (() -> Stage16ARecordingLifecycleSnapshot)? = null
+    private var reconnectProvider: (() -> Stage16AReconnectRecoverySnapshot)? = null
 
-    fun install(
-        lifecycle: () -> Stage16ARecordingLifecycleSnapshot,
-        reconnect: () -> Stage16AReconnectRecoverySnapshot,
-    ) {
-        synchronized(lock) {
-            provider = { lifecycle().toDiagnosticsText(reconnect()) }
-        }
+    fun installLifecycle(provider: () -> Stage16ARecordingLifecycleSnapshot) {
+        synchronized(lock) { lifecycleProvider = provider }
+    }
+
+    fun installReconnect(provider: () -> Stage16AReconnectRecoverySnapshot) {
+        synchronized(lock) { reconnectProvider = provider }
     }
 
     fun snapshotText(): String? {
-        val current = synchronized(lock) { provider } ?: return null
-        return runCatching(current).getOrNull()
+        val pair = synchronized(lock) { lifecycleProvider to reconnectProvider }
+        val lifecycle = pair.first?.let { runCatching(it).getOrNull() } ?: return null
+        val reconnect = pair.second?.let { runCatching(it).getOrNull() } ?: Stage16AReconnectRecoverySnapshot()
+        return lifecycle.toDiagnosticsText(reconnect)
     }
 
     internal fun clearForTest() {
-        synchronized(lock) { provider = null }
+        synchronized(lock) {
+            lifecycleProvider = null
+            reconnectProvider = null
+        }
     }
 }
