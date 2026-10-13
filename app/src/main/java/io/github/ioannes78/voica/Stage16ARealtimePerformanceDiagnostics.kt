@@ -18,6 +18,11 @@ data class Stage16ARealtimePerformanceDiagnosticsSnapshot(
     val targetChunkDurationMs: Int,
     val canonicalAudioSeconds: Double,
     val nativeRtf: Double?,
+    val partialLatency: Stage16ARealtimeLatencyStatSnapshot,
+    val stableLatency: Stage16ARealtimeLatencyStatSnapshot,
+    val finalLatency: Stage16ARealtimeLatencyStatSnapshot,
+    val correlatedLatencyOutputs: Long,
+    val uncorrelatedLatencyOutputs: Long,
     val currentBufferDepthMs: Double,
     val peakBufferDepthMs: Double,
     val bufferOverflowEvents: Long,
@@ -66,6 +71,13 @@ data class Stage16ARealtimePerformanceDiagnosticsSnapshot(
         appendLine("chunk=$targetChunkSamples samples / ${targetChunkDurationMs}ms")
         appendLine("canonicalAudio=${format3(canonicalAudioSeconds)}s")
         appendLine("nativeRTF=${nativeRtf?.let(::format4) ?: "n/a"}")
+        appendLine(formatLatency("PARTIAL", partialLatency))
+        appendLine(formatLatency("STABLE", stableLatency))
+        appendLine(formatLatency("FINAL", finalLatency))
+        appendLine(
+            "latencyCorrelation correlated=$correlatedLatencyOutputs " +
+                "uncorrelated=$uncorrelatedLatencyOutputs",
+        )
         appendLine(
             "buffer=${format1(currentBufferDepthMs)}ms peak=${format1(peakBufferDepthMs)}ms " +
                 "overflow=$bufferOverflowEvents droppedFrames=$bufferDroppedFrames " +
@@ -108,6 +120,16 @@ data class Stage16ARealtimePerformanceDiagnosticsSnapshot(
         append("lastFailure=${lastFailure ?: "n/a"}")
     }
 
+    private fun formatLatency(
+        label: String,
+        value: Stage16ARealtimeLatencyStatSnapshot,
+    ): String =
+        "latency$label count=${value.count} " +
+            "avg=${formatNullableMs(value.averageMs)} " +
+            "min=${formatNullableMs(value.minMs)} " +
+            "max=${formatNullableMs(value.maxMs)}"
+
+    private fun formatNullableMs(value: Double?): String = value?.let { "${format1(it)}ms" } ?: "n/a"
     private fun format1(value: Double): String = String.format(Locale.US, "%.1f", value)
     private fun format3(value: Double): String = String.format(Locale.US, "%.3f", value)
     private fun format4(value: Double): String = String.format(Locale.US, "%.4f", value)
@@ -165,8 +187,9 @@ object Stage16ARealtimePerformanceDiagnostics {
     }
 }
 
-internal fun Stage16ARealtimePipelinePerformanceSnapshot.toDiagnosticsSnapshot():
-    Stage16ARealtimePerformanceDiagnosticsSnapshot {
+internal fun Stage16ARealtimePipelinePerformanceSnapshot.toDiagnosticsSnapshot(
+    outputLatency: Stage16ARealtimeOutputLatencySnapshot = Stage16ARealtimeOutputLatencySnapshot(),
+): Stage16ARealtimePerformanceDiagnosticsSnapshot {
     val coordinator = runner.coordinator
     return Stage16ARealtimePerformanceDiagnosticsSnapshot(
         modelId = modelId,
@@ -176,6 +199,11 @@ internal fun Stage16ARealtimePipelinePerformanceSnapshot.toDiagnosticsSnapshot()
         targetChunkDurationMs = targetChunkDurationMs,
         canonicalAudioSeconds = canonicalAudioSeconds,
         nativeRtf = nativeRtf,
+        partialLatency = outputLatency.partial,
+        stableLatency = outputLatency.stable,
+        finalLatency = outputLatency.final,
+        correlatedLatencyOutputs = outputLatency.correlatedOutputs,
+        uncorrelatedLatencyOutputs = outputLatency.uncorrelatedOutputs,
         currentBufferDepthMs = currentBufferDepthMs,
         peakBufferDepthMs = peakBufferDepthMs,
         bufferOverflowEvents = buffer.overflowEvents,
