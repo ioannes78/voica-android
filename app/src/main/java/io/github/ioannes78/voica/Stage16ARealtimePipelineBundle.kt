@@ -22,6 +22,7 @@ import io.github.ioannes78.voica.transcript.RealtimeTranscriptionPipelineEventPr
 import io.github.ioannes78.voica.transcript.RealtimeTranscriptionSessionRunner
 import io.github.ioannes78.voica.transcript.RealtimeTranscriptionSessionRunnerState
 import io.github.ioannes78.voica.transcript.StreamingAsrEngine
+import io.github.ioannes78.voica.transcript.StreamingAudioSideSink
 import io.github.ioannes78.voica.transcript.StreamingVadEngine
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
@@ -61,8 +62,8 @@ data class Stage16ARealtimePipelineConfig(
  * This bundle owns the native ASR/VAD/punctuation engines and the model leases supplied to the
  * factory. It does not own recorder commands: START/PAUSE/RESUME/STOP and reconnect policy stay in
  * the app lifecycle controller. [release] must be called only after the session runner is no longer
- * RUNNING; accepted local-media and durable-output work is drained before native/model resources are
- * released.
+ * RUNNING; accepted local-media, waveform and durable-output work is drained before native/model
+ * resources are released.
  */
 class Stage16ARealtimePipelineBundle internal constructor(
     val models: Stage16ARealtimeModelLeaseBundle,
@@ -70,6 +71,7 @@ class Stage16ARealtimePipelineBundle internal constructor(
     val localAudioSink: RealtimeLocalAudioSideSink,
     val durableOutputSink: RealtimeDurableOutputSink,
     val processor: RealtimeStreamingAsrProcessor,
+    private val audioActivitySink: Stage16ARealtimeAudioActivitySink?,
     private val asrEngine: StreamingAsrEngine,
     private val vadEngine: StreamingVadEngine,
     private val punctuationEngine: PunctuationEngine?,
@@ -83,8 +85,10 @@ class Stage16ARealtimePipelineBundle internal constructor(
         }
 
         try {
+            audioActivitySink?.close()
             localAudioSink.close()
             durableOutputSink.close()
+            audioActivitySink?.join()
             localAudioSink.join()
             durableOutputSink.join()
         } finally {
@@ -129,6 +133,7 @@ class Stage16ARealtimePipelineBundleFactory(
         var processor: RealtimeStreamingAsrProcessor? = null
         var localAudioSink: RealtimeLocalAudioSideSink? = null
         var durableOutputSink: RealtimeDurableOutputSink? = null
+        var audioActivitySink: Stage16ARealtimeAudioActivitySink? = null
 
         try {
             asrEngine = engineProvider.openAsr(models.models)
@@ -162,6 +167,18 @@ class Stage16ARealtimePipelineBundleFactory(
                     queueCapacity = config.durableOutputQueueCapacity,
                 )
 
+            val audioActivityConsumers =
+                liveOutputSinks.filterIsInstance<Stage16ARealtimeAudioActivityConsumer>()
+            if (audioActivityConsumers.isNotEmpty()) {
+                audioActivitySink =
+                    Stage16ARealtimeAudioActivitySink(
+                        scope = scope,
+                        consumers = audioActivityConsumers,
+                    )
+            }
+
+            val coordinatorSideSinks = mutableListOf<StreamingAudioSideSink>(localAudioSink)
+            audioActivitySink?.let(coordinatorSideSinks::add)
             val coordinator =
                 RealtimeTranscriptCoordinator(
                     source = source,
@@ -170,7 +187,7 @@ class Stage16ARealtimePipelineBundleFactory(
                             maxQueuedPcmFrames = config.maxBufferedPcmFrames,
                             maxQueuedPcmSamples = config.maxBufferedPcmSamples,
                         ),
-                    sideSinks = listOf(localAudioSink),
+                    sideSinks = coordinatorSideSinks,
                 )
             val transcriptionPipeline =
                 RealtimeTranscriptionPipeline(
@@ -195,11 +212,13 @@ class Stage16ARealtimePipelineBundleFactory(
                 localAudioSink = localAudioSink,
                 durableOutputSink = durableOutputSink,
                 processor = processor,
+                audioActivitySink = audioActivitySink,
                 asrEngine = asrEngine,
                 vadEngine = vadEngine,
                 punctuationEngine = punctuationEngine,
             )
         } catch (failure: Throwable) {
+            audioActivitySink?.close()
             localAudioSink?.close()
             durableOutputSink?.close()
             processor?.close()

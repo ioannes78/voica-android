@@ -40,6 +40,8 @@ data class Stage16ARealtimeUiState(
     val stableText: String = "",
     /** Full latest native partial for the current recognizer continuity. */
     val partialText: String = "",
+    /** Bounded, normalized canonical-PCM activity envelope for the product waveform. */
+    val audioActivityLevels: List<Float> = emptyList(),
     val lifecycleMessage: String? = null,
     val errorCode: String? = null,
     val errorMessage: String? = null,
@@ -57,11 +59,14 @@ data class Stage16ARealtimeUiState(
 /**
  * Non-blocking product-state branch below Stage 16A inference.
  *
- * The sink deliberately stores only lightweight immutable text/lifecycle state. It never performs
- * Room, file, model, BLE, or native work, so UI observation cannot backpressure the realtime ASR
- * runner. PARTIAL remains one replaceable tail; FINAL text is the only text appended to history.
+ * The sink deliberately stores only lightweight immutable text/lifecycle/audio-envelope state. It
+ * never performs Room, file, model, BLE, or native work, so UI observation cannot backpressure the
+ * realtime ASR runner. PARTIAL remains one replaceable tail; FINAL text is the only text appended to
+ * history. PCM analysis itself is performed by [Stage16ARealtimeAudioActivitySink].
  */
-class Stage16ARealtimeLiveStateStore : RealtimeTranscriptionOutputSink {
+class Stage16ARealtimeLiveStateStore :
+    RealtimeTranscriptionOutputSink,
+    Stage16ARealtimeAudioActivityConsumer {
     private val lock = Any()
     private val mutableState = MutableStateFlow(Stage16ARealtimeUiState())
     val state: StateFlow<Stage16ARealtimeUiState> = mutableState.asStateFlow()
@@ -73,6 +78,21 @@ class Stage16ARealtimeLiveStateStore : RealtimeTranscriptionOutputSink {
         return RealtimeTranscriptionOutputSinkOfferResult.ACCEPTED
     }
 
+    override fun onRealtimeAudioActivity(level: Float) = mutate { current ->
+        if (current.phase != Stage16ARealtimeUiPhase.ACTIVE) {
+            current
+        } else {
+            val safeLevel = if (level.isFinite()) level.coerceIn(0f, 1f) else 0f
+            val nextLevels =
+                if (current.audioActivityLevels.size >= AUDIO_ACTIVITY_WINDOW_SIZE) {
+                    current.audioActivityLevels.drop(1) + safeLevel
+                } else {
+                    current.audioActivityLevels + safeLevel
+                }
+            current.copy(audioActivityLevels = nextLevels)
+        }
+    }
+
     fun preparing(runId: String, modelId: String, modelLabel: String) = mutate { current ->
         current.copy(
             phase = Stage16ARealtimeUiPhase.PREPARING,
@@ -82,6 +102,7 @@ class Stage16ARealtimeLiveStateStore : RealtimeTranscriptionOutputSink {
             finalized = emptyList(),
             stableText = "",
             partialText = "",
+            audioActivityLevels = emptyList(),
             lifecycleMessage = null,
             errorCode = null,
             errorMessage = null,
@@ -95,6 +116,7 @@ class Stage16ARealtimeLiveStateStore : RealtimeTranscriptionOutputSink {
             phase = Stage16ARealtimeUiPhase.PAUSED,
             stableText = "",
             partialText = "",
+            audioActivityLevels = emptyList(),
             lifecycleMessage = "已暂停",
         )
     }
@@ -102,6 +124,7 @@ class Stage16ARealtimeLiveStateStore : RealtimeTranscriptionOutputSink {
     fun resuming() = mutate {
         it.copy(
             phase = Stage16ARealtimeUiPhase.RESUMING,
+            audioActivityLevels = emptyList(),
             lifecycleMessage = "正在继续实时转写…",
         )
     }
@@ -109,6 +132,7 @@ class Stage16ARealtimeLiveStateStore : RealtimeTranscriptionOutputSink {
     fun finalizing() = mutate {
         it.copy(
             phase = Stage16ARealtimeUiPhase.FINALIZING,
+            audioActivityLevels = emptyList(),
             lifecycleMessage = "正在完成最后内容…",
         )
     }
@@ -122,6 +146,7 @@ class Stage16ARealtimeLiveStateStore : RealtimeTranscriptionOutputSink {
             phase = Stage16ARealtimeUiPhase.INTERRUPTED,
             stableText = "",
             partialText = "",
+            audioActivityLevels = emptyList(),
             lifecycleMessage = message,
             errorCode = code,
             errorMessage = errorMessage,
@@ -133,6 +158,7 @@ class Stage16ARealtimeLiveStateStore : RealtimeTranscriptionOutputSink {
             phase = Stage16ARealtimeUiPhase.COMPLETED,
             stableText = "",
             partialText = "",
+            audioActivityLevels = emptyList(),
             lifecycleMessage = null,
             errorCode = null,
             errorMessage = null,
@@ -153,6 +179,7 @@ class Stage16ARealtimeLiveStateStore : RealtimeTranscriptionOutputSink {
             phase = Stage16ARealtimeUiPhase.FAILED,
             stableText = "",
             partialText = "",
+            audioActivityLevels = emptyList(),
             lifecycleMessage = null,
             errorCode = code,
             errorMessage = message,
@@ -230,6 +257,7 @@ class Stage16ARealtimeLiveStateStore : RealtimeTranscriptionOutputSink {
                     phase = Stage16ARealtimeUiPhase.ACTIVE,
                     stableText = "",
                     partialText = "",
+                    audioActivityLevels = emptyList(),
                     lifecycleMessage =
                         if (current.phase == Stage16ARealtimeUiPhase.INTERRUPTED) {
                             "已恢复实时转写"
@@ -253,12 +281,14 @@ class Stage16ARealtimeLiveStateStore : RealtimeTranscriptionOutputSink {
                         },
                     stableText = "",
                     partialText = "",
+                    audioActivityLevels = emptyList(),
                 )
 
             is RealtimeAsrPipelineEvent.Discontinuity ->
                 current.copy(
                     stableText = "",
                     partialText = "",
+                    audioActivityLevels = emptyList(),
                     lifecycleMessage = "实时音频发生间断，已从当前音频继续",
                 )
 
@@ -269,6 +299,7 @@ class Stage16ARealtimeLiveStateStore : RealtimeTranscriptionOutputSink {
                             phase = Stage16ARealtimeUiPhase.INTERRUPTED,
                             stableText = "",
                             partialText = "",
+                            audioActivityLevels = emptyList(),
                             lifecycleMessage = "连接已中断 · 设备仍可能继续录音",
                         )
 
@@ -279,6 +310,7 @@ class Stage16ARealtimeLiveStateStore : RealtimeTranscriptionOutputSink {
                             phase = Stage16ARealtimeUiPhase.FINALIZING,
                             stableText = "",
                             partialText = "",
+                            audioActivityLevels = emptyList(),
                             lifecycleMessage = "正在完成最后内容…",
                         )
 
@@ -289,6 +321,7 @@ class Stage16ARealtimeLiveStateStore : RealtimeTranscriptionOutputSink {
                             phase = Stage16ARealtimeUiPhase.INTERRUPTED,
                             stableText = "",
                             partialText = "",
+                            audioActivityLevels = emptyList(),
                             lifecycleMessage = "实时转写已中断",
                         )
                 }
@@ -297,4 +330,8 @@ class Stage16ARealtimeLiveStateStore : RealtimeTranscriptionOutputSink {
             is RealtimeAsrPipelineEvent.Hypothesis ->
                 error("hypothesis must arrive as RealtimeTranscriptionOutput.Hypothesis")
         }
+
+    private companion object {
+        const val AUDIO_ACTIVITY_WINDOW_SIZE = 28
+    }
 }

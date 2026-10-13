@@ -86,6 +86,28 @@ class Stage16ARealtimeLiveStateStoreTest {
         assertEquals(listOf("已经完成"), store.state.value.finalized.map { it.text })
     }
 
+    @Test
+    fun `audio activity is bounded clamped and cleared by pause`() {
+        val store = Stage16ARealtimeLiveStateStore()
+        store.preparing("run-a", "small", "Small")
+        store.offer(lifecycle(RealtimeAsrPipelineEvent.SessionStarted(1)))
+
+        store.onRealtimeAudioActivity(Float.NaN)
+        store.onRealtimeAudioActivity(2f)
+        repeat(32) { index ->
+            store.onRealtimeAudioActivity(index / 32f)
+        }
+
+        val activeLevels = store.state.value.audioActivityLevels
+        assertEquals(28, activeLevels.size)
+        assertTrue(activeLevels.all { it in 0f..1f })
+
+        store.paused()
+        assertTrue(store.state.value.audioActivityLevels.isEmpty())
+        store.onRealtimeAudioActivity(0.8f)
+        assertTrue(store.state.value.audioActivityLevels.isEmpty())
+    }
+
     private fun lifecycle(event: RealtimeAsrPipelineEvent): RealtimeTranscriptionOutput =
         RealtimeTranscriptionOutput.Lifecycle(event)
 

@@ -1,5 +1,6 @@
 package io.github.ioannes78.voica.ui.realtime
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -40,12 +41,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.Stage16ARealtimeActionOutcome
 import io.github.ioannes78.voica.Stage16ARealtimeRuntime
 import io.github.ioannes78.voica.Stage16ARealtimeUiPhase
 import io.github.ioannes78.voica.Stage16ARealtimeUiState
+import kotlin.math.sqrt
 import kotlinx.coroutines.launch
 
 val LocalStage16ARealtimeRuntime = staticCompositionLocalOf<Stage16ARealtimeRuntime> {
@@ -195,6 +198,14 @@ fun RealtimeTranscriptionScreen(
 
         HorizontalDivider()
 
+        if (shouldShowRealtimeWaveform(state.phase)) {
+            RealtimeAudioActivityWaveform(
+                levels = state.audioActivityLevels,
+                active = state.phase == Stage16ARealtimeUiPhase.ACTIVE,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+        }
+
         LazyColumn(
             state = readerListState,
             modifier =
@@ -307,6 +318,69 @@ fun RealtimeTranscriptionScreen(
         Spacer(modifier = Modifier.height(12.dp))
     }
 }
+
+@Composable
+private fun RealtimeAudioActivityWaveform(
+    levels: List<Float>,
+    active: Boolean,
+) {
+    val color =
+        if (active) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        }
+    val alpha = if (active) 0.82f else 0.38f
+
+    Canvas(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(40.dp)
+                .padding(horizontal = 4.dp, vertical = 6.dp),
+    ) {
+        val barCount = 28
+        val visibleCount = levels.size.coerceAtMost(barCount)
+        val leftPaddingCount = barCount - visibleCount
+        val step = size.width / barCount.toFloat()
+        val centerY = size.height / 2f
+        val minHalfHeight = 1.dp.toPx()
+        val maxHalfHeight = (size.height * 0.46f).coerceAtLeast(minHalfHeight)
+        val strokeWidth = 2.dp.toPx()
+
+        for (index in 0 until barCount) {
+            val sourceIndex = index - leftPaddingCount
+            val rawLevel =
+                if (sourceIndex in 0 until visibleCount) {
+                    levels[levels.size - visibleCount + sourceIndex]
+                } else {
+                    0f
+                }
+            val visualLevel = sqrt(rawLevel.coerceIn(0f, 1f))
+            val halfHeight =
+                minHalfHeight + visualLevel * (maxHalfHeight - minHalfHeight)
+            val x = step * (index + 0.5f)
+            drawLine(
+                color = color.copy(alpha = alpha),
+                start = androidx.compose.ui.geometry.Offset(x, centerY - halfHeight),
+                end = androidx.compose.ui.geometry.Offset(x, centerY + halfHeight),
+                strokeWidth = strokeWidth,
+                cap = StrokeCap.Round,
+            )
+        }
+    }
+}
+
+private fun shouldShowRealtimeWaveform(phase: Stage16ARealtimeUiPhase): Boolean =
+    when (phase) {
+        Stage16ARealtimeUiPhase.STARTING,
+        Stage16ARealtimeUiPhase.ACTIVE,
+        Stage16ARealtimeUiPhase.PAUSED,
+        Stage16ARealtimeUiPhase.RESUMING,
+        -> true
+
+        else -> false
+    }
 
 @Composable
 private fun RealtimeControls(
