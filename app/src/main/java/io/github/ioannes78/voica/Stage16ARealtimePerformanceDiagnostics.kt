@@ -23,6 +23,7 @@ data class Stage16ARealtimePerformanceDiagnosticsSnapshot(
     val finalLatency: Stage16ARealtimeLatencyStatSnapshot,
     val correlatedLatencyOutputs: Long,
     val uncorrelatedLatencyOutputs: Long,
+    val systemMetrics: Stage16ARealtimeSystemMetricsSnapshot?,
     val currentBufferDepthMs: Double,
     val peakBufferDepthMs: Double,
     val bufferOverflowEvents: Long,
@@ -78,6 +79,34 @@ data class Stage16ARealtimePerformanceDiagnosticsSnapshot(
             "latencyCorrelation correlated=$correlatedLatencyOutputs " +
                 "uncorrelated=$uncorrelatedLatencyOutputs",
         )
+        val metrics = systemMetrics
+        if (metrics == null) {
+            appendLine("systemMetrics=n/a")
+        } else {
+            appendLine(
+                "system elapsed=${metrics.elapsedMs}ms processCpu=${metrics.processCpuMs}ms " +
+                    "cpuOneCore=${metrics.processCpuPercentOfOneCore?.let(::format1) ?: "n/a"}%",
+            )
+            appendLine(
+                "pss start=${formatNullableInt(metrics.startPssKb)}KB " +
+                    "current=${formatNullableInt(metrics.currentPssKb)}KB " +
+                    "delta=${formatNullableSignedInt(metrics.pssDeltaKb)}KB",
+            )
+            appendLine(
+                "thermal start=${formatThermal(metrics.startThermalStatus)} " +
+                    "current=${formatThermal(metrics.currentThermalStatus)}",
+            )
+            appendLine(
+                "batteryCapacity start=${formatNullableInt(metrics.startBatteryCapacityPercent)}% " +
+                    "current=${formatNullableInt(metrics.currentBatteryCapacityPercent)}% " +
+                    "delta=${formatNullableSignedInt(metrics.batteryCapacityDeltaPercent)}%",
+            )
+            appendLine(
+                "batteryCharge start=${formatNullableInt(metrics.startBatteryChargeCounterUah)}uAh " +
+                    "current=${formatNullableInt(metrics.currentBatteryChargeCounterUah)}uAh " +
+                    "delta=${formatNullableSignedInt(metrics.batteryChargeDeltaUah)}uAh",
+            )
+        }
         appendLine(
             "buffer=${format1(currentBufferDepthMs)}ms peak=${format1(peakBufferDepthMs)}ms " +
                 "overflow=$bufferOverflowEvents droppedFrames=$bufferDroppedFrames " +
@@ -130,6 +159,22 @@ data class Stage16ARealtimePerformanceDiagnosticsSnapshot(
             "max=${formatNullableMs(value.maxMs)}"
 
     private fun formatNullableMs(value: Double?): String = value?.let { "${format1(it)}ms" } ?: "n/a"
+    private fun formatNullableInt(value: Int?): String = value?.toString() ?: "n/a"
+    private fun formatNullableSignedInt(value: Int?): String =
+        value?.let { if (it > 0) "+$it" else it.toString() } ?: "n/a"
+
+    private fun formatThermal(value: Int?): String = when (value) {
+        null -> "n/a"
+        0 -> "NONE(0)"
+        1 -> "LIGHT(1)"
+        2 -> "MODERATE(2)"
+        3 -> "SEVERE(3)"
+        4 -> "CRITICAL(4)"
+        5 -> "EMERGENCY(5)"
+        6 -> "SHUTDOWN(6)"
+        else -> "UNKNOWN($value)"
+    }
+
     private fun format1(value: Double): String = String.format(Locale.US, "%.1f", value)
     private fun format3(value: Double): String = String.format(Locale.US, "%.3f", value)
     private fun format4(value: Double): String = String.format(Locale.US, "%.4f", value)
@@ -189,6 +234,7 @@ object Stage16ARealtimePerformanceDiagnostics {
 
 internal fun Stage16ARealtimePipelinePerformanceSnapshot.toDiagnosticsSnapshot(
     outputLatency: Stage16ARealtimeOutputLatencySnapshot = Stage16ARealtimeOutputLatencySnapshot(),
+    systemMetrics: Stage16ARealtimeSystemMetricsSnapshot? = null,
 ): Stage16ARealtimePerformanceDiagnosticsSnapshot {
     val coordinator = runner.coordinator
     return Stage16ARealtimePerformanceDiagnosticsSnapshot(
@@ -204,6 +250,7 @@ internal fun Stage16ARealtimePipelinePerformanceSnapshot.toDiagnosticsSnapshot(
         finalLatency = outputLatency.final,
         correlatedLatencyOutputs = outputLatency.correlatedOutputs,
         uncorrelatedLatencyOutputs = outputLatency.uncorrelatedOutputs,
+        systemMetrics = systemMetrics,
         currentBufferDepthMs = currentBufferDepthMs,
         peakBufferDepthMs = peakBufferDepthMs,
         bufferOverflowEvents = buffer.overflowEvents,
