@@ -30,9 +30,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.Stage16ARealtimePerformanceDiagnostics
+import io.github.ioannes78.voica.VoicaApplication
+import io.github.ioannes78.voica.toStage15RegressionDiagnosticsText
 import io.github.ioannes78.voica.ble.BleDiagnostics
 import io.github.ioannes78.voica.ble.FileTransferDiagnostics
 import io.github.ioannes78.voica.ble.RangeProbeDiagnostics
@@ -46,6 +49,7 @@ private enum class DiagnosticSection {
     DELETE,
     RANGE,
     REALTIME,
+    STAGE15,
     ERRORS_LOGS,
 }
 
@@ -63,7 +67,11 @@ fun FullDiagnosticsScreen(
     }
     var menuExpanded by rememberSaveable { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
+    val application = LocalContext.current.applicationContext as? VoicaApplication
     val realtimePerformance = Stage16ARealtimePerformanceDiagnostics.snapshot()
+    val stage15Realtime = runCatching {
+        application?.container?.realtimeAudioRuntime?.snapshot()
+    }.getOrNull()
 
     LazyColumn(
         modifier = Modifier
@@ -102,6 +110,13 @@ fun FullDiagnosticsScreen(
                             },
                             onClick = {
                                 menuExpanded = false
+                                val stage15RegressionText = runCatching {
+                                    application
+                                        ?.container
+                                        ?.realtimeAudioRuntime
+                                        ?.snapshot()
+                                        ?.toStage15RegressionDiagnosticsText()
+                                }.getOrNull()
                                 clipboard.setText(
                                     AnnotatedString(
                                         buildDiagnosticsText(
@@ -109,6 +124,7 @@ fun FullDiagnosticsScreen(
                                             fileTransfer,
                                             remoteDelete,
                                             rangeProbe,
+                                            stage15RegressionText,
                                         ),
                                     ),
                                 )
@@ -405,6 +421,38 @@ fun FullDiagnosticsScreen(
 
         item {
             DiagnosticExpandableSection(
+                title = "Stage 15 回归计数",
+                expanded = DiagnosticSection.STAGE15 in expanded,
+                onToggle = {
+                    expanded = expanded.toggle(DiagnosticSection.STAGE15)
+                },
+            ) {
+                val s = stage15Realtime
+                if (s == null) {
+                    DiagnosticLine("Status", "暂无 Stage 15 数据")
+                } else {
+                    DiagnosticLine("Runtime phase", s.phase)
+                    DiagnosticLine("Ingress overflow", s.ingress.overflowEvents)
+                    DiagnosticLine("Ingress dropped blocks", s.ingress.droppedBlocks)
+                    DiagnosticLine("Malformed blocks", s.ingress.malformedBlocks)
+                    DiagnosticLine("Invalid Opus", s.pipeline.invalidOpusPackets)
+                    DiagnosticLine("Opus shape anomalies", s.pipeline.opusShapeAnomalies)
+                    DiagnosticLine("Decode failures", s.pipeline.decodeFailures)
+                    DiagnosticLine("Zero-sample decode", s.pipeline.zeroSampleDecodeFailures)
+                    DiagnosticLine("Unexpected sample count", s.pipeline.unexpectedDecodedSampleCount)
+                    DiagnosticLine("Frame observer failures", s.pipeline.frameObserverFailures)
+                    DiagnosticLine("Max arrival→emit", "%.1f ms".format(s.pipeline.maxArrivalToEmitLagMs))
+                    DiagnosticLine("Source overflow", s.source.overflowEvents)
+                    DiagnosticLine("Source dropped frames", s.source.droppedFrames)
+                    DiagnosticLine("Source dropped samples", s.source.droppedSamples)
+                    DiagnosticLine("Drain timed out", s.source.lastSessionEndDrainTimedOut)
+                    DiagnosticLine("Canonical error", s.pipeline.lastError)
+                }
+            }
+        }
+
+        item {
+            DiagnosticExpandableSection(
                 title = "错误与日志",
                 expanded = DiagnosticSection.ERRORS_LOGS in expanded,
                 onToggle = {
@@ -501,6 +549,7 @@ private fun buildDiagnosticsText(
     fileTransfer: FileTransferDiagnostics,
     remoteDelete: RemoteDeleteDiagnostics,
     rangeProbe: RangeProbeDiagnostics,
+    stage15RegressionText: String?,
 ): String =
     buildString {
         appendLine("Voica BLE diagnostics")
@@ -561,5 +610,9 @@ private fun buildDiagnosticsText(
         Stage16ARealtimePerformanceDiagnostics.snapshot()?.let { performance ->
             appendLine()
             appendLine(performance.toDiagnosticsText())
+        }
+        stage15RegressionText?.let {
+            appendLine()
+            appendLine(it)
         }
     }
