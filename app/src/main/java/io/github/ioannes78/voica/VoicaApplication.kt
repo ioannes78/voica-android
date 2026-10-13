@@ -374,6 +374,17 @@ class AppContainer(
             realtimeState = stage16ARealtimeRuntime.state,
         )
 
+    val stage16ARecordingLifecycleCoordinator =
+        Stage16ARecordingLifecycleCoordinator(
+            scope = applicationScope,
+            realtimeState = stage16ARealtimeRuntime.state,
+            deviceRepository = deviceRepository,
+            database = recordingDatabase,
+            recordingsRoot = recordingsRoot,
+            searchIndexRebuilder = searchIndexRebuilder,
+            transportGeneration = { realtimeAudioRuntime.snapshot().transportGeneration },
+        )
+
     val stage16AReconnectRecoveryCoordinator =
         Stage16AReconnectRecoveryCoordinator(
             scope = applicationScope,
@@ -383,6 +394,7 @@ class AppContainer(
             transportGeneration = { realtimeAudioRuntime.snapshot().transportGeneration },
             syncRecordingState = deviceRepository::syncRecordingState,
             recover = stage16ARealtimeRuntime::recoverAfterReconnect,
+            recordingAnchorProvider = stage16ARecordingLifecycleCoordinator::anchorForRun,
         )
 
     val realtimeRecordingLifecycleReconciler =
