@@ -81,6 +81,12 @@ class Stage16ARealtimePipelineBundle internal constructor(
 ) {
     private val released = AtomicBoolean(false)
 
+    init {
+        Stage16ARealtimePerformanceDiagnostics.attach(this) {
+            performanceSnapshot().toDiagnosticsSnapshot()
+        }
+    }
+
     /**
      * Pull-only P7 telemetry snapshot. Reading it never consumes canonical media or schedules work.
      */
@@ -101,6 +107,9 @@ class Stage16ARealtimePipelineBundle internal constructor(
         check(runner.snapshot().state != RealtimeTranscriptionSessionRunnerState.RUNNING) {
             "Stage 16A pipeline cannot release while realtime runner is active"
         }
+        val finalDiagnostics = runCatching {
+            performanceSnapshot().toDiagnosticsSnapshot()
+        }.getOrNull()
 
         try {
             audioActivitySink?.close()
@@ -110,11 +119,15 @@ class Stage16ARealtimePipelineBundle internal constructor(
             localAudioSink.join()
             durableOutputSink.join()
         } finally {
-            processor.close()
-            runCatching { punctuationEngine?.close() }
-            runCatching { vadEngine.close() }
-            runCatching { asrEngine.close() }
-            models.close()
+            try {
+                processor.close()
+                runCatching { punctuationEngine?.close() }
+                runCatching { vadEngine.close() }
+                runCatching { asrEngine.close() }
+                models.close()
+            } finally {
+                Stage16ARealtimePerformanceDiagnostics.retainAndDetach(this, finalDiagnostics)
+            }
         }
     }
 }
