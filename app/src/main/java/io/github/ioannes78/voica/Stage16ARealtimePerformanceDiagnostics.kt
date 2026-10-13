@@ -180,7 +180,11 @@ data class Stage16ARealtimePerformanceDiagnosticsSnapshot(
                 "max=${format1(maxPunctuationMs)}ms",
         )
         appendLine("terminalReason=${terminalReason ?: "n/a"}")
-        append("lastFailure=${lastFailure ?: "n/a"}")
+        appendLine("lastFailure=${lastFailure ?: "n/a"}")
+        Stage16ALifecycleDiagnosticsRegistry.snapshotText()?.let { lifecycle ->
+            appendLine()
+            append(lifecycle)
+        }
     }
 
     private fun formatLatency(label: String, value: Stage16ARealtimeLatencyStatSnapshot): String =
