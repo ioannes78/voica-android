@@ -7,7 +7,6 @@ import io.github.ioannes78.voica.audio.StreamingAudioEvent
 import io.github.ioannes78.voica.audio.StreamingChunkAssembler
 import io.github.ioannes78.voica.audio.StreamingPcmChunk
 import java.io.Closeable
-import java.util.ArrayDeque
 
 enum class RealtimeAsrFinalizationReason {
     VAD_SPEECH_END,
@@ -73,6 +72,10 @@ sealed interface RealtimeAsrPipelineEvent {
 
 data class RealtimeStreamingAsrConfig(
     val targetChunkSamples: Int,
+    /**
+     * Retained for Stage 16A config compatibility. ASR no longer waits for VAD and therefore does
+     * not depend on a preroll window to preserve sentence beginnings.
+     */
     val vadPrerollSamples: Int,
 ) {
     init {
@@ -81,21 +84,53 @@ data class RealtimeStreamingAsrConfig(
     }
 }
 
+data class RealtimeStreamingAsrStartupSnapshot(
+    val firstPcmSampleIndex: Long?,
+    val firstAsrAcceptedSampleIndex: Long?,
+    val firstVadSpeechSampleIndex: Long?,
+    val firstNonEmptyPartialSampleIndex: Long?,
+    val firstPcmAtNs: Long?,
+    val firstAsrAcceptedAtNs: Long?,
+    val firstVadSpeechAtNs: Long?,
+    val firstNonEmptyPartialAtNs: Long?,
+) {
+    val skippedSamplesBeforeFirstAsrAccept: Long?
+        get() {
+            val pcm = firstPcmSampleIndex ?: return null
+            val asr = firstAsrAcceptedSampleIndex ?: return null
+            return (asr - pcm).coerceAtLeast(0L)
+        }
+
+    val firstAsrAcceptLatencyMs: Double?
+        get() = latencyMs(firstPcmAtNs, firstAsrAcceptedAtNs)
+
+    val firstVadSpeechLatencyMs: Double?
+        get() = latencyMs(firstPcmAtNs, firstVadSpeechAtNs)
+
+    val firstNonEmptyPartialLatencyMs: Double?
+        get() = latencyMs(firstPcmAtNs, firstNonEmptyPartialAtNs)
+
+    private fun latencyMs(startNs: Long?, endNs: Long?): Double? {
+        if (startNs == null || endNs == null || endNs < startNs) return null
+        return (endNs - startNs).toDouble() / 1_000_000.0
+    }
+}
+
 /**
- * P3 local true-streaming processor.
+ * Stage 16A local true-streaming processor.
  *
- * VAD controls recognizer activation/finalization without rewriting canonical media time. A bounded
- * pre-roll keeps the beginning of speech that precedes Silero's `isSpeechDetected()` transition.
- * PARTIAL/FINAL are native engine results; STABLE and punctuation are intentionally left to P4/P5.
+ * Every canonical PCM chunk is accepted by the recognizer from the first chunk of each continuity.
+ * Silero VAD runs in parallel and controls utterance/finalization boundaries only; it never gates
+ * whether the recognizer hears the beginning of the recording. This guarantees that VAD activation
+ * latency can delay boundary decisions but cannot permanently drop sentence-leading PCM.
  */
 class RealtimeStreamingAsrProcessor(
     private val asrEngine: StreamingAsrEngine,
     private val vadEngine: StreamingVadEngine,
     private val config: RealtimeStreamingAsrConfig,
+    private val monotonicNs: () -> Long = System::nanoTime,
 ) : Closeable {
     private val assembler = StreamingChunkAssembler(config.targetChunkSamples)
-    private val preRoll = ArrayDeque<StreamingPcmChunk>()
-    private var preRollSamples = 0
 
     private var activeSessionId: Long? = null
     private var activeEpochId: Long? = null
@@ -109,6 +144,27 @@ class RealtimeStreamingAsrProcessor(
     private var asrAcceptedEndSampleIndexExclusive: Long? = null
     private var lastPartial: AsrHypothesis? = null
     private var closed = false
+
+    @Volatile private var firstPcmSampleIndex: Long? = null
+    @Volatile private var firstAsrAcceptedSampleIndex: Long? = null
+    @Volatile private var firstVadSpeechSampleIndex: Long? = null
+    @Volatile private var firstNonEmptyPartialSampleIndex: Long? = null
+    @Volatile private var firstPcmAtNs: Long? = null
+    @Volatile private var firstAsrAcceptedAtNs: Long? = null
+    @Volatile private var firstVadSpeechAtNs: Long? = null
+    @Volatile private var firstNonEmptyPartialAtNs: Long? = null
+
+    fun startupSnapshot(): RealtimeStreamingAsrStartupSnapshot =
+        RealtimeStreamingAsrStartupSnapshot(
+            firstPcmSampleIndex = firstPcmSampleIndex,
+            firstAsrAcceptedSampleIndex = firstAsrAcceptedSampleIndex,
+            firstVadSpeechSampleIndex = firstVadSpeechSampleIndex,
+            firstNonEmptyPartialSampleIndex = firstNonEmptyPartialSampleIndex,
+            firstPcmAtNs = firstPcmAtNs,
+            firstAsrAcceptedAtNs = firstAsrAcceptedAtNs,
+            firstVadSpeechAtNs = firstVadSpeechAtNs,
+            firstNonEmptyPartialAtNs = firstNonEmptyPartialAtNs,
+        )
 
     suspend fun accept(event: StreamingAudioEvent): List<RealtimeAsrPipelineEvent> {
         check(!closed) { "RealtimeStreamingAsrProcessor is closed" }
@@ -149,6 +205,7 @@ class RealtimeStreamingAsrProcessor(
                     require(activeEpochId == event.frame.epochId) {
                         "PCM arrived without matching canonical epoch"
                     }
+                    noteFirstPcm(event.frame.startSampleIndex)
                     assembler.accept(event.frame).forEach { chunk ->
                         processChunk(chunk, this)
                     }
@@ -202,18 +259,6 @@ class RealtimeStreamingAsrProcessor(
         }
     }
 
-    /**
-     * Called by the Stage 16 product coordinator immediately after a PAUSE command is confirmed.
-     *
-     * Stage 15 intentionally emits CONTROL_BOUNDARY only when resumed PCM begins, so waiting for the
-     * next EpochStarted event would leave the current recognizer continuity open for the entire pause.
-     * This local-only boundary finalizes already accepted audio now, without sending any additional
-     * recorder command or fabricating canonical samples. The following RESUME EpochStarted event will
-     * create a fresh recognizer continuity.
-     *
-     * Repeated calls are idempotent while paused: once the active epoch has been detached, no second
-     * FINAL can be produced.
-     */
     suspend fun onPauseCommitted(): List<RealtimeAsrPipelineEvent> {
         check(!closed) { "RealtimeStreamingAsrProcessor is closed" }
         if (activeSessionId == null || activeEpochId == null) return emptyList()
@@ -235,7 +280,6 @@ class RealtimeStreamingAsrProcessor(
         asrSession = null
         vadSession = null
         assembler.reset()
-        clearPreRoll()
     }
 
     private suspend fun startContinuity(
@@ -246,7 +290,6 @@ class RealtimeStreamingAsrProcessor(
         target: MutableList<RealtimeAsrPipelineEvent>,
     ) {
         closeContinuitySessions()
-        clearPreRoll()
         activeEpochId = epochId
         epochReason = reason
         continuityIndex = Math.addExact(continuityIndex, 1L)
@@ -264,11 +307,6 @@ class RealtimeStreamingAsrProcessor(
             )
     }
 
-    /**
-     * A VAD speech end closes the native recognizer utterance but does not create a new canonical
-     * epoch. The next speech therefore needs a new recognizer continuity inside the same epoch so
-     * downstream stabilizers can legally accept a fresh PARTIAL after the previous FINAL.
-     */
     private fun startNextRecognizerContinuity(
         startSampleIndex: Long,
         target: MutableList<RealtimeAsrPipelineEvent>,
@@ -297,54 +335,39 @@ class RealtimeStreamingAsrProcessor(
         if (continuityStartSampleIndex == null) {
             continuityStartSampleIndex = chunk.startSampleIndex
         }
+
         val vad = checkNotNull(vadSession)
         val vadUpdate = vad.acceptSamples(chunk.samples)
-        appendPreRollIfIdle(chunk)
-
-        if (asrSession != null) {
-            feedActiveAsr(chunk)
-            decodePartial(target)
-        } else if (vadUpdate.speechDetected || vadUpdate.completedSegments.isNotEmpty()) {
-            startAsrFromPreRoll(target)
-            decodePartial(target)
+        if (vadUpdate.speechDetected && firstVadSpeechSampleIndex == null) {
+            firstVadSpeechSampleIndex = chunk.endSampleIndexExclusive
+            firstVadSpeechAtNs = monotonicNs()
         }
+
+        ensureAsrSessionForChunk(chunk, target)
+        feedActiveAsr(chunk)
+        noteFirstAsrAccepted(chunk.startSampleIndex)
+        decodePartial(target)
 
         emitVadSegments(vadUpdate, target)
         if (vadUpdate.completedSegments.isNotEmpty() && asrSession != null) {
             finalizeAsr(RealtimeAsrFinalizationReason.VAD_SPEECH_END, target)
-            clearPreRoll()
         }
     }
 
-    private fun appendPreRollIfIdle(chunk: StreamingPcmChunk) {
-        if (asrSession != null) return
-        preRoll.addLast(chunk)
-        preRollSamples += chunk.sampleCount
-        while (preRollSamples > config.vadPrerollSamples && preRoll.size > 1) {
-            preRollSamples -= preRoll.removeFirst().sampleCount
-        }
-    }
-
-    private suspend fun startAsrFromPreRoll(
+    private suspend fun ensureAsrSessionForChunk(
+        chunk: StreamingPcmChunk,
         target: MutableList<RealtimeAsrPipelineEvent>,
     ) {
-        check(asrSession == null)
-        check(preRoll.isNotEmpty())
+        if (asrSession != null) return
         if (recognizerFinalizedInContinuity) {
             startNextRecognizerContinuity(
-                startSampleIndex = preRoll.first().startSampleIndex,
+                startSampleIndex = chunk.startSampleIndex,
                 target = target,
             )
         }
-        val session = asrEngine.openSession()
-        asrSession = session
-        asrBaseSampleIndex = preRoll.first().startSampleIndex
-        asrAcceptedEndSampleIndexExclusive = preRoll.first().startSampleIndex
-        for (chunk in preRoll) {
-            session.acceptSamples(chunk.samples)
-            asrAcceptedEndSampleIndexExclusive = chunk.endSampleIndexExclusive
-        }
-        clearPreRoll()
+        asrSession = asrEngine.openSession()
+        asrBaseSampleIndex = chunk.startSampleIndex
+        asrAcceptedEndSampleIndexExclusive = chunk.startSampleIndex
         lastPartial = null
     }
 
@@ -362,6 +385,10 @@ class RealtimeStreamingAsrProcessor(
         val session = asrSession ?: return
         val hypothesis = session.decode()
         require(!hypothesis.isFinal)
+        if (hypothesis.text.isNotBlank() && firstNonEmptyPartialSampleIndex == null) {
+            firstNonEmptyPartialSampleIndex = asrAcceptedEndSampleIndexExclusive
+            firstNonEmptyPartialAtNs = monotonicNs()
+        }
         if (hypothesis == lastPartial) return
         lastPartial = hypothesis
         target += hypothesisEvent(hypothesis, finalizationReason = null)
@@ -386,8 +413,8 @@ class RealtimeStreamingAsrProcessor(
     private fun hypothesisEvent(
         hypothesis: AsrHypothesis,
         finalizationReason: RealtimeAsrFinalizationReason?,
-    ): RealtimeAsrPipelineEvent.Hypothesis {
-        return RealtimeAsrPipelineEvent.Hypothesis(
+    ): RealtimeAsrPipelineEvent.Hypothesis =
+        RealtimeAsrPipelineEvent.Hypothesis(
             sessionId = checkNotNull(activeSessionId),
             epochId = checkNotNull(activeEpochId),
             continuityIndex = continuityIndex,
@@ -396,7 +423,6 @@ class RealtimeStreamingAsrProcessor(
             hypothesis = hypothesis,
             finalizationReason = finalizationReason,
         )
-    }
 
     private fun emitVadSegments(
         update: StreamingVadUpdate,
@@ -419,11 +445,7 @@ class RealtimeStreamingAsrProcessor(
 
     private suspend fun finishVad(target: MutableList<RealtimeAsrPipelineEvent>) {
         val vad = vadSession ?: return
-        val update = vad.finishInput()
-        if (update.completedSegments.isNotEmpty() && asrSession == null && preRoll.isNotEmpty()) {
-            startAsrFromPreRoll(target)
-        }
-        emitVadSegments(update, target)
+        emitVadSegments(vad.finishInput(), target)
     }
 
     private suspend fun flushAssembler(target: MutableList<RealtimeAsrPipelineEvent>) {
@@ -440,7 +462,6 @@ class RealtimeStreamingAsrProcessor(
         finalizeAsr(reason, target)
         closeContinuitySessions()
         assembler.reset()
-        clearPreRoll()
         continuityStartSampleIndex = null
     }
 
@@ -454,8 +475,15 @@ class RealtimeStreamingAsrProcessor(
         lastPartial = null
     }
 
-    private fun clearPreRoll() {
-        preRoll.clear()
-        preRollSamples = 0
+    private fun noteFirstPcm(sampleIndex: Long) {
+        if (firstPcmSampleIndex != null) return
+        firstPcmSampleIndex = sampleIndex
+        firstPcmAtNs = monotonicNs()
+    }
+
+    private fun noteFirstAsrAccepted(sampleIndex: Long) {
+        if (firstAsrAcceptedSampleIndex != null) return
+        firstAsrAcceptedSampleIndex = sampleIndex
+        firstAsrAcceptedAtNs = monotonicNs()
     }
 }
