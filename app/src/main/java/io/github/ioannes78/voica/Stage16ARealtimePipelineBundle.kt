@@ -71,12 +71,30 @@ class Stage16ARealtimePipelineBundle internal constructor(
     val localAudioSink: RealtimeLocalAudioSideSink,
     val durableOutputSink: RealtimeDurableOutputSink,
     val processor: RealtimeStreamingAsrProcessor,
+    private val buffer: StreamingAudioBuffer,
+    private val performanceProbe: Stage16ARealtimePerformanceProbe,
+    private val performanceConfig: Stage16ARealtimePipelineConfig,
     private val audioActivitySink: Stage16ARealtimeAudioActivitySink?,
     private val asrEngine: StreamingAsrEngine,
     private val vadEngine: StreamingVadEngine,
     private val punctuationEngine: PunctuationEngine?,
 ) {
     private val released = AtomicBoolean(false)
+
+    /**
+     * Pull-only P7 telemetry snapshot. Reading it never consumes canonical media or schedules work.
+     */
+    internal fun performanceSnapshot(): Stage16ARealtimePipelinePerformanceSnapshot =
+        Stage16ARealtimePipelinePerformanceSnapshot(
+            modelId = models.models.asr.descriptor.modelId,
+            modelLabel = models.models.asr.descriptor.displayName,
+            effectiveThreads = models.models.performance.effectiveThreads,
+            targetChunkSamples = performanceConfig.targetChunkSamples,
+            targetChunkDurationMs = performanceConfig.targetChunkDurationMs,
+            native = performanceProbe.snapshot(),
+            buffer = buffer.snapshot(),
+            runner = runner.snapshot(),
+        )
 
     suspend fun release() {
         if (!released.compareAndSet(false, true)) return
@@ -127,6 +145,7 @@ class Stage16ARealtimePipelineBundleFactory(
         require(localAudioRoot.isDirectory)
         require(models.models.asr.descriptor.runtimeId == SherpaRuntime.RUNTIME_ID)
 
+        val performanceProbe = Stage16ARealtimePerformanceProbe()
         var asrEngine: StreamingAsrEngine? = null
         var vadEngine: StreamingVadEngine? = null
         var punctuationEngine: PunctuationEngine? = null
@@ -136,9 +155,10 @@ class Stage16ARealtimePipelineBundleFactory(
         var audioActivitySink: Stage16ARealtimeAudioActivitySink? = null
 
         try {
-            asrEngine = engineProvider.openAsr(models.models)
-            vadEngine = engineProvider.openVad(models.models)
-            punctuationEngine = engineProvider.openPunctuation(models.models)
+            asrEngine = performanceProbe.wrapAsr(engineProvider.openAsr(models.models))
+            vadEngine = performanceProbe.wrapVad(engineProvider.openVad(models.models))
+            punctuationEngine =
+                engineProvider.openPunctuation(models.models)?.let(performanceProbe::wrapPunctuation)
             processor =
                 RealtimeStreamingAsrProcessor(
                     asrEngine = asrEngine,
@@ -179,14 +199,15 @@ class Stage16ARealtimePipelineBundleFactory(
 
             val coordinatorSideSinks = mutableListOf<StreamingAudioSideSink>(localAudioSink)
             audioActivitySink?.let(coordinatorSideSinks::add)
+            val buffer =
+                StreamingAudioBuffer(
+                    maxQueuedPcmFrames = config.maxBufferedPcmFrames,
+                    maxQueuedPcmSamples = config.maxBufferedPcmSamples,
+                )
             val coordinator =
                 RealtimeTranscriptCoordinator(
                     source = source,
-                    outputBuffer =
-                        StreamingAudioBuffer(
-                            maxQueuedPcmFrames = config.maxBufferedPcmFrames,
-                            maxQueuedPcmSamples = config.maxBufferedPcmSamples,
-                        ),
+                    outputBuffer = buffer,
                     sideSinks = coordinatorSideSinks,
                 )
             val transcriptionPipeline =
@@ -212,6 +233,9 @@ class Stage16ARealtimePipelineBundleFactory(
                 localAudioSink = localAudioSink,
                 durableOutputSink = durableOutputSink,
                 processor = processor,
+                buffer = buffer,
+                performanceProbe = performanceProbe,
+                performanceConfig = config,
                 audioActivitySink = audioActivitySink,
                 asrEngine = asrEngine,
                 vadEngine = vadEngine,
