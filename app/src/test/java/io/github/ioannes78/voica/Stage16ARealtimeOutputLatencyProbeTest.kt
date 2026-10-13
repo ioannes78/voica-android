@@ -10,6 +10,7 @@ import io.github.ioannes78.voica.transcript.RealtimeAsrFinalizationReason
 import io.github.ioannes78.voica.transcript.RealtimeAsrPipelineEvent
 import io.github.ioannes78.voica.transcript.RealtimeTranscriptionEventProcessor
 import io.github.ioannes78.voica.transcript.RealtimeTranscriptionOutput
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -17,7 +18,7 @@ import org.junit.Test
 class Stage16ARealtimeOutputLatencyProbeTest {
     @Test
     fun `partial latency is measured from canonical frame ingestion to output return`() =
-        kotlinx.coroutines.test.runTest {
+        runBlocking {
             var now = 1_000_000_000L
             val delegate = FakeProcessor(
                 onAccept = {
@@ -40,7 +41,7 @@ class Stage16ARealtimeOutputLatencyProbeTest {
 
     @Test
     fun `chunk ending inside canonical frame correlates to enclosing frame arrival`() =
-        kotlinx.coroutines.test.runTest {
+        runBlocking {
             var now = 0L
             val delegate = FakeProcessor(
                 onAccept = {
@@ -59,7 +60,7 @@ class Stage16ARealtimeOutputLatencyProbeTest {
 
     @Test
     fun `pause final latency includes time since last correlated pcm boundary`() =
-        kotlinx.coroutines.test.runTest {
+        runBlocking {
             var now = 0L
             val delegate = FakeProcessor(
                 onAccept = { emptyList() },
@@ -82,7 +83,7 @@ class Stage16ARealtimeOutputLatencyProbeTest {
 
     @Test
     fun `missing boundary is reported as uncorrelated instead of fabricated latency`() =
-        kotlinx.coroutines.test.runTest {
+        runBlocking {
             var now = 0L
             val delegate = FakeProcessor(
                 onPause = {
