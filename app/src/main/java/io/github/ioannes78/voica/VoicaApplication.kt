@@ -13,6 +13,7 @@ import io.github.ioannes78.voica.database.AiSummaryRepository
 import io.github.ioannes78.voica.database.DiarizationActiveRunReader
 import io.github.ioannes78.voica.database.DiarizationRepository
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
+import io.github.ioannes78.voica.database.RealtimeTranscriptPersistenceRepository
 import io.github.ioannes78.voica.database.SearchIndexRebuilder
 import io.github.ioannes78.voica.database.Stage12CContentRepository
 import io.github.ioannes78.voica.database.Stage13B5Qa4Repository
@@ -332,6 +333,36 @@ class AppContainer(
             transport = defaultDeviceRepository.realtimeTransport,
             packetInspector = realtimeOpusBackend,
             decoderFactory = realtimeOpusBackend,
+        )
+
+    private val stage16ARealtimePersistenceRepository =
+        RealtimeTranscriptPersistenceRepository(recordingDatabase)
+    private val stage16ARealtimeModelResolver =
+        Stage16ARealtimeModelResolver(
+            activeModel = { modelId -> modelManager.activeModel(modelId) },
+            modelUseRegistry = modelUseRegistry,
+        )
+    private val stage16ARealtimeEngineProvider =
+        SherpaStage16ARealtimeEngineProvider(
+            assetManager = application.assets,
+        )
+    private val stage16ARealtimePipelineFactory =
+        Stage16ARealtimePipelineBundleFactory(
+            scope = applicationScope,
+            engineProvider = stage16ARealtimeEngineProvider,
+        )
+    private val stage16ALocalAudioRoot = File(recordingsRoot, "realtime")
+
+    val stage16ARealtimeRuntime =
+        Stage16ARealtimeRuntime(
+            scope = applicationScope,
+            recorderRuntime = realtimeAudioRuntime,
+            modelResolver = stage16ARealtimeModelResolver,
+            pipelineFactory = stage16ARealtimePipelineFactory,
+            persistenceRepository = stage16ARealtimePersistenceRepository,
+            localAudioRoot = stage16ALocalAudioRoot,
+            localSpeechSettings = { localSpeechSettingsStore.settings.value },
+            currentDeviceFilename = { defaultDeviceRepository.recordingState.value.filename },
         )
 
     val deviceRepository: DeviceRepository =
