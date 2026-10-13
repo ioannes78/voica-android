@@ -1,6 +1,7 @@
 package io.github.ioannes78.voica.ui.realtime
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -12,6 +13,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ChevronRight
@@ -26,7 +29,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -87,8 +92,58 @@ fun RealtimeTranscriptionScreen(
 ) {
     val state by runtime.state.collectAsState()
     val scope = rememberCoroutineScope()
+    val readerListState = rememberLazyListState()
+    val readerDragged by readerListState.interactionSource.collectIsDraggedAsState()
+    val readerAtBottom by remember {
+        derivedStateOf { !readerListState.canScrollForward }
+    }
+    var readerFollowMode by remember { mutableStateOf(RealtimeReaderFollowMode.FOLLOW_LIVE) }
     var actionInFlight by remember { mutableStateOf(false) }
     var actionMessage by remember { mutableStateOf<String?>(null) }
+
+    val showEmptyReader =
+        state.finalized.isEmpty() &&
+            state.stableText.isBlank() &&
+            state.partialText.isBlank()
+    val hasTranscriptContent =
+        state.finalized.isNotEmpty() ||
+            state.stableText.isNotBlank() ||
+            state.partialText.isNotBlank()
+    val readerItemCount =
+        (if (showEmptyReader) 1 else 0) +
+            state.finalized.size +
+            (if (state.stableText.isNotBlank()) 1 else 0) +
+            (if (state.mutablePartialTail.isNotBlank()) 1 else 0) +
+            (if (!state.lifecycleMessage.isNullOrBlank()) 1 else 0)
+
+    LaunchedEffect(state.runId) {
+        readerFollowMode = RealtimeReaderFollowMode.FOLLOW_LIVE
+    }
+    LaunchedEffect(readerDragged, readerAtBottom) {
+        readerFollowMode =
+            RealtimeReaderFollowPolicy.reduce(
+                current = readerFollowMode,
+                userDragging = readerDragged,
+                atBottom = readerAtBottom,
+            )
+    }
+    LaunchedEffect(
+        readerItemCount,
+        state.finalized.size,
+        state.stableText,
+        state.partialText,
+        state.lifecycleMessage,
+        readerFollowMode,
+        readerDragged,
+    ) {
+        if (
+            readerFollowMode == RealtimeReaderFollowMode.FOLLOW_LIVE &&
+            !readerDragged &&
+            readerItemCount > 0
+        ) {
+            readerListState.scrollToItem(readerItemCount - 1)
+        }
+    }
 
     fun launchAction(action: suspend () -> Stage16ARealtimeActionOutcome) {
         if (actionInFlight) return
@@ -141,6 +196,7 @@ fun RealtimeTranscriptionScreen(
         HorizontalDivider()
 
         LazyColumn(
+            state = readerListState,
             modifier =
                 Modifier
                     .weight(1f)
@@ -148,12 +204,8 @@ fun RealtimeTranscriptionScreen(
             contentPadding = PaddingValues(vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (
-                state.finalized.isEmpty() &&
-                state.stableText.isBlank() &&
-                state.partialText.isBlank()
-            ) {
-                item {
+            if (showEmptyReader) {
+                item(key = "empty") {
                     Text(
                         emptyReaderMessage(state.phase),
                         style = MaterialTheme.typography.bodyLarge,
@@ -168,10 +220,12 @@ fun RealtimeTranscriptionScreen(
                     "${item.sessionId}:${item.epochId}:${item.continuityIndex}"
                 },
             ) { item ->
-                Text(
-                    item.text,
-                    style = MaterialTheme.typography.bodyLarge,
-                )
+                SelectionContainer {
+                    Text(
+                        item.text,
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                }
             }
 
             if (state.stableText.isNotBlank()) {
@@ -203,6 +257,32 @@ fun RealtimeTranscriptionScreen(
                     )
                 }
             }
+        }
+
+        if (
+            RealtimeReaderFollowPolicy.shouldShowReturnToLive(
+                mode = readerFollowMode,
+                hasTranscriptContent = hasTranscriptContent,
+            )
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                OutlinedButton(
+                    onClick = {
+                        readerFollowMode = RealtimeReaderFollowMode.FOLLOW_LIVE
+                        if (readerItemCount > 0) {
+                            scope.launch {
+                                readerListState.animateScrollToItem(readerItemCount - 1)
+                            }
+                        }
+                    },
+                ) {
+                    Text("↓ 回到实时")
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
         }
 
         val visibleMessage = actionMessage ?: state.errorMessage
