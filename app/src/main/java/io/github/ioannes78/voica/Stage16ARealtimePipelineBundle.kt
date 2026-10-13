@@ -73,6 +73,7 @@ class Stage16ARealtimePipelineBundle internal constructor(
     val processor: RealtimeStreamingAsrProcessor,
     private val buffer: StreamingAudioBuffer,
     private val performanceProbe: Stage16ARealtimePerformanceProbe,
+    private val outputLatencyProbe: Stage16ARealtimeOutputLatencyProbe,
     private val performanceConfig: Stage16ARealtimePipelineConfig,
     private val audioActivitySink: Stage16ARealtimeAudioActivitySink?,
     private val asrEngine: StreamingAsrEngine,
@@ -83,7 +84,7 @@ class Stage16ARealtimePipelineBundle internal constructor(
 
     init {
         Stage16ARealtimePerformanceDiagnostics.attach(this) {
-            performanceSnapshot().toDiagnosticsSnapshot()
+            performanceSnapshot().toDiagnosticsSnapshot(outputLatencyProbe.snapshot())
         }
     }
 
@@ -108,7 +109,7 @@ class Stage16ARealtimePipelineBundle internal constructor(
             "Stage 16A pipeline cannot release while realtime runner is active"
         }
         val finalDiagnostics = runCatching {
-            performanceSnapshot().toDiagnosticsSnapshot()
+            performanceSnapshot().toDiagnosticsSnapshot(outputLatencyProbe.snapshot())
         }.getOrNull()
 
         try {
@@ -233,10 +234,14 @@ class Stage16ARealtimePipelineBundleFactory(
                             stableMode = RealtimeStablePunctuationMode.FINAL_ONLY,
                         ),
                 )
+            val outputLatencyProbe =
+                Stage16ARealtimeOutputLatencyProbe(
+                    RealtimeTranscriptionPipelineEventProcessor(transcriptionPipeline),
+                )
             val runner =
                 RealtimeTranscriptionSessionRunner(
                     coordinator = coordinator,
-                    processor = RealtimeTranscriptionPipelineEventProcessor(transcriptionPipeline),
+                    processor = outputLatencyProbe,
                     outputSinks = listOf(durableOutputSink) + liveOutputSinks,
                 )
 
@@ -248,6 +253,7 @@ class Stage16ARealtimePipelineBundleFactory(
                 processor = processor,
                 buffer = buffer,
                 performanceProbe = performanceProbe,
+                outputLatencyProbe = outputLatencyProbe,
                 performanceConfig = config,
                 audioActivitySink = audioActivitySink,
                 asrEngine = asrEngine,
