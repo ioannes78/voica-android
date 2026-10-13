@@ -23,6 +23,10 @@ class Stage16ARealtimePerformanceDiagnosticsTest {
         assertTrue(text.contains("chunk=1280 samples / 80ms"))
         assertTrue(text.contains("canonicalAudio=12.500s"))
         assertTrue(text.contains("nativeRTF=0.1235"))
+        assertTrue(text.contains("latencyPARTIAL count=8 avg=120.0ms min=70.0ms max=210.0ms"))
+        assertTrue(text.contains("latencySTABLE count=4 avg=240.0ms min=180.0ms max=320.0ms"))
+        assertTrue(text.contains("latencyFINAL count=3 avg=520.0ms min=410.0ms max=690.0ms"))
+        assertTrue(text.contains("latencyCorrelation correlated=15 uncorrelated=1"))
         assertTrue(text.contains("buffer=40.0ms peak=120.0ms overflow=2 droppedFrames=3 droppedSamples=640"))
         assertTrue(text.contains("outputSink offers=20 rejects=1 failures=2"))
         assertTrue(text.contains("sideSink offers=30 rejects=4 failures=5"))
@@ -90,6 +94,29 @@ class Stage16ARealtimePerformanceDiagnosticsTest {
         targetChunkDurationMs = 80,
         canonicalAudioSeconds = 12.5,
         nativeRtf = nativeRtf,
+        partialLatency =
+            Stage16ARealtimeLatencyStatSnapshot(
+                count = 8,
+                averageMs = 120.0,
+                minMs = 70.0,
+                maxMs = 210.0,
+            ),
+        stableLatency =
+            Stage16ARealtimeLatencyStatSnapshot(
+                count = 4,
+                averageMs = 240.0,
+                minMs = 180.0,
+                maxMs = 320.0,
+            ),
+        finalLatency =
+            Stage16ARealtimeLatencyStatSnapshot(
+                count = 3,
+                averageMs = 520.0,
+                minMs = 410.0,
+                maxMs = 690.0,
+            ),
+        correlatedLatencyOutputs = 15,
+        uncorrelatedLatencyOutputs = 1,
         currentBufferDepthMs = 40.0,
         peakBufferDepthMs = 120.0,
         bufferOverflowEvents = 2,
