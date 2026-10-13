@@ -102,6 +102,7 @@ class RealtimeStreamingAsrProcessor(
     private var epochReason: RealtimeCanonicalEpochStartReason? = null
     private var continuityIndex = 0L
     private var continuityStartSampleIndex: Long? = null
+    private var recognizerFinalizedInContinuity = false
     private var vadSession: StreamingVadSession? = null
     private var asrSession: StreamingAsrSession? = null
     private var asrBaseSampleIndex: Long? = null
@@ -250,6 +251,7 @@ class RealtimeStreamingAsrProcessor(
         epochReason = reason
         continuityIndex = Math.addExact(continuityIndex, 1L)
         continuityStartSampleIndex = startSampleIndex
+        recognizerFinalizedInContinuity = false
         assembler.startEpoch(sessionId, epochId)
         vadSession = vadEngine.openSession()
         target +=
@@ -259,6 +261,32 @@ class RealtimeStreamingAsrProcessor(
                 continuityIndex = continuityIndex,
                 startSampleIndex = startSampleIndex,
                 epochReason = reason,
+            )
+    }
+
+    /**
+     * A VAD speech end closes the native recognizer utterance but does not create a new canonical
+     * epoch. The next speech therefore needs a new recognizer continuity inside the same epoch so
+     * downstream stabilizers can legally accept a fresh PARTIAL after the previous FINAL.
+     */
+    private fun startNextRecognizerContinuity(
+        startSampleIndex: Long,
+        target: MutableList<RealtimeAsrPipelineEvent>,
+    ) {
+        check(recognizerFinalizedInContinuity) {
+            "recognizer continuity may only restart after FINAL"
+        }
+        val sessionId = checkNotNull(activeSessionId)
+        val epochId = checkNotNull(activeEpochId)
+        continuityIndex = Math.addExact(continuityIndex, 1L)
+        recognizerFinalizedInContinuity = false
+        target +=
+            RealtimeAsrPipelineEvent.ContinuityStarted(
+                sessionId = sessionId,
+                epochId = epochId,
+                continuityIndex = continuityIndex,
+                startSampleIndex = startSampleIndex,
+                epochReason = null,
             )
     }
 
@@ -277,7 +305,7 @@ class RealtimeStreamingAsrProcessor(
             feedActiveAsr(chunk)
             decodePartial(target)
         } else if (vadUpdate.speechDetected || vadUpdate.completedSegments.isNotEmpty()) {
-            startAsrFromPreRoll()
+            startAsrFromPreRoll(target)
             decodePartial(target)
         }
 
@@ -297,9 +325,17 @@ class RealtimeStreamingAsrProcessor(
         }
     }
 
-    private suspend fun startAsrFromPreRoll() {
+    private suspend fun startAsrFromPreRoll(
+        target: MutableList<RealtimeAsrPipelineEvent>,
+    ) {
         check(asrSession == null)
         check(preRoll.isNotEmpty())
+        if (recognizerFinalizedInContinuity) {
+            startNextRecognizerContinuity(
+                startSampleIndex = preRoll.first().startSampleIndex,
+                target = target,
+            )
+        }
         val session = asrEngine.openSession()
         asrSession = session
         asrBaseSampleIndex = preRoll.first().startSampleIndex
@@ -344,6 +380,7 @@ class RealtimeStreamingAsrProcessor(
         asrBaseSampleIndex = null
         asrAcceptedEndSampleIndexExclusive = null
         lastPartial = null
+        recognizerFinalizedInContinuity = true
     }
 
     private fun hypothesisEvent(
@@ -384,7 +421,7 @@ class RealtimeStreamingAsrProcessor(
         val vad = vadSession ?: return
         val update = vad.finishInput()
         if (update.completedSegments.isNotEmpty() && asrSession == null && preRoll.isNotEmpty()) {
-            startAsrFromPreRoll()
+            startAsrFromPreRoll(target)
         }
         emitVadSegments(update, target)
     }
