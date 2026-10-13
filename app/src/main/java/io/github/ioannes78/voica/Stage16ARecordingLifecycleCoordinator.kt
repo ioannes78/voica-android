@@ -25,8 +25,14 @@ import io.github.ioannes78.voica.protocol.RecordingStatus
 import io.github.ioannes78.voica.ui.library.RecordingDetailDestination
 import java.io.File
 import java.security.MessageDigest
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 data class Stage16APhysicalRecordingAnchor(
@@ -78,14 +84,18 @@ data class Stage16ARecordingLifecycleSnapshot(
  * realtime START/RESUME commands by itself.
  */
 class Stage16ARecordingLifecycleCoordinator(
+    private val scope: CoroutineScope,
+    private val realtimeState: StateFlow<Stage16ARealtimeUiState>,
     private val deviceRepository: DeviceRepository,
     private val database: VoicaDatabase,
     private val recordingsRoot: File,
     private val searchIndexRebuilder: SearchIndexRebuilder,
     private val transportGeneration: () -> Long?,
     private val clockMs: () -> Long = { System.currentTimeMillis() },
+    startCollectors: Boolean = true,
 ) {
     private val realtimeRepository = RealtimeTranscriptPersistenceRepository(database)
+    private val stateLock = Any()
 
     @Volatile
     private var activeAnchor: Stage16APhysicalRecordingAnchor? = null
@@ -93,20 +103,76 @@ class Stage16ARecordingLifecycleCoordinator(
     @Volatile
     private var latestSnapshot = Stage16ARecordingLifecycleSnapshot()
 
+    private var anchorAttemptRunId: String? = null
+    private var terminalAttemptRunId: String? = null
+
+    init {
+        if (startCollectors) {
+            scope.launch {
+                realtimeState
+                    .map { state -> state.runId to state.phase }
+                    .distinctUntilChanged()
+                    .collect { (runId, phase) ->
+                        if (runId == null) return@collect
+                        when (phase) {
+                            Stage16ARealtimeUiPhase.ACTIVE -> establishAnchorOnce(runId)
+                            Stage16ARealtimeUiPhase.COMPLETED -> reconcileTerminalOnce(runId)
+                            else -> Unit
+                        }
+                    }
+            }
+        }
+    }
+
     fun snapshot(): Stage16ARecordingLifecycleSnapshot = latestSnapshot
 
     fun anchorForRun(runId: String): Stage16APhysicalRecordingAnchor? =
         activeAnchor?.takeIf { it.runId == runId }
 
+    private suspend fun establishAnchorOnce(runId: String) {
+        val shouldAttempt =
+            synchronized(stateLock) {
+                if (anchorAttemptRunId == runId || activeAnchor?.runId == runId) {
+                    false
+                } else {
+                    anchorAttemptRunId = runId
+                    true
+                }
+            }
+        if (!shouldAttempt) return
+
+        repeat(ANCHOR_MAX_ATTEMPTS) { attempt ->
+            if (realtimeState.value.runId != runId) return
+            if (establishAnchor(runId) != null) return
+            if (attempt + 1 < ANCHOR_MAX_ATTEMPTS) delay(ANCHOR_RETRY_MS)
+        }
+    }
+
+    private suspend fun reconcileTerminalOnce(runId: String) {
+        val shouldAttempt =
+            synchronized(stateLock) {
+                if (terminalAttemptRunId == runId) {
+                    false
+                } else {
+                    terminalAttemptRunId = runId
+                    true
+                }
+            }
+        if (!shouldAttempt) return
+        reconcileTerminal(runId)
+    }
+
     /**
      * TYPE1 realtime START does not itself populate DeviceRepository recording truth. Explicitly
-     * converge TYPE3 recording state immediately after START so reconnect/terminal reconciliation
-     * has a stable device + filename identity while the recording is still active.
+     * converge TYPE3 recording state as soon as the Stage 16 run becomes ACTIVE so reconnect and
+     * terminal reconciliation retain a stable device + filename identity while the recording exists.
      */
-    suspend fun establishAnchor(runId: String): Stage16APhysicalRecordingAnchor? {
+    internal suspend fun establishAnchor(runId: String): Stage16APhysicalRecordingAnchor? {
+        if (latestSnapshot.runId != runId) {
+            latestSnapshot = Stage16ARecordingLifecycleSnapshot(runId = runId)
+        }
         latestSnapshot =
             latestSnapshot.copy(
-                runId = runId,
                 anchorSyncRequests = latestSnapshot.anchorSyncRequests + 1,
                 lastError = null,
             )
@@ -152,10 +218,7 @@ class Stage16ARecordingLifecycleCoordinator(
         }
     }
 
-    suspend fun reconcileTerminal(
-        runId: String,
-        persistence: RealtimeTranscriptPersistenceCoordinator,
-    ): Stage16ATerminalReconciliationOutcome {
+    internal suspend fun reconcileTerminal(runId: String): Stage16ATerminalReconciliationOutcome {
         val anchor = anchorForRun(runId)
         if (anchor == null) {
             return publishTerminal(
@@ -175,70 +238,73 @@ class Stage16ARecordingLifecycleCoordinator(
                 lastError = null,
             )
         runCatching { deviceRepository.syncRecordingState() }
-            .onFailure { failure ->
-                latestSnapshot = latestSnapshot.copy(lastError = failure.message)
+            .onFailure { failure -> latestSnapshot = latestSnapshot.copy(lastError = failure.message) }
+
+        var remote: RemoteDeviceFile? = null
+        var lastRefreshFailure: Throwable? = null
+        repeat(TERMINAL_FILE_REFRESH_ATTEMPTS) { attempt ->
+            latestSnapshot =
+                latestSnapshot.copy(
+                    terminalRefreshRequests = latestSnapshot.terminalRefreshRequests + 1,
+                )
+            lastRefreshFailure = runCatching { deviceRepository.refreshDeviceFiles() }.exceptionOrNull()
+            if (lastRefreshFailure == null) {
+                val state = awaitFreshFileList()
+                remote = state?.files?.findMatching(anchor.recordingIdentity)
+                if (remote != null) return@repeat
             }
+            if (attempt + 1 < TERMINAL_FILE_REFRESH_ATTEMPTS) delay(TERMINAL_FILE_REFRESH_RETRY_MS)
+        }
 
-        latestSnapshot =
-            latestSnapshot.copy(
-                terminalRefreshRequests = latestSnapshot.terminalRefreshRequests + 1,
-            )
-        val refreshFailure = runCatching { deviceRepository.refreshDeviceFiles() }.exceptionOrNull()
-        if (refreshFailure != null) {
-            return publishTerminal(
+        val resolvedRemote = remote
+            ?: return publishTerminal(
                 Stage16ATerminalReconciliationOutcome(
                     recordingId = null,
                     remoteIdentity = null,
                     completeLocalWavRegistered = false,
-                    result = Stage16ALibraryReconciliationResult.FAILED,
-                    error = refreshFailure.message ?: refreshFailure.javaClass.simpleName,
+                    result =
+                        if (lastRefreshFailure != null) {
+                            Stage16ALibraryReconciliationResult.FAILED
+                        } else {
+                            Stage16ALibraryReconciliationResult.DEVICE_FILE_UNCONFIRMED
+                        },
+                    error =
+                        lastRefreshFailure?.let { it.message ?: it.javaClass.simpleName }
+                            ?: "finished device recording was not found in refreshed file list",
                 ),
             )
-        }
-
-        val fileState = awaitFreshFileList()
-        val remote = fileState?.files?.findMatching(anchor.recordingIdentity)
-        if (remote == null) {
-            return publishTerminal(
-                Stage16ATerminalReconciliationOutcome(
-                    recordingId = null,
-                    remoteIdentity = null,
-                    completeLocalWavRegistered = false,
-                    result = Stage16ALibraryReconciliationResult.DEVICE_FILE_UNCONFIRMED,
-                    error = "finished device recording was not found in refreshed file list",
-                ),
-            )
-        }
 
         return try {
-            val recordingId = ensureRecording(remote)
-            check(persistence.attachRecording(recordingId)) {
+            val recordingId = ensureRecording(resolvedRemote)
+            check(realtimeRepository.attachRecording(runId, recordingId, clockMs())) {
                 "failed to attach realtime run to recording"
             }
             val segments = realtimeRepository.getSegments(runId)
             val completeLocal = registerCompleteLocalWav(recordingId, segments)
             searchIndexRebuilder.reindexRecording(recordingId)
-            AppRecordingNavigation.publish(recordingId, RecordingDetailDestination.PLAYBACK)
             activeAnchor = null
-            publishTerminal(
-                Stage16ATerminalReconciliationOutcome(
-                    recordingId = recordingId,
-                    remoteIdentity = remote.identity,
-                    completeLocalWavRegistered = completeLocal,
-                    result =
-                        if (completeLocal || segments.isNotEmpty()) {
-                            Stage16ALibraryReconciliationResult.COMPLETED
-                        } else {
-                            Stage16ALibraryReconciliationResult.LOCAL_MEDIA_UNAVAILABLE
-                        },
-                ),
-                segmentCount = segments.size,
-            )
+            val outcome =
+                publishTerminal(
+                    Stage16ATerminalReconciliationOutcome(
+                        recordingId = recordingId,
+                        remoteIdentity = resolvedRemote.identity,
+                        completeLocalWavRegistered = completeLocal,
+                        result =
+                            if (completeLocal || segments.isNotEmpty()) {
+                                Stage16ALibraryReconciliationResult.COMPLETED
+                            } else {
+                                Stage16ALibraryReconciliationResult.LOCAL_MEDIA_UNAVAILABLE
+                            },
+                    ),
+                    segmentCount = segments.size,
+                )
+            AppRecordingNavigation.publish(recordingId, RecordingDetailDestination.PLAYBACK)
+            outcome
         } catch (failure: Throwable) {
             publishTerminal(
                 Stage16ATerminalReconciliationOutcome(
                     recordingId = null,
-                    remoteIdentity = remote.identity,
+                    remoteIdentity = resolvedRemote.identity,
                     completeLocalWavRegistered = false,
                     result = Stage16ALibraryReconciliationResult.FAILED,
                     error = failure.message ?: failure.javaClass.simpleName,
@@ -249,19 +315,18 @@ class Stage16ARecordingLifecycleCoordinator(
 
     private suspend fun awaitFreshFileList(): DeviceFileListState? {
         val current = deviceRepository.deviceFileListState.value
-        if (current.freshness == FileListFreshness.FRESH || current.freshness == FileListFreshness.EMPTY) {
-            return current
-        }
+        if (current.freshness.isTerminalFileListState()) return current
         return withTimeoutOrNull(FILE_LIST_WAIT_MS) {
             deviceRepository.deviceFileListState
-                .filter {
-                    it.freshness == FileListFreshness.FRESH ||
-                        it.freshness == FileListFreshness.EMPTY ||
-                        it.freshness == FileListFreshness.FAILED
-                }
+                .filter { it.freshness.isTerminalFileListState() }
                 .first()
         }
     }
+
+    private fun FileListFreshness.isTerminalFileListState(): Boolean =
+        this == FileListFreshness.FRESH ||
+            this == FileListFreshness.EMPTY ||
+            this == FileListFreshness.FAILED
 
     private suspend fun ensureRecording(remote: RemoteDeviceFile): String {
         val recordingId = stableId(remote.identity)
@@ -280,8 +345,7 @@ class Stage16ARecordingLifecycleCoordinator(
                         sourceRemoteIdentity = remote.identity,
                         sourceDeviceAddress = remote.deviceAddress,
                         originalFilename = remote.displayFilename,
-                        displayName =
-                            RecordingDisplayNamePolicy.defaultDisplayName(remote.displayFilename),
+                        displayName = RecordingDisplayNamePolicy.defaultDisplayName(remote.displayFilename),
                         recordedAtLocalIso = remote.recordedAt?.toString(),
                         deviceReportedDurationMs = durationMs,
                         mediaDurationMs = durationMs,
@@ -381,6 +445,10 @@ class Stage16ARecordingLifecycleCoordinator(
 
     private companion object {
         const val FILE_LIST_WAIT_MS = 5_000L
+        const val ANCHOR_MAX_ATTEMPTS = 4
+        const val ANCHOR_RETRY_MS = 250L
+        const val TERMINAL_FILE_REFRESH_ATTEMPTS = 4
+        const val TERMINAL_FILE_REFRESH_RETRY_MS = 350L
     }
 }
 
