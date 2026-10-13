@@ -293,7 +293,21 @@ class ServiceBackedDeviceRepository(
     ) {
         holdService(resolvedDeviceName(), "正在下载")
         try {
-            delegate.downloadDeviceFile(file, format)
+            val result =
+                runPrioritizedDeviceDownload(
+                    fileOperationState = delegate.fileOperationState,
+                    remoteIdentity = file.identity,
+                    format = format,
+                    download = { delegate.downloadDeviceFile(file, format) },
+                )
+            if (!result.completed) {
+                Log.w(
+                    TAG,
+                    "device download did not complete after arbitration " +
+                        "attempts=${result.attempts} busyWaits=${result.busyWaits} " +
+                        "error=${result.terminalError ?: "n/a"}",
+                )
+            }
         } finally {
             // Terminal business state must override any coalesced progress immediately.
             reconcileCurrentDeviceSessionDecision(forceImmediate = true)

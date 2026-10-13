@@ -37,7 +37,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import io.github.ioannes78.voica.database.AudioAssetRole
 import io.github.ioannes78.voica.database.RecordingLibraryItem
 import io.github.ioannes78.voica.database.RecordingSourceType
 import java.time.Instant
@@ -59,11 +58,9 @@ fun RecordingPlaybackProductActions(
     var sharePickerOpen by remember(recording.id) { mutableStateOf(false) }
     var exportPickerOpen by remember(recording.id) { mutableStateOf(false) }
 
-    val original =
-        recording.assets.firstOrNull { it.role == AudioAssetRole.IMPORTED_ORIGINAL }
-            ?: recording.assets.firstOrNull { it.role == AudioAssetRole.DEVICE_OPUS }
-            ?: recording.assets.firstOrNull { it.role == AudioAssetRole.DEVICE_WAV }
-            ?: recording.assets.firstOrNull()
+    val availability = recording.localMediaAvailability()
+    val effectiveCanonicalReady = canonicalReady || availability.canonicalReady
+    val original = availability.displayAsset
     val recordedAt =
         recording.recordedAtLocalIso?.takeIf { it.isNotBlank() }
             ?: recording.createdAtMs
@@ -80,9 +77,11 @@ fun RecordingPlaybackProductActions(
             ?.let(::formatInfoDuration)
             ?: "--"
     val source =
-        when (recording.sourceType) {
-            RecordingSourceType.LOCAL_IMPORT -> "本地导入"
-            RecordingSourceType.DEVICE_DOWNLOAD -> "录音卡"
+        when {
+            availability.remotePending && !availability.originalReady && !effectiveCanonicalReady ->
+                "录音卡（待下载）"
+            recording.sourceType == RecordingSourceType.LOCAL_IMPORT -> "本地导入"
+            recording.sourceType == RecordingSourceType.DEVICE_DOWNLOAD -> "录音卡"
             else -> recording.sourceType
         }
     val format =
@@ -91,6 +90,7 @@ fun RecordingPlaybackProductActions(
             ?.uppercase(Locale.ROOT)
             ?: "--"
     val size = original?.sizeBytes?.let(::formatInfoBytes) ?: "--"
+    val shareExportEnabled = availability.canShareOrExport || effectiveCanonicalReady
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -129,6 +129,13 @@ fun RecordingPlaybackProductActions(
                 label = "来源 / 格式",
                 value = "$source · $format",
             )
+            if (availability.remotePending && !availability.originalReady && !effectiveCanonicalReady) {
+                Text(
+                    "完整音频仍在录音卡，尚未下载到手机。下载完成后才能播放、生成标准 WAV、分享或导出。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -144,12 +151,14 @@ fun RecordingPlaybackProductActions(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Outlined.Share,
                     label = "分享",
+                    enabled = shareExportEnabled,
                     onClick = { sharePickerOpen = true },
                 )
                 ProductActionTile(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Outlined.FileUpload,
                     label = "导出",
+                    enabled = shareExportEnabled,
                     onClick = { exportPickerOpen = true },
                 )
                 ProductActionTile(
@@ -166,7 +175,9 @@ fun RecordingPlaybackProductActions(
     if (sharePickerOpen) {
         AudioVariantDialog(
             title = "分享录音",
-            canonicalReady = canonicalReady,
+            canonicalReady = effectiveCanonicalReady,
+            originalReady = availability.originalReady,
+            remotePending = availability.remotePending,
             canonicalLabel = "标准 WAV",
             originalLabel = "原始文件",
             onDismiss = { sharePickerOpen = false },
@@ -184,7 +195,9 @@ fun RecordingPlaybackProductActions(
     if (exportPickerOpen) {
         AudioVariantDialog(
             title = "导出录音",
-            canonicalReady = canonicalReady,
+            canonicalReady = effectiveCanonicalReady,
+            originalReady = availability.originalReady,
+            remotePending = availability.remotePending,
             canonicalLabel = "标准 WAV",
             originalLabel = "原始文件",
             onDismiss = { exportPickerOpen = false },
@@ -238,22 +251,23 @@ private fun ProductActionTile(
     icon: ImageVector,
     label: String,
     destructive: Boolean = false,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     val contentColor =
-        if (destructive) {
-            MaterialTheme.colorScheme.error
-        } else {
-            MaterialTheme.colorScheme.onSurface
+        when {
+            !enabled -> MaterialTheme.colorScheme.outline
+            destructive -> MaterialTheme.colorScheme.error
+            else -> MaterialTheme.colorScheme.onSurface
         }
     val containerColor =
-        if (destructive) {
+        if (destructive && enabled) {
             MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.55f)
         } else {
             MaterialTheme.colorScheme.surfaceContainerHighest
         }
     Surface(
-        modifier = modifier.clickable(onClick = onClick),
+        modifier = modifier.clickable(enabled = enabled, onClick = onClick),
         shape = RoundedCornerShape(16.dp),
         color = containerColor,
         contentColor = contentColor,
@@ -281,6 +295,8 @@ private fun ProductActionTile(
 private fun AudioVariantDialog(
     title: String,
     canonicalReady: Boolean,
+    originalReady: Boolean,
+    remotePending: Boolean,
     canonicalLabel: String,
     originalLabel: String,
     onDismiss: () -> Unit,
@@ -301,16 +317,30 @@ private fun AudioVariantDialog(
                 }
                 TextButton(
                     onClick = onOriginal,
+                    enabled = originalReady,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(originalLabel)
                 }
-                if (!canonicalReady) {
-                    Text(
-                        "标准 WAV 尚未生成，可先使用原始文件。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                when {
+                    remotePending && !canonicalReady && !originalReady ->
+                        Text(
+                            "完整音频尚未下载到手机，下载完成后即可分享或导出。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    !canonicalReady && originalReady ->
+                        Text(
+                            "标准 WAV 尚未生成，可先使用原始文件。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    canonicalReady && !originalReady ->
+                        Text(
+                            "原始文件尚未下载，可使用标准 WAV。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                 }
             }
         },
