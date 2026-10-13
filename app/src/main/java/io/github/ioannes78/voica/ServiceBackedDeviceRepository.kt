@@ -89,6 +89,7 @@ class ServiceBackedDeviceRepository(
     private var currentDeviceName: String? = null
     private var lastPublishedDeviceName: String? = null
     private var lastPublishedLabel: String? = null
+    private var lastPublishedOpenRealtime = false
     private var pendingConnectJob: Job? = null
     private var pendingProgressNotificationJob: Job? = null
     private var lastProgressNotificationElapsedMs: Long? = null
@@ -155,6 +156,8 @@ class ServiceBackedDeviceRepository(
                         serviceGeneration = null
                         lastPublishedDeviceName = null
                         lastPublishedLabel = null
+                        lastPublishedOpenRealtime = false
+                        DeviceSessionNotificationNavigationTarget.setOpenRealtime(false)
                         foregroundStartFailedThisSession = true
                     }
                 }
@@ -347,6 +350,8 @@ class ServiceBackedDeviceRepository(
                 activeOperation.progress?.expectedBytes?.let { it > 0L } == true
         val baseLabel = deviceSessionLabel(connection, recording, operation)
         val realtimeProjection = realtimeState?.value?.let(Stage16ARealtimeNotificationPolicy::project)
+        val openRealtime =
+            !downloadActive && Stage16ARealtimeNotificationPolicy.opensRealtime(realtimeProjection)
         return DeviceSessionForegroundDecision(
             keep =
                 !userDisconnectedThisProcess &&
@@ -359,6 +364,7 @@ class ServiceBackedDeviceRepository(
                     downloadActive = downloadActive,
                 ),
             coalescibleProgress = coalescibleProgress,
+            openRealtime = openRealtime,
         )
     }
 
@@ -407,7 +413,11 @@ class ServiceBackedDeviceRepository(
         if (decision.coalescibleProgress) {
             lastProgressNotificationElapsedMs = elapsedRealtimeMs()
         }
-        holdService(decision.deviceName, decision.label)
+        holdService(
+            deviceName = decision.deviceName,
+            label = decision.label,
+            openRealtime = decision.openRealtime,
+        )
     }
 
     private fun cancelPendingProgressNotificationLocked() {
@@ -416,7 +426,11 @@ class ServiceBackedDeviceRepository(
         lastProgressNotificationElapsedMs = null
     }
 
-    private fun holdService(deviceName: String, label: String): Boolean {
+    private fun holdService(
+        deviceName: String,
+        label: String,
+        openRealtime: Boolean = false,
+    ): Boolean {
         if (
             userDisconnectedThisProcess ||
             foregroundStartFailedThisSession ||
@@ -426,6 +440,7 @@ class ServiceBackedDeviceRepository(
             return false
         }
 
+        DeviceSessionNotificationNavigationTarget.setOpenRealtime(openRealtime)
         val safeName = deviceName.trim().ifEmpty { FALLBACK_DEVICE_NAME }
         val safeLabel = label.trim().ifEmpty { "保持连接" }
         val held =
@@ -439,7 +454,8 @@ class ServiceBackedDeviceRepository(
                 } else if (
                     serviceHeld &&
                     lastPublishedDeviceName == safeName &&
-                    lastPublishedLabel == safeLabel
+                    lastPublishedLabel == safeLabel &&
+                    lastPublishedOpenRealtime == openRealtime
                 ) {
                     true
                 } else if (serviceHeld && serviceGeneration != null) {
@@ -464,6 +480,7 @@ class ServiceBackedDeviceRepository(
                                 )
                                 lastPublishedDeviceName = safeName
                                 lastPublishedLabel = safeLabel
+                                lastPublishedOpenRealtime = openRealtime
                             } catch (error: RuntimeException) {
                                 Log.e(TAG, "connectedDevice notification update failed", error)
                             }
@@ -483,11 +500,11 @@ class ServiceBackedDeviceRepository(
                         }
 
                         else -> {
-                            acquireServiceLeaseLocked(safeName, safeLabel)
+                            acquireServiceLeaseLocked(safeName, safeLabel, openRealtime)
                         }
                     }
                 } else {
-                    acquireServiceLeaseLocked(safeName, safeLabel)
+                    acquireServiceLeaseLocked(safeName, safeLabel, openRealtime)
                 }
             }
         reconcileDelegateForeground()
@@ -497,13 +514,18 @@ class ServiceBackedDeviceRepository(
     private fun acquireServiceLeaseLocked(
         safeName: String,
         safeLabel: String,
+        openRealtime: Boolean,
     ): Boolean {
+        DeviceSessionNotificationNavigationTarget.setOpenRealtime(openRealtime)
         val generation = foregroundServiceAcquire(appContext, safeName, safeLabel)
         if (generation != null) {
             serviceHeld = true
             serviceGeneration = generation
             lastPublishedDeviceName = safeName
             lastPublishedLabel = safeLabel
+            // The foreground service's initial notification still uses the generic app target.
+            // Once ACTIVE is observed, the re-projection below updates content intent in place.
+            lastPublishedOpenRealtime = false
             DeviceSessionNotificationDisplayDiagnostics.recordDesired(
                 leaseGeneration = generation,
                 deviceName = safeName,
@@ -514,6 +536,8 @@ class ServiceBackedDeviceRepository(
             serviceGeneration = null
             lastPublishedDeviceName = null
             lastPublishedLabel = null
+            lastPublishedOpenRealtime = false
+            DeviceSessionNotificationNavigationTarget.setOpenRealtime(false)
         }
         return serviceHeld
     }
@@ -527,6 +551,8 @@ class ServiceBackedDeviceRepository(
                 serviceGeneration = null
                 lastPublishedDeviceName = null
                 lastPublishedLabel = null
+                lastPublishedOpenRealtime = false
+                DeviceSessionNotificationNavigationTarget.setOpenRealtime(false)
                 DeviceSessionNotificationDisplayDiagnostics.reset()
                 hadLease
             }
@@ -631,6 +657,7 @@ class ServiceBackedDeviceRepository(
         val deviceName: String,
         val label: String,
         val coalescibleProgress: Boolean,
+        val openRealtime: Boolean,
     )
 
     private companion object {

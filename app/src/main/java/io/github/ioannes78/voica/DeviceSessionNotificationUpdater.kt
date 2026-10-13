@@ -2,9 +2,7 @@ package io.github.ioannes78.voica
 
 import android.app.Notification
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -67,6 +65,25 @@ internal object DeviceSessionNotificationDisplayDiagnostics {
     }
 }
 
+/** Process-local content-target projection for the single connected-device notification. */
+internal object DeviceSessionNotificationNavigationTarget {
+    @Volatile
+    private var openRealtime = false
+
+    fun setOpenRealtime(value: Boolean) {
+        openRealtime = value
+    }
+
+    fun shouldOpenRealtime(): Boolean = openRealtime
+
+    fun contentIntent(context: Context, requestCode: Int) =
+        if (openRealtime) {
+            realtimeOpenPendingIntent(context, requestCode)
+        } else {
+            mainActivityPendingIntent(context, requestCode)
+        }
+}
+
 /**
  * Updates the already-running connected-device foreground notification without enqueueing another
  * startForegroundService command. The service owns the lease; this helper only updates display state.
@@ -89,13 +106,9 @@ internal object DeviceSessionNotificationUpdater {
                 .setContentTitle(safeName)
                 .setContentText(safeLabel)
                 .setContentIntent(
-                    PendingIntent.getActivity(
-                        context,
-                        REQUEST_CONTENT,
-                        Intent(context, MainActivity::class.java).addFlags(
-                            Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP,
-                        ),
-                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                    DeviceSessionNotificationNavigationTarget.contentIntent(
+                        context = context,
+                        requestCode = REQUEST_CONTENT,
                     ),
                 )
                 .setOnlyAlertOnce(true)

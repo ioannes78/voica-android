@@ -18,6 +18,24 @@ internal object Stage16ARealtimeNotificationPolicy {
             modelLabel = state.modelLabel?.trim()?.takeIf { it.isNotEmpty() },
         )
 
+    fun opensRealtime(realtime: Stage16ARealtimeNotificationProjection?): Boolean =
+        when (realtime?.phase) {
+            Stage16ARealtimeUiPhase.PREPARING,
+            Stage16ARealtimeUiPhase.STARTING,
+            Stage16ARealtimeUiPhase.ACTIVE,
+            Stage16ARealtimeUiPhase.PAUSED,
+            Stage16ARealtimeUiPhase.RESUMING,
+            Stage16ARealtimeUiPhase.FINALIZING,
+            Stage16ARealtimeUiPhase.INTERRUPTED,
+            -> true
+
+            Stage16ARealtimeUiPhase.IDLE,
+            Stage16ARealtimeUiPhase.COMPLETED,
+            Stage16ARealtimeUiPhase.FAILED,
+            null,
+            -> false
+        }
+
     fun label(
         baseDeviceLabel: String,
         realtime: Stage16ARealtimeNotificationProjection?,
