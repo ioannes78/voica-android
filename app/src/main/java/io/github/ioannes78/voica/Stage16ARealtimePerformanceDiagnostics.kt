@@ -1,16 +1,10 @@
 package io.github.ioannes78.voica
 
 import io.github.ioannes78.voica.transcript.RealtimeLocalAudioSideSinkSnapshot
+import io.github.ioannes78.voica.transcript.RealtimeStreamingAsrStartupSnapshot
 import java.util.Locale
 
-/**
- * Stable, read-only Stage 16A P7 diagnostics projection.
- *
- * This type intentionally contains only counters already owned by the realtime pipeline. Reading it
- * never consumes canonical media and never performs file/Room work. It is suitable for the manual
- * diagnostics clipboard used during real-device QA; it does not reintroduce automatic diagnostics
- * export.
- */
+/** Stable, read-only Stage 16A P7 diagnostics projection. */
 data class Stage16ARealtimePerformanceDiagnosticsSnapshot(
     val modelId: String,
     val modelLabel: String,
@@ -66,6 +60,7 @@ data class Stage16ARealtimePerformanceDiagnosticsSnapshot(
     val punctuationMs: Double,
     val maxPunctuationMs: Double,
     val localAudioSink: RealtimeLocalAudioSideSinkSnapshot? = null,
+    val startup: RealtimeStreamingAsrStartupSnapshot? = null,
 ) {
     fun toDiagnosticsText(): String = buildString {
         appendLine("[Stage 16A 实时性能]")
@@ -74,6 +69,23 @@ data class Stage16ARealtimePerformanceDiagnosticsSnapshot(
         appendLine("chunk=$targetChunkSamples samples / ${targetChunkDurationMs}ms")
         appendLine("canonicalAudio=${format3(canonicalAudioSeconds)}s")
         appendLine("nativeRTF=${nativeRtf?.let(::format4) ?: "n/a"}")
+        val first = startup
+        if (first == null) {
+            appendLine("startup=n/a")
+        } else {
+            appendLine(
+                "startup firstPcmSample=${first.firstPcmSampleIndex ?: "n/a"} " +
+                    "firstAsrSample=${first.firstAsrAcceptedSampleIndex ?: "n/a"} " +
+                    "firstVadSpeechSample=${first.firstVadSpeechSampleIndex ?: "n/a"} " +
+                    "firstPartialSample=${first.firstNonEmptyPartialSampleIndex ?: "n/a"}",
+            )
+            appendLine(
+                "startup skippedSamplesBeforeFirstAsrAccept=${first.skippedSamplesBeforeFirstAsrAccept ?: "n/a"} " +
+                    "asrAcceptLatency=${formatNullableMs(first.firstAsrAcceptLatencyMs)} " +
+                    "vadSpeechLatency=${formatNullableMs(first.firstVadSpeechLatencyMs)} " +
+                    "firstPartialLatency=${formatNullableMs(first.firstNonEmptyPartialLatencyMs)}",
+            )
+        }
         appendLine(formatLatency("PARTIAL", partialLatency))
         appendLine(formatLatency("STABLE", stableLatency))
         appendLine(formatLatency("FINAL", finalLatency))
@@ -130,9 +142,7 @@ data class Stage16ARealtimePerformanceDiagnosticsSnapshot(
             "source events=$consumedSourceEvents pcmFrames=$consumedPcmFrames " +
                 "pcmSamples=$consumedPcmSamples discontinuities=$consumedUpstreamDiscontinuities",
         )
-        appendLine(
-            "sideSink offers=$sideSinkOffers rejects=$sideSinkRejects failures=$sideSinkFailures",
-        )
+        appendLine("sideSink offers=$sideSinkOffers rejects=$sideSinkRejects failures=$sideSinkFailures")
         val localAudio = localAudioSink
         if (localAudio == null) {
             appendLine("localAudio=n/a")
@@ -173,14 +183,9 @@ data class Stage16ARealtimePerformanceDiagnosticsSnapshot(
         append("lastFailure=${lastFailure ?: "n/a"}")
     }
 
-    private fun formatLatency(
-        label: String,
-        value: Stage16ARealtimeLatencyStatSnapshot,
-    ): String =
-        "latency$label count=${value.count} " +
-            "avg=${formatNullableMs(value.averageMs)} " +
-            "min=${formatNullableMs(value.minMs)} " +
-            "max=${formatNullableMs(value.maxMs)}"
+    private fun formatLatency(label: String, value: Stage16ARealtimeLatencyStatSnapshot): String =
+        "latency$label count=${value.count} avg=${formatNullableMs(value.averageMs)} " +
+            "min=${formatNullableMs(value.minMs)} max=${formatNullableMs(value.maxMs)}"
 
     private fun formatNullableMs(value: Double?): String = value?.let { "${format1(it)}ms" } ?: "n/a"
     private fun formatNullableInt(value: Int?): String = value?.toString() ?: "n/a"
@@ -204,13 +209,6 @@ data class Stage16ARealtimePerformanceDiagnosticsSnapshot(
     private fun format4(value: Double): String = String.format(Locale.US, "%.4f", value)
 }
 
-/**
- * Process-local read seam for the manual diagnostics screen.
- *
- * The active provider is pull-only. The last snapshot is retained when a run is released so QA can
- * stop the recording first and then copy the evidence. Owner identity prevents a stale run from
- * replacing a newer run's diagnostics.
- */
 object Stage16ARealtimePerformanceDiagnostics {
     private val lock = Any()
     private var activeOwner: Any? = null
@@ -224,10 +222,7 @@ object Stage16ARealtimePerformanceDiagnostics {
         return synchronized(lock) { retainedSnapshot }
     }
 
-    internal fun attach(
-        owner: Any,
-        provider: () -> Stage16ARealtimePerformanceDiagnosticsSnapshot,
-    ) {
+    internal fun attach(owner: Any, provider: () -> Stage16ARealtimePerformanceDiagnosticsSnapshot) {
         synchronized(lock) {
             activeOwner = owner
             activeProvider = provider
@@ -260,6 +255,7 @@ internal fun Stage16ARealtimePipelinePerformanceSnapshot.toDiagnosticsSnapshot(
     outputLatency: Stage16ARealtimeOutputLatencySnapshot = Stage16ARealtimeOutputLatencySnapshot(),
     systemMetrics: Stage16ARealtimeSystemMetricsSnapshot? = null,
     localAudioSink: RealtimeLocalAudioSideSinkSnapshot? = null,
+    startup: RealtimeStreamingAsrStartupSnapshot? = null,
 ): Stage16ARealtimePerformanceDiagnosticsSnapshot {
     val coordinator = runner.coordinator
     return Stage16ARealtimePerformanceDiagnosticsSnapshot(
@@ -317,6 +313,7 @@ internal fun Stage16ARealtimePipelinePerformanceSnapshot.toDiagnosticsSnapshot(
         punctuationMs = native.punctuationNanos.toMilliseconds(),
         maxPunctuationMs = native.maxPunctuationNanos.toMilliseconds(),
         localAudioSink = localAudioSink,
+        startup = startup,
     )
 }
 
