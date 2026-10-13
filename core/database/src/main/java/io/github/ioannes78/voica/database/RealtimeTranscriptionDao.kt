@@ -37,6 +37,15 @@ interface RealtimeTranscriptionDao {
     )
     suspend fun getRunsForRecording(recordingId: String): List<RealtimeTranscriptionRunEntity>
 
+    @Query(
+        """
+        SELECT * FROM realtime_transcription_runs
+        WHERE recordingId IS NOT NULL AND state = 'COMPLETED'
+        ORDER BY startedAtMs ASC
+        """,
+    )
+    suspend fun getCompletedAttachedRuns(): List<RealtimeTranscriptionRunEntity>
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertSegment(segment: RealtimeMediaSegmentEntity)
 
@@ -228,6 +237,9 @@ class RealtimeTranscriptPersistenceRepository(
 
     suspend fun getRunsForRecording(recordingId: String): List<RealtimeTranscriptionRunEntity> =
         dao.getRunsForRecording(recordingId)
+
+    suspend fun getCompletedAttachedRuns(): List<RealtimeTranscriptionRunEntity> =
+        dao.getCompletedAttachedRuns()
 
     /** Raw insert retained for migration/exact-index tests. Product code should prefer [createNextSegment]. */
     suspend fun createSegment(segment: RealtimeMediaSegmentEntity) = dao.insertSegment(segment)
