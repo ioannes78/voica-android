@@ -26,6 +26,7 @@ import io.github.ioannes78.voica.transcript.StreamingAsrEngine
 import io.github.ioannes78.voica.transcript.StreamingAudioSideSink
 import io.github.ioannes78.voica.transcript.StreamingVadEngine
 import java.io.File
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 data class Stage16ARealtimePipelineConfig(
@@ -55,6 +56,24 @@ data class Stage16ARealtimePipelineConfig(
         /** 40 / 80 / 100 / 160 / 200 ms at canonical 16 kHz. */
         val CHUNK_SAMPLE_CANDIDATES: Set<Int> = setOf(640, 1_280, 1_600, 2_560, 3_200)
     }
+}
+
+/**
+ * Returns the private local-audio namespace for one logical Stage 16A pipeline invocation.
+ *
+ * Canonical session ids are process-local and may restart from 1 after process death, so they must
+ * never be used as the only persistent filename namespace. Each pipeline gets a collision-resistant
+ * run directory and may safely reuse canonical-session-1.wav inside that directory.
+ */
+internal fun stage16ARealtimeRunAudioRoot(
+    localAudioRoot: File,
+    namespace: String,
+): File {
+    require(namespace.isNotBlank()) { "Stage 16A local-audio namespace must not be blank" }
+    require(namespace.all { char -> char.isLetterOrDigit() || char == '-' || char == '_' || char == '.' }) {
+        "Stage 16A local-audio namespace contains unsafe path characters"
+    }
+    return File(localAudioRoot, "run-$namespace")
 }
 
 /**
@@ -89,6 +108,7 @@ class Stage16ARealtimePipelineBundle internal constructor(
             performanceSnapshot().toDiagnosticsSnapshot(
                 outputLatency = outputLatencyProbe.snapshot(),
                 systemMetrics = systemMetricsProbe?.snapshot(),
+                localAudioSink = localAudioSink.snapshot(),
             )
         }
     }
@@ -117,6 +137,7 @@ class Stage16ARealtimePipelineBundle internal constructor(
             performanceSnapshot().toDiagnosticsSnapshot(
                 outputLatency = outputLatencyProbe.snapshot(),
                 systemMetrics = systemMetricsProbe?.snapshot(),
+                localAudioSink = localAudioSink.snapshot(),
             )
         }.getOrNull()
 
@@ -167,6 +188,11 @@ class Stage16ARealtimePipelineBundleFactory(
         }
         require(localAudioRoot.isDirectory)
         require(models.models.asr.descriptor.runtimeId == SherpaRuntime.RUNTIME_ID)
+        val localAudioRunRoot =
+            stage16ARealtimeRunAudioRoot(
+                localAudioRoot = localAudioRoot,
+                namespace = UUID.randomUUID().toString(),
+            )
 
         val performanceProbe = Stage16ARealtimePerformanceProbe()
         val systemMetricsProbe = context?.let(Stage16ARealtimeSystemMetricsProbe::android)
@@ -198,7 +224,7 @@ class Stage16ARealtimePipelineBundleFactory(
                     scope = scope,
                     targetFactory =
                         RealtimeLocalAudioTargetFactory { sessionId ->
-                            File(localAudioRoot, "canonical-session-$sessionId.wav")
+                            File(localAudioRunRoot, "canonical-session-$sessionId.wav")
                         },
                     resultHandler = onLocalAudioResult,
                     queueCapacity = config.localAudioQueueCapacity,

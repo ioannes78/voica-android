@@ -1,5 +1,7 @@
 package io.github.ioannes78.voica
 
+import io.github.ioannes78.voica.transcript.RealtimeLocalAudioFailureCode
+import io.github.ioannes78.voica.transcript.RealtimeLocalAudioSideSinkSnapshot
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -35,6 +37,14 @@ class Stage16ARealtimePerformanceDiagnosticsTest {
         assertTrue(text.contains("buffer=40.0ms peak=120.0ms overflow=2 droppedFrames=3 droppedSamples=640"))
         assertTrue(text.contains("outputSink offers=20 rejects=1 failures=2"))
         assertTrue(text.contains("sideSink offers=30 rejects=4 failures=5"))
+        assertTrue(
+            text.contains(
+                "localAudio closed=false degraded=true activeSession=7 acceptedEvents=40 " +
+                    "acceptedPcmFrames=30 acceptedPcmSamples=9600 rejectedEvents=9 finalized=0 " +
+                    "salvaged=1 workerFailures=1 resultHandlerFailures=0 " +
+                    "lastFailure=WORKER_FAILURE:existing target",
+            ),
+        )
         assertTrue(text.contains("maxDecode=7.5ms"))
         assertTrue(text.contains("terminalReason=STOP"))
     }
@@ -179,5 +189,21 @@ class Stage16ARealtimePerformanceDiagnosticsTest {
         punctuationCalls = 3,
         punctuationMs = 6.0,
         maxPunctuationMs = 2.2,
+        localAudioSink =
+            RealtimeLocalAudioSideSinkSnapshot(
+                closed = false,
+                degraded = true,
+                activeSessionId = 7,
+                acceptedEvents = 40,
+                acceptedPcmFrames = 30,
+                acceptedPcmSamples = 9_600,
+                rejectedEvents = 9,
+                finalizedSegments = 0,
+                salvagedFailedSegments = 1,
+                workerFailures = 1,
+                resultHandlerFailures = 0,
+                lastFailureCode = RealtimeLocalAudioFailureCode.WORKER_FAILURE,
+                lastFailureMessage = "existing target",
+            ),
     )
 }

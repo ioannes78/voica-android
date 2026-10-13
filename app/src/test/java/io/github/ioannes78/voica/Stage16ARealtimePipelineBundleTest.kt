@@ -2,6 +2,7 @@ package io.github.ioannes78.voica
 
 import io.github.ioannes78.voica.audio.CanonicalRealtimeEventSource
 import io.github.ioannes78.voica.audio.RealtimeCanonicalStreamEvent
+import io.github.ioannes78.voica.audio.RealtimePcmWavSegmentWriter
 import io.github.ioannes78.voica.model.ActiveModel
 import io.github.ioannes78.voica.model.AsrExecutionMode
 import io.github.ioannes78.voica.model.ModelCapabilities
@@ -46,6 +47,45 @@ class Stage16ARealtimePipelineBundleTest {
         }
         assertThrows(IllegalArgumentException::class.java) {
             Stage16ARealtimePipelineConfig(targetChunkSamples = 960)
+        }
+    }
+
+    @Test
+    fun `run scoped local audio root isolates repeated canonical session ids after process restart`() {
+        val root = Files.createTempDirectory("voica-stage16a-run-audio").toFile()
+        try {
+            val firstRunRoot = stage16ARealtimeRunAudioRoot(root, "first-run")
+            val secondRunRoot = stage16ARealtimeRunAudioRoot(root, "second-run")
+            assertTrue(firstRunRoot.mkdirs())
+            val staleSessionOne = File(firstRunRoot, "canonical-session-1.wav")
+            staleSessionOne.writeBytes(byteArrayOf(1, 2, 3))
+
+            val secondSessionOne = File(secondRunRoot, "canonical-session-1.wav")
+            assertFalse(secondSessionOne.exists())
+            assertFalse(staleSessionOne.canonicalPath == secondSessionOne.canonicalPath)
+
+            val writer = RealtimePcmWavSegmentWriter(secondSessionOne, canonicalSessionId = 1)
+            writer.close()
+            assertTrue(secondRunRoot.isDirectory)
+            assertTrue(staleSessionOne.isFile)
+            assertFalse(secondSessionOne.exists())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `run scoped local audio namespace rejects unsafe path characters`() {
+        val root = Files.createTempDirectory("voica-stage16a-run-path").toFile()
+        try {
+            assertThrows(IllegalArgumentException::class.java) {
+                stage16ARealtimeRunAudioRoot(root, "../escape")
+            }
+            assertThrows(IllegalArgumentException::class.java) {
+                stage16ARealtimeRunAudioRoot(root, "nested/path")
+            }
+        } finally {
+            root.deleteRecursively()
         }
     }
 

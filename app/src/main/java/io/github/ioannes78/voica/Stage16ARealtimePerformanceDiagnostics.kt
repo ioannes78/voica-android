@@ -1,5 +1,6 @@
 package io.github.ioannes78.voica
 
+import io.github.ioannes78.voica.transcript.RealtimeLocalAudioSideSinkSnapshot
 import java.util.Locale
 
 /**
@@ -64,6 +65,7 @@ data class Stage16ARealtimePerformanceDiagnosticsSnapshot(
     val punctuationCalls: Long,
     val punctuationMs: Double,
     val maxPunctuationMs: Double,
+    val localAudioSink: RealtimeLocalAudioSideSinkSnapshot? = null,
 ) {
     fun toDiagnosticsText(): String = buildString {
         appendLine("[Stage 16A 实时性能]")
@@ -131,6 +133,28 @@ data class Stage16ARealtimePerformanceDiagnosticsSnapshot(
         appendLine(
             "sideSink offers=$sideSinkOffers rejects=$sideSinkRejects failures=$sideSinkFailures",
         )
+        val localAudio = localAudioSink
+        if (localAudio == null) {
+            appendLine("localAudio=n/a")
+        } else {
+            val failure =
+                localAudio.lastFailureCode?.let { code ->
+                    "${code.name}:${localAudio.lastFailureMessage ?: "n/a"}"
+                } ?: "n/a"
+            appendLine(
+                "localAudio closed=${localAudio.closed} degraded=${localAudio.degraded} " +
+                    "activeSession=${localAudio.activeSessionId ?: "n/a"} " +
+                    "acceptedEvents=${localAudio.acceptedEvents} " +
+                    "acceptedPcmFrames=${localAudio.acceptedPcmFrames} " +
+                    "acceptedPcmSamples=${localAudio.acceptedPcmSamples} " +
+                    "rejectedEvents=${localAudio.rejectedEvents} " +
+                    "finalized=${localAudio.finalizedSegments} " +
+                    "salvaged=${localAudio.salvagedFailedSegments} " +
+                    "workerFailures=${localAudio.workerFailures} " +
+                    "resultHandlerFailures=${localAudio.resultHandlerFailures} " +
+                    "lastFailure=$failure",
+            )
+        }
         appendLine(
             "asr acceptCalls=$asrAcceptCalls decodeCalls=$asrDecodeCalls " +
                 "decode=${format1(asrDecodeMs)}ms maxDecode=${format1(maxAsrDecodeMs)}ms " +
@@ -235,6 +259,7 @@ object Stage16ARealtimePerformanceDiagnostics {
 internal fun Stage16ARealtimePipelinePerformanceSnapshot.toDiagnosticsSnapshot(
     outputLatency: Stage16ARealtimeOutputLatencySnapshot = Stage16ARealtimeOutputLatencySnapshot(),
     systemMetrics: Stage16ARealtimeSystemMetricsSnapshot? = null,
+    localAudioSink: RealtimeLocalAudioSideSinkSnapshot? = null,
 ): Stage16ARealtimePerformanceDiagnosticsSnapshot {
     val coordinator = runner.coordinator
     return Stage16ARealtimePerformanceDiagnosticsSnapshot(
@@ -291,6 +316,7 @@ internal fun Stage16ARealtimePipelinePerformanceSnapshot.toDiagnosticsSnapshot(
         punctuationCalls = native.punctuationCalls,
         punctuationMs = native.punctuationNanos.toMilliseconds(),
         maxPunctuationMs = native.maxPunctuationNanos.toMilliseconds(),
+        localAudioSink = localAudioSink,
     )
 }
 
