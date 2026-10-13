@@ -350,6 +350,7 @@ class AppContainer(
         Stage16ARealtimePipelineBundleFactory(
             scope = applicationScope,
             engineProvider = stage16ARealtimeEngineProvider,
+            context = application,
         )
     private val stage16ALocalAudioRoot = File(recordingsRoot, "realtime")
 
