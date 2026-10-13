@@ -84,7 +84,9 @@ class Stage16ARealtimeSystemMetricsProbe internal constructor(
                 processCpuTimeMs = Process::getElapsedCpuTime,
                 pssKb = {
                     runCatching {
-                        Debug.MemoryInfo().also(Debug::getMemoryInfo).totalPss
+                        val memoryInfo = Debug.MemoryInfo()
+                        Debug.getMemoryInfo(memoryInfo)
+                        memoryInfo.totalPss
                     }.getOrNull()
                 },
                 thermalStatus = {
