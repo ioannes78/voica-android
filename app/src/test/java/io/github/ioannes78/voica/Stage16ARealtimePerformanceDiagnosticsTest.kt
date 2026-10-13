@@ -27,6 +27,11 @@ class Stage16ARealtimePerformanceDiagnosticsTest {
         assertTrue(text.contains("latencySTABLE count=4 avg=240.0ms min=180.0ms max=320.0ms"))
         assertTrue(text.contains("latencyFINAL count=3 avg=520.0ms min=410.0ms max=690.0ms"))
         assertTrue(text.contains("latencyCorrelation correlated=15 uncorrelated=1"))
+        assertTrue(text.contains("system elapsed=10000ms processCpu=2500ms cpuOneCore=25.0%"))
+        assertTrue(text.contains("pss start=100000KB current=112000KB delta=+12000KB"))
+        assertTrue(text.contains("thermal start=LIGHT(1) current=MODERATE(2)"))
+        assertTrue(text.contains("batteryCapacity start=80% current=78% delta=-2%"))
+        assertTrue(text.contains("batteryCharge start=3000000uAh current=2920000uAh delta=-80000uAh"))
         assertTrue(text.contains("buffer=40.0ms peak=120.0ms overflow=2 droppedFrames=3 droppedSamples=640"))
         assertTrue(text.contains("outputSink offers=20 rejects=1 failures=2"))
         assertTrue(text.contains("sideSink offers=30 rejects=4 failures=5"))
@@ -117,6 +122,23 @@ class Stage16ARealtimePerformanceDiagnosticsTest {
             ),
         correlatedLatencyOutputs = 15,
         uncorrelatedLatencyOutputs = 1,
+        systemMetrics =
+            Stage16ARealtimeSystemMetricsSnapshot(
+                elapsedMs = 10_000,
+                processCpuMs = 2_500,
+                processCpuPercentOfOneCore = 25.0,
+                startPssKb = 100_000,
+                currentPssKb = 112_000,
+                pssDeltaKb = 12_000,
+                startThermalStatus = 1,
+                currentThermalStatus = 2,
+                startBatteryCapacityPercent = 80,
+                currentBatteryCapacityPercent = 78,
+                batteryCapacityDeltaPercent = -2,
+                startBatteryChargeCounterUah = 3_000_000,
+                currentBatteryChargeCounterUah = 2_920_000,
+                batteryChargeDeltaUah = -80_000,
+            ),
         currentBufferDepthMs = 40.0,
         peakBufferDepthMs = 120.0,
         bufferOverflowEvents = 2,
