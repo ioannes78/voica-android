@@ -58,13 +58,6 @@ data class Stage16ARealtimePipelineConfig(
     }
 }
 
-/**
- * Returns the private local-audio namespace for one logical Stage 16A pipeline invocation.
- *
- * Canonical session ids are process-local and may restart from 1 after process death, so they must
- * never be used as the only persistent filename namespace. Each pipeline gets a collision-resistant
- * run directory and may safely reuse canonical-session-1.wav inside that directory.
- */
 internal fun stage16ARealtimeRunAudioRoot(
     localAudioRoot: File,
     namespace: String,
@@ -76,15 +69,6 @@ internal fun stage16ARealtimeRunAudioRoot(
     return File(localAudioRoot, "run-$namespace")
 }
 
-/**
- * Fully composed local Stage 16A inference/persistence pipeline for one logical realtime run.
- *
- * This bundle owns the native ASR/VAD/punctuation engines and the model leases supplied to the
- * factory. It does not own recorder commands: START/PAUSE/RESUME/STOP and reconnect policy stay in
- * the app lifecycle controller. [release] must be called only after the session runner is no longer
- * RUNNING; accepted local-media, waveform and durable-output work is drained before native/model
- * resources are released.
- */
 class Stage16ARealtimePipelineBundle internal constructor(
     val models: Stage16ARealtimeModelLeaseBundle,
     val runner: RealtimeTranscriptionSessionRunner,
@@ -109,13 +93,11 @@ class Stage16ARealtimePipelineBundle internal constructor(
                 outputLatency = outputLatencyProbe.snapshot(),
                 systemMetrics = systemMetricsProbe?.snapshot(),
                 localAudioSink = localAudioSink.snapshot(),
+                startup = processor.startupSnapshot(),
             )
         }
     }
 
-    /**
-     * Pull-only P7 telemetry snapshot. Reading it never consumes canonical media or schedules work.
-     */
     internal fun performanceSnapshot(): Stage16ARealtimePipelinePerformanceSnapshot =
         Stage16ARealtimePipelinePerformanceSnapshot(
             modelId = models.models.asr.descriptor.modelId,
@@ -138,6 +120,7 @@ class Stage16ARealtimePipelineBundle internal constructor(
                 outputLatency = outputLatencyProbe.snapshot(),
                 systemMetrics = systemMetricsProbe?.snapshot(),
                 localAudioSink = localAudioSink.snapshot(),
+                startup = processor.startupSnapshot(),
             )
         }.getOrNull()
 
@@ -162,12 +145,6 @@ class Stage16ARealtimePipelineBundle internal constructor(
     }
 }
 
-/**
- * Composes the already-approved Stage 16A seams without touching BLE/protocol internals.
- *
- * Ownership of [models] transfers to the returned bundle. If construction fails, every partially
- * opened native engine and model lease is released before the exception is rethrown.
- */
 class Stage16ARealtimePipelineBundleFactory(
     private val scope: kotlinx.coroutines.CoroutineScope,
     private val engineProvider: Stage16ARealtimeEngineProvider,
