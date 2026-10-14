@@ -165,6 +165,19 @@ class Stage16ARealtimeLiveStateStore :
         )
     }
 
+    fun completedDegraded(code: String, message: String) = mutate {
+        it.copy(
+            phase = Stage16ARealtimeUiPhase.COMPLETED,
+            stableText = "",
+            partialText = "",
+            audioActivityLevels = emptyList(),
+            lifecycleMessage = message,
+            errorCode = code,
+            // Keep this as lifecycle/degraded information, not a fatal UI error.
+            errorMessage = null,
+        )
+    }
+
     /** Reports a degraded side branch without turning off recorder media or realtime inference. */
     fun degraded(code: String, message: String) = mutate {
         it.copy(
@@ -174,16 +187,25 @@ class Stage16ARealtimeLiveStateStore :
         )
     }
 
-    fun failed(code: String, message: String) = mutate {
-        it.copy(
-            phase = Stage16ARealtimeUiPhase.FAILED,
-            stableText = "",
-            partialText = "",
-            audioActivityLevels = emptyList(),
-            lifecycleMessage = null,
-            errorCode = code,
-            errorMessage = message,
-        )
+    fun failed(code: String, message: String) {
+        if (Stage16AStopFinalizationPolicy.isDegradedCompletedStop(code)) {
+            completedDegraded(
+                code = code,
+                message = Stage16AStopFinalizationPolicy.DEGRADED_MESSAGE,
+            )
+            return
+        }
+        mutate {
+            it.copy(
+                phase = Stage16ARealtimeUiPhase.FAILED,
+                stableText = "",
+                partialText = "",
+                audioActivityLevels = emptyList(),
+                lifecycleMessage = null,
+                errorCode = code,
+                errorMessage = message,
+            )
+        }
     }
 
     fun reset() = synchronized(lock) {
