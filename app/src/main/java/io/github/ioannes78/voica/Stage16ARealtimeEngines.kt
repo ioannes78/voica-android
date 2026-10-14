@@ -18,10 +18,19 @@ import io.github.ioannes78.voica.transcript.StreamingVadEngine
 import java.io.Closeable
 import java.io.File
 
+private fun missingRealtimeModelsUserMessage(modelIds: List<String>): String =
+    when {
+        modelIds.size == 1 && modelIds.single() == Stage13ARealtimeModelIds.SMALL_BILINGUAL ->
+            "实时转写模型未安装，请先下载 Small Bilingual Zipformer。"
+        modelIds.size == 1 && modelIds.single() == Stage13ARealtimeModelIds.CHINESE_LARGE_CTC ->
+            "实时转写模型未安装，请先下载 Chinese Large Zipformer CTC INT8。"
+        else -> "实时转写所需模型未安装，请先在本地语音识别中完成模型安装。"
+    }
+
 class MissingRealtimeTranscriptionModelsException(
     val modelIds: List<String>,
 ) : IllegalStateException(
-    "missing active realtime transcription models: " + modelIds.joinToString(),
+    missingRealtimeModelsUserMessage(modelIds),
 )
 
 data class Stage16ARealtimeResolvedModels(
