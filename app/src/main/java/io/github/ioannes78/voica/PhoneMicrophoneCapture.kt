@@ -84,6 +84,7 @@ internal data class PhoneMicrophoneCaptureSnapshot(
     val samplesRead: Long = 0L,
     val shortReads: Long = 0L,
     val readErrors: Long = 0L,
+    val consumerErrors: Long = 0L,
     val lastReadCode: Int? = null,
     val foregroundPhase: PhoneMicrophoneForegroundPhase = PhoneMicrophoneForegroundPhase.IDLE,
     val wakeLockHeld: Boolean = false,
@@ -101,7 +102,7 @@ internal data class PhoneMicrophoneCaptureSnapshot(
         )
         appendLine(
             "reads=$readCalls samples=$samplesRead shortReads=$shortReads readErrors=$readErrors " +
-                "lastReadCode=${lastReadCode ?: 0}",
+                "consumerErrors=$consumerErrors lastReadCode=${lastReadCode ?: 0}",
         )
         appendLine(
             "route=${route?.productName ?: "n/a"}/${route?.deviceType ?: -1}/${route?.deviceId ?: -1} " +
@@ -220,12 +221,23 @@ internal class PhoneMicrophoneCapture(
             if (closed) {
                 return PhoneMicrophoneStartResult.Rejected("手机麦克风录音已关闭，请重新进入录音页面")
             }
-            if (activeRecord != null) {
-                return PhoneMicrophoneStartResult.Rejected("手机麦克风正在录音")
+            when (currentSnapshotLocked().phase) {
+                PhoneMicrophoneCapturePhase.STARTING,
+                PhoneMicrophoneCapturePhase.RECORDING,
+                PhoneMicrophoneCapturePhase.STOPPING,
+                -> return PhoneMicrophoneStartResult.Rejected("手机麦克风正在录音或正在切换状态")
+                else -> Unit
             }
             if (!permissionChecker(appContext)) {
+                updateStateLocked(
+                    PhoneMicrophoneCaptureSnapshot(
+                        phase = PhoneMicrophoneCapturePhase.FAILED,
+                        lastFailure = "需要麦克风权限才能开始手机录音",
+                    ),
+                )
                 return PhoneMicrophoneStartResult.Rejected("需要麦克风权限才能开始手机录音")
             }
+            stopRequested = false
             updateStateLocked(
                 PhoneMicrophoneCaptureSnapshot(phase = PhoneMicrophoneCapturePhase.STARTING),
             )
@@ -233,6 +245,11 @@ internal class PhoneMicrophoneCapture(
 
         if (!executionLease.acquire(foregroundLabel)) {
             return rejectStart("无法启动手机录音前台服务，请保持 Voica 在前台后重试")
+        }
+
+        if (synchronized(lock) { closed || stopRequested }) {
+            executionLease.release()
+            return rejectStart("手机录音已取消")
         }
 
         val minBufferBytes =
@@ -252,6 +269,8 @@ internal class PhoneMicrophoneCapture(
         var selectedRecord: PhoneMicrophoneAudioRecordHandle? = null
         var lastFailure: Throwable? = null
         for (source in SOURCE_FALLBACK_ORDER) {
+            if (synchronized(lock) { closed || stopRequested }) break
+
             val candidate =
                 try {
                     audioRecordFactory.create(source, effectiveBufferBytes)
@@ -288,17 +307,34 @@ internal class PhoneMicrophoneCapture(
         val source = selectedSource
         if (record == null || source == null) {
             executionLease.release()
-            return rejectStart("无法打开手机麦克风，请检查是否被其它应用占用", lastFailure)
+            return if (synchronized(lock) { closed || stopRequested }) {
+                rejectStart("手机录音已取消")
+            } else {
+                rejectStart("无法打开手机麦克风，请检查是否被其它应用占用", lastFailure)
+            }
+        }
+
+        val foregroundPhaseBeforeRun = PhoneMicrophoneForegroundDiagnostics.state.value.phase
+        if (
+            foregroundPhaseBeforeRun == PhoneMicrophoneForegroundPhase.FAILED ||
+            foregroundPhaseBeforeRun == PhoneMicrophoneForegroundPhase.IDLE
+        ) {
+            runCatching { record.stop() }
+            runCatching { record.release() }
+            executionLease.release()
+            return rejectStart("手机录音前台服务未能保持运行，请重试")
         }
 
         synchronized(lock) {
-            if (closed || activeRecord != null) {
+            if (closed || stopRequested || activeRecord != null) {
                 runCatching { record.stop() }
                 runCatching { record.release() }
                 executionLease.release()
-                return PhoneMicrophoneStartResult.Rejected("手机麦克风状态已变化，请重试")
+                val terminalPhase =
+                    if (closed) PhoneMicrophoneCapturePhase.CLOSED else PhoneMicrophoneCapturePhase.STOPPED
+                updateStateLocked(currentSnapshotLocked().copy(phase = terminalPhase))
+                return PhoneMicrophoneStartResult.Rejected("手机录音已取消")
             }
-            stopRequested = false
             activeRecord = record
             val leaseSnapshot = executionLease.snapshot()
             updateStateLocked(
@@ -310,7 +346,7 @@ internal class PhoneMicrophoneCapture(
                     audioSessionId = record.audioSessionId,
                     route = record.route,
                     clientSilenced = record.clientSilenced,
-                    foregroundPhase = PhoneMicrophoneForegroundDiagnostics.state.value.phase,
+                    foregroundPhase = foregroundPhaseBeforeRun,
                     wakeLockHeld = leaseSnapshot.wakeLockHeld,
                     lastFailure = leaseSnapshot.lastFailure,
                 ),
@@ -327,10 +363,25 @@ internal class PhoneMicrophoneCapture(
 
     fun requestStop() {
         val record = synchronized(lock) {
-            if (activeRecord == null) return
-            stopRequested = true
-            updateStateLocked(currentSnapshotLocked().copy(phase = PhoneMicrophoneCapturePhase.STOPPING))
-            activeRecord
+            when (currentSnapshotLocked().phase) {
+                PhoneMicrophoneCapturePhase.STARTING -> {
+                    stopRequested = true
+                    updateStateLocked(
+                        currentSnapshotLocked().copy(phase = PhoneMicrophoneCapturePhase.STOPPING),
+                    )
+                    null
+                }
+
+                PhoneMicrophoneCapturePhase.RECORDING -> {
+                    stopRequested = true
+                    updateStateLocked(
+                        currentSnapshotLocked().copy(phase = PhoneMicrophoneCapturePhase.STOPPING),
+                    )
+                    activeRecord
+                }
+
+                else -> return
+            }
         }
         runCatching { record?.stop() }
     }
@@ -375,6 +426,17 @@ internal class PhoneMicrophoneCapture(
                 val shouldStop = synchronized(lock) { closed || stopRequested || activeRecord !== record }
                 if (shouldStop) break
 
+                val foregroundPhase = PhoneMicrophoneForegroundDiagnostics.state.value.phase
+                if (
+                    foregroundPhase == PhoneMicrophoneForegroundPhase.FAILED ||
+                    foregroundPhase == PhoneMicrophoneForegroundPhase.IDLE
+                ) {
+                    terminalFailure =
+                        IllegalStateException("phone microphone foreground service is not active")
+                    markPlatformFailure(record, terminalFailure)
+                    break
+                }
+
                 val readCount =
                     try {
                         record.read(buffer)
@@ -404,7 +466,7 @@ internal class PhoneMicrophoneCapture(
                     )
                 } catch (failure: Throwable) {
                     terminalFailure = failure
-                    incrementReadError(readCount, record, failure)
+                    incrementConsumerError(readCount, buffer.size, record, failure)
                     break
                 }
 
@@ -457,7 +519,7 @@ internal class PhoneMicrophoneCapture(
         record: PhoneMicrophoneAudioRecordHandle,
         failure: Throwable,
     ) {
-        Log.e(TAG, "phone microphone capture failed", failure)
+        Log.e(TAG, "phone microphone read failed", failure)
         synchronized(lock) {
             val current = currentSnapshotLocked()
             updateStateLocked(
@@ -467,6 +529,49 @@ internal class PhoneMicrophoneCapture(
                     lastReadCode = readCode,
                     route = record.route,
                     clientSilenced = record.clientSilenced,
+                    foregroundPhase = PhoneMicrophoneForegroundDiagnostics.state.value.phase,
+                    lastFailure = failure.describePhoneMicrophoneCaptureFailure(),
+                ),
+            )
+        }
+    }
+
+    private fun incrementConsumerError(
+        readCount: Int,
+        requestedSamples: Int,
+        record: PhoneMicrophoneAudioRecordHandle,
+        failure: Throwable,
+    ) {
+        Log.e(TAG, "phone microphone consumer failed", failure)
+        synchronized(lock) {
+            val current = currentSnapshotLocked()
+            updateStateLocked(
+                current.copy(
+                    readCalls = current.readCalls + 1,
+                    shortReads = current.shortReads + if (readCount < requestedSamples) 1 else 0,
+                    consumerErrors = current.consumerErrors + 1,
+                    lastReadCode = readCount,
+                    route = record.route,
+                    clientSilenced = record.clientSilenced,
+                    foregroundPhase = PhoneMicrophoneForegroundDiagnostics.state.value.phase,
+                    lastFailure = failure.describePhoneMicrophoneCaptureFailure(),
+                ),
+            )
+        }
+    }
+
+    private fun markPlatformFailure(
+        record: PhoneMicrophoneAudioRecordHandle,
+        failure: Throwable,
+    ) {
+        Log.e(TAG, "phone microphone execution owner failed", failure)
+        synchronized(lock) {
+            val current = currentSnapshotLocked()
+            updateStateLocked(
+                current.copy(
+                    route = record.route,
+                    clientSilenced = record.clientSilenced,
+                    foregroundPhase = PhoneMicrophoneForegroundDiagnostics.state.value.phase,
                     lastFailure = failure.describePhoneMicrophoneCaptureFailure(),
                 ),
             )
@@ -478,9 +583,10 @@ internal class PhoneMicrophoneCapture(
         failure: Throwable? = null,
     ): PhoneMicrophoneStartResult.Rejected {
         synchronized(lock) {
+            val phase = if (closed) PhoneMicrophoneCapturePhase.CLOSED else PhoneMicrophoneCapturePhase.FAILED
             updateStateLocked(
                 currentSnapshotLocked().copy(
-                    phase = PhoneMicrophoneCapturePhase.FAILED,
+                    phase = phase,
                     foregroundPhase = PhoneMicrophoneForegroundDiagnostics.state.value.phase,
                     wakeLockHeld = executionLease.snapshot().wakeLockHeld,
                     lastFailure = failure?.describePhoneMicrophoneCaptureFailure() ?: message,
@@ -551,12 +657,12 @@ private class AndroidPhoneMicrophoneAudioRecordHandle(
         get() = record.audioSessionId
 
     override val route: PhoneMicrophoneRoute?
-        get() = record.routedDevice?.toPhoneMicrophoneRoute()
+        get() = runCatching { record.routedDevice?.toPhoneMicrophoneRoute() }.getOrNull()
 
     override val clientSilenced: Boolean?
         get() =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                record.activeRecordingConfiguration?.isClientSilenced
+                runCatching { record.activeRecordingConfiguration?.isClientSilenced }.getOrNull()
             } else {
                 null
             }
@@ -581,7 +687,7 @@ private fun AudioDeviceInfo.toPhoneMicrophoneRoute(): PhoneMicrophoneRoute =
     PhoneMicrophoneRoute(
         deviceId = id,
         deviceType = type,
-        productName = productName?.toString().orEmpty().ifBlank { "未知音频设备" },
+        productName = productName.toString().ifBlank { "未知音频设备" },
     )
 
 private fun Throwable.describePhoneMicrophoneCaptureFailure(): String =
