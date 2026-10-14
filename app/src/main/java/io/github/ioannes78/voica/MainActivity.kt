@@ -9,8 +9,10 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.ble.DeviceRepository
@@ -40,6 +42,31 @@ class MainActivity : ComponentActivity() {
         setContent {
             val themeSettings by appContainer.themeSettingsStore.settings.collectAsState()
             val realtimeOpenRequest by AppRealtimeNavigation.request.collectAsState()
+            val recordingOpenRequest by AppRecordingNavigation.request.collectAsState()
+            val realtimeState by appContainer.stage16ARealtimeRuntime.state.collectAsState()
+            val recordingTokenAtRealtimeOpen =
+                remember(realtimeOpenRequest?.token) {
+                    recordingOpenRequest?.token
+                }
+
+            LaunchedEffect(
+                realtimeOpenRequest?.token,
+                realtimeState.phase,
+                recordingOpenRequest?.token,
+                recordingTokenAtRealtimeOpen,
+            ) {
+                if (
+                    shouldDismissRealtimeOverlayForRecordingHandoff(
+                        realtimeRequest = realtimeOpenRequest,
+                        realtimePhase = realtimeState.phase,
+                        recordingTokenAtOpen = recordingTokenAtRealtimeOpen,
+                        currentRecordingToken = recordingOpenRequest?.token,
+                    )
+                ) {
+                    AppRealtimeNavigation.dismiss()
+                }
+            }
+
             VoicaTheme(settings = themeSettings) {
                 CompositionLocalProvider(
                     LocalStage16ARealtimeRuntime provides appContainer.stage16ARealtimeRuntime,
