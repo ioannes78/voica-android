@@ -32,6 +32,17 @@ internal object AppRealtimeNavigation {
     }
 }
 
+internal fun shouldDismissRealtimeOverlayForRecordingHandoff(
+    realtimeRequest: AppRealtimeOpenRequest?,
+    realtimePhase: Stage16ARealtimeUiPhase,
+    recordingTokenAtOpen: Long?,
+    currentRecordingToken: Long?,
+): Boolean =
+    realtimeRequest != null &&
+        realtimePhase == Stage16ARealtimeUiPhase.COMPLETED &&
+        currentRecordingToken != null &&
+        currentRecordingToken != recordingTokenAtOpen
+
 internal fun isRealtimeOpenAction(action: String?): Boolean = action == ACTION_OPEN_REALTIME
 
 internal fun realtimeOpenIntent(context: Context): Intent =
