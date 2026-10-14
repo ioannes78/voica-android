@@ -61,6 +61,9 @@ data class Stage16ARealtimePerformanceDiagnosticsSnapshot(
     val maxPunctuationMs: Double,
     val localAudioSink: RealtimeLocalAudioSideSinkSnapshot? = null,
     val startup: RealtimeStreamingAsrStartupSnapshot? = null,
+    val bufferOverflowEpisodes: Long = 0L,
+    val bufferMaxConsecutiveDroppedFrames: Long = 0L,
+    val bufferMaxConsecutiveDroppedSamples: Long = 0L,
 ) {
     fun toDiagnosticsText(): String = buildString {
         appendLine("[Stage 16A 实时性能]")
@@ -123,8 +126,14 @@ data class Stage16ARealtimePerformanceDiagnosticsSnapshot(
         }
         appendLine(
             "buffer=${format1(currentBufferDepthMs)}ms peak=${format1(peakBufferDepthMs)}ms " +
-                "overflow=$bufferOverflowEvents droppedFrames=$bufferDroppedFrames " +
-                "droppedSamples=$bufferDroppedSamples",
+                "overflowEvents=$bufferOverflowEvents overflowEpisodes=$bufferOverflowEpisodes " +
+                "droppedFrames=$bufferDroppedFrames droppedSamples=$bufferDroppedSamples " +
+                "droppedDuration=${format1(samplesToMs(bufferDroppedSamples))}ms",
+        )
+        appendLine(
+            "bufferOverflowMaxConsecutive droppedFrames=$bufferMaxConsecutiveDroppedFrames " +
+                "droppedSamples=$bufferMaxConsecutiveDroppedSamples " +
+                "droppedDuration=${format1(samplesToMs(bufferMaxConsecutiveDroppedSamples))}ms",
         )
         appendLine(
             "bufferDiscontinuity=$bufferUpstreamDiscontinuities " +
@@ -191,6 +200,7 @@ data class Stage16ARealtimePerformanceDiagnosticsSnapshot(
         "latency$label count=${value.count} avg=${formatNullableMs(value.averageMs)} " +
             "min=${formatNullableMs(value.minMs)} max=${formatNullableMs(value.maxMs)}"
 
+    private fun samplesToMs(samples: Long): Double = samples.toDouble() * 1_000.0 / 16_000.0
     private fun formatNullableMs(value: Double?): String = value?.let { "${format1(it)}ms" } ?: "n/a"
     private fun formatNullableInt(value: Int?): String = value?.toString() ?: "n/a"
     private fun formatNullableSignedInt(value: Int?): String =
@@ -318,6 +328,9 @@ internal fun Stage16ARealtimePipelinePerformanceSnapshot.toDiagnosticsSnapshot(
         maxPunctuationMs = native.maxPunctuationNanos.toMilliseconds(),
         localAudioSink = localAudioSink,
         startup = startup,
+        bufferOverflowEpisodes = buffer.overflowEpisodes,
+        bufferMaxConsecutiveDroppedFrames = buffer.maxConsecutiveDroppedFrames,
+        bufferMaxConsecutiveDroppedSamples = buffer.maxConsecutiveDroppedSamples,
     )
 }
 
