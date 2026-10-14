@@ -130,16 +130,27 @@ class RealtimeTranscriptPersistenceCoordinator(
                 state == RealtimeTranscriptionStateValue.CANCELLED ||
                 state == RealtimeTranscriptionStateValue.FAILED,
         ) { "realtime run requires a terminal state" }
+        val durableState =
+            Stage16AStopFinalizationPolicy.durableTerminalState(
+                requestedState = state,
+                endReason = endReason,
+                errorCode = errorCode,
+            )
         val run = checkNotNull(repository.getRun(runId)) { "realtime run does not exist" }
         val now = clockMs()
         repository.updateRun(
             run.copy(
-                state = state,
+                state = durableState,
                 updatedAtMs = now,
                 endedAtMs = now,
                 endReason = endReason,
                 errorCode = errorCode,
-                errorMessage = errorMessage,
+                errorMessage =
+                    if (Stage16AStopFinalizationPolicy.isDegradedCompletedStop(errorCode)) {
+                        Stage16AStopFinalizationPolicy.DEGRADED_MESSAGE
+                    } else {
+                        errorMessage
+                    },
             ),
         )
     }
