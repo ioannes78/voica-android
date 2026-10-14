@@ -136,6 +136,17 @@ class RealtimeAudioRuntime(
         return current.controller.start()
     }
 
+    /**
+     * Local-only reconnect seam. The caller must invoke this only after Stage 16 has confirmed that
+     * the newly connected transport belongs to the same still-active physical device recording.
+     * This method does not send START/RESUME to the recorder card.
+     */
+    suspend fun attachConfirmedExistingRecording(): RealtimeExistingRecordingAttachOutcome {
+        val current = ensureOwner()
+            ?: return unavailableExistingRecordingAttach()
+        return current.controller.attachConfirmedExistingRecording()
+    }
+
     suspend fun pause(): RealtimeCommandOutcome {
         val current = currentOwner()
             ?: return unavailable(RealtimeControlCommand.PAUSE)
@@ -481,6 +492,17 @@ class RealtimeAudioRuntime(
             } else {
                 RealtimeCommandFailure.TRANSPORT_NOT_READY
             },
+        )
+
+    private fun unavailableExistingRecordingAttach(): RealtimeExistingRecordingAttachOutcome =
+        RealtimeExistingRecordingAttachOutcome(
+            success = false,
+            failure = if (closed) {
+                RealtimeExistingRecordingAttachFailure.CLOSED
+            } else {
+                RealtimeExistingRecordingAttachFailure.TRANSPORT_NOT_READY
+            },
+            transportGeneration = transport.currentGeneration,
         )
 
     private fun RealtimeCanonicalPcmFrame.withSessionId(sessionId: Long): RealtimeCanonicalPcmFrame =

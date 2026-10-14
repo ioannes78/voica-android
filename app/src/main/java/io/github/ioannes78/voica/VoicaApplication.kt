@@ -13,6 +13,7 @@ import io.github.ioannes78.voica.database.AiSummaryRepository
 import io.github.ioannes78.voica.database.DiarizationActiveRunReader
 import io.github.ioannes78.voica.database.DiarizationRepository
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
+import io.github.ioannes78.voica.database.RealtimeTranscriptPersistenceRepository
 import io.github.ioannes78.voica.database.SearchIndexRebuilder
 import io.github.ioannes78.voica.database.Stage12CContentRepository
 import io.github.ioannes78.voica.database.Stage13B5Qa4Repository
@@ -334,11 +335,66 @@ class AppContainer(
             decoderFactory = realtimeOpusBackend,
         )
 
+    private val stage16ARealtimePersistenceRepository =
+        RealtimeTranscriptPersistenceRepository(recordingDatabase)
+    private val stage16ARealtimeModelResolver =
+        Stage16ARealtimeModelResolver(
+            activeModel = { modelId -> modelManager.activeModel(modelId) },
+            modelUseRegistry = modelUseRegistry,
+        )
+    private val stage16ARealtimeEngineProvider =
+        SherpaStage16ARealtimeEngineProvider(
+            assetManager = application.assets,
+        )
+    private val stage16ARealtimePipelineFactory =
+        Stage16ARealtimePipelineBundleFactory(
+            scope = applicationScope,
+            engineProvider = stage16ARealtimeEngineProvider,
+            context = application,
+        )
+    private val stage16ALocalAudioRoot = File(recordingsRoot, "realtime")
+
+    val stage16ARealtimeRuntime =
+        Stage16ARealtimeRuntime(
+            scope = applicationScope,
+            recorderRuntime = realtimeAudioRuntime,
+            modelResolver = stage16ARealtimeModelResolver,
+            pipelineFactory = stage16ARealtimePipelineFactory,
+            persistenceRepository = stage16ARealtimePersistenceRepository,
+            localAudioRoot = stage16ALocalAudioRoot,
+            localSpeechSettings = { localSpeechSettingsStore.settings.value },
+            currentDeviceFilename = { defaultDeviceRepository.recordingState.value.filename },
+        )
+
     val deviceRepository: DeviceRepository =
         ServiceBackedDeviceRepository(
             context = application,
             delegate = deviceRuntime,
             scope = applicationScope,
+            realtimeState = stage16ARealtimeRuntime.state,
+        )
+
+    val stage16ARecordingLifecycleCoordinator =
+        Stage16ARecordingLifecycleCoordinator(
+            scope = applicationScope,
+            realtimeState = stage16ARealtimeRuntime.state,
+            deviceRepository = deviceRepository,
+            database = recordingDatabase,
+            recordingsRoot = recordingsRoot,
+            searchIndexRebuilder = searchIndexRebuilder,
+            transportGeneration = { realtimeAudioRuntime.snapshot().transportGeneration },
+        )
+
+    val stage16AReconnectRecoveryCoordinator =
+        Stage16AReconnectRecoveryCoordinator(
+            scope = applicationScope,
+            connectionStates = deviceRepository.connectionState,
+            recordingStates = deviceRepository.recordingState,
+            realtimeState = stage16ARealtimeRuntime.state,
+            transportGeneration = { realtimeAudioRuntime.snapshot().transportGeneration },
+            syncRecordingState = deviceRepository::syncRecordingState,
+            recover = stage16ARealtimeRuntime::recoverAfterReconnect,
+            recordingAnchorProvider = stage16ARecordingLifecycleCoordinator::anchorForRun,
         )
 
     val realtimeRecordingLifecycleReconciler =

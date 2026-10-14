@@ -39,8 +39,12 @@ import androidx.room.RoomDatabase
         SearchDocumentEntity::class,
         SearchDocumentFtsEntity::class,
         SearchIndexStateEntity::class,
+        RealtimeTranscriptionRunEntity::class,
+        RealtimeMediaSegmentEntity::class,
+        RealtimeUtteranceEntity::class,
+        RealtimeTimelineMarkerEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true,
 )
 abstract class VoicaDatabase : RoomDatabase() {
@@ -60,6 +64,8 @@ abstract class VoicaDatabase : RoomDatabase() {
 
     abstract fun searchDao(): SearchDao
 
+    abstract fun realtimeTranscriptionDao(): RealtimeTranscriptionDao
+
     companion object {
         const val DATABASE_NAME = "voica-recordings.db"
 
@@ -68,6 +74,7 @@ abstract class VoicaDatabase : RoomDatabase() {
                 context.applicationContext,
                 VoicaDatabase::class.java,
                 DATABASE_NAME,
-            ).build()
+            ).addMigrations(MIGRATION_12_13)
+                .build()
     }
 }

@@ -48,10 +48,11 @@ class RealtimeRecordingLifecycleReconcilerTest {
             status = RecordingStatus.Idle,
             freshness = RecordingFreshness.FRESH,
         )
-        awaitRequested(reconciler, 1)
+        awaitCompleted(reconciler, 1)
 
         assertEquals(1, calls.get())
         assertEquals(1L, reconciler.snapshot.value.recordingEndedTransitions)
+        assertEquals(1L, reconciler.snapshot.value.reconciliationRequested)
         assertEquals(1L, reconciler.snapshot.value.reconciliationCompleted)
         assertEquals(RealtimeRecordingReconciliationResult.COMPLETED_AFTER_STOP, reconciler.snapshot.value.lastResult)
 
@@ -119,9 +120,10 @@ class RealtimeRecordingLifecycleReconcilerTest {
             status = RecordingStatus.Idle,
             freshness = RecordingFreshness.FRESH,
         )
-        awaitEndedTransitions(reconciler, 1)
+        awaitNoOp(reconciler, 1)
 
         assertEquals(0, calls.get())
+        assertEquals(1L, reconciler.snapshot.value.recordingEndedTransitions)
         assertEquals(0L, reconciler.snapshot.value.reconciliationRequested)
         assertEquals(1L, reconciler.snapshot.value.reconciliationNoOp)
         assertEquals(RealtimeRecordingReconciliationResult.NO_OP, reconciler.snapshot.value.lastResult)
@@ -137,21 +139,21 @@ class RealtimeRecordingLifecycleReconcilerTest {
         }
     }
 
-    private suspend fun awaitRequested(
+    private suspend fun awaitCompleted(
         reconciler: RealtimeRecordingLifecycleReconciler,
         expected: Long,
     ) {
         withTimeout(2_000L) {
-            while (reconciler.snapshot.value.reconciliationRequested < expected) delay(5)
+            while (reconciler.snapshot.value.reconciliationCompleted < expected) delay(5)
         }
     }
 
-    private suspend fun awaitEndedTransitions(
+    private suspend fun awaitNoOp(
         reconciler: RealtimeRecordingLifecycleReconciler,
         expected: Long,
     ) {
         withTimeout(2_000L) {
-            while (reconciler.snapshot.value.recordingEndedTransitions < expected) delay(5)
+            while (reconciler.snapshot.value.reconciliationNoOp < expected) delay(5)
         }
     }
 }

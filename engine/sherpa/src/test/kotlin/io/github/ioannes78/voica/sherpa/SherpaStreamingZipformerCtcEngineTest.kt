@@ -7,8 +7,11 @@ import io.github.ioannes78.voica.model.ModelKind
 import io.github.ioannes78.voica.model.ModelPackageFormat
 import io.github.ioannes78.voica.model.ModelSourceType
 import io.github.ioannes78.voica.model.RedistributionPolicy
+import java.io.File
 import java.nio.file.Files
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -27,6 +30,63 @@ class SherpaStreamingZipformerCtcEngineTest {
             assertEquals("tokens.txt", files.tokens.name)
         } finally {
             directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun ctcEngineUsesTrueStreamingPartialFinalResetAndCloseLifecycle() {
+        runBlocking {
+            val nativeSession =
+                FakeNativeSession(
+                    partial =
+                        NativeStreamingAsrResult(
+                            text = "中文",
+                            tokens = listOf("中", "文"),
+                            timestampsSeconds = listOf(0.1F, 0.2F),
+                        ),
+                    final =
+                        NativeStreamingAsrResult(
+                            text = "中文识别",
+                            tokens = listOf("中", "文", "识", "别"),
+                            timestampsSeconds = listOf(0.1F, 0.2F, 0.3F, 0.4F),
+                        ),
+                )
+            val nativeRecognizer = FakeNativeRecognizer(nativeSession)
+            val engine =
+                SherpaStreamingZipformerCtcEngine(
+                    model = descriptor(SherpaStreamingAsrModelType.ZIPFORMER2_CTC),
+                    modelFiles =
+                        Zipformer2CtcModelFiles(
+                            model = File("/tmp/model.int8.onnx"),
+                            tokens = File("/tmp/tokens.txt"),
+                        ),
+                    settings = StreamingZipformerSettings(nativeModelType = ""),
+                    recognizerFactory =
+                        NativeStreamingCtcRecognizerFactory { _, _ -> nativeRecognizer },
+                )
+
+            val session = engine.openSession()
+            session.acceptSamples(ShortArray(16_000) { 16_384 })
+            val partial = session.decode()
+            assertFalse(partial.isFinal)
+            assertEquals("中文", partial.text)
+            assertEquals(1_600L, partial.tokens.first().startSampleOffset)
+
+            val final = session.finishInput()
+            assertTrue(final.isFinal)
+            assertEquals("中文识别", final.text)
+            assertEquals(6_400L, final.tokens.last().startSampleOffset)
+            assertEquals(0.5F, nativeSession.lastAcceptedSamples.first(), 0.0001F)
+
+            session.reset()
+            session.acceptSamples(ShortArray(1_600))
+            assertFalse(session.decode().isFinal)
+            assertEquals(1, nativeSession.resetCount)
+
+            session.close()
+            engine.close()
+            assertTrue(nativeSession.closed)
+            assertTrue(nativeRecognizer.closed)
         }
     }
 
@@ -101,4 +161,41 @@ class SherpaStreamingZipformerCtcEngineTest {
             autoUpdateEligible = false,
             runtimeModelType = runtimeModelType,
         )
+
+    private class FakeNativeRecognizer(
+        private val session: FakeNativeSession,
+    ) : NativeStreamingRecognizer {
+        var closed = false
+
+        override fun openSession(): NativeStreamingAsrSession = session
+
+        override fun close() {
+            closed = true
+        }
+    }
+
+    private class FakeNativeSession(
+        private val partial: NativeStreamingAsrResult,
+        private val final: NativeStreamingAsrResult,
+    ) : NativeStreamingAsrSession {
+        var lastAcceptedSamples = FloatArray(0)
+        var resetCount = 0
+        var closed = false
+
+        override fun acceptWaveform(samples: FloatArray) {
+            lastAcceptedSamples = samples.copyOf()
+        }
+
+        override fun decodeReady(): NativeStreamingAsrResult = partial
+
+        override fun finishInput(): NativeStreamingAsrResult = final
+
+        override fun reset() {
+            resetCount += 1
+        }
+
+        override fun close() {
+            closed = true
+        }
+    }
 }

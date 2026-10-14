@@ -2,15 +2,18 @@
 
 状态：**APPROVED / AUTHORITATIVE AMENDMENT**
 
-日期：2026-10-11
+日期：2026-10-12
 
 本文件是 `docs/ROADMAP_STAGE_13C_PLUS.md` 中 Stage 16A 与 Stage 18 部分的版本化修订说明。
 
-它不改写 Stage 13A 历史 Freeze，不改变既有 Stage 顺序；只为后续 realtime streaming 开发补充 Stage 15 已验证后的 canonical media seam、audio shaping 与 cloud socket lifecycle 约束。
+它不改写 Stage 13A 历史 Freeze；为 realtime streaming 开发补充 Stage 15 已验证后的 canonical media seam、audio shaping、Stage 16A 产品化与 cloud socket lifecycle 约束。
 
-如果本文件与 `ROADMAP_STAGE_13C_PLUS.md` 旧的 Stage 16A / Stage 18 简略描述冲突，以本文件以及下列版本化契约为准：
+如果本文件与 `ROADMAP_STAGE_13C_PLUS.md` 旧的 Stage 16A / Stage 18 简略描述冲突，以本文件以及下列版本化契约/修订为准：
 
-- Stage 16A：`docs/STAGE_16_STREAMING_CONTRACT_V3.md`
+- Stage 16A streaming contract：`docs/STAGE_16_STREAMING_CONTRACT_V3.md`
+- Stage 16A approved requirements：`docs/STAGE_16A_REQUIREMENTS_V1.md`
+- Stage 16A approved development plan：`docs/STAGE_16A_DEVELOPMENT_PLAN_V1.md`
+- Stage 16A+ product amendment：`docs/ROADMAP_STAGE_16A_PRODUCT_AMENDMENT.md`
 - Stage 18：`docs/STAGE_18_CLOUD_STREAMING_CONTRACT_V1.md`
 
 Stage 13A 历史冻结文件 `docs/STAGE_16_STREAMING_CONTRACT_V2.md` 继续保留为历史事实。
@@ -75,7 +78,7 @@ App disconnect、BLE loss、Bluetooth Off、App/手机异常只能终止手机�
 
 `RealtimeCanonicalAudioSource → StreamingAudioBuffer → StreamingChunkAssembler → Streaming VAD → Streaming ASR`
 
-新增正式要求：
+Stage 16A 核心只实现 QS668/CB08 本地 True Streaming ASR；手机麦克风与 Timeline Annotation 分别后移到 Stage 16A.1 / 16A.2，避免扩大首次 true-streaming QA 面。
 
 ### 3.1 StreamingAudioBuffer
 
@@ -128,7 +131,23 @@ App disconnect、BLE loss、Bluetooth Off、App/手机异常只能终止手机�
 
 Stage 15 runtime 本身继续保持底层职责：transport close 后安全进入 clean terminal/IDLE boundary，不自行决定产品层是否自动恢复 realtime transcription。
 
+### 3.6 Stage 16A UI / UX
+
+正式产品方向冻结为：**阅读器 + 极简录音控制器**。
+
+- 正文优先；
+- PARTIAL 只作为底部 mutable tail；
+- STABLE/FINAL 为稳定正文；
+- 智能自动跟随，用户上滑后停止强制滚动；
+- 轻量波形；
+- Pause/Resume + Stop；
+- 断联/恢复使用 timeline separator；
+- Mini Live Bar / notification 返回当前实时页；
+- 工程诊断信息只进入 diagnostics UI。
+
 Stage 16A 详细权威契约：`docs/STAGE_16_STREAMING_CONTRACT_V3.md`。
+
+已确认开发规划：`docs/STAGE_16A_DEVELOPMENT_PLAN_V1.md`。
 
 ---
 
@@ -212,35 +231,60 @@ Stage 18详细权威契约：`docs/STAGE_18_CLOUD_STREAMING_CONTRACT_V1.md`。
 - 手机保存断联前已收到的一段 realtime audio，并用文件名区分该 segment；
 - 设备重新连接后，官方 App 自动恢复实时转录；
 - 重连到最终结束的 realtime audio 再保存为另一独立 segment；
-- 全程无断联时，录音结束后手机本地 realtime audio 使用与录音卡一致的正式文件名。
+- 全程无断联时，录音结束后手机本地 realtime audio 使用与录音卡一致的正式文件名；
+- 没有录音卡时可使用手机麦克风录音/转录；
+- 转录过程中可做笔记、标记和添加照片。
 
-Voica 采用相同的产品语义边界，但仍必须独立实现：
-
-- 不复制官方源码；
-- 不机械翻译实现；
-- 以 Voica Stage 15 真机 canonical facts 与自身测试为最终实现依据；
-- 不因参考官方行为而破坏 generation/session/discontinuity 隔离。
+Voica 只参考产品/架构事实，不复制官方源码或机械翻译实现。新增的手机麦克风与笔记/照片功能在 Voica 中分别产品化为 Stage 16A.1 与 Stage 16A.2，并采用独立的 canonical-source 与 Recording Timeline Annotation 设计。
 
 ---
 
-## 6. Stage 顺序不变
+## 6. Stage 16A.1 — Phone Microphone Capture
 
-继续：
+Stage 16A Final Freeze/Handoff 后执行。
 
-`Stage 15 → Stage 16A → Stage 16B → Stage 17 → Stage 18 → Stage 19A/B/C/D → Stage 20`
+目标：没有录音卡时使用 Android 手机麦克风完成正式本地录音 + 实时转写，并复用 Stage 16A buffer/chunk/VAD/ASR/stabilizer/punctuation/UI。
 
-本修订不会把 Stage 18 WebSocket逻辑提前进入 Stage 15，也不会把云端网络scheduler提前进入 Stage 16A本地ASR实现。
+Stage 16A 只预留 audio-source-independent seam，不提前实现 `AudioRecord`。
+
+权威规划：`docs/STAGE_16A_1_PHONE_MICROPHONE_PLAN.md`。
 
 ---
 
-## 7. 后续开发接管门禁
+## 7. Stage 16A.2 — Timeline Annotation
+
+Stage 16A.1 后执行。
+
+目标：建立 Recording Timeline Annotation，支持快速标记、文字笔记、拍照、相册附件，并绑定 Recording/media timeline，而不是绑定某个 TranscriptVersion 的字符位置。
+
+Annotation Room schema 在 Stage 16A.2 开始时基于届时真实 schema 重新设计；Stage 16A 不提前创建空表。
+
+权威规划：`docs/STAGE_16A_2_TIMELINE_ANNOTATION_PLAN.md`。
+
+---
+
+## 8. Stage 顺序
+
+更新为：
+
+`Stage 15 → Stage 16A → Stage 16A.1 → Stage 16A.2 → Stage 16B → Stage 17 → Stage 18 → Stage 19A/B/C/D → Stage 20`
+
+本修订不会把 Stage 18 WebSocket逻辑提前进入 Stage 15/16A，也不会把手机麦克风或 Annotation 混入 Stage 16A 核心首次 QA。
+
+---
+
+## 9. 后续开发接管门禁
 
 开始 Stage 16A 前必须至少重新读取：
 
 - Stage 15 Final Freeze/Handoff
 - `docs/STAGE_16_STREAMING_CONTRACT_V3.md`
+- `docs/STAGE_16A_REQUIREMENTS_V1.md`
+- `docs/STAGE_16A_DEVELOPMENT_PLAN_V1.md`
 - 本路线图修订
 - 当前 model/runtime capability
+
+开始 Stage 16A.1 / 16A.2 时均必须重新核验 main、open PR、CI、Room、版本、当前 Stage 16A Freeze/Handoff，并再次完成各自需求/规划确认门禁。
 
 开始 Stage 18 前必须至少重新读取：
 
@@ -250,4 +294,4 @@ Voica 采用相同的产品语义边界，但仍必须独立实现：
 - Provider最新官方 realtime协议/capability
 - 当前 privacy/security约束
 
-任何具体 Provider heartbeat interval、chunk duration、reconnect buffer秒数都必须在对应 Stage 开发时重新核验官方协议并通过真机/网络故障测试，不能把本规划中的示例值当成永久协议事实。
+任何具体 Provider heartbeat interval、chunk duration、reconnect buffer秒数都必须在对应 Stage 开发时重新核验官方协议并通过真机/网络故障测试，不能把规划中的示例值当成永久协议事实。

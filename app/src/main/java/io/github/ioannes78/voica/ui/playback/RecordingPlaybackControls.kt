@@ -51,9 +51,12 @@ import io.github.ioannes78.voica.CanonicalGenerationProgress
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.VoicaApplication
 import io.github.ioannes78.voica.audio.PlaybackState
+import io.github.ioannes78.voica.database.RecordingLibraryItem
+import io.github.ioannes78.voica.ui.library.localMediaAvailability
 import java.io.File
 import java.util.Locale
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.flowOf
 
 @Composable
 fun RecordingPlaybackCard(
@@ -70,6 +73,21 @@ fun RecordingPlaybackCard(
     val snapshot by playbackViewModel.snapshot.collectAsState()
     val context = LocalContext.current
     val application = context.applicationContext as? VoicaApplication
+    val recordingsFlow =
+        remember(application) {
+            application?.container?.recordingLibraryRepository?.recordings
+                ?: flowOf(emptyList<RecordingLibraryItem>())
+        }
+    val libraryRecordings by recordingsFlow.collectAsState(initial = emptyList())
+    val mediaAvailability =
+        libraryRecordings.firstOrNull { item -> item.id == recordingId }?.localMediaAvailability()
+    val effectiveCanonicalReady = canonicalReady || mediaAvailability?.canonicalReady == true
+    val remotePendingOnly =
+        mediaAvailability?.let { availability ->
+            availability.remotePending &&
+                !availability.originalReady &&
+                !effectiveCanonicalReady
+        } == true
     val waveformRepository =
         remember(application) {
             application?.let { app ->
@@ -83,9 +101,9 @@ fun RecordingPlaybackCard(
         mutableStateOf<WaveformOverviewResult>(WaveformOverviewResult.Unavailable)
     }
 
-    LaunchedEffect(recordingId, canonicalReady, waveformRepository) {
+    LaunchedEffect(recordingId, effectiveCanonicalReady, waveformRepository) {
         waveform = WaveformOverviewResult.Unavailable
-        if (canonicalReady && waveformRepository != null) {
+        if (effectiveCanonicalReady && waveformRepository != null) {
             waveform = waveformRepository.load(recordingId)
         }
     }
@@ -109,13 +127,15 @@ fun RecordingPlaybackCard(
             }
         }
 
-        !canonicalReady && (canonicalProgress != null || canonicalBusy) ->
+        !effectiveCanonicalReady && (canonicalProgress != null || canonicalBusy) ->
             CanonicalGeneratingPlaybackCard(
                 progress = canonicalProgress,
                 onCancel = onCancelCanonical,
             )
 
-        !canonicalReady ->
+        remotePendingOnly -> RemotePendingPlaybackCard()
+
+        !effectiveCanonicalReady ->
             CanonicalRequiredPlaybackCard(onGenerateCanonical = onGenerateCanonical)
 
         snapshot.recordingId == recordingId ->
@@ -135,6 +155,46 @@ fun RecordingPlaybackCard(
                 recordingId = recordingId,
                 playbackViewModel = playbackViewModel,
             )
+    }
+}
+
+@Composable
+private fun RemotePendingPlaybackCard() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            ),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.GraphicEq,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp),
+                )
+                Text(
+                    "完整录音待下载",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            Text(
+                "完整音频仍在录音卡，尚未下载到手机。下载完成后可生成标准 WAV、播放、转写和导出。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

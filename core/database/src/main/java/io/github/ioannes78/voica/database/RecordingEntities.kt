@@ -22,6 +22,13 @@ object AudioAssetRole {
     const val DEVICE_WAV = "DEVICE_WAV"
     const val IMPORTED_ORIGINAL = "IMPORTED_ORIGINAL"
     const val CANONICAL_WAV = "CANONICAL_WAV"
+
+    /**
+     * Metadata-only recorder-card source known to exist remotely but not downloaded locally yet.
+     * It participates in library size presentation, but is deliberately excluded from playback,
+     * canonical conversion and local-storage accounting until a real DEVICE_OPUS/WAV is registered.
+     */
+    const val REMOTE_PENDING = "REMOTE_PENDING"
 }
 
 object AudioIntegrityState {

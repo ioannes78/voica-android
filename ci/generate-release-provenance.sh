@@ -46,6 +46,25 @@ fi
 source_head_sha="${VOICA_SOURCE_HEAD_SHA:-${GITHUB_SHA:-unknown}}"
 workflow_build_sha="${GITHUB_SHA:-unknown}"
 
+database_file="core/database/src/main/java/io/github/ioannes78/voica/database/VoicaDatabase.kt"
+test -f "${database_file}"
+room_schema="$(
+    python3 - "${database_file}" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+text = Path(sys.argv[1]).read_text()
+database = re.search(r"@Database\s*\((.*?)\)\s*abstract\s+class\s+VoicaDatabase", text, re.S)
+if not database:
+    raise SystemExit("Unable to locate VoicaDatabase @Database declaration")
+version = re.search(r"\bversion\s*=\s*(\d+)", database.group(1))
+if not version:
+    raise SystemExit("Unable to derive current Room schema version")
+print(version.group(1))
+PY
+)"
+
 signer="${ANDROID_SDK_ROOT:?ANDROID_SDK_ROOT is required}/build-tools/36.0.0/apksigner"
 production_signed=false
 production_cert_sha256="UNPROVISIONED"
@@ -64,7 +83,7 @@ workflow_build_sha=${workflow_build_sha}
 version_code=${VOICA_VERSION_CODE}
 release_version_name=${VOICA_RELEASE_VERSION}
 releaseqa_version_name=${VOICA_RELEASEQA_VERSION}
-room_schema=12
+room_schema=${room_schema}
 abi=arm64-v8a
 production_model_channel_commit=${VOICA_MODEL_CHANNEL_COMMIT}
 production_model_manifest_version=${VOICA_MODEL_MANIFEST_VERSION}
