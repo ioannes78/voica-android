@@ -118,14 +118,7 @@ class Stage16ARealtimePipelineBundle internal constructor(
         check(runner.snapshot().state != RealtimeTranscriptionSessionRunnerState.RUNNING) {
             "Stage 16A pipeline cannot release while realtime runner is active"
         }
-        val finalDiagnostics = runCatching {
-            performanceSnapshot().toDiagnosticsSnapshot(
-                outputLatency = outputLatencyProbe.snapshot(),
-                systemMetrics = systemMetricsProbe?.snapshot(),
-                localAudioSink = localAudioSink.snapshot(),
-                startup = processor.startupSnapshot(),
-            )
-        }.getOrNull()
+        var finalDiagnostics: Stage16ARealtimePerformanceDiagnosticsSnapshot? = null
 
         try {
             audioActivitySink?.close()
@@ -134,7 +127,27 @@ class Stage16ARealtimePipelineBundle internal constructor(
             audioActivitySink?.join()
             localAudioSink.join()
             durableOutputSink.join()
+            finalDiagnostics =
+                runCatching {
+                    performanceSnapshot().toDiagnosticsSnapshot(
+                        outputLatency = outputLatencyProbe.snapshot(),
+                        systemMetrics = systemMetricsProbe?.snapshot(),
+                        localAudioSink = localAudioSink.snapshot(),
+                        startup = processor.startupSnapshot(),
+                    )
+                }.getOrNull()
         } finally {
+            if (finalDiagnostics == null) {
+                finalDiagnostics =
+                    runCatching {
+                        performanceSnapshot().toDiagnosticsSnapshot(
+                            outputLatency = outputLatencyProbe.snapshot(),
+                            systemMetrics = systemMetricsProbe?.snapshot(),
+                            localAudioSink = localAudioSink.snapshot(),
+                            startup = processor.startupSnapshot(),
+                        )
+                    }.getOrNull()
+            }
             try {
                 processor.close()
                 runCatching { punctuationEngine?.close() }
