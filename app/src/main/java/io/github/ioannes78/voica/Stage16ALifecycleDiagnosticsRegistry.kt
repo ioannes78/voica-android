@@ -22,9 +22,15 @@ object Stage16ALifecycleDiagnosticsRegistry {
         val lifecycle = pair.first?.let { runCatching(it).getOrNull() } ?: return null
         val reconnect = pair.second?.let { runCatching(it).getOrNull() } ?: Stage16AReconnectRecoverySnapshot()
         val executionLease = Stage16ARealtimeExecutionLeaseDiagnostics.snapshot()
+        val qaSlowdown = Stage16AQaArtificialAsrSlowdown.snapshot().takeIf { it.enabled }
         return buildString {
             append(lifecycle.toDiagnosticsText(reconnect))
             executionLease?.let { snapshot ->
+                appendLine()
+                appendLine()
+                append(snapshot.toDiagnosticsText())
+            }
+            qaSlowdown?.let { snapshot ->
                 appendLine()
                 appendLine()
                 append(snapshot.toDiagnosticsText())
@@ -38,5 +44,6 @@ object Stage16ALifecycleDiagnosticsRegistry {
             reconnectProvider = null
         }
         Stage16ARealtimeExecutionLeaseDiagnostics.clearForTest()
+        Stage16AQaArtificialAsrSlowdown.clearForTest()
     }
 }

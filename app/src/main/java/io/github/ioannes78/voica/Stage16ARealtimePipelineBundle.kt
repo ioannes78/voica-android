@@ -16,6 +16,7 @@ import io.github.ioannes78.voica.transcript.RealtimeStablePunctuationMode
 import io.github.ioannes78.voica.transcript.RealtimeStreamingAsrConfig
 import io.github.ioannes78.voica.transcript.RealtimeStreamingAsrProcessor
 import io.github.ioannes78.voica.transcript.RealtimeTranscriptCoordinator
+import io.github.ioannes78.voica.transcript.RealtimeTranscriptionEventProcessor
 import io.github.ioannes78.voica.transcript.RealtimeTranscriptionOutput
 import io.github.ioannes78.voica.transcript.RealtimeTranscriptionOutputSink
 import io.github.ioannes78.voica.transcript.RealtimeTranscriptionPipeline
@@ -177,6 +178,7 @@ class Stage16ARealtimePipelineBundleFactory(
                 namespace = UUID.randomUUID().toString(),
             )
 
+        Stage16AQaArtificialAsrSlowdown.beginRun()
         val performanceProbe = Stage16ARealtimePerformanceProbe()
         val systemMetricsProbe = context?.let(Stage16ARealtimeSystemMetricsProbe::android)
         val executionLease = context?.let(Stage16ARealtimeExecutionLease::android)
@@ -259,10 +261,16 @@ class Stage16ARealtimePipelineBundleFactory(
                 Stage16ARealtimeOutputLatencyProbe(
                     RealtimeTranscriptionPipelineEventProcessor(transcriptionPipeline),
                 )
+            val runnerProcessor: RealtimeTranscriptionEventProcessor =
+                if (Stage16AQaArtificialAsrSlowdown.isEnabled) {
+                    Stage16AQaArtificialSlowdownEventProcessor(outputLatencyProbe)
+                } else {
+                    outputLatencyProbe
+                }
             val runner =
                 RealtimeTranscriptionSessionRunner(
                     coordinator = coordinator,
-                    processor = outputLatencyProbe,
+                    processor = runnerProcessor,
                     outputSinks = listOf(durableOutputSink) + liveOutputSinks,
                 )
 

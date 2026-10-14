@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import io.github.ioannes78.voica.Stage16AQaArtificialAsrSlowdown
 import io.github.ioannes78.voica.Stage16ARealtimeActionOutcome
 import io.github.ioannes78.voica.Stage16ARealtimeRuntime
 import io.github.ioannes78.voica.Stage16ARealtimeUiPhase
@@ -154,6 +155,7 @@ fun RealtimeTranscriptionScreen(
     var readerFollowMode by remember { mutableStateOf(RealtimeReaderFollowMode.FOLLOW_LIVE) }
     var actionInFlight by remember { mutableStateOf(false) }
     var actionMessage by remember { mutableStateOf<String?>(null) }
+    var qaSlowdownMessage by remember { mutableStateOf<String?>(null) }
 
     val showEmptyReader =
         state.finalized.isEmpty() &&
@@ -172,6 +174,7 @@ fun RealtimeTranscriptionScreen(
 
     LaunchedEffect(state.runId) {
         readerFollowMode = RealtimeReaderFollowMode.FOLLOW_LIVE
+        qaSlowdownMessage = null
     }
     LaunchedEffect(readerDragged, readerAtBottom) {
         readerFollowMode =
@@ -210,6 +213,15 @@ fun RealtimeTranscriptionScreen(
                 actionMessage = outcome.message ?: outcome.code ?: "操作未完成"
             }
         }
+    }
+
+    fun armQaSlowdown(delayMs: Long) {
+        qaSlowdownMessage =
+            if (Stage16AQaArtificialAsrSlowdown.armOnce(delayMs)) {
+                "S10 已武装：下一个 PCM 处理将暂停 ${delayMs} ms"
+            } else {
+                "S10 未武装：已有延迟待触发或当前不是 QA 包"
+            }
     }
 
     Column(
@@ -355,6 +367,37 @@ fun RealtimeTranscriptionScreen(
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.padding(bottom = 8.dp),
             )
+        }
+
+        if (
+            Stage16AQaArtificialAsrSlowdown.isEnabled &&
+            state.phase == Stage16ARealtimeUiPhase.ACTIVE
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = { armQaSlowdown(1_200L) },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("S10-A 延迟 1.2s")
+                }
+                OutlinedButton(
+                    onClick = { armQaSlowdown(2_500L) },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("S10-B 延迟 2.5s")
+                }
+            }
+            qaSlowdownMessage?.let { message ->
+                Text(
+                    message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
+                )
+            }
         }
 
         RealtimeControls(
