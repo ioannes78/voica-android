@@ -5,6 +5,8 @@ import io.github.ioannes78.voica.database.AudioIntegrityState
 import io.github.ioannes78.voica.database.AudioValidationState
 import io.github.ioannes78.voica.database.RecordingAsset
 import io.github.ioannes78.voica.database.RecordingLibraryItem
+import io.github.ioannes78.voica.database.RecordingSourceType
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -22,10 +24,13 @@ class RecordingLocalMediaAvailabilityTest {
             ).localMediaAvailability()
 
         assertTrue(availability.remotePending)
+        assertTrue(availability.remoteOriginalAvailable)
+        assertEquals(1024L, availability.remoteOriginalSizeBytes)
         assertFalse(availability.originalReady)
         assertFalse(availability.canonicalReady)
         assertFalse(availability.canGenerateCanonical)
         assertFalse(availability.canShareOrExport)
+        assertTrue(availability.canRequestOriginal)
     }
 
     @Test
@@ -40,13 +45,15 @@ class RecordingLocalMediaAvailabilityTest {
             ).localMediaAvailability()
 
         assertFalse(availability.remotePending)
+        assertFalse(availability.remoteOriginalAvailable)
         assertTrue(availability.originalReady)
         assertTrue(availability.canGenerateCanonical)
         assertTrue(availability.canShareOrExport)
+        assertTrue(availability.canRequestOriginal)
     }
 
     @Test
-    fun directCanonicalCanBeSharedWithoutOriginalSource() {
+    fun directCanonicalRetainsOnDemandRecorderOpusCapability() {
         val availability =
             recording(
                 asset(
@@ -58,15 +65,41 @@ class RecordingLocalMediaAvailabilityTest {
 
         assertFalse(availability.originalReady)
         assertTrue(availability.canonicalReady)
+        assertTrue(availability.remoteOriginalAvailable)
+        assertEquals(1024L, availability.remoteOriginalSizeBytes)
         assertFalse(availability.canGenerateCanonical)
         assertTrue(availability.canShareOrExport)
+        assertTrue(availability.canRequestOriginal)
+        assertEquals(AudioAssetRole.CANONICAL_WAV, availability.displayAsset?.role)
     }
 
-    private fun recording(vararg assets: RecordingAsset): RecordingLibraryItem =
+    @Test
+    fun localImportDoesNotInventRemoteOriginal() {
+        val item =
+            recording(
+                asset(
+                    role = AudioAssetRole.CANONICAL_WAV,
+                    integrity = AudioIntegrityState.VERIFIED,
+                    validation = AudioValidationState.VALID,
+                ),
+                sourceType = RecordingSourceType.LOCAL_IMPORT,
+                remoteIdentity = null,
+                remoteDeviceAddress = null,
+            )
+
+        assertFalse(item.localMediaAvailability().remoteOriginalAvailable)
+    }
+
+    private fun recording(
+        vararg assets: RecordingAsset,
+        sourceType: String = RecordingSourceType.DEVICE_DOWNLOAD,
+        remoteIdentity: String? = "D1:A1:C4:00:0A:5E|note.opus|1024|10",
+        remoteDeviceAddress: String? = "D1:A1:C4:00:0A:5E",
+    ): RecordingLibraryItem =
         RecordingLibraryItem(
             id = "recording-1",
-            sourceRemoteIdentity = "device|note.opus|1024|10",
-            sourceDeviceAddress = "D1:A1:C4:00:0A:5E",
+            sourceRemoteIdentity = remoteIdentity,
+            sourceDeviceAddress = remoteDeviceAddress,
             originalFilename = "note.opus",
             displayName = "note",
             recordedAtLocalIso = null,
@@ -75,6 +108,7 @@ class RecordingLocalMediaAvailabilityTest {
             state = "ACTIVE",
             assets = assets.toList(),
             derivations = emptyList(),
+            sourceType = sourceType,
         )
 
     private fun asset(
