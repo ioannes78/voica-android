@@ -34,7 +34,18 @@ class Stage16ARealtimePerformanceDiagnosticsTest {
         assertTrue(text.contains("thermal start=LIGHT(1) current=MODERATE(2)"))
         assertTrue(text.contains("batteryCapacity start=80% current=78% delta=-2%"))
         assertTrue(text.contains("batteryCharge start=3000000uAh current=2920000uAh delta=-80000uAh"))
-        assertTrue(text.contains("buffer=40.0ms peak=120.0ms overflow=2 droppedFrames=3 droppedSamples=640"))
+        assertTrue(
+            text.contains(
+                "buffer=40.0ms peak=120.0ms overflowEvents=2 overflowEpisodes=1 " +
+                    "droppedFrames=3 droppedSamples=640 droppedDuration=40.0ms",
+            ),
+        )
+        assertTrue(
+            text.contains(
+                "bufferOverflowMaxConsecutive droppedFrames=2 droppedSamples=640 " +
+                    "droppedDuration=40.0ms",
+            ),
+        )
         assertTrue(text.contains("outputSink offers=20 rejects=1 failures=2"))
         assertTrue(text.contains("sideSink offers=30 rejects=4 failures=5"))
         assertTrue(
@@ -205,5 +216,8 @@ class Stage16ARealtimePerformanceDiagnosticsTest {
                 lastFailureCode = RealtimeLocalAudioFailureCode.WORKER_FAILURE,
                 lastFailureMessage = "existing target",
             ),
+        bufferOverflowEpisodes = 1,
+        bufferMaxConsecutiveDroppedFrames = 2,
+        bufferMaxConsecutiveDroppedSamples = 640,
     )
 }
