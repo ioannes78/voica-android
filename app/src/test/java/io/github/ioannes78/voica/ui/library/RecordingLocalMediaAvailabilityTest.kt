@@ -90,6 +90,14 @@ class RecordingLocalMediaAvailabilityTest {
         assertFalse(item.localMediaAvailability().remoteOriginalAvailable)
     }
 
+    @Test
+    fun rawOpusIsPresentedAsProductOpus() {
+        assertEquals("OPUS", "RAW_OPUS".toProductAudioFormatLabel())
+        assertEquals("OPUS", "opus".toProductAudioFormatLabel())
+        assertEquals("WAV", "wav".toProductAudioFormatLabel())
+        assertEquals("--", null.toProductAudioFormatLabel())
+    }
+
     private fun recording(
         vararg assets: RecordingAsset,
         sourceType: String = RecordingSourceType.DEVICE_DOWNLOAD,
