@@ -74,9 +74,10 @@ data class StreamingAudioBufferSnapshot(
  * Engine/provider-independent bounded Stage 16 PCM buffer.
  *
  * PCM is bounded independently from low-volume lifecycle events, mirroring the Stage 15 canonical
- * seam. If a slow Stage 16 consumer would exceed the PCM hard limits, stale queued PCM is dropped,
- * a [StreamingAudioEvent.Discontinuity] is inserted, and the newest frame is retained. No silence or
- * wall-clock-derived samples are synthesized.
+ * seam. If a slow Stage 16 consumer would exceed the PCM hard limits, only the oldest PCM required
+ * to make room is dropped. A [StreamingAudioEvent.Discontinuity] is inserted immediately before the
+ * first retained PCM after the gap, preserving the newest possible backlog without hiding loss. No
+ * silence or wall-clock-derived samples are synthesized.
  */
 class StreamingAudioBuffer(
     private val maxQueuedPcmFrames: Int,
@@ -137,19 +138,7 @@ class StreamingAudioBuffer(
 
             val recoveredOverflow = if (wouldOverflow) {
                 overflowEvents += 1
-                val dropped = dropQueuedPcmLocked()
-                if (dropped.first > 0L) {
-                    queue.addLast(
-                        StreamingAudioEvent.Discontinuity(
-                            sessionId = frame.sessionId,
-                            epochId = frame.epochId,
-                            resumeAtSampleIndex = frame.startSampleIndex,
-                            reason = StreamingAudioDiscontinuityReason.BUFFER_OVERFLOW,
-                            droppedFrames = dropped.first,
-                            droppedSamples = dropped.second,
-                        ),
-                    )
-                }
+                dropOldestPcmUntilFitsLocked(frame)
                 true
             } else {
                 false
@@ -235,26 +224,69 @@ class StreamingAudioBuffer(
         return event
     }
 
-    private fun dropQueuedPcmLocked(): Pair<Long, Long> {
-        if (queuedPcmFrames == 0) return 0L to 0L
-
+    /**
+     * Removes the minimum number of oldest PCM frames needed for [incoming] to fit. Lifecycle events
+     * keep their relative order. The generated discontinuity sits immediately before the first
+     * retained PCM after the gap; if no queued PCM remains it is placed before [incoming].
+     */
+    private fun dropOldestPcmUntilFitsLocked(incoming: RealtimeCanonicalPcmFrame) {
         val retained = ArrayDeque<StreamingAudioEvent>()
+        var remainingFrames = queuedPcmFrames
+        var remainingSamples = queuedPcmSamples
         var removedFrames = 0L
         var removedSamples = 0L
+        var discontinuityInserted = false
+
         while (queue.isNotEmpty()) {
-            when (val event = queue.removeFirst()) {
-                is StreamingAudioEvent.PcmFrame -> {
-                    removedFrames += 1
-                    removedSamples += event.frame.sampleCount
-                }
-                else -> retained.addLast(event)
+            val event = queue.removeFirst()
+            if (event is StreamingAudioEvent.PcmFrame &&
+                (remainingFrames + 1 > maxQueuedPcmFrames ||
+                    remainingSamples + incoming.sampleCount > maxQueuedPcmSamples)
+            ) {
+                remainingFrames -= 1
+                remainingSamples -= event.frame.sampleCount
+                removedFrames += 1
+                removedSamples += event.frame.sampleCount
+                continue
             }
+
+            if (event is StreamingAudioEvent.PcmFrame &&
+                removedFrames > 0L &&
+                !discontinuityInserted
+            ) {
+                retained.addLast(
+                    StreamingAudioEvent.Discontinuity(
+                        sessionId = event.frame.sessionId,
+                        epochId = event.frame.epochId,
+                        resumeAtSampleIndex = event.frame.startSampleIndex,
+                        reason = StreamingAudioDiscontinuityReason.BUFFER_OVERFLOW,
+                        droppedFrames = removedFrames,
+                        droppedSamples = removedSamples,
+                    ),
+                )
+                discontinuityInserted = true
+            }
+            retained.addLast(event)
         }
+
+        check(removedFrames > 0L) { "overflow recovery must drop at least one queued PCM frame" }
+        if (!discontinuityInserted) {
+            retained.addLast(
+                StreamingAudioEvent.Discontinuity(
+                    sessionId = incoming.sessionId,
+                    epochId = incoming.epochId,
+                    resumeAtSampleIndex = incoming.startSampleIndex,
+                    reason = StreamingAudioDiscontinuityReason.BUFFER_OVERFLOW,
+                    droppedFrames = removedFrames,
+                    droppedSamples = removedSamples,
+                ),
+            )
+        }
+
         queue.addAll(retained)
-        queuedPcmFrames = 0
-        queuedPcmSamples = 0
+        queuedPcmFrames = remainingFrames
+        queuedPcmSamples = remainingSamples
         droppedFrames += removedFrames
         droppedSamples += removedSamples
-        return removedFrames to removedSamples
     }
 }

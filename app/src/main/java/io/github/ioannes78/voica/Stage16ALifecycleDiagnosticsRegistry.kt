@@ -21,7 +21,15 @@ object Stage16ALifecycleDiagnosticsRegistry {
         val pair = synchronized(lock) { lifecycleProvider to reconnectProvider }
         val lifecycle = pair.first?.let { runCatching(it).getOrNull() } ?: return null
         val reconnect = pair.second?.let { runCatching(it).getOrNull() } ?: Stage16AReconnectRecoverySnapshot()
-        return lifecycle.toDiagnosticsText(reconnect)
+        val executionLease = Stage16ARealtimeExecutionLeaseDiagnostics.snapshot()
+        return buildString {
+            append(lifecycle.toDiagnosticsText(reconnect))
+            executionLease?.let { snapshot ->
+                appendLine()
+                appendLine()
+                append(snapshot.toDiagnosticsText())
+            }
+        }
     }
 
     internal fun clearForTest() {
@@ -29,5 +37,6 @@ object Stage16ALifecycleDiagnosticsRegistry {
             lifecycleProvider = null
             reconnectProvider = null
         }
+        Stage16ARealtimeExecutionLeaseDiagnostics.clearForTest()
     }
 }

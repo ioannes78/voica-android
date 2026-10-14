@@ -30,8 +30,9 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 data class Stage16ARealtimePipelineConfig(
-    val maxBufferedPcmFrames: Int = 32,
-    val maxBufferedPcmSamples: Int = 10_240,
+    /** Two seconds of canonical 16 kHz PCM absorbs screen-off scheduling jitter without hiding loss. */
+    val maxBufferedPcmFrames: Int = 100,
+    val maxBufferedPcmSamples: Int = 32_000,
     /** Provisional bring-up candidate; final product value is frozen only after P7 device benchmark. */
     val targetChunkSamples: Int = 1_280,
     val vadPrerollSamples: Int = 3_200,
@@ -84,6 +85,7 @@ class Stage16ARealtimePipelineBundle internal constructor(
     private val asrEngine: StreamingAsrEngine,
     private val vadEngine: StreamingVadEngine,
     private val punctuationEngine: PunctuationEngine?,
+    private val executionLease: Stage16ARealtimeExecutionLease?,
 ) {
     private val released = AtomicBoolean(false)
 
@@ -139,7 +141,11 @@ class Stage16ARealtimePipelineBundle internal constructor(
                 runCatching { asrEngine.close() }
                 models.close()
             } finally {
-                Stage16ARealtimePerformanceDiagnostics.retainAndDetach(this, finalDiagnostics)
+                try {
+                    Stage16ARealtimePerformanceDiagnostics.retainAndDetach(this, finalDiagnostics)
+                } finally {
+                    executionLease?.release()
+                }
             }
         }
     }
@@ -173,6 +179,7 @@ class Stage16ARealtimePipelineBundleFactory(
 
         val performanceProbe = Stage16ARealtimePerformanceProbe()
         val systemMetricsProbe = context?.let(Stage16ARealtimeSystemMetricsProbe::android)
+        val executionLease = context?.let(Stage16ARealtimeExecutionLease::android)
         var asrEngine: StreamingAsrEngine? = null
         var vadEngine: StreamingVadEngine? = null
         var punctuationEngine: PunctuationEngine? = null
@@ -180,6 +187,7 @@ class Stage16ARealtimePipelineBundleFactory(
         var localAudioSink: RealtimeLocalAudioSideSink? = null
         var durableOutputSink: RealtimeDurableOutputSink? = null
         var audioActivitySink: Stage16ARealtimeAudioActivitySink? = null
+        var executionLeaseAcquired = false
 
         try {
             asrEngine = performanceProbe.wrapAsr(engineProvider.openAsr(models.models))
@@ -258,6 +266,7 @@ class Stage16ARealtimePipelineBundleFactory(
                     outputSinks = listOf(durableOutputSink) + liveOutputSinks,
                 )
 
+            executionLeaseAcquired = executionLease?.acquire() == true
             return Stage16ARealtimePipelineBundle(
                 models = models,
                 runner = runner,
@@ -273,6 +282,7 @@ class Stage16ARealtimePipelineBundleFactory(
                 asrEngine = asrEngine,
                 vadEngine = vadEngine,
                 punctuationEngine = punctuationEngine,
+                executionLease = executionLease,
             )
         } catch (failure: Throwable) {
             audioActivitySink?.close()
@@ -282,6 +292,7 @@ class Stage16ARealtimePipelineBundleFactory(
             runCatching { punctuationEngine?.close() }
             runCatching { vadEngine?.close() }
             runCatching { asrEngine?.close() }
+            if (executionLeaseAcquired) executionLease?.release()
             models.close()
             throw failure
         }

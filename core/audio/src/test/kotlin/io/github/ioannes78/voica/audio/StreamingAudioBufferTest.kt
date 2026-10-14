@@ -28,7 +28,7 @@ class StreamingAudioBufferTest {
     }
 
     @Test
-    fun `overflow drops stale pcm preserves lifecycle and resumes at live edge`() = runBlocking {
+    fun `overflow drops only oldest pcm needed to preserve live backlog`() = runBlocking {
         val buffer = StreamingAudioBuffer(maxQueuedPcmFrames = 2, maxQueuedPcmSamples = 640)
         buffer.offer(StreamingAudioEvent.SessionStarted(1))
         buffer.offer(StreamingAudioEvent.EpochStarted(1, 1, RealtimeCanonicalEpochStartReason.SESSION_START))
@@ -42,16 +42,35 @@ class StreamingAudioBufferTest {
         assertTrue(buffer.receive() is StreamingAudioEvent.EpochStarted)
         val gap = buffer.receive() as StreamingAudioEvent.Discontinuity
         assertEquals(StreamingAudioDiscontinuityReason.BUFFER_OVERFLOW, gap.reason)
-        assertEquals(2L, gap.droppedFrames)
-        assertEquals(640L, gap.droppedSamples)
-        assertEquals(640L, gap.resumeAtSampleIndex)
+        assertEquals(1L, gap.droppedFrames)
+        assertEquals(320L, gap.droppedSamples)
+        assertEquals(320L, gap.resumeAtSampleIndex)
+        val retained = buffer.receive() as StreamingAudioEvent.PcmFrame
+        assertEquals(320L, retained.frame.startSampleIndex)
         val live = buffer.receive() as StreamingAudioEvent.PcmFrame
         assertEquals(640L, live.frame.startSampleIndex)
 
         val snapshot = buffer.snapshot()
         assertEquals(1L, snapshot.overflowEvents)
-        assertEquals(2L, snapshot.droppedFrames)
-        assertEquals(640L, snapshot.droppedSamples)
+        assertEquals(1L, snapshot.droppedFrames)
+        assertEquals(320L, snapshot.droppedSamples)
+    }
+
+    @Test
+    fun `sample budget drops minimum number of oldest frames`() = runBlocking {
+        val buffer = StreamingAudioBuffer(maxQueuedPcmFrames = 8, maxQueuedPcmSamples = 800)
+        buffer.offer(StreamingAudioEvent.PcmFrame(frame(start = 0)))
+        buffer.offer(StreamingAudioEvent.PcmFrame(frame(start = 320)))
+
+        val result = buffer.offer(StreamingAudioEvent.PcmFrame(frame(start = 640)))
+        assertEquals(StreamingAudioBufferOfferResult.ACCEPTED_AFTER_DISCONTINUITY, result)
+
+        val gap = buffer.receive() as StreamingAudioEvent.Discontinuity
+        assertEquals(1L, gap.droppedFrames)
+        assertEquals(320L, gap.droppedSamples)
+        assertEquals(320L, gap.resumeAtSampleIndex)
+        assertEquals(320L, (buffer.receive() as StreamingAudioEvent.PcmFrame).frame.startSampleIndex)
+        assertEquals(640L, (buffer.receive() as StreamingAudioEvent.PcmFrame).frame.startSampleIndex)
     }
 
     @Test
