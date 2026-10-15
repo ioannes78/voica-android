@@ -36,6 +36,7 @@ class LongTaskNotificationController(
     private val taskCompletionNoticeStore: TaskCompletionNoticeStore,
 ) {
     private val notificationManager = context.getSystemService(NotificationManager::class.java)
+    private val presentationStore = NotificationPresentationStore(context)
     private var transcriptionTaskId: String? = null
     private var diarizationTaskId: String? = null
     private var transcriptionAttentionNotificationIds: Set<Int> = emptySet()
@@ -250,18 +251,22 @@ class LongTaskNotificationController(
                     val nextIds = mutableSetOf<Int>()
                     tasks.forEach { task ->
                         val notificationId = transcriptionAttentionNotificationId(task.id)
-                        nextIds += notificationId
-                        notificationManager.notify(
-                            notificationId,
-                            buildAttentionNotification(
-                                title = transcriptionAttentionTitle(task),
-                                text = transcriptionAttentionText(task),
-                                recordingId = task.recordingId,
-                                recordingName = recordingName(recordings, task.recordingId),
-                                destination = RecordingDetailDestination.TRANSCRIPT,
-                                requestCode = notificationId,
-                            ),
-                        )
+                        val logicalKey = transcriptionAttentionPresentationKey(task)
+                        if (!presentationStore.isSystemDismissed(logicalKey)) {
+                            nextIds += notificationId
+                            notificationManager.notify(
+                                notificationId,
+                                buildAttentionNotification(
+                                    title = transcriptionAttentionTitle(task),
+                                    text = transcriptionAttentionText(task),
+                                    recordingId = task.recordingId,
+                                    recordingName = recordingName(recordings, task.recordingId),
+                                    destination = RecordingDetailDestination.TRANSCRIPT,
+                                    requestCode = notificationId,
+                                    logicalKey = logicalKey,
+                                ),
+                            )
+                        }
                     }
                     (transcriptionAttentionNotificationIds - nextIds).forEach(notificationManager::cancel)
                     transcriptionAttentionNotificationIds = nextIds
@@ -279,18 +284,22 @@ class LongTaskNotificationController(
                     val nextIds = mutableSetOf<Int>()
                     tasks.forEach { task ->
                         val notificationId = aiAttentionNotificationId(task.id)
-                        nextIds += notificationId
-                        notificationManager.notify(
-                            notificationId,
-                            buildAttentionNotification(
-                                title = aiAttentionTitle(task),
-                                text = aiAttentionText(task),
-                                recordingId = task.recordingId,
-                                recordingName = recordingName(recordings, task.recordingId),
-                                destination = RecordingDetailDestination.SUMMARY,
-                                requestCode = notificationId,
-                            ),
-                        )
+                        val logicalKey = aiSummaryAttentionPresentationKey(task)
+                        if (!presentationStore.isSystemDismissed(logicalKey)) {
+                            nextIds += notificationId
+                            notificationManager.notify(
+                                notificationId,
+                                buildAttentionNotification(
+                                    title = aiAttentionTitle(task),
+                                    text = aiAttentionText(task),
+                                    recordingId = task.recordingId,
+                                    recordingName = recordingName(recordings, task.recordingId),
+                                    destination = RecordingDetailDestination.SUMMARY,
+                                    requestCode = notificationId,
+                                    logicalKey = logicalKey,
+                                ),
+                            )
+                        }
                     }
                     (aiAttentionNotificationIds - nextIds).forEach(notificationManager::cancel)
                     aiAttentionNotificationIds = nextIds
@@ -308,15 +317,19 @@ class LongTaskNotificationController(
                     val nextIds = mutableSetOf<Int>()
                     notices.forEach { notice ->
                         val notificationId = completionNotificationId(notice)
-                        nextIds += notificationId
-                        notificationManager.notify(
-                            notificationId,
-                            buildCompletionNotification(
-                                notice = notice,
-                                recordingName = recordingName(recordings, notice.recordingId),
-                                notificationId = notificationId,
-                            ),
-                        )
+                        val logicalKey = taskCompletionPresentationKey(notice)
+                        if (!presentationStore.isSystemDismissed(logicalKey)) {
+                            nextIds += notificationId
+                            notificationManager.notify(
+                                notificationId,
+                                buildCompletionNotification(
+                                    notice = notice,
+                                    recordingName = recordingName(recordings, notice.recordingId),
+                                    notificationId = notificationId,
+                                    logicalKey = logicalKey,
+                                ),
+                            )
+                        }
                     }
                     (completionNotificationIds - nextIds).forEach(notificationManager::cancel)
                     completionNotificationIds = nextIds
@@ -331,8 +344,9 @@ class LongTaskNotificationController(
         recordingName: String,
         destination: RecordingDetailDestination,
         requestCode: Int,
+        logicalKey: String,
     ): Notification =
-        Notification.Builder(context, ATTENTION_CHANNEL_ID)
+        Notification.Builder(context, VoicaNotificationChannels.TASK_ATTENTION)
             .setSmallIcon(android.R.drawable.stat_notify_error)
             .setContentTitle(title)
             .setContentText(text)
@@ -345,8 +359,15 @@ class LongTaskNotificationController(
                     destination = destination,
                 ),
             )
+            .setDeleteIntent(
+                notificationDismissPendingIntent(
+                    context = context,
+                    logicalKey = logicalKey,
+                    requestCode = requestCode,
+                ),
+            )
             .setOnlyAlertOnce(true)
-            .setOngoing(true)
+            .setOngoing(false)
             .setAutoCancel(false)
             .setCategory(Notification.CATEGORY_ERROR)
             .build()
@@ -355,6 +376,7 @@ class LongTaskNotificationController(
         notice: TaskCompletionNotice,
         recordingName: String,
         notificationId: Int,
+        logicalKey: String,
     ): Notification {
         val destination =
             when (notice.kind) {
@@ -375,7 +397,7 @@ class LongTaskNotificationController(
                 TaskCompletionKind.DIARIZATION -> "说话人识别结果已生成"
                 TaskCompletionKind.AI_SUMMARY -> "总结结果已生成"
             }
-        return Notification.Builder(context, RESULT_CHANNEL_ID)
+        return Notification.Builder(context, VoicaNotificationChannels.TASK_RESULT)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setContentTitle(title)
             .setContentText(text)
@@ -388,6 +410,13 @@ class LongTaskNotificationController(
                     destination = destination,
                     completionKind = notice.kind,
                     completionTaskId = notice.taskId,
+                ),
+            )
+            .setDeleteIntent(
+                notificationDismissPendingIntent(
+                    context = context,
+                    logicalKey = logicalKey,
+                    requestCode = notificationId,
                 ),
             )
             .setOnlyAlertOnce(true)
@@ -412,7 +441,7 @@ class LongTaskNotificationController(
                 null
             }
         val builder =
-            Notification.Builder(context, AI_SUMMARY_CHANNEL_ID)
+            Notification.Builder(context, VoicaNotificationChannels.AI_SUMMARY)
                 .setSmallIcon(android.R.drawable.stat_sys_upload)
                 .setContentTitle(title)
                 .setContentText(buildAiSummaryLabel(running))
@@ -441,7 +470,7 @@ class LongTaskNotificationController(
     private fun createAiSummaryChannel() {
         notificationManager.createNotificationChannel(
             NotificationChannel(
-                AI_SUMMARY_CHANNEL_ID,
+                VoicaNotificationChannels.AI_SUMMARY,
                 "AI 总结",
                 NotificationManager.IMPORTANCE_LOW,
             ).apply {
@@ -454,7 +483,7 @@ class LongTaskNotificationController(
     private fun createAttentionChannel() {
         notificationManager.createNotificationChannel(
             NotificationChannel(
-                ATTENTION_CHANNEL_ID,
+                VoicaNotificationChannels.TASK_ATTENTION,
                 "任务需要处理",
                 NotificationManager.IMPORTANCE_DEFAULT,
             ).apply {
@@ -467,7 +496,7 @@ class LongTaskNotificationController(
     private fun createResultChannel() {
         notificationManager.createNotificationChannel(
             NotificationChannel(
-                RESULT_CHANNEL_ID,
+                VoicaNotificationChannels.TASK_RESULT,
                 "任务结果",
                 NotificationManager.IMPORTANCE_LOW,
             ).apply {
@@ -478,9 +507,6 @@ class LongTaskNotificationController(
     }
 
     companion object {
-        private const val AI_SUMMARY_CHANNEL_ID = "voica-ai-summary"
-        private const val ATTENTION_CHANNEL_ID = "voica-task-attention"
-        private const val RESULT_CHANNEL_ID = "voica-task-result"
         private const val AI_SUMMARY_NOTIFICATION_ID = 13051
         private const val AI_SUMMARY_REQUEST_CONTENT = 13051
         private const val AI_SUMMARY_REQUEST_CANCEL = 13052
@@ -594,17 +620,26 @@ internal fun aiAttentionText(entity: AiSummaryEntity): String =
         else -> "AI 服务请求失败，请选择 AI 服务或模型重新生成"
     }
 
+internal fun transcriptionAttentionPresentationKey(entity: TranscriptionEntity): String =
+    "attention:transcription:${entity.id}:${entity.state}"
+
+internal fun aiSummaryAttentionPresentationKey(entity: AiSummaryEntity): String =
+    "attention:summary:${entity.id}:${entity.status}"
+
+internal fun taskCompletionPresentationKey(notice: TaskCompletionNotice): String =
+    "completion:${notice.kind.name}:${notice.taskId}"
+
 private fun transcriptionAttentionNotificationId(id: String): Int =
-    TRANSCRIPTION_ATTENTION_BASE + stableNotificationOffset(id)
+    LongTaskNotificationController.TRANSCRIPTION_ATTENTION_BASE + stableNotificationOffset(id)
 
 private fun aiAttentionNotificationId(id: String): Int =
-    AI_ATTENTION_BASE + stableNotificationOffset(id)
+    LongTaskNotificationController.AI_ATTENTION_BASE + stableNotificationOffset(id)
 
 private fun completionNotificationId(notice: TaskCompletionNotice): Int =
     when (notice.kind) {
-        TaskCompletionKind.TRANSCRIPTION -> TRANSCRIPTION_COMPLETION_BASE
-        TaskCompletionKind.DIARIZATION -> DIARIZATION_COMPLETION_BASE
-        TaskCompletionKind.AI_SUMMARY -> AI_SUMMARY_COMPLETION_BASE
+        TaskCompletionKind.TRANSCRIPTION -> LongTaskNotificationController.TRANSCRIPTION_COMPLETION_BASE
+        TaskCompletionKind.DIARIZATION -> LongTaskNotificationController.DIARIZATION_COMPLETION_BASE
+        TaskCompletionKind.AI_SUMMARY -> LongTaskNotificationController.AI_SUMMARY_COMPLETION_BASE
     } + stableNotificationOffset(notice.taskId)
 
 private fun stableNotificationOffset(id: String): Int =
