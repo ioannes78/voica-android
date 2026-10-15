@@ -43,6 +43,7 @@ class PhoneMicrophoneRecordingRuntimeTest {
 
         assertEquals(PhoneMicrophoneRecordingActionResult.Success, runtime.pause())
         assertEquals(PhoneMicrophoneRecordingPhase.PAUSED, runtime.state.value.phase)
+        assertFalse(runtime.state.value.hadCaptureInterruption)
         assertEquals(80L, runtime.state.value.durationMs)
 
         assertEquals(PhoneMicrophoneRecordingActionResult.Success, runtime.resume())
@@ -55,6 +56,7 @@ class PhoneMicrophoneRecordingRuntimeTest {
         assertEquals(1_920L, stopped.sampleCount)
         assertEquals(44L + 1_920L * 2L, stopped.sizeBytes)
         assertEquals(2, runtime.state.value.completedEpochs)
+        assertFalse(runtime.state.value.hadCaptureInterruption)
         assertEquals(120L, runtime.state.value.durationMs)
         assertEquals(2, capture.startCalls)
         assertEquals(1, registrations.size)
@@ -84,6 +86,7 @@ class PhoneMicrophoneRecordingRuntimeTest {
         assertEquals(1L, runtime.state.value.postWriteOffers)
         assertEquals(1L, runtime.state.value.postWriteOfferFailures)
         assertTrue(runtime.state.value.lastPostWriteFailure?.contains("synthetic realtime failure") == true)
+        assertFalse(runtime.state.value.hadCaptureInterruption)
         assertEquals(1, registrations.size)
         assertTrue(stopped.file.isFile)
         assertEquals(44L + 1_280L * 2L, stopped.file.length())
@@ -104,6 +107,7 @@ class PhoneMicrophoneRecordingRuntimeTest {
         stopped as PhoneMicrophoneRecordingStopResult.Failed
         assertEquals(1_280L, runtime.state.value.writtenSamples)
         assertEquals(PhoneMicrophoneRecordingPhase.FAILED, runtime.state.value.phase)
+        assertTrue(runtime.state.value.hadCaptureInterruption)
         assertTrue(runtime.state.value.finalizedSha256?.isNotBlank() == true)
         assertTrue(runtime.state.value.lastFailure?.contains("异常中断") == true)
         assertTrue(runtime.state.value.lastFailure?.contains("synthetic microphone interruption") == true)
@@ -117,6 +121,38 @@ class PhoneMicrophoneRecordingRuntimeTest {
         val preserved = checkNotNull(stopped.preservedFile)
         assertTrue(preserved.isFile)
         assertEquals(44L + 1_280L * 2L, preserved.length())
+
+        runtime.close()
+    }
+
+    @Test
+    fun `capture interruption remains abnormal after pause resume recovery`() = runBlocking {
+        val runtime = runtime()
+        assertTrue(runtime.start() is PhoneMicrophoneRecordingStartResult.Started)
+        capture.emit(ShortArray(640) { 11 })
+        capture.fail("temporary microphone ownership loss")
+
+        assertEquals(PhoneMicrophoneRecordingActionResult.Success, runtime.pause())
+        assertEquals(PhoneMicrophoneRecordingPhase.PAUSED, runtime.state.value.phase)
+        assertTrue(runtime.state.value.hadCaptureInterruption)
+        assertTrue(runtime.state.value.lastFailure?.contains("temporary microphone ownership loss") == true)
+
+        assertEquals(PhoneMicrophoneRecordingActionResult.Success, runtime.resume())
+        capture.emit(ShortArray(640) { 22 })
+        val stopped = runtime.stop()
+
+        assertTrue(stopped is PhoneMicrophoneRecordingStopResult.Failed)
+        stopped as PhoneMicrophoneRecordingStopResult.Failed
+        assertTrue(runtime.state.value.hadCaptureInterruption)
+        assertEquals(2, runtime.state.value.completedEpochs)
+        assertEquals(80L, runtime.state.value.durationMs)
+        assertEquals(2, capture.startCalls)
+        assertEquals(1, registrations.size)
+        assertEquals(
+            "手机录音（异常中断） 2026-10-15 08:00:00",
+            registrations.single().displayName,
+        )
+        assertTrue(checkNotNull(stopped.preservedFile).isFile)
 
         runtime.close()
     }
