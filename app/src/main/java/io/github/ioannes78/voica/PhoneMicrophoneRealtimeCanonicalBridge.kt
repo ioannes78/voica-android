@@ -19,6 +19,9 @@ data class PhoneMicrophoneRealtimeBridgeSnapshot(
     val discontinuityAcceptedFrames: Long,
     val rejectedFrames: Long,
     val rejectedSamples: Long,
+    val lastOfferedSessionId: Long?,
+    val lastOfferedEpochId: Long?,
+    val lastOfferedEndSampleIndexExclusive: Long?,
     val closed: Boolean,
     val source: RealtimeCanonicalAudioSourceSnapshot,
 ) {
@@ -28,7 +31,11 @@ data class PhoneMicrophoneRealtimeBridgeSnapshot(
             "offeredFrames=$offeredFrames offeredSamples=$offeredSamples " +
                 "acceptedFrames=$acceptedFrames acceptedAfterDiscontinuity=$discontinuityAcceptedFrames",
         )
-        appendLine("rejectedFrames=$rejectedFrames rejectedSamples=$rejectedSamples closed=$closed")
+        appendLine(
+            "rejectedFrames=$rejectedFrames rejectedSamples=$rejectedSamples " +
+                "lastBoundary=${lastOfferedSessionId ?: -1}/${lastOfferedEpochId ?: -1}/" +
+                "${lastOfferedEndSampleIndexExclusive ?: -1} closed=$closed",
+        )
         append(
             "source queuedFrames=${source.queuedPcmFrames} queuedSamples=${source.queuedPcmSamples} " +
                 "overflow=${source.overflowEvents} droppedFrames=${source.droppedFrames} " +
@@ -61,10 +68,19 @@ internal class PhoneMicrophoneRealtimeCanonicalBridge(
     private val discontinuityAcceptedFrames = AtomicLong(0L)
     private val rejectedFrames = AtomicLong(0L)
     private val rejectedSamples = AtomicLong(0L)
+    private val boundaryLock = Any()
+    private var lastOfferedSessionId: Long? = null
+    private var lastOfferedEpochId: Long? = null
+    private var lastOfferedEndSampleIndexExclusive: Long? = null
 
     override fun offer(frame: RealtimeCanonicalPcmFrame) {
         offeredFrames.incrementAndGet()
         offeredSamples.addAndGet(frame.sampleCount.toLong())
+        synchronized(boundaryLock) {
+            lastOfferedSessionId = frame.sessionId
+            lastOfferedEpochId = frame.epochId
+            lastOfferedEndSampleIndexExclusive = frame.endSampleIndexExclusive
+        }
         when (source.offer(frame)) {
             RealtimeCanonicalOfferResult.ACCEPTED -> acceptedFrames.incrementAndGet()
             RealtimeCanonicalOfferResult.ACCEPTED_AFTER_DISCONTINUITY -> {
@@ -90,17 +106,24 @@ internal class PhoneMicrophoneRealtimeCanonicalBridge(
     fun endImmediately(reason: RealtimeCanonicalSessionEndReason): RealtimeCanonicalSessionEndResult =
         source.endActiveSessionImmediately(reason)
 
-    fun snapshot(): PhoneMicrophoneRealtimeBridgeSnapshot =
-        PhoneMicrophoneRealtimeBridgeSnapshot(
+    fun snapshot(): PhoneMicrophoneRealtimeBridgeSnapshot {
+        val boundary = synchronized(boundaryLock) {
+            Triple(lastOfferedSessionId, lastOfferedEpochId, lastOfferedEndSampleIndexExclusive)
+        }
+        return PhoneMicrophoneRealtimeBridgeSnapshot(
             offeredFrames = offeredFrames.get(),
             offeredSamples = offeredSamples.get(),
             acceptedFrames = acceptedFrames.get(),
             discontinuityAcceptedFrames = discontinuityAcceptedFrames.get(),
             rejectedFrames = rejectedFrames.get(),
             rejectedSamples = rejectedSamples.get(),
+            lastOfferedSessionId = boundary.first,
+            lastOfferedEpochId = boundary.second,
+            lastOfferedEndSampleIndexExclusive = boundary.third,
             closed = closed.get(),
             source = source.snapshot(),
         )
+    }
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
