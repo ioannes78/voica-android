@@ -69,8 +69,11 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             val phoneRealtimeController =
-                remember(appContainer.phoneMicrophoneRealtimeRuntime) {
-                    PhoneMicrophoneRealtimeUiController(appContainer.phoneMicrophoneRealtimeRuntime)
+                remember(appContainer.phoneMicrophoneRealtimeRuntime, phoneUiScope) {
+                    PhoneMicrophoneRealtimeUiController(
+                        runtime = appContainer.phoneMicrophoneRealtimeRuntime,
+                        scope = phoneUiScope,
+                    )
                 }
 
             LaunchedEffect(
