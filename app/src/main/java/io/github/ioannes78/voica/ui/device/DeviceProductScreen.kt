@@ -112,9 +112,10 @@ fun DeviceProductScreen(
             )
         }
     val phoneRealtimeController =
-        remember(phoneRealtimeRuntime, phoneUiScope) {
+        remember(phoneRealtimeRuntime, phoneRecordingRuntime, phoneUiScope) {
             PhoneMicrophoneRealtimeUiController(
                 runtime = phoneRealtimeRuntime,
+                captureState = phoneRecordingRuntime.captureState,
                 scope = phoneUiScope,
             )
         }
