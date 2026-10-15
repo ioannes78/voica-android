@@ -701,7 +701,7 @@ internal fun phoneRecordingStatusLabel(phase: PhoneMicrophoneRecordingPhase): St
     }
 
 private fun phoneMicrophoneCaptureSummary(capture: PhoneMicrophoneCaptureSnapshot): String {
-    val source = capture.selectedAudioSource?.diagnosticsName
+    val source = capture.selectedAudioSource?.let { "手机麦克风" }
     val route = capture.route?.productName?.trim()?.takeIf { it.isNotEmpty() }
     val silenced = if (capture.clientSilenced == true) "输入被系统静音" else null
     return listOfNotNull(source, route, silenced).joinToString(" · ")
