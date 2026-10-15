@@ -636,4 +636,3 @@ private fun emptyReaderMessage(phase: Stage16ARealtimeUiPhase): String =
         Stage16ARealtimeUiPhase.INTERRUPTED -> "连接已中断，已完成的转写内容仍会保留。"
         else -> "正在等待语音内容…"
     }
-}
