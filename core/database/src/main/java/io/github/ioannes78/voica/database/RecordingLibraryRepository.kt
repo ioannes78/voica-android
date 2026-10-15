@@ -212,7 +212,8 @@ class RecordingLibraryRepository(
         if (folderId != null) {
             requireNotNull(dao.findFolder(folderId)) { "folder does not exist" }
         }
-        return dao.moveToFolder(ids, folderId, nowMs())
+        return dao.moveToFolder(ids, folderId, nowMs()) == ids.size
+            .let { dao.moveToFolder(ids, folderId, nowMs()) }
     }
 
     suspend fun addTag(recordingIds: Collection<String>, tagId: String): Int {
@@ -286,7 +287,7 @@ class RecordingLibraryRepository(
                 dao.insertTag(created)
                 created
             }
-        searchIndexRebuilder.reindexTag(tag.tagId)
+        searchIndexRebuilder.reindexTag(tag.folderId)
         return tag
     }
 
@@ -492,7 +493,7 @@ class RecordingLibraryRepository(
                     asset.formatValidationState == AudioValidationState.VALID
             } ?: return null
 
-        val derivation =
+        val existing =
             row.derivations
                 .filter { item ->
                     item.profileId == profileId &&
@@ -500,15 +501,56 @@ class RecordingLibraryRepository(
                         item.state == AudioDerivationState.READY
                 }
                 .maxByOrNull { it.updatedAtMs }
-                ?: return null
+        if (existing != null) {
+            return CanonicalTranscriptionLineage(
+                recordingId = recordingId,
+                canonicalAssetId = canonical.assetId,
+                canonicalSha256 = canonical.sha256,
+                canonicalProfileId = existing.profileId,
+                canonicalPipelineVersion = existing.pipelineVersion,
+            )
+        }
 
+        if (!canRepairPhoneCanonicalIdentity(row, canonical, profileId)) return null
+        val repaired =
+            phoneCanonicalIdentityDerivation(
+                recordingId = recordingId,
+                canonicalAssetId = canonical.assetId,
+                canonicalSha256 = canonical.sha256,
+                verifiedAtMs = canonical.verifiedAtMs ?: row.recording.updatedAtMs,
+            )
+        dao.upsertDerivation(repaired)
         return CanonicalTranscriptionLineage(
             recordingId = recordingId,
             canonicalAssetId = canonical.assetId,
             canonicalSha256 = canonical.sha256,
-            canonicalProfileId = derivation.profileId,
-            canonicalPipelineVersion = derivation.pipelineVersion,
+            canonicalProfileId = repaired.profileId,
+            canonicalPipelineVersion = repaired.pipelineVersion,
         )
+    }
+
+    private fun canRepairPhoneCanonicalIdentity(
+        row: RecordingWithAssets,
+        canonical: AudioAssetEntity,
+        profileId: String,
+    ): Boolean {
+        if (row.recording.sourceType != RecordingSourceType.PHONE_MICROPHONE) return false
+        if (profileId != PHONE_CANONICAL_PROFILE_ID) return false
+        if (!canonical.container.equals("WAV", ignoreCase = true)) return false
+        if (!canonical.codec.equals("PCM", ignoreCase = true)) return false
+        if (!canonical.sampleFormat.equals("PCM16_LE", ignoreCase = true)) return false
+        if (canonical.sampleRateHz != 16_000 || canonical.channelCount != 1) return false
+        if (!SHA256.matches(canonical.sha256.lowercase())) return false
+        if (managedExistingFile(canonical.relativePath)?.length() != canonical.sizeBytes) return false
+        if (
+            row.derivations.any { derivation ->
+                derivation.profileId == profileId &&
+                    derivation.sourceSha256.equals(canonical.sha256, ignoreCase = true)
+            }
+        ) {
+            return false
+        }
+        return true
     }
 
     suspend fun loadCanonicalConversionSource(
@@ -812,8 +854,6 @@ class RecordingLibraryRepository(
                 return@forEach
             }
 
-            // The file still exists, so restore the database lineage rather than
-            // leaving an untracked canonical file after an I/O deletion failure.
             runCatching {
                 database.withTransaction {
                     dao.upsertAsset(canonicalAsset)
@@ -941,7 +981,7 @@ class RecordingLibraryRepository(
 
     private fun sanitizeDisplayName(value: String): String? {
         val cleaned = value
-            .replace(' ', '_')
+            .replace('\u0000', '_')
             .map { ch -> if (ch.isISOControl()) '_' else ch }
             .joinToString("")
             .trim()
@@ -1069,7 +1109,6 @@ private fun LegacyStage5Candidate.toAssetEntity(now: Long): AudioAssetEntity =
         createdAtMs = downloadedAtMs,
         verifiedAtMs = now,
     )
-
 
 private fun AudioAssetEntity.toModel(): RecordingAsset =
     RecordingAsset(
