@@ -66,6 +66,32 @@ class PhoneMicrophoneRecordingRuntimeTest {
     }
 
     @Test
+    fun `post-write realtime failure cannot roll back formal recording truth`() = runBlocking {
+        val runtime = runtime()
+        val rejectingRealtime =
+            PhoneMicrophoneCanonicalPostWriteSink {
+                error("synthetic realtime failure")
+            }
+
+        assertTrue(runtime.start(postWriteSink = rejectingRealtime) is PhoneMicrophoneRecordingStartResult.Started)
+        capture.emit(ShortArray(1_280) { 7 })
+        val stopped = runtime.stop()
+
+        assertTrue(stopped is PhoneMicrophoneRecordingStopResult.Saved)
+        stopped as PhoneMicrophoneRecordingStopResult.Saved
+        assertEquals(1_280L, stopped.sampleCount)
+        assertEquals(1_280L, runtime.state.value.writtenSamples)
+        assertEquals(1L, runtime.state.value.postWriteOffers)
+        assertEquals(1L, runtime.state.value.postWriteOfferFailures)
+        assertTrue(runtime.state.value.lastPostWriteFailure?.contains("synthetic realtime failure") == true)
+        assertEquals(1, registrations.size)
+        assertTrue(stopped.file.isFile)
+        assertEquals(44L + 1_280L * 2L, stopped.file.length())
+
+        runtime.close()
+    }
+
+    @Test
     fun `stop before first PCM sample does not create empty library recording`() = runBlocking {
         val runtime = runtime()
         assertTrue(runtime.start() is PhoneMicrophoneRecordingStartResult.Started)
