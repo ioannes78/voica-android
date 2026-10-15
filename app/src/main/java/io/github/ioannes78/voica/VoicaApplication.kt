@@ -371,6 +371,14 @@ class AppContainer(
             database = recordingDatabase,
             recordingsRoot = recordingsRoot,
         )
+    private val phoneMicrophoneRecoveryCoordinator =
+        PhoneMicrophoneRecoveryCoordinator(
+            recordingsRoot = recordingsRoot,
+            isRegistered = { recordingId ->
+                recordingLibraryRepository.loadRecording(recordingId) != null
+            },
+            registerRecording = phoneMicrophoneRecordingRegistrar::register,
+        )
     private val phoneMicrophoneIntegrationRepository =
         io.github.ioannes78.voica.database.RealtimeRecordingIntegrationRepository(recordingDatabase)
 
@@ -470,6 +478,7 @@ class AppContainer(
 
         applicationScope.launch(Dispatchers.IO) {
             recordingLibraryRepository.reconcilePendingDeletes()
+            runCatching { phoneMicrophoneRecoveryCoordinator.reconcileOnStartup() }
             localAudioImportCoordinator.cleanupStaleStaging()
             localAudioExportCoordinator.cleanupStaleShareCache()
             canonicalAudioCoordinator.reconcileOnStartup()
