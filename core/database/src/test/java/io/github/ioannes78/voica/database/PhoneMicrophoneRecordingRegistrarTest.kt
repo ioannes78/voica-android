@@ -9,6 +9,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -46,30 +47,8 @@ class PhoneMicrophoneRecordingRegistrarTest {
     }
 
     @Test
-    fun formalPhoneWavRegistersInExistingLibraryWithoutFakeDerivation() = runBlocking {
-        val relativePath = "phone/phone-1/phone_20261015_080000.wav"
-        val file = File(root, relativePath).apply {
-            parentFile!!.mkdirs()
-            writeBytes(canonicalWav(shortArrayOf(100, -100, 200, -200)))
-        }
-        val digest = sha256(file)
-
-        registrar.register(
-            PhoneMicrophoneRecordingRegistration(
-                recordingId = "phone-1",
-                originalFilename = "phone_20261015_080000.wav",
-                displayName = "手机录音 2026-10-15 08:00:00",
-                recordedAtLocalIso = "2026-10-15T08:00:00+08:00",
-                startedAtMs = 1_000L,
-                completedAtMs = 2_000L,
-                relativePath = relativePath,
-                mediaDurationMs = 1L,
-                sizeBytes = file.length(),
-                sha256 = digest,
-                sampleRateHz = 16_000,
-                channelCount = 1,
-            ),
-        )
+    fun formalPhoneWavRegistersIdentityCanonicalLineageForOfflineTranscription() = runBlocking {
+        registerPhoneRecording("phone-1")
 
         val loaded = library.loadRecording("phone-1")
         assertNotNull(loaded)
@@ -78,13 +57,85 @@ class PhoneMicrophoneRecordingRegistrarTest {
         assertEquals("手机录音 2026-10-15 08:00:00", recording.displayName)
         assertEquals(1L, recording.mediaDurationMs)
         assertEquals(1, recording.assets.size)
-        assertEquals(AudioAssetRole.CANONICAL_WAV, recording.assets.single().role)
-        assertEquals(AudioIntegrityState.VERIFIED, recording.assets.single().integrityState)
-        assertEquals(AudioValidationState.VALID, recording.assets.single().formatValidationState)
-        assertTrue(recording.derivations.isEmpty())
+        val canonical = recording.assets.single()
+        assertEquals(AudioAssetRole.CANONICAL_WAV, canonical.role)
+        assertEquals(AudioIntegrityState.VERIFIED, canonical.integrityState)
+        assertEquals(AudioValidationState.VALID, canonical.formatValidationState)
 
-        // Direct phone-source canonical WAV is formal media, not a reclaimable derived cache.
+        val derivation = recording.derivations.single()
+        assertEquals(PHONE_CANONICAL_PROFILE_ID, derivation.profileId)
+        assertEquals(canonical.assetId, derivation.sourceAssetId)
+        assertEquals(canonical.assetId, derivation.outputAssetId)
+        assertEquals(canonical.sha256, derivation.sourceSha256)
+        assertEquals(PHONE_CANONICAL_PIPELINE_VERSION, derivation.pipelineVersion)
+        assertEquals(AudioDerivationState.READY, derivation.state)
+
+        val lineage =
+            library.loadCanonicalTranscriptionLineage(
+                recordingId = "phone-1",
+                profileId = PHONE_CANONICAL_PROFILE_ID,
+            )
+        assertNotNull(lineage)
+        assertEquals(canonical.assetId, requireNotNull(lineage).canonicalAssetId)
+        assertEquals(canonical.sha256, lineage.canonicalSha256)
+        assertEquals(PHONE_CANONICAL_PROFILE_ID, lineage.canonicalProfileId)
+        assertEquals(PHONE_CANONICAL_PIPELINE_VERSION, lineage.canonicalPipelineVersion)
+
+        // Identity lineage does not make formal phone media a reclaimable derived cache.
         assertTrue(library.reclaimableCanonicalCandidates().isEmpty())
+    }
+
+    @Test
+    fun qaPhoneRecordingWithoutIdentityLineageIsRepairedOnDatabaseOpen() = runBlocking {
+        registerPhoneRecording("phone-qa-old")
+
+        database.openHelper.writableDatabase.execSQL(
+            "DELETE FROM audio_derivations WHERE recordingId = 'phone-qa-old'",
+        )
+        assertNull(
+            library.loadCanonicalTranscriptionLineage(
+                recordingId = "phone-qa-old",
+                profileId = PHONE_CANONICAL_PROFILE_ID,
+            ),
+        )
+
+        repairPhoneCanonicalIdentityLineage(database.openHelper.writableDatabase)
+
+        val repaired =
+            library.loadCanonicalTranscriptionLineage(
+                recordingId = "phone-qa-old",
+                profileId = PHONE_CANONICAL_PROFILE_ID,
+            )
+        assertNotNull(repaired)
+        val canonical = requireNotNull(library.loadRecording("phone-qa-old")).assets.single()
+        assertEquals(canonical.assetId, requireNotNull(repaired).canonicalAssetId)
+        assertEquals(canonical.assetId, library.loadRecording("phone-qa-old")!!.derivations.single().sourceAssetId)
+        assertEquals(canonical.assetId, library.loadRecording("phone-qa-old")!!.derivations.single().outputAssetId)
+        assertEquals(AudioDerivationState.READY, library.loadRecording("phone-qa-old")!!.derivations.single().state)
+    }
+
+    private suspend fun registerPhoneRecording(recordingId: String) {
+        val relativePath = "phone/$recordingId/phone_20261015_080000.wav"
+        val file = File(root, relativePath).apply {
+            parentFile!!.mkdirs()
+            writeBytes(canonicalWav(shortArrayOf(100, -100, 200, -200)))
+        }
+        registrar.register(
+            PhoneMicrophoneRecordingRegistration(
+                recordingId = recordingId,
+                originalFilename = "phone_20261015_080000.wav",
+                displayName = "手机录音 2026-10-15 08:00:00",
+                recordedAtLocalIso = "2026-10-15T08:00:00+08:00",
+                startedAtMs = 1_000L,
+                completedAtMs = 2_000L,
+                relativePath = relativePath,
+                mediaDurationMs = 1L,
+                sizeBytes = file.length(),
+                sha256 = sha256(file),
+                sampleRateHz = 16_000,
+                channelCount = 1,
+            ),
+        )
     }
 
     private fun canonicalWav(samples: ShortArray): ByteArray {
