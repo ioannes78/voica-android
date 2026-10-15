@@ -38,45 +38,47 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.Stage16AQaArtificialAsrSlowdown
-import io.github.ioannes78.voica.Stage16ARealtimeActionOutcome
-import io.github.ioannes78.voica.Stage16ARealtimeRuntime
 import io.github.ioannes78.voica.Stage16ARealtimeUiPhase
 import io.github.ioannes78.voica.Stage16ARealtimeUiState
 import kotlin.math.sqrt
 import kotlinx.coroutines.launch
-
-val LocalStage16ARealtimeRuntime = staticCompositionLocalOf<Stage16ARealtimeRuntime> {
-    error("Stage16ARealtimeRuntime was not provided")
-}
 
 @Composable
 fun RealtimeTranscriptionEntryCard(
     state: Stage16ARealtimeUiState,
     canStart: Boolean,
     onClick: () -> Unit,
+    headline: String = "实时转写",
+    unavailableMessage: String = "当前设备录音状态暂不允许启动实时转写",
+    sourceLabel: String? = null,
 ) {
     if (shouldShowRealtimeMiniLiveBar(state.phase)) {
         RealtimeMiniLiveBar(
             state = state,
             onClick = onClick,
+            headline = headline,
+            sourceLabel = sourceLabel,
         )
         return
     }
 
     val supporting =
         when {
-            state.phase == Stage16ARealtimeUiPhase.IDLE && !canStart ->
-                "当前设备录音状态暂不允许启动实时转写"
+            state.phase == Stage16ARealtimeUiPhase.IDLE && !canStart -> unavailableMessage
             state.modelLabel != null ->
-                realtimePhaseLabel(state.phase) + " · " + state.modelLabel
-            else -> realtimePhaseLabel(state.phase)
+                listOfNotNull(
+                    sourceLabel,
+                    realtimeStatusLabel(state),
+                    state.modelLabel,
+                ).joinToString(" · ")
+            else ->
+                listOfNotNull(sourceLabel, realtimeStatusLabel(state)).joinToString(" · ")
         }
 
     Card(
@@ -86,7 +88,7 @@ fun RealtimeTranscriptionEntryCard(
                 .clickable(onClick = onClick),
     ) {
         ListItem(
-            headlineContent = { Text("实时转写") },
+            headlineContent = { Text(headline) },
             supportingContent = { Text(supporting, maxLines = 1) },
             trailingContent = {
                 Icon(Icons.Outlined.ChevronRight, contentDescription = null)
@@ -99,14 +101,16 @@ fun RealtimeTranscriptionEntryCard(
 private fun RealtimeMiniLiveBar(
     state: Stage16ARealtimeUiState,
     onClick: () -> Unit,
+    headline: String,
+    sourceLabel: String?,
 ) {
     val modelLabel = state.modelLabel?.trim()?.takeIf { it.isNotEmpty() }
-    val headline =
-        if (modelLabel == null) {
-            realtimePhaseLabel(state.phase)
-        } else {
-            realtimePhaseLabel(state.phase) + " · " + modelLabel
-        }
+    val status =
+        listOfNotNull(
+            sourceLabel,
+            realtimeStatusLabel(state),
+            modelLabel,
+        ).joinToString(" · ")
 
     Card(
         modifier =
@@ -117,7 +121,7 @@ private fun RealtimeMiniLiveBar(
         ListItem(
             headlineContent = {
                 Text(
-                    headline,
+                    "$headline · $status",
                     maxLines = 1,
                     fontWeight = FontWeight.Medium,
                 )
@@ -131,7 +135,7 @@ private fun RealtimeMiniLiveBar(
             trailingContent = {
                 Icon(
                     Icons.Outlined.ChevronRight,
-                    contentDescription = "返回实时转写",
+                    contentDescription = "返回$headline",
                 )
             },
         )
@@ -139,13 +143,17 @@ private fun RealtimeMiniLiveBar(
 }
 
 @Composable
-fun RealtimeTranscriptionScreen(
+internal fun RealtimeTranscriptionScreen(
     padding: PaddingValues,
-    runtime: Stage16ARealtimeRuntime,
+    controller: RealtimeTranscriptionUiController,
     canStart: Boolean,
     onBack: () -> Unit,
+    title: String = "实时转写",
+    sourceLabel: String? = null,
+    startButtonLabel: String = "开始实时转写",
+    qaScenarioLabel: String = "S10",
 ) {
-    val state by runtime.state.collectAsState()
+    val state by controller.state.collectAsState()
     val scope = rememberCoroutineScope()
     val readerListState = rememberLazyListState()
     val readerDragged by readerListState.interactionSource.collectIsDraggedAsState()
@@ -202,7 +210,7 @@ fun RealtimeTranscriptionScreen(
         }
     }
 
-    fun launchAction(action: suspend () -> Stage16ARealtimeActionOutcome) {
+    fun launchAction(action: suspend () -> RealtimeTranscriptionUiActionOutcome) {
         if (actionInFlight) return
         actionInFlight = true
         actionMessage = null
@@ -218,9 +226,9 @@ fun RealtimeTranscriptionScreen(
     fun armQaSlowdown(delayMs: Long) {
         qaSlowdownMessage =
             if (Stage16AQaArtificialAsrSlowdown.armOnce(delayMs)) {
-                "S10 已武装：下一个 PCM 处理将暂停 ${delayMs} ms"
+                "$qaScenarioLabel 已武装：下一个 PCM 处理将暂停 ${delayMs} ms"
             } else {
-                "S10 未武装：已有延迟待触发或当前不是 QA 包"
+                "$qaScenarioLabel 未武装：已有延迟待触发或当前不是 QA 包"
             }
     }
 
@@ -243,17 +251,20 @@ fun RealtimeTranscriptionScreen(
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    "实时转写",
+                    title,
                     style = MaterialTheme.typography.headlineSmall,
                 )
                 Text(
-                    state.modelLabel ?: realtimePhaseLabel(state.phase),
+                    listOfNotNull(
+                        sourceLabel,
+                        state.modelLabel ?: realtimeStatusLabel(state),
+                    ).joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             Text(
-                realtimePhaseLabel(state.phase),
+                realtimeStatusLabel(state),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -264,7 +275,10 @@ fun RealtimeTranscriptionScreen(
         if (shouldShowRealtimeWaveform(state.phase)) {
             RealtimeAudioActivityWaveform(
                 levels = state.audioActivityLevels,
-                active = state.phase == Stage16ARealtimeUiPhase.ACTIVE,
+                active =
+                    state.phase == Stage16ARealtimeUiPhase.ACTIVE &&
+                        !state.recordingOnlyMode &&
+                        !state.sourceCaptureInterrupted,
             )
             Spacer(modifier = Modifier.height(4.dp))
         }
@@ -281,7 +295,7 @@ fun RealtimeTranscriptionScreen(
             if (showEmptyReader) {
                 item(key = "empty") {
                     Text(
-                        emptyReaderMessage(state.phase),
+                        emptyReaderMessage(state),
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -371,7 +385,9 @@ fun RealtimeTranscriptionScreen(
 
         if (
             Stage16AQaArtificialAsrSlowdown.isEnabled &&
-            state.phase == Stage16ARealtimeUiPhase.ACTIVE
+            state.phase == Stage16ARealtimeUiPhase.ACTIVE &&
+            !state.recordingOnlyMode &&
+            !state.sourceCaptureInterrupted
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -381,13 +397,13 @@ fun RealtimeTranscriptionScreen(
                     onClick = { armQaSlowdown(1_200L) },
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text("S10-A 延迟 1.2s")
+                    Text("$qaScenarioLabel-A 延迟 1.2s")
                 }
                 OutlinedButton(
                     onClick = { armQaSlowdown(2_500L) },
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text("S10-B 延迟 2.5s")
+                    Text("$qaScenarioLabel-B 延迟 2.5s")
                 }
             }
             qaSlowdownMessage?.let { message ->
@@ -404,17 +420,18 @@ fun RealtimeTranscriptionScreen(
             state = state,
             canStart = canStart,
             actionInFlight = actionInFlight,
-            onStart = { launchAction(runtime::start) },
-            onPause = { launchAction(runtime::pause) },
-            onResume = { launchAction(runtime::resume) },
-            onStop = { launchAction(runtime::stop) },
+            startButtonLabel = startButtonLabel,
+            onStart = { launchAction(controller::start) },
+            onPause = { launchAction(controller::pause) },
+            onResume = { launchAction(controller::resume) },
+            onStop = { launchAction(controller::stop) },
         )
         Spacer(modifier = Modifier.height(12.dp))
     }
 }
 
 @Composable
-private fun RealtimeAudioActivityWaveform(
+internal fun RealtimeAudioActivityWaveform(
     levels: List<Float>,
     active: Boolean,
 ) {
@@ -506,6 +523,7 @@ private fun RealtimeControls(
     state: Stage16ARealtimeUiState,
     canStart: Boolean,
     actionInFlight: Boolean,
+    startButtonLabel: String,
     onStart: () -> Unit,
     onPause: () -> Unit,
     onResume: () -> Unit,
@@ -521,7 +539,7 @@ private fun RealtimeControls(
                 enabled = canStart && !actionInFlight,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("开始实时转写")
+                Text(startButtonLabel)
             }
         }
 
@@ -581,7 +599,7 @@ private fun RealtimeControls(
             ) {
                 CircularProgressIndicator()
                 Text(
-                    realtimePhaseLabel(state.phase),
+                    realtimeStatusLabel(state),
                     modifier = Modifier.padding(start = 12.dp),
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -599,6 +617,20 @@ private fun RealtimeControls(
     }
 }
 
+internal fun realtimeStatusLabel(state: Stage16ARealtimeUiState): String =
+    when {
+        state.sourceCaptureInterrupted -> "麦克风采集中断"
+        state.recordingOnlyMode ->
+            when (state.phase) {
+                Stage16ARealtimeUiPhase.ACTIVE -> "录音中 · 转写已停止"
+                Stage16ARealtimeUiPhase.PAUSED -> "录音已暂停 · 转写已停止"
+                Stage16ARealtimeUiPhase.RESUMING -> "正在继续录音 · 转写已停止"
+                Stage16ARealtimeUiPhase.FINALIZING -> "正在保存录音 · 转写已停止"
+                else -> "实时转写已停止"
+            }
+        else -> realtimePhaseLabel(state.phase)
+    }
+
 internal fun realtimePhaseLabel(phase: Stage16ARealtimeUiPhase): String =
     when (phase) {
         Stage16ARealtimeUiPhase.IDLE -> "未开始"
@@ -613,13 +645,20 @@ internal fun realtimePhaseLabel(phase: Stage16ARealtimeUiPhase): String =
         Stage16ARealtimeUiPhase.FAILED -> "启动失败"
     }
 
-private fun emptyReaderMessage(phase: Stage16ARealtimeUiPhase): String =
-    when (phase) {
-        Stage16ARealtimeUiPhase.IDLE,
-        Stage16ARealtimeUiPhase.COMPLETED,
-        Stage16ARealtimeUiPhase.FAILED,
-        -> "开始后，实时识别内容会显示在这里。"
-        Stage16ARealtimeUiPhase.PAUSED -> "录音已暂停，已确认的内容会保留在这里。"
-        Stage16ARealtimeUiPhase.INTERRUPTED -> "连接已中断，已完成的转写内容仍会保留。"
-        else -> "正在等待语音内容…"
+private fun emptyReaderMessage(state: Stage16ARealtimeUiState): String =
+    when {
+        state.sourceCaptureInterrupted ->
+            "麦克风采集中断，可先暂停后继续，或停止保存已录音频。"
+        state.recordingOnlyMode ->
+            "实时转写已停止，手机录音仍会继续保存。"
+        else ->
+            when (state.phase) {
+                Stage16ARealtimeUiPhase.IDLE,
+                Stage16ARealtimeUiPhase.COMPLETED,
+                Stage16ARealtimeUiPhase.FAILED,
+                -> "开始后，实时识别内容会显示在这里。"
+                Stage16ARealtimeUiPhase.PAUSED -> "录音已暂停，已确认的内容会保留在这里。"
+                Stage16ARealtimeUiPhase.INTERRUPTED -> "连接已中断，已完成的转写内容仍会保留。"
+                else -> "正在等待语音内容…"
+            }
     }

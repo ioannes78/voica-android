@@ -21,6 +21,16 @@ interface RealtimeTranscriptionDao {
 
     @Query(
         """
+        SELECT * FROM realtime_transcription_runs
+        WHERE audioSourceType = :audioSourceType
+          AND state IN ('ACTIVE', 'FINALIZING')
+        ORDER BY startedAtMs ASC
+        """,
+    )
+    suspend fun getNonTerminalRunsForSource(audioSourceType: String): List<RealtimeTranscriptionRunEntity>
+
+    @Query(
+        """
         UPDATE realtime_transcription_runs
         SET recordingId = :recordingId, updatedAtMs = :updatedAtMs
         WHERE id = :runId
@@ -111,6 +121,22 @@ interface RealtimeTranscriptionDao {
         sizeBytes: Long?,
         sha256: String?,
         isCompleteDeviceRecording: Boolean,
+    ): Int
+
+    @Query(
+        """
+        UPDATE realtime_media_segments
+        SET state = 'INTERRUPTED',
+            endedAtMs = :endedAtMs,
+            endReason = :endReason,
+            isCompleteDeviceRecording = 0
+        WHERE runId = :runId AND state = 'ACTIVE'
+        """,
+    )
+    suspend fun interruptActiveSegmentsForRun(
+        runId: String,
+        endedAtMs: Long,
+        endReason: String,
     ): Int
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
@@ -297,6 +323,42 @@ class RealtimeTranscriptPersistenceRepository(
             sha256 = finalization.sha256,
             isCompleteDeviceRecording = finalization.isCompleteDeviceRecording,
         ) == 1
+
+    /**
+     * Startup-only reconciliation for source runtimes that cannot survive process death.
+     *
+     * The method deliberately preserves utterances and any already-terminal media segments, while
+     * converting only ACTIVE segments and ACTIVE/FINALIZING runs for the requested source into an
+     * interrupted terminal state. It never attaches a recording or claims media completeness.
+     */
+    suspend fun interruptNonTerminalRunsForSource(
+        audioSourceType: String,
+        endedAtMs: Long,
+        endReason: String,
+        errorCode: String,
+        errorMessage: String,
+    ): List<String> =
+        database.withTransaction {
+            val runs = dao.getNonTerminalRunsForSource(audioSourceType)
+            runs.forEach { run ->
+                dao.interruptActiveSegmentsForRun(
+                    runId = run.id,
+                    endedAtMs = endedAtMs,
+                    endReason = endReason,
+                )
+                dao.updateRun(
+                    run.copy(
+                        state = RealtimeTranscriptionStateValue.INTERRUPTED,
+                        updatedAtMs = endedAtMs,
+                        endedAtMs = endedAtMs,
+                        endReason = endReason,
+                        errorCode = errorCode,
+                        errorMessage = errorMessage,
+                    ),
+                )
+            }
+            runs.map { it.id }
+        }
 
     /** Raw insert retained for migration/exact-index tests. Product code should prefer the overload below. */
     suspend fun persistFinalUtterance(utterance: RealtimeUtteranceEntity) = dao.insertUtterance(utterance)

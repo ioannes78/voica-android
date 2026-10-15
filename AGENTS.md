@@ -1,5 +1,42 @@
 # Voica 开发规则
 
+## 〇、当前接管状态（2026-10-15）
+
+当前 `ioannes78/voica-android` 仓库仍是 Voica 项目实现状态的唯一事实来源。
+
+当前最新已冻结产品基线：**Stage 16A — 本地 True Streaming ASR**。
+
+最新 Final Freeze / Handoff：
+
+- `docs/STAGE_16A_FREEZE.md`
+- `docs/STAGE_16A_HANDOFF.md`
+
+当前开发阶段：**Stage 16A.1 — 手机录音 / 手机实时转写**。
+
+当前开发分支 / PR：
+
+- branch：`stage16a1-phone-microphone`
+- PR：`#29`
+- 需求：`docs/STAGE_16A_1_REQUIREMENTS_V1.md`
+- 开发规划：`docs/STAGE_16A_1_DEVELOPMENT_PLAN_V1.md`
+- 产品规划：`docs/STAGE_16A_1_PHONE_MICROPHONE_PLAN.md`
+
+当前产品边界已经用户确认：
+
+- `手机录音`：纯手机麦克风正式录音，不依赖 realtime ASR model；
+- `手机实时转写`：复用同一手机录音底座，同时保存正式 WAV 并复用 Stage 16A True Streaming ASR；
+- 两个产品入口独立，但底层只能有一套 `AudioRecord` / microphone capture lifecycle；
+- recording truth 优先于 ASR truth；ASR slowdown / overflow / failure 不得损坏正式录音；
+- Room 默认保持 v13；production model channel 不因 Stage 16A.1 自动提升；
+- Stage 16A 历史 Freeze/Handoff 不得重写；
+- 不得复制、迁移、cherry-pick 或机械改写 `ioannes78/voice-card-android` 的实现。
+
+当前 Stage 16A.1 开发顺序固定为：
+
+`P0 文档/契约 → P1 microphone platform foundation → P2 formal recording truth/WAV/library → P3 realtime ASR integration → P4 UI/UX → P5 background lifecycle → P6 resilience → P7 QA/Freeze/Handoff`
+
+**本节优先于下方按历史阶段累积的“当前/下一阶段”等旧时点表述。** 下方历史冻结事实继续保留且仍具约束力，不因本节刷新而改写。
+
 ## 一、项目唯一事实来源
 
 当前 `ioannes78/voica-android` 仓库是 Voica 项目实现状态的唯一事实来源。

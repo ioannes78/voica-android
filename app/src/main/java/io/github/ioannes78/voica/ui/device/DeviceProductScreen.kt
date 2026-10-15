@@ -35,12 +35,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import io.github.ioannes78.voica.PhoneMicrophoneRecordingPhase
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.ble.DeviceConnectionState
 import io.github.ioannes78.voica.ble.FileListFreshness
@@ -51,7 +53,15 @@ import io.github.ioannes78.voica.protocol.RecordingStatus
 import io.github.ioannes78.voica.ui.DeviceActionMessage
 import io.github.ioannes78.voica.ui.DeviceViewModel
 import io.github.ioannes78.voica.ui.files.CompactDeviceFilesScreen
+import io.github.ioannes78.voica.ui.phone.LocalPhoneMicrophoneRealtimeRuntime
+import io.github.ioannes78.voica.ui.phone.LocalPhoneMicrophoneRecordingRuntime
+import io.github.ioannes78.voica.ui.phone.PhoneMicrophoneRealtimeEntryCard
+import io.github.ioannes78.voica.ui.phone.PhoneMicrophoneRealtimeScreen
+import io.github.ioannes78.voica.ui.phone.PhoneMicrophoneRecordingEntryCard
+import io.github.ioannes78.voica.ui.phone.PhoneMicrophoneRecordingScreen
+import io.github.ioannes78.voica.ui.phone.PhoneMicrophoneRecordingUiController
 import io.github.ioannes78.voica.ui.realtime.LocalStage16ARealtimeRuntime
+import io.github.ioannes78.voica.ui.realtime.PhoneMicrophoneRealtimeUiController
 import io.github.ioannes78.voica.ui.realtime.RealtimeTranscriptionEntryCard
 import io.github.ioannes78.voica.ui.realtime.RealtimeTranscriptionScreen
 import io.github.ioannes78.voica.ui.recording.RecordingCard
@@ -59,6 +69,8 @@ import io.github.ioannes78.voica.ui.recording.RecordingCard
 private enum class DevicePage {
     HOME,
     REALTIME,
+    PHONE_RECORDING,
+    PHONE_REALTIME,
     FILES,
     ALL_DEVICES,
     DIAGNOSTICS,
@@ -87,6 +99,27 @@ fun DeviceProductScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val realtimeRuntime = LocalStage16ARealtimeRuntime.current
     val realtimeState by realtimeRuntime.state.collectAsState()
+
+    val phoneRecordingRuntime = LocalPhoneMicrophoneRecordingRuntime.current
+    val phoneRealtimeRuntime = LocalPhoneMicrophoneRealtimeRuntime.current
+    val phoneUiScope = rememberCoroutineScope()
+    val phoneRecordingController =
+        remember(phoneRecordingRuntime, phoneRealtimeRuntime, phoneUiScope) {
+            PhoneMicrophoneRecordingUiController(
+                recordingRuntime = phoneRecordingRuntime,
+                realtimeRuntime = phoneRealtimeRuntime,
+                scope = phoneUiScope,
+            )
+        }
+    val phoneRealtimeController =
+        remember(phoneRealtimeRuntime, phoneRecordingRuntime, phoneUiScope) {
+            PhoneMicrophoneRealtimeUiController(
+                runtime = phoneRealtimeRuntime,
+                captureState = phoneRecordingRuntime.captureState,
+                scope = phoneUiScope,
+            )
+        }
+    val phoneRecordingUiState by phoneRecordingController.state.collectAsState()
 
     var page by rememberSaveable { mutableStateOf(DevicePage.HOME) }
 
@@ -138,6 +171,9 @@ fun DeviceProductScreen(
             recording.status == RecordingStatus.Idle &&
             recording.freshness == RecordingFreshness.FRESH &&
             recording.commandState == RecordingCommandState.IDLE
+    val canStartPhoneRealtime =
+        !phoneRecordingUiState.ownedByRealtime &&
+            phoneRecordingUiState.recording.phase in PHONE_MIC_STARTABLE_PHASES
 
     Box(modifier = Modifier.fillMaxSize()) {
     when (page) {
@@ -175,6 +211,21 @@ fun DeviceProductScreen(
                         onRefresh = viewModel::refreshDeviceInfo,
                         onSyncTime = viewModel::syncTime,
                         onDisconnect = viewModel::disconnect,
+                    )
+                }
+
+                item {
+                    PhoneMicrophoneRecordingEntryCard(
+                        state = phoneRecordingUiState,
+                        onClick = { page = DevicePage.PHONE_RECORDING },
+                    )
+                }
+
+                item {
+                    PhoneMicrophoneRealtimeEntryCard(
+                        controller = phoneRealtimeController,
+                        canStart = canStartPhoneRealtime,
+                        onClick = { page = DevicePage.PHONE_REALTIME },
                     )
                 }
 
@@ -242,6 +293,23 @@ fun DeviceProductScreen(
                 padding = padding,
                 runtime = realtimeRuntime,
                 canStart = canStartRealtime,
+                onBack = { page = DevicePage.HOME },
+            )
+        }
+
+        DevicePage.PHONE_RECORDING -> {
+            PhoneMicrophoneRecordingScreen(
+                padding = padding,
+                controller = phoneRecordingController,
+                onBack = { page = DevicePage.HOME },
+            )
+        }
+
+        DevicePage.PHONE_REALTIME -> {
+            PhoneMicrophoneRealtimeScreen(
+                padding = padding,
+                controller = phoneRealtimeController,
+                canStart = canStartPhoneRealtime,
                 onBack = { page = DevicePage.HOME },
             )
         }
@@ -473,5 +541,13 @@ private fun DiagnosticRow(
         },
     )
 }
+
+private val PHONE_MIC_STARTABLE_PHASES =
+    setOf(
+        PhoneMicrophoneRecordingPhase.IDLE,
+        PhoneMicrophoneRecordingPhase.COMPLETED,
+        PhoneMicrophoneRecordingPhase.EMPTY,
+        PhoneMicrophoneRecordingPhase.FAILED,
+    )
 
 private const val MAX_HOME_SCAN_RESULTS = 4

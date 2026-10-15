@@ -366,6 +366,42 @@ class AppContainer(
             currentDeviceFilename = { defaultDeviceRepository.recordingState.value.filename },
         )
 
+    private val phoneMicrophoneRecordingRegistrar =
+        io.github.ioannes78.voica.database.PhoneMicrophoneRecordingRegistrar(
+            database = recordingDatabase,
+            recordingsRoot = recordingsRoot,
+        )
+    private val phoneMicrophoneRecoveryCoordinator =
+        PhoneMicrophoneRecoveryCoordinator(
+            recordingsRoot = recordingsRoot,
+            isRegistered = { recordingId ->
+                recordingLibraryRepository.loadRecording(recordingId) != null
+            },
+            registerRecording = phoneMicrophoneRecordingRegistrar::register,
+        )
+    private val phoneMicrophoneIntegrationRepository =
+        io.github.ioannes78.voica.database.RealtimeRecordingIntegrationRepository(recordingDatabase)
+
+    internal val phoneMicrophoneRecordingRuntime =
+        PhoneMicrophoneRecordingRuntime(
+            capture = AndroidPhoneMicrophoneCaptureDriver(application),
+            recordingsRoot = recordingsRoot,
+            registerRecording = phoneMicrophoneRecordingRegistrar::register,
+        )
+
+    internal val phoneMicrophoneRealtimeRuntime =
+        PhoneMicrophoneRealtimeRuntime(
+            scope = applicationScope,
+            recordingRuntime = phoneMicrophoneRecordingRuntime,
+            modelResolver = stage16ARealtimeModelResolver,
+            pipelineFactory = stage16ARealtimePipelineFactory,
+            persistenceRepository = stage16ARealtimePersistenceRepository,
+            recordingLibraryRepository = recordingLibraryRepository,
+            integrationRepository = phoneMicrophoneIntegrationRepository,
+            recordingsRoot = recordingsRoot,
+            localSpeechSettings = { localSpeechSettingsStore.settings.value },
+        )
+
     val deviceRepository: DeviceRepository =
         ServiceBackedDeviceRepository(
             context = application,
@@ -442,6 +478,17 @@ class AppContainer(
 
         applicationScope.launch(Dispatchers.IO) {
             recordingLibraryRepository.reconcilePendingDeletes()
+            runCatching {
+                stage16ARealtimePersistenceRepository.interruptNonTerminalRunsForSource(
+                    audioSourceType =
+                        io.github.ioannes78.voica.database.RealtimeAudioSourceTypeValue.PHONE_MICROPHONE,
+                    endedAtMs = System.currentTimeMillis(),
+                    endReason = "PROCESS_RESTART",
+                    errorCode = "PHONE_MIC_PROCESS_INTERRUPTED",
+                    errorMessage = "应用进程中断，手机实时转写未正常结束",
+                )
+            }
+            runCatching { phoneMicrophoneRecoveryCoordinator.reconcileOnStartup() }
             localAudioImportCoordinator.cleanupStaleStaging()
             localAudioExportCoordinator.cleanupStaleShareCache()
             canonicalAudioCoordinator.reconcileOnStartup()

@@ -60,6 +60,19 @@ data class Stage16ARealtimePipelineConfig(
     }
 }
 
+enum class Stage16ALocalAudioPersistenceMode {
+    /** Recorder-card Stage 16A default: persist one bounded local WAV per canonical session. */
+    ENABLED,
+
+    /**
+     * Source already owns authoritative local media (Stage 16A.1 phone microphone).
+     *
+     * The realtime pipeline must not create a second WAV or put a bounded queue in front of formal
+     * recording truth. ASR/durable text remain unchanged.
+     */
+    DISABLED,
+}
+
 internal fun stage16ARealtimeRunAudioRoot(
     localAudioRoot: File,
     namespace: String,
@@ -74,7 +87,7 @@ internal fun stage16ARealtimeRunAudioRoot(
 class Stage16ARealtimePipelineBundle internal constructor(
     val models: Stage16ARealtimeModelLeaseBundle,
     val runner: RealtimeTranscriptionSessionRunner,
-    val localAudioSink: RealtimeLocalAudioSideSink,
+    private val optionalLocalAudioSink: RealtimeLocalAudioSideSink?,
     val durableOutputSink: RealtimeDurableOutputSink,
     val processor: RealtimeStreamingAsrProcessor,
     private val buffer: StreamingAudioBuffer,
@@ -90,12 +103,19 @@ class Stage16ARealtimePipelineBundle internal constructor(
 ) {
     private val released = AtomicBoolean(false)
 
+    /** Backward-compatible recorder-card accessor. Phone-mic callers use [localAudioSinkOrNull]. */
+    val localAudioSink: RealtimeLocalAudioSideSink
+        get() = checkNotNull(optionalLocalAudioSink) { "Stage 16A local audio persistence is disabled" }
+
+    val localAudioSinkOrNull: RealtimeLocalAudioSideSink?
+        get() = optionalLocalAudioSink
+
     init {
         Stage16ARealtimePerformanceDiagnostics.attach(this) {
             performanceSnapshot().toDiagnosticsSnapshot(
                 outputLatency = outputLatencyProbe.snapshot(),
                 systemMetrics = systemMetricsProbe?.snapshot(),
-                localAudioSink = localAudioSink.snapshot(),
+                localAudioSink = optionalLocalAudioSink?.snapshot(),
                 startup = processor.startupSnapshot(),
             )
         }
@@ -122,17 +142,17 @@ class Stage16ARealtimePipelineBundle internal constructor(
 
         try {
             audioActivitySink?.close()
-            localAudioSink.close()
+            optionalLocalAudioSink?.close()
             durableOutputSink.close()
             audioActivitySink?.join()
-            localAudioSink.join()
+            optionalLocalAudioSink?.join()
             durableOutputSink.join()
             finalDiagnostics =
                 runCatching {
                     performanceSnapshot().toDiagnosticsSnapshot(
                         outputLatency = outputLatencyProbe.snapshot(),
                         systemMetrics = systemMetricsProbe?.snapshot(),
-                        localAudioSink = localAudioSink.snapshot(),
+                        localAudioSink = optionalLocalAudioSink?.snapshot(),
                         startup = processor.startupSnapshot(),
                     )
                 }.getOrNull()
@@ -143,7 +163,7 @@ class Stage16ARealtimePipelineBundle internal constructor(
                         performanceSnapshot().toDiagnosticsSnapshot(
                             outputLatency = outputLatencyProbe.snapshot(),
                             systemMetrics = systemMetricsProbe?.snapshot(),
-                            localAudioSink = localAudioSink.snapshot(),
+                            localAudioSink = optionalLocalAudioSink?.snapshot(),
                             startup = processor.startupSnapshot(),
                         )
                     }.getOrNull()
@@ -177,19 +197,25 @@ class Stage16ARealtimePipelineBundleFactory(
         localAudioRoot: File,
         persistDurableOutput: suspend (RealtimeTranscriptionOutput) -> Unit,
         onDurableFailure: suspend (RealtimeDurableOutputFailure) -> Unit = {},
-        onLocalAudioResult: suspend (RealtimeLocalAudioResult) -> Unit,
+        onLocalAudioResult: suspend (RealtimeLocalAudioResult) -> Unit = {},
         liveOutputSinks: List<RealtimeTranscriptionOutputSink> = emptyList(),
+        localAudioPersistenceMode: Stage16ALocalAudioPersistenceMode =
+            Stage16ALocalAudioPersistenceMode.ENABLED,
     ): Stage16ARealtimePipelineBundle {
-        require(localAudioRoot.exists() || localAudioRoot.mkdirs()) {
-            "unable to create Stage 16A realtime local-audio root"
-        }
-        require(localAudioRoot.isDirectory)
-        require(models.models.asr.descriptor.runtimeId == SherpaRuntime.RUNTIME_ID)
         val localAudioRunRoot =
-            stage16ARealtimeRunAudioRoot(
-                localAudioRoot = localAudioRoot,
-                namespace = UUID.randomUUID().toString(),
-            )
+            if (localAudioPersistenceMode == Stage16ALocalAudioPersistenceMode.ENABLED) {
+                require(localAudioRoot.exists() || localAudioRoot.mkdirs()) {
+                    "unable to create Stage 16A realtime local-audio root"
+                }
+                require(localAudioRoot.isDirectory)
+                stage16ARealtimeRunAudioRoot(
+                    localAudioRoot = localAudioRoot,
+                    namespace = UUID.randomUUID().toString(),
+                )
+            } else {
+                null
+            }
+        require(models.models.asr.descriptor.runtimeId == SherpaRuntime.RUNTIME_ID)
 
         Stage16AQaArtificialAsrSlowdown.beginRun()
         val performanceProbe = Stage16ARealtimePerformanceProbe()
@@ -219,16 +245,18 @@ class Stage16ARealtimePipelineBundleFactory(
                             vadPrerollSamples = config.vadPrerollSamples,
                         ),
                 )
-            localAudioSink =
-                RealtimeLocalAudioSideSink(
-                    scope = scope,
-                    targetFactory =
-                        RealtimeLocalAudioTargetFactory { sessionId ->
-                            File(localAudioRunRoot, "canonical-session-$sessionId.wav")
-                        },
-                    resultHandler = onLocalAudioResult,
-                    queueCapacity = config.localAudioQueueCapacity,
-                )
+            if (localAudioRunRoot != null) {
+                localAudioSink =
+                    RealtimeLocalAudioSideSink(
+                        scope = scope,
+                        targetFactory =
+                            RealtimeLocalAudioTargetFactory { sessionId ->
+                                File(localAudioRunRoot, "canonical-session-$sessionId.wav")
+                            },
+                        resultHandler = onLocalAudioResult,
+                        queueCapacity = config.localAudioQueueCapacity,
+                    )
+            }
             durableOutputSink =
                 RealtimeDurableOutputSink(
                     scope = scope,
@@ -247,7 +275,8 @@ class Stage16ARealtimePipelineBundleFactory(
                     )
             }
 
-            val coordinatorSideSinks = mutableListOf<StreamingAudioSideSink>(localAudioSink)
+            val coordinatorSideSinks = mutableListOf<StreamingAudioSideSink>()
+            localAudioSink?.let(coordinatorSideSinks::add)
             audioActivitySink?.let(coordinatorSideSinks::add)
             val buffer =
                 StreamingAudioBuffer(
@@ -291,7 +320,7 @@ class Stage16ARealtimePipelineBundleFactory(
             return Stage16ARealtimePipelineBundle(
                 models = models,
                 runner = runner,
-                localAudioSink = localAudioSink,
+                optionalLocalAudioSink = localAudioSink,
                 durableOutputSink = durableOutputSink,
                 processor = processor,
                 buffer = buffer,

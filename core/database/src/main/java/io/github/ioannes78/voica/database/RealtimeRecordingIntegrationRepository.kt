@@ -150,10 +150,20 @@ class RealtimeRecordingIntegrationRepository(
             return RealtimeTranscriptProjectionResult(null, 0, false)
         }
 
+        val timelineMarkers = realtimeDao.getTimelineMarkers(runId)
+        val exactEpochOffsets =
+            segments.singleOrNull()?.let { segment ->
+                resolveRealtimeCanonicalEpochOffsets(
+                    segment = segment,
+                    utterances = utterancesBySegment.single().second,
+                    markers = timelineMarkers,
+                )
+            }
         val aligned =
             segments.size == 1 &&
                 canonicalAssetId != null &&
-                canonicalSha256?.matches(SHA256) == true
+                canonicalSha256?.matches(SHA256) == true &&
+                exactEpochOffsets != null
         val transcriptionId = realtimeTranscriptionId(runId)
         val existing = transcriptionDao.findTranscription(transcriptionId)
         if (existing != null) {
@@ -238,10 +248,22 @@ class RealtimeRecordingIntegrationRepository(
             utterancesBySegment.forEach { (segment, utterances) ->
                 utterances.forEach { utterance ->
                     val start =
-                        if (aligned) utterance.startSampleIndex else segmentOffset + utterance.startSampleIndex
+                        if (aligned) {
+                            Math.addExact(
+                                checkNotNull(exactEpochOffsets)[utterance.canonicalEpochId]
+                                    ?: error("missing exact realtime epoch offset"),
+                                utterance.startSampleIndex,
+                            )
+                        } else {
+                            segmentOffset + utterance.startSampleIndex
+                        }
                     val end =
                         if (aligned) {
-                            utterance.endSampleIndexExclusive
+                            Math.addExact(
+                                checkNotNull(exactEpochOffsets)[utterance.canonicalEpochId]
+                                    ?: error("missing exact realtime epoch offset"),
+                                utterance.endSampleIndexExclusive,
+                            )
                         } else {
                             segmentOffset + utterance.endSampleIndexExclusive
                         }

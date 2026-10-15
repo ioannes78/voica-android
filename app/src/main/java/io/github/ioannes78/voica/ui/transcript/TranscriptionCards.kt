@@ -126,7 +126,10 @@ fun TranscriptionStatusCard(
 
             is TranscriptionRunState.Failed -> {
                 Text(
-                    stringResource(R.string.transcription_failed, state.message),
+                    stringResource(
+                        R.string.transcription_failed,
+                        productTranscriptionFailureMessage(state.message),
+                    ),
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -452,6 +455,19 @@ fun TranscriptSegmentCard(
                     }
                 },
         )
+    }
+}
+
+internal fun productTranscriptionFailureMessage(rawMessage: String): String {
+    val message = rawMessage.trim()
+    if (message.isEmpty()) return "离线转写未完成，请重试"
+    return when {
+        message.contains("verified canonical PCM is not ready", ignoreCase = true) ->
+            "标准音频尚未准备好，请稍后重试"
+        message.contains("canonical PCM source is unavailable", ignoreCase = true) ->
+            "标准音频当前不可用，请重新打开录音后重试"
+        message.any { character -> character in '\u4e00'..'\u9fff' } -> message
+        else -> "离线转写遇到内部错误，请重试；如持续出现，请查看诊断信息"
     }
 }
 

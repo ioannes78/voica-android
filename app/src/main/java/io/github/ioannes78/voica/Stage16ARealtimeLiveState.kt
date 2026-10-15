@@ -42,6 +42,10 @@ data class Stage16ARealtimeUiState(
     val partialText: String = "",
     /** Bounded, normalized canonical-PCM activity envelope for the product waveform. */
     val audioActivityLevels: List<Float> = emptyList(),
+    /** True only when formal recording continues after the realtime inference path has stopped. */
+    val recordingOnlyMode: Boolean = false,
+    /** UI-only projection that the active canonical source stopped unexpectedly. */
+    val sourceCaptureInterrupted: Boolean = false,
     val lifecycleMessage: String? = null,
     val errorCode: String? = null,
     val errorMessage: String? = null,
@@ -79,7 +83,11 @@ class Stage16ARealtimeLiveStateStore :
     }
 
     override fun onRealtimeAudioActivity(level: Float) = mutate { current ->
-        if (current.phase != Stage16ARealtimeUiPhase.ACTIVE) {
+        if (
+            current.phase != Stage16ARealtimeUiPhase.ACTIVE ||
+            current.recordingOnlyMode ||
+            current.sourceCaptureInterrupted
+        ) {
             current
         } else {
             val safeLevel = if (level.isFinite()) level.coerceIn(0f, 1f) else 0f
@@ -103,13 +111,34 @@ class Stage16ARealtimeLiveStateStore :
             stableText = "",
             partialText = "",
             audioActivityLevels = emptyList(),
+            recordingOnlyMode = false,
+            sourceCaptureInterrupted = false,
             lifecycleMessage = null,
             errorCode = null,
             errorMessage = null,
         )
     }
 
-    fun starting() = mutate { it.copy(phase = Stage16ARealtimeUiPhase.STARTING) }
+    fun starting() = mutate {
+        it.copy(
+            phase = Stage16ARealtimeUiPhase.STARTING,
+            sourceCaptureInterrupted = false,
+        )
+    }
+
+    fun recordingOnlyActive(code: String, message: String) = mutate {
+        it.copy(
+            phase = Stage16ARealtimeUiPhase.ACTIVE,
+            stableText = "",
+            partialText = "",
+            audioActivityLevels = emptyList(),
+            recordingOnlyMode = true,
+            sourceCaptureInterrupted = false,
+            lifecycleMessage = message,
+            errorCode = code,
+            errorMessage = null,
+        )
+    }
 
     fun paused() = mutate {
         it.copy(
@@ -117,7 +146,13 @@ class Stage16ARealtimeLiveStateStore :
             stableText = "",
             partialText = "",
             audioActivityLevels = emptyList(),
-            lifecycleMessage = "已暂停",
+            sourceCaptureInterrupted = false,
+            lifecycleMessage =
+                if (it.recordingOnlyMode) {
+                    "录音已暂停 · 实时转写已停止"
+                } else {
+                    "已暂停"
+                },
         )
     }
 
@@ -125,7 +160,13 @@ class Stage16ARealtimeLiveStateStore :
         it.copy(
             phase = Stage16ARealtimeUiPhase.RESUMING,
             audioActivityLevels = emptyList(),
-            lifecycleMessage = "正在继续实时转写…",
+            sourceCaptureInterrupted = false,
+            lifecycleMessage =
+                if (it.recordingOnlyMode) {
+                    "正在继续录音…"
+                } else {
+                    "正在继续实时转写…"
+                },
         )
     }
 
@@ -133,7 +174,13 @@ class Stage16ARealtimeLiveStateStore :
         it.copy(
             phase = Stage16ARealtimeUiPhase.FINALIZING,
             audioActivityLevels = emptyList(),
-            lifecycleMessage = "正在完成最后内容…",
+            sourceCaptureInterrupted = false,
+            lifecycleMessage =
+                if (it.recordingOnlyMode) {
+                    "正在保存录音…"
+                } else {
+                    "正在完成最后内容…"
+                },
         )
     }
 
@@ -147,6 +194,8 @@ class Stage16ARealtimeLiveStateStore :
             stableText = "",
             partialText = "",
             audioActivityLevels = emptyList(),
+            recordingOnlyMode = false,
+            sourceCaptureInterrupted = false,
             lifecycleMessage = message,
             errorCode = code,
             errorMessage = errorMessage,
@@ -159,6 +208,8 @@ class Stage16ARealtimeLiveStateStore :
             stableText = "",
             partialText = "",
             audioActivityLevels = emptyList(),
+            recordingOnlyMode = false,
+            sourceCaptureInterrupted = false,
             lifecycleMessage = null,
             errorCode = null,
             errorMessage = null,
@@ -171,6 +222,8 @@ class Stage16ARealtimeLiveStateStore :
             stableText = "",
             partialText = "",
             audioActivityLevels = emptyList(),
+            recordingOnlyMode = false,
+            sourceCaptureInterrupted = false,
             lifecycleMessage = message,
             errorCode = code,
             // Keep this as lifecycle/degraded information, not a fatal UI error.
@@ -201,6 +254,8 @@ class Stage16ARealtimeLiveStateStore :
                 stableText = "",
                 partialText = "",
                 audioActivityLevels = emptyList(),
+                recordingOnlyMode = false,
+                sourceCaptureInterrupted = false,
                 lifecycleMessage = null,
                 errorCode = code,
                 errorMessage = message,
@@ -280,6 +335,8 @@ class Stage16ARealtimeLiveStateStore :
                     stableText = "",
                     partialText = "",
                     audioActivityLevels = emptyList(),
+                    recordingOnlyMode = false,
+                    sourceCaptureInterrupted = false,
                     lifecycleMessage =
                         if (current.phase == Stage16ARealtimeUiPhase.INTERRUPTED) {
                             "已恢复实时转写"
@@ -304,6 +361,8 @@ class Stage16ARealtimeLiveStateStore :
                     stableText = "",
                     partialText = "",
                     audioActivityLevels = emptyList(),
+                    recordingOnlyMode = false,
+                    sourceCaptureInterrupted = false,
                 )
 
             is RealtimeAsrPipelineEvent.Discontinuity ->
@@ -322,6 +381,8 @@ class Stage16ARealtimeLiveStateStore :
                             stableText = "",
                             partialText = "",
                             audioActivityLevels = emptyList(),
+                            recordingOnlyMode = false,
+                            sourceCaptureInterrupted = false,
                             lifecycleMessage = "连接已中断 · 设备仍可能继续录音",
                         )
 
@@ -333,6 +394,7 @@ class Stage16ARealtimeLiveStateStore :
                             stableText = "",
                             partialText = "",
                             audioActivityLevels = emptyList(),
+                            sourceCaptureInterrupted = false,
                             lifecycleMessage = "正在完成最后内容…",
                         )
 
@@ -344,6 +406,8 @@ class Stage16ARealtimeLiveStateStore :
                             stableText = "",
                             partialText = "",
                             audioActivityLevels = emptyList(),
+                            recordingOnlyMode = false,
+                            sourceCaptureInterrupted = false,
                             lifecycleMessage = "实时转写已中断",
                         )
                 }
