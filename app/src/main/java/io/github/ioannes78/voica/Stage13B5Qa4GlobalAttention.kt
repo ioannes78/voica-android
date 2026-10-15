@@ -1,11 +1,14 @@
 package io.github.ioannes78.voica
 
+import android.app.NotificationManager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.platform.LocalContext
 import io.github.ioannes78.voica.database.AiSummaryEntity
 import io.github.ioannes78.voica.database.AiSummaryStateValue
 import io.github.ioannes78.voica.database.RecordingLibraryItem
@@ -61,6 +64,9 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
     container: AppContainer,
     content: @Composable () -> Unit,
 ) {
+    val context = LocalContext.current
+    val notificationManager = remember(context) { context.getSystemService(NotificationManager::class.java) }
+    val presentationStore = remember(context) { NotificationPresentationStore(context) }
     val transcriptionAttention by
         container.stage13B5Qa4Repository.observeTranscriptionAttention()
             .collectAsState(initial = emptyList())
@@ -127,6 +133,35 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
             includeTranscriptResults = visible.destination == RecordingDetailDestination.TRANSCRIPT,
             includeSummaryResults = visible.destination == RecordingDetailDestination.SUMMARY,
         )
+    }
+
+    // Candidate business truth remains untouched. Visiting the exact page only clears/suppresses
+    // that candidate's Android system notification; the in-app candidate remains until the existing
+    // candidate lifecycle accepts/dismisses it.
+    LaunchedEffect(
+        visibleDetail,
+        transcriptionCandidates.map(TranscriptionEntity::id),
+        aiSummaryCandidates.map(AiSummaryEntity::id),
+    ) {
+        val visible = visibleDetail ?: return@LaunchedEffect
+        if (visible.destination == RecordingDetailDestination.TRANSCRIPT) {
+            transcriptionCandidates
+                .filter { it.recordingId == visible.recordingId }
+                .forEach { candidate ->
+                    val logicalKey = transcriptionCandidatePresentationKey(candidate.id)
+                    presentationStore.markSystemDismissed(logicalKey)
+                    notificationManager.cancel(transcriptionCandidateNotificationId(candidate.id))
+                }
+        }
+        if (visible.destination == RecordingDetailDestination.SUMMARY) {
+            aiSummaryCandidates
+                .filter { it.recordingId == visible.recordingId }
+                .forEach { candidate ->
+                    val logicalKey = aiSummaryCandidatePresentationKey(candidate.id)
+                    presentationStore.markSystemDismissed(logicalKey)
+                    notificationManager.cancel(aiSummaryCandidateNotificationId(candidate.id))
+                }
+        }
     }
 
     CompositionLocalProvider(
