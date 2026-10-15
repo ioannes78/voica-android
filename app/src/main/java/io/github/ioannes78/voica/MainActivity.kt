@@ -69,9 +69,14 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             val phoneRealtimeController =
-                remember(appContainer.phoneMicrophoneRealtimeRuntime, phoneUiScope) {
+                remember(
+                    appContainer.phoneMicrophoneRealtimeRuntime,
+                    appContainer.phoneMicrophoneRecordingRuntime,
+                    phoneUiScope,
+                ) {
                     PhoneMicrophoneRealtimeUiController(
                         runtime = appContainer.phoneMicrophoneRealtimeRuntime,
+                        captureState = appContainer.phoneMicrophoneRecordingRuntime.captureState,
                         scope = phoneUiScope,
                     )
                 }
