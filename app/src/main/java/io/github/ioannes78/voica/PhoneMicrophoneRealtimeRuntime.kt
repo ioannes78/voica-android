@@ -37,7 +37,7 @@ data class PhoneMicrophoneRealtimeActionOutcome(
     val degraded: Boolean = false,
 )
 
-data class PhoneMicrophoneRealtimeRuntimeSnapshot(
+internal data class PhoneMicrophoneRealtimeRuntimeSnapshot(
     val activeRunId: String?,
     val runnerState: RealtimeTranscriptionSessionRunnerState?,
     val runnerFailure: String?,
