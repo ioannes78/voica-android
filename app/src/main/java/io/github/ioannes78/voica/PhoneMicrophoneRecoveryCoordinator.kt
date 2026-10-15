@@ -48,14 +48,14 @@ internal class PhoneMicrophoneRecoveryCoordinator(
             if (recordingId.isEmpty()) continue
 
             val registeredLookup = runCatching { isRegistered(recordingId) }
-            val registered =
-                registeredLookup.getOrElse { failure ->
-                    failures +=
-                        "$recordingId:registration_lookup:${failure.javaClass.simpleName}:" +
-                            failure.message.orEmpty()
-                    continue
-                }
-            if (registered) {
+            val lookupFailure = registeredLookup.exceptionOrNull()
+            if (lookupFailure != null) {
+                failures +=
+                    "$recordingId:registration_lookup:${lookupFailure.javaClass.simpleName}:" +
+                        lookupFailure.message.orEmpty()
+                continue
+            }
+            if (registeredLookup.getOrThrow()) {
                 skippedRegistered += 1
                 continue
             }
