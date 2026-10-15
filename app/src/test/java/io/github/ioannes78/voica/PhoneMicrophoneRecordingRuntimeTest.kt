@@ -92,7 +92,7 @@ class PhoneMicrophoneRecordingRuntimeTest {
     }
 
     @Test
-    fun `capture failure saves usable media but never reports normal completion`() = runBlocking {
+    fun `capture failure saves usable media but returns abnormal stop`() = runBlocking {
         val runtime = runtime()
         assertTrue(runtime.start() is PhoneMicrophoneRecordingStartResult.Started)
         capture.emit(ShortArray(1_280) { 33 })
@@ -100,20 +100,23 @@ class PhoneMicrophoneRecordingRuntimeTest {
 
         val stopped = runtime.stop()
 
-        assertTrue(stopped is PhoneMicrophoneRecordingStopResult.Saved)
-        stopped as PhoneMicrophoneRecordingStopResult.Saved
-        assertEquals(1_280L, stopped.sampleCount)
+        assertTrue(stopped is PhoneMicrophoneRecordingStopResult.Failed)
+        stopped as PhoneMicrophoneRecordingStopResult.Failed
+        assertEquals(1_280L, runtime.state.value.writtenSamples)
         assertEquals(PhoneMicrophoneRecordingPhase.FAILED, runtime.state.value.phase)
         assertTrue(runtime.state.value.finalizedSha256?.isNotBlank() == true)
         assertTrue(runtime.state.value.lastFailure?.contains("异常中断") == true)
         assertTrue(runtime.state.value.lastFailure?.contains("synthetic microphone interruption") == true)
+        assertTrue(stopped.message.contains("异常中断"))
         assertEquals(1, registrations.size)
         assertEquals(
             "手机录音（异常中断） 2026-10-15 08:00:00",
             registrations.single().displayName,
         )
-        assertTrue(stopped.file.isFile)
-        assertEquals(44L + 1_280L * 2L, stopped.file.length())
+        assertEquals(80L, registrations.single().mediaDurationMs)
+        val preserved = checkNotNull(stopped.preservedFile)
+        assertTrue(preserved.isFile)
+        assertEquals(44L + 1_280L * 2L, preserved.length())
 
         runtime.close()
     }
