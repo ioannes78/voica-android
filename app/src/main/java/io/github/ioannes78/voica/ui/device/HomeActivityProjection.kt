@@ -1,9 +1,12 @@
 package io.github.ioannes78.voica.ui.device
 
+import io.github.ioannes78.voica.PhoneMicrophoneProductTarget
 import io.github.ioannes78.voica.PhoneMicrophoneRecordingPhase
 import io.github.ioannes78.voica.Stage16ARealtimeUiPhase
 import io.github.ioannes78.voica.Stage16ARealtimeUiState
+import io.github.ioannes78.voica.ble.RecordingCommandState
 import io.github.ioannes78.voica.ble.RecordingDeviceState
+import io.github.ioannes78.voica.ble.RecordingFreshness
 import io.github.ioannes78.voica.protocol.RecordingStatus
 import io.github.ioannes78.voica.ui.phone.PhoneMicrophoneRecordingUiState
 import io.github.ioannes78.voica.ui.status.AppActivityAction
@@ -47,6 +50,17 @@ private fun deviceRecordingFact(
     val status = state.status
     if (status != RecordingStatus.Recording && status != RecordingStatus.Paused) return null
     val paused = status == RecordingStatus.Paused
+    val controlsEnabled =
+        state.freshness == RecordingFreshness.FRESH &&
+            state.commandState == RecordingCommandState.IDLE
+    val actions =
+        if (!controlsEnabled) {
+            emptySet()
+        } else if (paused) {
+            setOf(AppActivityAction.RESUME, AppActivityAction.STOP)
+        } else {
+            setOf(AppActivityAction.PAUSE, AppActivityAction.STOP)
+        }
     return AppActivityFact(
         logicalKey = DEVICE_LIVE_KEY,
         kind = AppActivityKind.RECORDING,
@@ -54,12 +68,7 @@ private fun deviceRecordingFact(
         lifecycleClass = AppActivityLifecycleClass.ACTIVE_CONTROLLABLE,
         title = if (paused) "录音已暂停" else "录音中",
         subtitle = listOf("录音卡", formatDeviceDuration(state.durationSeconds)).joinToString(" · "),
-        availableActions =
-            if (paused) {
-                setOf(AppActivityAction.RESUME, AppActivityAction.STOP)
-            } else {
-                setOf(AppActivityAction.PAUSE, AppActivityAction.STOP)
-            },
+        availableActions = actions,
         priorityHint = RECORDING_PRIORITY,
         explicitlyFocused = sourcePreference == HomeActivitySourcePreference.RECORDER_CARD,
         startedAtMs = state.lastUpdatedTimeMs,
@@ -147,6 +156,7 @@ private fun phoneRecordingFact(
         lifecycleClass = AppActivityLifecycleClass.ACTIVE_CONTROLLABLE,
         title = title,
         subtitle = "手机麦克风 · ${formatDurationMs(snapshot.durationMs)}",
+        destination = AppActivityDestination.PhoneMicrophone(PhoneMicrophoneProductTarget.RECORDING),
         availableActions = availableActions,
         priorityHint = RECORDING_PRIORITY,
         explicitlyFocused = sourcePreference == HomeActivitySourcePreference.PHONE_MICROPHONE,
@@ -198,10 +208,7 @@ private fun phoneRealtimeFact(
         lifecycleClass = lifecycle,
         title = title,
         subtitle = "手机麦克风 · ${formatDurationMs(recording.recording.durationMs)} · $detail",
-        destination =
-            AppActivityDestination.PhoneMicrophone(
-                io.github.ioannes78.voica.PhoneMicrophoneProductTarget.REALTIME,
-            ),
+        destination = AppActivityDestination.PhoneMicrophone(PhoneMicrophoneProductTarget.REALTIME),
         availableActions = realtimeActions(realtime),
         priorityHint = REALTIME_PRIORITY,
         explicitlyFocused = sourcePreference == HomeActivitySourcePreference.PHONE_MICROPHONE,
