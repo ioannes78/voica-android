@@ -1,5 +1,8 @@
 package io.github.ioannes78.voica.ui.realtime
 
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import io.github.ioannes78.voica.PhoneMicrophoneRealtimeActionOutcome
 import io.github.ioannes78.voica.PhoneMicrophoneRealtimeRuntime
@@ -58,8 +61,33 @@ internal class PhoneMicrophoneRealtimeUiController(
     override suspend fun stop(): RealtimeTranscriptionUiActionOutcome = runtime.stop().toUiOutcome()
 }
 
+/**
+ * Historical Stage 16A composition seam retained as a thin adapter only. New shared reader code does
+ * not depend on the recorder-card runtime type.
+ */
+val LocalStage16ARealtimeRuntime = staticCompositionLocalOf<Stage16ARealtimeRuntime> {
+    error("Stage16ARealtimeRuntime was not provided")
+}
+
 internal val LocalRecorderCardRealtimeController = staticCompositionLocalOf<RealtimeTranscriptionUiController> {
     error("Recorder-card realtime UI controller was not provided")
+}
+
+/** Compatibility overload for the frozen recorder-card product/navigation path. */
+@Composable
+fun RealtimeTranscriptionScreen(
+    padding: PaddingValues,
+    runtime: Stage16ARealtimeRuntime,
+    canStart: Boolean,
+    onBack: () -> Unit,
+) {
+    val controller = remember(runtime) { RecorderCardRealtimeUiController(runtime) }
+    RealtimeTranscriptionScreen(
+        padding = padding,
+        controller = controller,
+        canStart = canStart,
+        onBack = onBack,
+    )
 }
 
 private fun Stage16ARealtimeActionOutcome.toUiOutcome() =
