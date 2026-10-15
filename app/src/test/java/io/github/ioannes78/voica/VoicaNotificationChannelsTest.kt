@@ -38,4 +38,22 @@ class VoicaNotificationChannelsTest {
             } >= 2,
         )
     }
+
+    @Test
+    fun `logical category mapping remains explicit without changing physical ids`() {
+        assertEquals(
+            mapOf(
+                "voica-device-session" to VoicaNotificationCategory.RECORDING_AND_REALTIME,
+                "voica-phone-microphone" to VoicaNotificationCategory.RECORDING_AND_REALTIME,
+                "voica-playback" to VoicaNotificationCategory.PLAYBACK,
+                "voica-media-processing" to VoicaNotificationCategory.BACKGROUND_PROCESSING,
+                "voica-ai-summary" to VoicaNotificationCategory.BACKGROUND_PROCESSING,
+                "model-install" to VoicaNotificationCategory.BACKGROUND_PROCESSING,
+                "voica-task-result" to VoicaNotificationCategory.COMPLETION,
+                "voica-task-attention" to VoicaNotificationCategory.NEEDS_ATTENTION,
+                "voica-diarization-attention" to VoicaNotificationCategory.NEEDS_ATTENTION,
+            ),
+            VoicaNotificationChannels.all.associate { it.id to it.category },
+        )
+    }
 }
