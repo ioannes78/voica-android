@@ -25,10 +25,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -42,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import io.github.ioannes78.voica.PhoneMicrophoneProductTarget
 import io.github.ioannes78.voica.PhoneMicrophoneRecordingPhase
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.ble.DeviceConnectionState
@@ -55,16 +56,19 @@ import io.github.ioannes78.voica.ui.DeviceViewModel
 import io.github.ioannes78.voica.ui.files.CompactDeviceFilesScreen
 import io.github.ioannes78.voica.ui.phone.LocalPhoneMicrophoneRealtimeRuntime
 import io.github.ioannes78.voica.ui.phone.LocalPhoneMicrophoneRecordingRuntime
-import io.github.ioannes78.voica.ui.phone.PhoneMicrophoneRealtimeEntryCard
 import io.github.ioannes78.voica.ui.phone.PhoneMicrophoneRealtimeScreen
-import io.github.ioannes78.voica.ui.phone.PhoneMicrophoneRecordingEntryCard
 import io.github.ioannes78.voica.ui.phone.PhoneMicrophoneRecordingScreen
 import io.github.ioannes78.voica.ui.phone.PhoneMicrophoneRecordingUiController
 import io.github.ioannes78.voica.ui.realtime.LocalStage16ARealtimeRuntime
 import io.github.ioannes78.voica.ui.realtime.PhoneMicrophoneRealtimeUiController
-import io.github.ioannes78.voica.ui.realtime.RealtimeTranscriptionEntryCard
+import io.github.ioannes78.voica.ui.realtime.RecorderCardRealtimeUiController
 import io.github.ioannes78.voica.ui.realtime.RealtimeTranscriptionScreen
-import io.github.ioannes78.voica.ui.recording.RecordingCard
+import io.github.ioannes78.voica.ui.status.AppActivityAction
+import io.github.ioannes78.voica.ui.status.AppActivityDestination
+import io.github.ioannes78.voica.ui.status.AppActivityFact
+import io.github.ioannes78.voica.ui.status.AppActivityKind
+import io.github.ioannes78.voica.ui.status.AppActivitySource
+import kotlinx.coroutines.launch
 
 private enum class DevicePage {
     HOME,
@@ -103,6 +107,7 @@ fun DeviceProductScreen(
     val phoneRecordingRuntime = LocalPhoneMicrophoneRecordingRuntime.current
     val phoneRealtimeRuntime = LocalPhoneMicrophoneRealtimeRuntime.current
     val phoneUiScope = rememberCoroutineScope()
+    val recorderRealtimeController = remember(realtimeRuntime) { RecorderCardRealtimeUiController(realtimeRuntime) }
     val phoneRecordingController =
         remember(phoneRecordingRuntime, phoneRealtimeRuntime, phoneUiScope) {
             PhoneMicrophoneRecordingUiController(
@@ -120,8 +125,12 @@ fun DeviceProductScreen(
             )
         }
     val phoneRecordingUiState by phoneRecordingController.state.collectAsState()
+    val phoneRealtimeState by phoneRealtimeController.state.collectAsState()
 
     var page by rememberSaveable { mutableStateOf(DevicePage.HOME) }
+    var homeSourcePreference by rememberSaveable {
+        mutableStateOf(HomeActivitySourcePreference.RECORDER_CARD)
+    }
 
     LaunchedEffect(page) {
         onSecondaryPageChanged(page != DevicePage.HOME)
@@ -166,243 +175,381 @@ fun DeviceProductScreen(
         scan.devices.filter { it.advertisesAe20 || it.likelyQs668 }
     val otherDevices =
         scan.devices.filterNot { it.advertisesAe20 || it.likelyQs668 }
-    val canStartRealtime =
-        connection is DeviceConnectionState.Ready &&
+    val recorderAvailable = connection is DeviceConnectionState.Ready
+    val effectiveSourcePreference =
+        if (recorderAvailable) {
+            homeSourcePreference
+        } else {
+            HomeActivitySourcePreference.PHONE_MICROPHONE
+        }
+    val canStartDeviceRecording =
+        recorderAvailable &&
             recording.status == RecordingStatus.Idle &&
             recording.freshness == RecordingFreshness.FRESH &&
             recording.commandState == RecordingCommandState.IDLE
-    val canStartPhoneRealtime =
+    val canStartRealtime = canStartDeviceRecording
+    val canStartPhoneRecording =
         !phoneRecordingUiState.ownedByRealtime &&
             phoneRecordingUiState.recording.phase in PHONE_MIC_STARTABLE_PHASES
+    val canStartPhoneRealtime = canStartPhoneRecording
+    val canStartHomeRecording =
+        when (effectiveSourcePreference) {
+            HomeActivitySourcePreference.RECORDER_CARD -> canStartDeviceRecording
+            HomeActivitySourcePreference.PHONE_MICROPHONE -> canStartPhoneRecording
+        }
+    val canStartHomeRealtime =
+        when (effectiveSourcePreference) {
+            HomeActivitySourcePreference.RECORDER_CARD -> canStartRealtime
+            HomeActivitySourcePreference.PHONE_MICROPHONE -> canStartPhoneRealtime
+        }
+    val homeProjection =
+        buildHomeActivityProjection(
+            deviceRecording = recording,
+            deviceRealtime = realtimeState,
+            phoneRecording = phoneRecordingUiState,
+            phoneRealtime = phoneRealtimeState,
+            sourcePreference = effectiveSourcePreference,
+        )
+
+    fun showActionMessage(message: String?) {
+        if (message.isNullOrBlank()) return
+        phoneUiScope.launch { snackbarHostState.showSnackbar(message) }
+    }
+
+    fun launchRealtimeAction(
+        source: AppActivitySource,
+        action: AppActivityAction,
+    ) {
+        val controller =
+            when (source) {
+                AppActivitySource.RECORDER_CARD -> recorderRealtimeController
+                AppActivitySource.PHONE_MICROPHONE -> phoneRealtimeController
+                else -> return
+            }
+        phoneUiScope.launch {
+            val outcome =
+                when (action) {
+                    AppActivityAction.PAUSE -> controller.pause()
+                    AppActivityAction.RESUME -> controller.resume()
+                    AppActivityAction.STOP -> controller.stop()
+                    else -> return@launch
+                }
+            if (!outcome.success || !outcome.message.isNullOrBlank()) {
+                showActionMessage(outcome.message)
+            }
+        }
+    }
+
+    fun openProjectedActivity(activity: AppActivityFact) {
+        when (val destination = activity.destination) {
+            AppActivityDestination.DeviceRealtime -> page = DevicePage.REALTIME
+            is AppActivityDestination.PhoneMicrophone -> {
+                page =
+                    when (destination.target) {
+                        PhoneMicrophoneProductTarget.RECORDING -> DevicePage.PHONE_RECORDING
+                        PhoneMicrophoneProductTarget.REALTIME -> DevicePage.PHONE_REALTIME
+                    }
+            }
+            is AppActivityDestination.RecordingDetail,
+            null,
+            -> Unit
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
-    when (page) {
-        DevicePage.HOME -> {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                item {
-                    DeviceHeader(
-                        connected = connection is DeviceConnectionState.Ready,
-                        onRefresh = viewModel::refreshDeviceInfo,
-                        onSyncTime = viewModel::syncTime,
-                        onOpenFiles = { page = DevicePage.FILES },
-                        onOpenDiagnostics = { page = DevicePage.DIAGNOSTICS },
-                    )
-                }
+        when (page) {
+            DevicePage.HOME -> {
+                LazyColumn(
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .padding(padding),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    item {
+                        DeviceHeader(
+                            connected = recorderAvailable,
+                            onRefresh = viewModel::refreshDeviceInfo,
+                            onSyncTime = viewModel::syncTime,
+                            onOpenFiles = { page = DevicePage.FILES },
+                            onOpenDiagnostics = { page = DevicePage.DIAGNOSTICS },
+                        )
+                    }
 
-                item {
-                    DeviceStatusPanel(
-                        connection = connection,
-                        info = info,
-                        isScanning = scan.isScanning,
-                        timedOut = scan.timedOut,
-                        discoveredCount = scan.devices.size,
-                        missingPermissions = missingPermissions,
-                        onScan = viewModel::startScan,
-                        onStopScan = viewModel::stopScan,
-                        onRequestPermissions = {
-                            permissionLauncher.launch(missingPermissions.toTypedArray())
-                        },
-                        onRefresh = viewModel::refreshDeviceInfo,
-                        onSyncTime = viewModel::syncTime,
-                        onDisconnect = viewModel::disconnect,
-                    )
-                }
+                    item {
+                        CompactHomeDeviceStatus(
+                            connection = connection,
+                            info = info,
+                            isScanning = scan.isScanning,
+                            discoveredCount = scan.devices.size,
+                            missingPermissions = missingPermissions,
+                            onScan = viewModel::startScan,
+                            onStopScan = viewModel::stopScan,
+                            onRequestPermissions = {
+                                permissionLauncher.launch(missingPermissions.toTypedArray())
+                            },
+                            onDisconnect = viewModel::disconnect,
+                        )
+                    }
 
-                item {
-                    PhoneMicrophoneRecordingEntryCard(
-                        state = phoneRecordingUiState,
-                        onClick = { page = DevicePage.PHONE_RECORDING },
-                    )
-                }
+                    item {
+                        HomePhoneMicrophonePermissionGate(
+                            onPermissionReady = { action ->
+                                when (action) {
+                                    HomePhoneMicrophoneStartAction.RECORDING -> {
+                                        phoneUiScope.launch {
+                                            val outcome = phoneRecordingController.start()
+                                            if (!outcome.success || !outcome.message.isNullOrBlank()) {
+                                                showActionMessage(outcome.message)
+                                            }
+                                        }
+                                    }
+                                    HomePhoneMicrophoneStartAction.REALTIME -> {
+                                        phoneUiScope.launch {
+                                            val outcome = phoneRealtimeController.start()
+                                            if (!outcome.success || !outcome.message.isNullOrBlank()) {
+                                                showActionMessage(outcome.message)
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                        ) { requestPhoneStart, permissionMessage ->
+                            HomeActivityPanel(
+                                projection = homeProjection,
+                                sourcePreference = effectiveSourcePreference,
+                                recorderAvailable = recorderAvailable,
+                                canStartRecording = canStartHomeRecording,
+                                canStartRealtime = canStartHomeRealtime,
+                                permissionMessage =
+                                    if (effectiveSourcePreference == HomeActivitySourcePreference.PHONE_MICROPHONE) {
+                                        permissionMessage
+                                    } else {
+                                        null
+                                    },
+                                onSourcePreferenceChanged = { homeSourcePreference = it },
+                                onStartRecording = {
+                                    when (effectiveSourcePreference) {
+                                        HomeActivitySourcePreference.RECORDER_CARD -> viewModel.startRecording()
+                                        HomeActivitySourcePreference.PHONE_MICROPHONE ->
+                                            requestPhoneStart(HomePhoneMicrophoneStartAction.RECORDING)
+                                    }
+                                },
+                                onStartRealtime = {
+                                    when (effectiveSourcePreference) {
+                                        HomeActivitySourcePreference.RECORDER_CARD -> {
+                                            phoneUiScope.launch {
+                                                val outcome = recorderRealtimeController.start()
+                                                if (!outcome.success || !outcome.message.isNullOrBlank()) {
+                                                    showActionMessage(outcome.message)
+                                                }
+                                            }
+                                        }
+                                        HomeActivitySourcePreference.PHONE_MICROPHONE ->
+                                            requestPhoneStart(HomePhoneMicrophoneStartAction.REALTIME)
+                                    }
+                                },
+                                onAction = { activity, action ->
+                                    when {
+                                        activity.source == AppActivitySource.RECORDER_CARD &&
+                                            activity.kind == AppActivityKind.RECORDING -> {
+                                            when (action) {
+                                                AppActivityAction.PAUSE -> viewModel.pauseRecording()
+                                                AppActivityAction.RESUME -> viewModel.resumeRecording()
+                                                AppActivityAction.STOP -> viewModel.saveRecording()
+                                                else -> Unit
+                                            }
+                                        }
+                                        activity.source == AppActivitySource.PHONE_MICROPHONE &&
+                                            activity.kind == AppActivityKind.RECORDING -> {
+                                            phoneUiScope.launch {
+                                                val outcome =
+                                                    when (action) {
+                                                        AppActivityAction.PAUSE -> phoneRecordingController.pause()
+                                                        AppActivityAction.RESUME -> phoneRecordingController.resume()
+                                                        AppActivityAction.STOP -> phoneRecordingController.stop()
+                                                        else -> return@launch
+                                                    }
+                                                if (!outcome.success || !outcome.message.isNullOrBlank()) {
+                                                    showActionMessage(outcome.message)
+                                                }
+                                            }
+                                        }
+                                        activity.kind == AppActivityKind.REALTIME_TRANSCRIPTION ->
+                                            launchRealtimeAction(activity.source, action)
+                                    }
+                                },
+                                onOpenActivity = ::openProjectedActivity,
+                                onSelectSecondaryActivity = { activity ->
+                                    homeSourcePreference =
+                                        when (activity.source) {
+                                            AppActivitySource.RECORDER_CARD ->
+                                                HomeActivitySourcePreference.RECORDER_CARD
+                                            AppActivitySource.PHONE_MICROPHONE ->
+                                                HomeActivitySourcePreference.PHONE_MICROPHONE
+                                            else -> effectiveSourcePreference
+                                        }
+                                },
+                            )
+                        }
+                    }
 
-                item {
-                    PhoneMicrophoneRealtimeEntryCard(
-                        controller = phoneRealtimeController,
-                        canStart = canStartPhoneRealtime,
-                        onClick = { page = DevicePage.PHONE_REALTIME },
-                    )
-                }
+                    if (!recorderAvailable) {
+                        if (compatibleDevices.isNotEmpty()) {
+                            item {
+                                Text(
+                                    "兼容录音设备",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            items(
+                                items = compatibleDevices.take(MAX_HOME_SCAN_RESULTS),
+                                key = { it.address },
+                            ) { device ->
+                                CompactScanDeviceRow(
+                                    device = device,
+                                    onConnect = viewModel::connect,
+                                )
+                            }
+                        }
 
-                if (connection !is DeviceConnectionState.Ready) {
+                        if (otherDevices.isNotEmpty()) {
+                            item {
+                                TextButton(onClick = { page = DevicePage.ALL_DEVICES }) {
+                                    Text("其它蓝牙设备 " + otherDevices.size + " >")
+                                }
+                            }
+                        }
+                    } else {
+                        item {
+                            DeviceFilesEntry(
+                                count = deviceFiles.files.size,
+                                latestName = deviceFiles.files.firstOrNull()?.displayFilename,
+                                onClick = { page = DevicePage.FILES },
+                            )
+                        }
+                    }
+                }
+            }
+
+            DevicePage.REALTIME -> {
+                RealtimeTranscriptionScreen(
+                    padding = padding,
+                    runtime = realtimeRuntime,
+                    canStart = canStartRealtime,
+                    onBack = { page = DevicePage.HOME },
+                )
+            }
+
+            DevicePage.PHONE_RECORDING -> {
+                PhoneMicrophoneRecordingScreen(
+                    padding = padding,
+                    controller = phoneRecordingController,
+                    onBack = { page = DevicePage.HOME },
+                )
+            }
+
+            DevicePage.PHONE_REALTIME -> {
+                PhoneMicrophoneRealtimeScreen(
+                    padding = padding,
+                    controller = phoneRealtimeController,
+                    canStart = canStartPhoneRealtime,
+                    onBack = { page = DevicePage.HOME },
+                )
+            }
+
+            DevicePage.FILES -> {
+                val operation by viewModel.fileOperationState.collectAsState()
+                val canRefresh =
+                    recording.status == RecordingStatus.Idle &&
+                        recording.freshness == RecordingFreshness.FRESH &&
+                        recording.commandState == RecordingCommandState.IDLE &&
+                        deviceFiles.freshness != FileListFreshness.LOADING &&
+                        operation !is FileOperationState.Active
+                CompactDeviceFilesScreen(
+                    padding = padding,
+                    state = deviceFiles,
+                    operationState = operation,
+                    batchDeleteState = batchDeleteState,
+                    localRecordings = libraryRecordings,
+                    canRefresh = canRefresh,
+                    onBack = { page = DevicePage.HOME },
+                    onRefresh = viewModel::refreshDeviceFiles,
+                    onDownload = viewModel::downloadDeviceFile,
+                    onCancelDownload = viewModel::cancelDeviceFileDownload,
+                    onDeleteRemote = viewModel::deleteRemoteRecording,
+                    onDeleteSelected = viewModel::deleteRemoteRecordings,
+                    onDismissBatchResult = viewModel::dismissRemoteDeleteBatchResult,
+                    onRangeProbe = viewModel::runRangeProbe,
+                )
+            }
+
+            DevicePage.ALL_DEVICES -> {
+                LazyColumn(
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .padding(padding),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    item {
+                        CompactSubpageHeader(
+                            title = "发现的设备",
+                            onBack = { page = DevicePage.HOME },
+                        )
+                    }
                     if (compatibleDevices.isNotEmpty()) {
                         item {
                             Text(
                                 "兼容录音设备",
                                 style = MaterialTheme.typography.labelLarge,
+                            )
+                        }
+                        items(compatibleDevices, key = { it.address }) { device ->
+                            CompactScanDeviceRow(
+                                device = device,
+                                onConnect = {
+                                    page = DevicePage.HOME
+                                    viewModel.connect(it)
+                                },
+                            )
+                        }
+                    }
+                    if (otherDevices.isNotEmpty()) {
+                        item {
+                            Text(
+                                "其它蓝牙设备",
+                                style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        items(
-                            items = compatibleDevices.take(MAX_HOME_SCAN_RESULTS),
-                            key = { it.address },
-                        ) { device ->
+                        items(otherDevices, key = { it.address }) { device ->
                             CompactScanDeviceRow(
                                 device = device,
-                                onConnect = viewModel::connect,
+                                onConnect = {
+                                    page = DevicePage.HOME
+                                    viewModel.connect(it)
+                                },
                             )
                         }
                     }
-
-                    if (otherDevices.isNotEmpty()) {
-                        item {
-                            TextButton(onClick = { page = DevicePage.ALL_DEVICES }) {
-                                Text("其它蓝牙设备 " + otherDevices.size + " >")
-                            }
-                        }
-                    }
-                } else {
-                    item {
-                        RecordingCard(
-                            state = recording,
-                            onStart = viewModel::startRecording,
-                            onPause = viewModel::pauseRecording,
-                            onResume = viewModel::resumeRecording,
-                            onSave = viewModel::saveRecording,
-                            onRefresh = viewModel::refreshRecordingState,
-                            onSetGain = viewModel::setRecordingGain,
-                        )
-                    }
-
-                    item {
-                        RealtimeTranscriptionEntryCard(
-                            state = realtimeState,
-                            canStart = canStartRealtime,
-                            onClick = { page = DevicePage.REALTIME },
-                        )
-                    }
-
-                    item {
-                        DeviceFilesEntry(
-                            count = deviceFiles.files.size,
-                            latestName = deviceFiles.files.firstOrNull()?.displayFilename,
-                            onClick = { page = DevicePage.FILES },
-                        )
-                    }
                 }
             }
-        }
 
-        DevicePage.REALTIME -> {
-            RealtimeTranscriptionScreen(
-                padding = padding,
-                runtime = realtimeRuntime,
-                canStart = canStartRealtime,
-                onBack = { page = DevicePage.HOME },
-            )
-        }
-
-        DevicePage.PHONE_RECORDING -> {
-            PhoneMicrophoneRecordingScreen(
-                padding = padding,
-                controller = phoneRecordingController,
-                onBack = { page = DevicePage.HOME },
-            )
-        }
-
-        DevicePage.PHONE_REALTIME -> {
-            PhoneMicrophoneRealtimeScreen(
-                padding = padding,
-                controller = phoneRealtimeController,
-                canStart = canStartPhoneRealtime,
-                onBack = { page = DevicePage.HOME },
-            )
-        }
-
-        DevicePage.FILES -> {
-            val operation by viewModel.fileOperationState.collectAsState()
-            val canRefresh =
-                recording.status == RecordingStatus.Idle &&
-                    recording.freshness == RecordingFreshness.FRESH &&
-                    recording.commandState == RecordingCommandState.IDLE &&
-                    deviceFiles.freshness != FileListFreshness.LOADING &&
-                    operation !is FileOperationState.Active
-            CompactDeviceFilesScreen(
-                padding = padding,
-                state = deviceFiles,
-                operationState = operation,
-                batchDeleteState = batchDeleteState,
-                localRecordings = libraryRecordings,
-                canRefresh = canRefresh,
-                onBack = { page = DevicePage.HOME },
-                onRefresh = viewModel::refreshDeviceFiles,
-                onDownload = viewModel::downloadDeviceFile,
-                onCancelDownload = viewModel::cancelDeviceFileDownload,
-                onDeleteRemote = viewModel::deleteRemoteRecording,
-                onDeleteSelected = viewModel::deleteRemoteRecordings,
-                onDismissBatchResult = viewModel::dismissRemoteDeleteBatchResult,
-                onRangeProbe = viewModel::runRangeProbe,
-            )
-        }
-
-        DevicePage.ALL_DEVICES -> {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                item {
-                    CompactSubpageHeader(
-                        title = "发现的设备",
-                        onBack = { page = DevicePage.HOME },
-                    )
-                }
-                if (compatibleDevices.isNotEmpty()) {
-                    item {
-                        Text(
-                            "兼容录音设备",
-                            style = MaterialTheme.typography.labelLarge,
-                        )
-                    }
-                    items(compatibleDevices, key = { it.address }) { device ->
-                        CompactScanDeviceRow(
-                            device = device,
-                            onConnect = {
-                                page = DevicePage.HOME
-                                viewModel.connect(it)
-                            },
-                        )
-                    }
-                }
-                if (otherDevices.isNotEmpty()) {
-                    item {
-                        Text(
-                            "其它蓝牙设备",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    items(otherDevices, key = { it.address }) { device ->
-                        CompactScanDeviceRow(
-                            device = device,
-                            onConnect = {
-                                page = DevicePage.HOME
-                                viewModel.connect(it)
-                            },
-                        )
-                    }
-                }
+            DevicePage.DIAGNOSTICS -> {
+                FullDiagnosticsScreen(
+                    padding = padding,
+                    diagnostics = diagnostics,
+                    fileTransfer = fileTransferDiagnostics,
+                    remoteDelete = remoteDeleteDiagnostics,
+                    rangeProbe = rangeProbeDiagnostics,
+                    onBack = { page = DevicePage.HOME },
+                )
             }
         }
-
-        DevicePage.DIAGNOSTICS -> {
-            FullDiagnosticsScreen(
-                padding = padding,
-                diagnostics = diagnostics,
-                fileTransfer = fileTransferDiagnostics,
-                remoteDelete = remoteDeleteDiagnostics,
-                rangeProbe = rangeProbeDiagnostics,
-                onBack = { page = DevicePage.HOME },
-            )
-        }
-    }
         SnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.BottomCenter),
@@ -483,9 +630,10 @@ private fun DeviceFilesEntry(
     onClick: () -> Unit,
 ) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick),
     ) {
         ListItem(
             headlineContent = { Text("设备录音") },
