@@ -147,6 +147,7 @@ class Stage13CDiarizationAttentionNotificationController(
 ) {
     private val appContext = context.applicationContext
     private val notificationManager = appContext.getSystemService(NotificationManager::class.java)
+    private val presentationStore = NotificationPresentationStore(appContext)
     private var activeNotificationIds: Set<Int> = emptySet()
 
     init {
@@ -159,11 +160,22 @@ class Stage13CDiarizationAttentionNotificationController(
                 .collect { (attention, recordings) ->
                     val next = mutableSetOf<Int>()
                     attention.forEach { item ->
-                        val id = notificationId(item)
-                        next += id
-                        val recordingName =
-                            recordings.firstOrNull { it.id == item.recordingId }?.displayName ?: "录音"
-                        notificationManager.notify(id, buildNotification(item, recordingName, id))
+                        val id = diarizationAttentionNotificationId(item)
+                        val logicalKey = diarizationAttentionPresentationKey(item)
+                        if (!presentationStore.isSystemDismissed(logicalKey)) {
+                            next += id
+                            val recordingName =
+                                recordings.firstOrNull { it.id == item.recordingId }?.displayName ?: "录音"
+                            notificationManager.notify(
+                                id,
+                                buildNotification(
+                                    item = item,
+                                    recordingName = recordingName,
+                                    notificationId = id,
+                                    logicalKey = logicalKey,
+                                ),
+                            )
+                        }
                     }
                     (activeNotificationIds - next).forEach(notificationManager::cancel)
                     activeNotificationIds = next
@@ -175,8 +187,9 @@ class Stage13CDiarizationAttentionNotificationController(
         item: DiarizationAttentionItem,
         recordingName: String,
         notificationId: Int,
+        logicalKey: String,
     ): Notification =
-        Notification.Builder(appContext, CHANNEL_ID)
+        Notification.Builder(appContext, VoicaNotificationChannels.DIARIZATION_ATTENTION)
             .setSmallIcon(android.R.drawable.stat_notify_error)
             .setContentTitle(item.productLabel())
             .setContentText(item.productMessage())
@@ -189,6 +202,13 @@ class Stage13CDiarizationAttentionNotificationController(
                     destination = RecordingDetailDestination.TRANSCRIPT,
                 ),
             )
+            .setDeleteIntent(
+                notificationDismissPendingIntent(
+                    context = appContext,
+                    logicalKey = logicalKey,
+                    requestCode = notificationId,
+                ),
+            )
             .setOnlyAlertOnce(true)
             .setOngoing(false)
             .setAutoCancel(false)
@@ -198,7 +218,7 @@ class Stage13CDiarizationAttentionNotificationController(
     private fun createChannel() {
         notificationManager.createNotificationChannel(
             NotificationChannel(
-                CHANNEL_ID,
+                VoicaNotificationChannels.DIARIZATION_ATTENTION,
                 "说话人任务状态",
                 NotificationManager.IMPORTANCE_DEFAULT,
             ).apply {
@@ -207,19 +227,19 @@ class Stage13CDiarizationAttentionNotificationController(
             },
         )
     }
-
-    private fun notificationId(item: DiarizationAttentionItem): Int {
-        val base =
-            when (item.kind) {
-                DiarizationAttentionKind.DIARIZATION -> DIARIZATION_ATTENTION_BASE
-                DiarizationAttentionKind.ALIGNMENT -> ALIGNMENT_ATTENTION_BASE
-            }
-        return base + ((item.id.hashCode() and Int.MAX_VALUE) % 9_000_000)
-    }
-
-    private companion object {
-        const val CHANNEL_ID = "voica-diarization-attention"
-        const val DIARIZATION_ATTENTION_BASE = 210_000_000
-        const val ALIGNMENT_ATTENTION_BASE = 220_000_000
-    }
 }
+
+internal fun diarizationAttentionPresentationKey(item: DiarizationAttentionItem): String =
+    "attention:diarization:${item.kind.name}:${item.id}:${item.state}"
+
+internal fun diarizationAttentionNotificationId(item: DiarizationAttentionItem): Int {
+    val base =
+        when (item.kind) {
+            DiarizationAttentionKind.DIARIZATION -> DIARIZATION_ATTENTION_BASE
+            DiarizationAttentionKind.ALIGNMENT -> ALIGNMENT_ATTENTION_BASE
+        }
+    return base + ((item.id.hashCode() and Int.MAX_VALUE) % 9_000_000)
+}
+
+private const val DIARIZATION_ATTENTION_BASE = 210_000_000
+private const val ALIGNMENT_ATTENTION_BASE = 220_000_000
