@@ -33,6 +33,11 @@ internal enum class PhoneMicrophoneRecordingPhase {
     CLOSED,
 }
 
+/** Optional best-effort consumer that runs only after the formal WAV writer accepted the frame. */
+internal fun interface PhoneMicrophoneCanonicalPostWriteSink {
+    fun offer(frame: RealtimeCanonicalPcmFrame)
+}
+
 internal data class PhoneMicrophoneRecordingSnapshot(
     val phase: PhoneMicrophoneRecordingPhase = PhoneMicrophoneRecordingPhase.IDLE,
     val recordingId: String? = null,
@@ -42,8 +47,11 @@ internal data class PhoneMicrophoneRecordingSnapshot(
     val activeEpochId: Long? = null,
     val completedEpochs: Int = 0,
     val writtenSamples: Long = 0L,
+    val postWriteOffers: Long = 0L,
+    val postWriteOfferFailures: Long = 0L,
     val finalizedSizeBytes: Long? = null,
     val finalizedSha256: String? = null,
+    val lastPostWriteFailure: String? = null,
     val lastFailure: String? = null,
 ) {
     val durationMs: Long
@@ -68,6 +76,7 @@ internal sealed interface PhoneMicrophoneRecordingStopResult {
     data class Saved(
         val recordingId: String,
         val file: File,
+        val relativePath: String,
         val sampleCount: Long,
         val sizeBytes: Long,
         val sha256: String,
@@ -116,7 +125,7 @@ internal class AndroidPhoneMicrophoneCaptureDriver(
  * The synchronous writer is the primary consumer of microphone PCM. No bounded ASR queue sits in
  * front of the formal recording path. Pause ends the current capture epoch without finalizing the
  * WAV; resume opens a new CONTROL_BOUNDARY epoch, so paused wall-clock time is never synthesized as
- * silence. Stage 16A realtime fan-out is attached only after this owner in P3.
+ * silence. Optional realtime fan-out is invoked only after the formal WAV accepted the same frame.
  */
 internal class PhoneMicrophoneRecordingRuntime(
     private val capture: PhoneMicrophoneCaptureDriver,
@@ -134,7 +143,9 @@ internal class PhoneMicrophoneRecordingRuntime(
     private var active: ActiveRecording? = null
     private var closed = false
 
-    suspend fun start(): PhoneMicrophoneRecordingStartResult = withContext(ioDispatcher) {
+    suspend fun start(
+        postWriteSink: PhoneMicrophoneCanonicalPostWriteSink? = null,
+    ): PhoneMicrophoneRecordingStartResult = withContext(ioDispatcher) {
         val prepared = synchronized(lock) {
             if (closed) {
                 return@withContext PhoneMicrophoneRecordingStartResult.Rejected(
@@ -173,6 +184,7 @@ internal class PhoneMicrophoneRecordingRuntime(
                 startedAt = startedAt,
                 canonicalSessionId = sessionId,
                 writer = writer,
+                postWriteSink = postWriteSink,
             ).also { context ->
                 active = context
                 publishLocked(context, PhoneMicrophoneRecordingPhase.STARTING)
@@ -370,14 +382,18 @@ internal class PhoneMicrophoneRecordingRuntime(
                     activeEpochId = context.epochId,
                     completedEpochs = totalCompletedEpochs,
                     writtenSamples = finalized.sampleCount,
+                    postWriteOffers = context.postWriteOffers,
+                    postWriteOfferFailures = context.postWriteOfferFailures,
                     finalizedSizeBytes = finalized.sizeBytes,
                     finalizedSha256 = finalized.sha256,
+                    lastPostWriteFailure = context.lastPostWriteFailure,
                 )
         }
 
         PhoneMicrophoneRecordingStopResult.Saved(
             recordingId = context.recordingId,
             file = finalized.file,
+            relativePath = context.relativePath,
             sampleCount = finalized.sampleCount,
             sizeBytes = finalized.sizeBytes,
             sha256 = finalized.sha256,
@@ -413,7 +429,7 @@ internal class PhoneMicrophoneRecordingRuntime(
                     epochStartReason = if (frame.startSampleIndex == 0L) epoch.reason else null,
                 )
 
-            // Formal recording truth is committed synchronously before any future realtime fan-out.
+            // Formal recording truth is committed synchronously before any realtime fan-out.
             context.writer.accept(canonical)
             synchronized(lock) {
                 check(active === context) { "phone recording ended while accepting PCM" }
@@ -421,6 +437,22 @@ internal class PhoneMicrophoneRecordingRuntime(
                 context.activeEpochSamples =
                     Math.addExact(context.activeEpochSamples, frame.samples.size.toLong())
                 publishLocked(context, mutableState.value.phase)
+            }
+
+            val postWriteSink = context.postWriteSink
+            if (postWriteSink != null) {
+                val failure = runCatching { postWriteSink.offer(canonical) }.exceptionOrNull()
+                synchronized(lock) {
+                    if (active === context) {
+                        context.postWriteOffers += 1
+                        if (failure != null) {
+                            context.postWriteOfferFailures += 1
+                            context.lastPostWriteFailure =
+                                "${failure.javaClass.simpleName}:${failure.message.orEmpty()}"
+                        }
+                        publishLocked(context, mutableState.value.phase)
+                    }
+                }
             }
         }
 
@@ -464,6 +496,9 @@ internal class PhoneMicrophoneRecordingRuntime(
                 activeEpochId = context.epochId,
                 completedEpochs = context.completedEpochs,
                 writtenSamples = context.writtenSamples,
+                postWriteOffers = context.postWriteOffers,
+                postWriteOfferFailures = context.postWriteOfferFailures,
+                lastPostWriteFailure = context.lastPostWriteFailure,
                 lastFailure = failure,
             )
     }
@@ -482,6 +517,9 @@ internal class PhoneMicrophoneRecordingRuntime(
                 activeEpochId = context.epochId,
                 completedEpochs = context.completedEpochs,
                 writtenSamples = context.writtenSamples,
+                postWriteOffers = context.postWriteOffers,
+                postWriteOfferFailures = context.postWriteOfferFailures,
+                lastPostWriteFailure = context.lastPostWriteFailure,
             )
     }
 
@@ -499,12 +537,16 @@ internal class PhoneMicrophoneRecordingRuntime(
         val startedAt: Instant,
         val canonicalSessionId: Long,
         val writer: RealtimePcmWavSegmentWriter,
+        val postWriteSink: PhoneMicrophoneCanonicalPostWriteSink?,
         var epochId: Long = 1L,
         var epochStartReason: RealtimeCanonicalEpochStartReason =
             RealtimeCanonicalEpochStartReason.SESSION_START,
         var completedEpochs: Int = 0,
         var writtenSamples: Long = 0L,
         var activeEpochSamples: Long = 0L,
+        var postWriteOffers: Long = 0L,
+        var postWriteOfferFailures: Long = 0L,
+        var lastPostWriteFailure: String? = null,
     )
 
     private companion object {
