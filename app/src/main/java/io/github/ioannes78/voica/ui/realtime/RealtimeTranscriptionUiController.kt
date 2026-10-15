@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
+import io.github.ioannes78.voica.PhoneMicrophoneCapturePhase
+import io.github.ioannes78.voica.PhoneMicrophoneCaptureSnapshot
 import io.github.ioannes78.voica.PhoneMicrophoneRealtimeActionOutcome
 import io.github.ioannes78.voica.PhoneMicrophoneRealtimeRuntime
 import io.github.ioannes78.voica.PhoneMicrophoneRecordingPhase
@@ -55,13 +57,15 @@ internal class RecorderCardRealtimeUiController(
 
 internal class PhoneMicrophoneRealtimeUiController(
     private val runtime: PhoneMicrophoneRealtimeRuntime,
+    private val captureState: StateFlow<PhoneMicrophoneCaptureSnapshot>,
     scope: CoroutineScope,
 ) : RealtimeTranscriptionUiController {
     override val state: StateFlow<Stage16ARealtimeUiState> =
-        combine(runtime.state, runtime.recordingState) { realtime, recording ->
+        combine(runtime.state, runtime.recordingState, captureState) { realtime, recording, capture ->
             projectPhoneRealtimeUiState(
                 realtime = realtime,
                 recording = recording,
+                capture = capture,
                 runnerFailure = runtime.snapshot().runnerFailure,
             )
         }.stateIn(
@@ -71,6 +75,7 @@ internal class PhoneMicrophoneRealtimeUiController(
                 projectPhoneRealtimeUiState(
                     realtime = runtime.state.value,
                     recording = runtime.recordingState.value,
+                    capture = captureState.value,
                     runnerFailure = runtime.snapshot().runnerFailure,
                 ),
         )
@@ -87,8 +92,31 @@ internal class PhoneMicrophoneRealtimeUiController(
 internal fun projectPhoneRealtimeUiState(
     realtime: Stage16ARealtimeUiState,
     recording: PhoneMicrophoneRecordingSnapshot,
+    capture: PhoneMicrophoneCaptureSnapshot,
     runnerFailure: String?,
 ): Stage16ARealtimeUiState {
+    if (
+        recording.phase == PhoneMicrophoneRecordingPhase.RECORDING &&
+        capture.phase == PhoneMicrophoneCapturePhase.FAILED
+    ) {
+        val detail = capture.lastFailure?.trim()?.takeIf { it.isNotEmpty() }
+        val message =
+            if (detail == null) {
+                "麦克风采集中断，可先暂停后继续，或停止保存已录音频"
+            } else {
+                "麦克风采集中断，可先暂停后继续，或停止保存已录音频：$detail"
+            }
+        return realtime.copy(
+            phase = Stage16ARealtimeUiPhase.ACTIVE,
+            audioActivityLevels = emptyList(),
+            recordingOnlyMode = false,
+            sourceCaptureInterrupted = true,
+            lifecycleMessage = message,
+            errorCode = "PHONE_MIC_CAPTURE_FAILED",
+            errorMessage = message,
+        )
+    }
+
     if (runnerFailure == null) return realtime
 
     val projectedPhase =
@@ -121,6 +149,7 @@ internal fun projectPhoneRealtimeUiState(
         partialText = "",
         audioActivityLevels = emptyList(),
         recordingOnlyMode = true,
+        sourceCaptureInterrupted = false,
         lifecycleMessage = message,
         errorMessage = null,
     )
