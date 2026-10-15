@@ -5,6 +5,9 @@ import java.io.File
 import java.security.MessageDigest
 import java.util.UUID
 
+internal const val PHONE_CANONICAL_PROFILE_ID = "CANONICAL_PCM16_16000_MONO_WAV_V1"
+internal const val PHONE_CANONICAL_PIPELINE_VERSION = 1
+
 data class PhoneMicrophoneRecordingRegistration(
     val recordingId: String,
     val originalFilename: String,
@@ -23,10 +26,11 @@ data class PhoneMicrophoneRecordingRegistration(
 /**
  * Narrow Stage 16A.1 ingress into the existing Recording Library.
  *
- * Phone microphone WAV is the formal source media itself. It is therefore registered directly as a
- * verified CANONICAL_WAV and deliberately does not create a fake AudioDerivation row or a fake remote
- * device/source asset. All normal library, playback, file transcription, search and export code keeps
- * using the existing Room recording tables.
+ * Phone microphone WAV is the formal source media itself. It is registered directly as a verified
+ * CANONICAL_WAV plus an identity derivation whose source and output are the same canonical asset.
+ * The identity row does not pretend that a format conversion occurred; it records authoritative
+ * canonical lineage so the existing offline ASR/diarization/playback contracts can consume the
+ * media without a phone-specific bypass or a fake remote source asset.
  */
 class PhoneMicrophoneRecordingRegistrar(
     private val database: VoicaDatabase,
@@ -42,7 +46,8 @@ class PhoneMicrophoneRecordingRegistrar(
         require(target.length() == registration.sizeBytes) {
             "phone microphone WAV size changed before registration"
         }
-        require(sha256(target).equals(registration.sha256, ignoreCase = true)) {
+        val normalizedSha = registration.sha256.lowercase()
+        require(sha256(target).equals(normalizedSha, ignoreCase = true)) {
             "phone microphone WAV SHA-256 changed before registration"
         }
 
@@ -91,7 +96,7 @@ class PhoneMicrophoneRecordingRegistrar(
                         sampleRateHz = registration.sampleRateHz,
                         channelCount = registration.channelCount,
                         sizeBytes = registration.sizeBytes,
-                        sha256 = registration.sha256.lowercase(),
+                        sha256 = normalizedSha,
                         integrityState = AudioIntegrityState.VERIFIED,
                         formatValidationState = AudioValidationState.VALID,
                         createdAtMs = registration.completedAtMs,
@@ -99,6 +104,15 @@ class PhoneMicrophoneRecordingRegistrar(
                     ),
                 ) != -1L,
             ) { "failed to register phone microphone canonical WAV" }
+
+            dao.upsertDerivation(
+                phoneCanonicalIdentityDerivation(
+                    recordingId = registration.recordingId,
+                    canonicalAssetId = assetId,
+                    canonicalSha256 = normalizedSha,
+                    verifiedAtMs = registration.completedAtMs,
+                ),
+            )
         }
         searchIndexRebuilder.reindexRecording(registration.recordingId)
         return registration.recordingId
@@ -163,3 +177,24 @@ class PhoneMicrophoneRecordingRegistrar(
         const val CANONICAL_CHANNEL_COUNT = 1
     }
 }
+
+internal fun phoneCanonicalIdentityDerivation(
+    recordingId: String,
+    canonicalAssetId: String,
+    canonicalSha256: String,
+    verifiedAtMs: Long,
+): AudioDerivationEntity =
+    AudioDerivationEntity(
+        recordingId = recordingId,
+        profileId = PHONE_CANONICAL_PROFILE_ID,
+        sourceSha256 = canonicalSha256.lowercase(),
+        sourceAssetId = canonicalAssetId,
+        outputAssetId = canonicalAssetId,
+        pipelineVersion = PHONE_CANONICAL_PIPELINE_VERSION,
+        state = AudioDerivationState.READY,
+        startedAtMs = verifiedAtMs,
+        updatedAtMs = verifiedAtMs,
+        completedAtMs = verifiedAtMs,
+        errorCode = null,
+        errorDetail = null,
+    )
