@@ -10,6 +10,7 @@ import androidx.room.Relation
 object RecordingSourceType {
     const val DEVICE_DOWNLOAD = "DEVICE_DOWNLOAD"
     const val LOCAL_IMPORT = "LOCAL_IMPORT"
+    const val PHONE_MICROPHONE = "PHONE_MICROPHONE"
 }
 
 object RecordingState {

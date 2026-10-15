@@ -1,0 +1,520 @@
+package io.github.ioannes78.voica
+
+import android.content.Context
+import io.github.ioannes78.voica.audio.CanonicalPcmProfile
+import io.github.ioannes78.voica.audio.RealtimeCanonicalEpochStartReason
+import io.github.ioannes78.voica.audio.RealtimeCanonicalPcmFrame
+import io.github.ioannes78.voica.audio.RealtimePcmWavSegmentWriter
+import io.github.ioannes78.voica.database.PhoneMicrophoneRecordingRegistration
+import java.io.Closeable
+import java.io.File
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.UUID
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
+
+internal enum class PhoneMicrophoneRecordingPhase {
+    IDLE,
+    STARTING,
+    RECORDING,
+    PAUSING,
+    PAUSED,
+    RESUMING,
+    STOPPING,
+    COMPLETED,
+    EMPTY,
+    FAILED,
+    CLOSED,
+}
+
+internal data class PhoneMicrophoneRecordingSnapshot(
+    val phase: PhoneMicrophoneRecordingPhase = PhoneMicrophoneRecordingPhase.IDLE,
+    val recordingId: String? = null,
+    val displayName: String? = null,
+    val relativePath: String? = null,
+    val canonicalSessionId: Long? = null,
+    val activeEpochId: Long? = null,
+    val completedEpochs: Int = 0,
+    val writtenSamples: Long = 0L,
+    val finalizedSizeBytes: Long? = null,
+    val finalizedSha256: String? = null,
+    val lastFailure: String? = null,
+) {
+    val durationMs: Long
+        get() = writtenSamples * 1_000L / CanonicalPcmProfile.SAMPLE_RATE_HZ
+}
+
+internal sealed interface PhoneMicrophoneRecordingStartResult {
+    data class Started(
+        val recordingId: String,
+        val displayName: String,
+    ) : PhoneMicrophoneRecordingStartResult
+
+    data class Rejected(val message: String) : PhoneMicrophoneRecordingStartResult
+}
+
+internal sealed interface PhoneMicrophoneRecordingActionResult {
+    data object Success : PhoneMicrophoneRecordingActionResult
+    data class Rejected(val message: String) : PhoneMicrophoneRecordingActionResult
+}
+
+internal sealed interface PhoneMicrophoneRecordingStopResult {
+    data class Saved(
+        val recordingId: String,
+        val file: File,
+        val sampleCount: Long,
+        val sizeBytes: Long,
+        val sha256: String,
+    ) : PhoneMicrophoneRecordingStopResult
+
+    data object Empty : PhoneMicrophoneRecordingStopResult
+
+    data class Failed(
+        val message: String,
+        val preservedFile: File? = null,
+    ) : PhoneMicrophoneRecordingStopResult
+}
+
+internal interface PhoneMicrophoneCaptureDriver : Closeable {
+    val state: StateFlow<PhoneMicrophoneCaptureSnapshot>
+
+    fun start(
+        consumer: PhoneMicrophonePcmConsumer,
+        foregroundLabel: String,
+    ): PhoneMicrophoneStartResult
+
+    suspend fun stopAndAwait(timeoutMs: Long): Boolean
+}
+
+internal class AndroidPhoneMicrophoneCaptureDriver(
+    context: Context,
+) : PhoneMicrophoneCaptureDriver {
+    private val capture = PhoneMicrophoneCapture(context)
+
+    override val state: StateFlow<PhoneMicrophoneCaptureSnapshot>
+        get() = capture.state
+
+    override fun start(
+        consumer: PhoneMicrophonePcmConsumer,
+        foregroundLabel: String,
+    ): PhoneMicrophoneStartResult = capture.start(consumer, foregroundLabel)
+
+    override suspend fun stopAndAwait(timeoutMs: Long): Boolean = capture.stopAndAwait(timeoutMs)
+
+    override fun close() = capture.close()
+}
+
+/**
+ * Stage 16A.1 formal phone recording owner.
+ *
+ * The synchronous writer is the primary consumer of microphone PCM. No bounded ASR queue sits in
+ * front of the formal recording path. Pause ends the current capture epoch without finalizing the
+ * WAV; resume opens a new CONTROL_BOUNDARY epoch, so paused wall-clock time is never synthesized as
+ * silence. Stage 16A realtime fan-out is attached only after this owner in P3.
+ */
+internal class PhoneMicrophoneRecordingRuntime(
+    private val capture: PhoneMicrophoneCaptureDriver,
+    private val recordingsRoot: File,
+    private val registerRecording: suspend (PhoneMicrophoneRecordingRegistration) -> String,
+    private val nowInstant: () -> Instant = Instant::now,
+    private val zoneId: () -> ZoneId = ZoneId::systemDefault,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val idFactory: () -> UUID = UUID::randomUUID,
+) : Closeable {
+    private val lock = Any()
+    private val mutableState = MutableStateFlow(PhoneMicrophoneRecordingSnapshot())
+    val state: StateFlow<PhoneMicrophoneRecordingSnapshot> = mutableState.asStateFlow()
+
+    private var active: ActiveRecording? = null
+    private var closed = false
+
+    suspend fun start(): PhoneMicrophoneRecordingStartResult = withContext(ioDispatcher) {
+        val prepared = synchronized(lock) {
+            if (closed) {
+                return@withContext PhoneMicrophoneRecordingStartResult.Rejected(
+                    "手机录音已关闭，请重新进入录音页面",
+                )
+            }
+            if (active != null) {
+                return@withContext PhoneMicrophoneRecordingStartResult.Rejected("已有手机录音正在进行")
+            }
+            when (mutableState.value.phase) {
+                PhoneMicrophoneRecordingPhase.STARTING,
+                PhoneMicrophoneRecordingPhase.RECORDING,
+                PhoneMicrophoneRecordingPhase.PAUSING,
+                PhoneMicrophoneRecordingPhase.PAUSED,
+                PhoneMicrophoneRecordingPhase.RESUMING,
+                PhoneMicrophoneRecordingPhase.STOPPING,
+                -> return@withContext PhoneMicrophoneRecordingStartResult.Rejected("手机录音正在切换状态")
+                else -> Unit
+            }
+
+            val startedAt = nowInstant()
+            val localTime = startedAt.atZone(zoneId())
+            val recordingId = idFactory().toString()
+            val filename = "phone_${FILE_TIME_FORMAT.format(localTime)}.wav"
+            val displayName = "手机录音 ${DISPLAY_TIME_FORMAT.format(localTime)}"
+            val relativePath = "phone/$recordingId/$filename"
+            val targetFile = File(recordingsRoot, relativePath)
+            val sessionId = positiveIdentity(idFactory())
+            val writer = RealtimePcmWavSegmentWriter(targetFile, sessionId)
+            ActiveRecording(
+                recordingId = recordingId,
+                originalFilename = filename,
+                displayName = displayName,
+                relativePath = relativePath,
+                targetFile = targetFile,
+                startedAt = startedAt,
+                canonicalSessionId = sessionId,
+                writer = writer,
+            ).also { context ->
+                active = context
+                publishLocked(context, PhoneMicrophoneRecordingPhase.STARTING)
+            }
+        }
+
+        when (
+            val result = capture.start(
+                consumer = consumerFor(prepared),
+                foregroundLabel = "正在录制：${prepared.displayName}",
+            )
+        ) {
+            is PhoneMicrophoneStartResult.Started -> {
+                synchronized(lock) {
+                    if (active === prepared) {
+                        publishLocked(prepared, PhoneMicrophoneRecordingPhase.RECORDING)
+                    }
+                }
+                PhoneMicrophoneRecordingStartResult.Started(
+                    recordingId = prepared.recordingId,
+                    displayName = prepared.displayName,
+                )
+            }
+
+            is PhoneMicrophoneStartResult.Rejected -> {
+                synchronized(lock) {
+                    if (active === prepared) active = null
+                }
+                prepared.writer.close()
+                prepared.targetFile.parentFile?.takeIf { it.list().isNullOrEmpty() }?.delete()
+                synchronized(lock) {
+                    mutableState.value =
+                        mutableState.value.copy(
+                            phase = PhoneMicrophoneRecordingPhase.FAILED,
+                            lastFailure = result.message,
+                        )
+                }
+                PhoneMicrophoneRecordingStartResult.Rejected(result.message)
+            }
+        }
+    }
+
+    suspend fun pause(): PhoneMicrophoneRecordingActionResult {
+        val context = synchronized(lock) {
+            val current = active
+                ?: return PhoneMicrophoneRecordingActionResult.Rejected("当前没有手机录音")
+            if (mutableState.value.phase != PhoneMicrophoneRecordingPhase.RECORDING) {
+                return PhoneMicrophoneRecordingActionResult.Rejected("当前状态不能暂停")
+            }
+            publishLocked(current, PhoneMicrophoneRecordingPhase.PAUSING)
+            current
+        }
+
+        if (!capture.stopAndAwait(CAPTURE_STOP_TIMEOUT_MS)) {
+            return failAction(context, "暂停手机录音超时，录音文件尚未结束")
+        }
+
+        synchronized(lock) {
+            if (active === context) {
+                if (context.activeEpochSamples > 0L) {
+                    context.completedEpochs += 1
+                    context.activeEpochSamples = 0L
+                }
+                publishLocked(context, PhoneMicrophoneRecordingPhase.PAUSED)
+            }
+        }
+        return PhoneMicrophoneRecordingActionResult.Success
+    }
+
+    suspend fun resume(): PhoneMicrophoneRecordingActionResult = withContext(ioDispatcher) {
+        val context = synchronized(lock) {
+            val current = active
+                ?: return@withContext PhoneMicrophoneRecordingActionResult.Rejected("当前没有手机录音")
+            if (mutableState.value.phase != PhoneMicrophoneRecordingPhase.PAUSED) {
+                return@withContext PhoneMicrophoneRecordingActionResult.Rejected("当前状态不能继续录音")
+            }
+            current.epochId = Math.addExact(current.epochId, 1L)
+            current.epochStartReason = RealtimeCanonicalEpochStartReason.CONTROL_BOUNDARY
+            current.activeEpochSamples = 0L
+            publishLocked(current, PhoneMicrophoneRecordingPhase.RESUMING)
+            current
+        }
+
+        when (
+            val result = capture.start(
+                consumer = consumerFor(context),
+                foregroundLabel = "正在录制：${context.displayName}",
+            )
+        ) {
+            is PhoneMicrophoneStartResult.Started -> {
+                synchronized(lock) {
+                    if (active === context) {
+                        publishLocked(context, PhoneMicrophoneRecordingPhase.RECORDING)
+                    }
+                }
+                PhoneMicrophoneRecordingActionResult.Success
+            }
+
+            is PhoneMicrophoneStartResult.Rejected -> {
+                synchronized(lock) {
+                    if (active === context) {
+                        publishLocked(
+                            context,
+                            PhoneMicrophoneRecordingPhase.PAUSED,
+                            failure = result.message,
+                        )
+                    }
+                }
+                PhoneMicrophoneRecordingActionResult.Rejected(result.message)
+            }
+        }
+    }
+
+    suspend fun stop(): PhoneMicrophoneRecordingStopResult = withContext(ioDispatcher) {
+        val context = synchronized(lock) {
+            val current = active
+                ?: return@withContext PhoneMicrophoneRecordingStopResult.Failed("当前没有手机录音")
+            val phase = mutableState.value.phase
+            if (
+                phase != PhoneMicrophoneRecordingPhase.RECORDING &&
+                phase != PhoneMicrophoneRecordingPhase.PAUSED
+            ) {
+                return@withContext PhoneMicrophoneRecordingStopResult.Failed("当前状态不能停止录音")
+            }
+            publishLocked(current, PhoneMicrophoneRecordingPhase.STOPPING)
+            current
+        }
+
+        val wasRecording = capture.state.value.phase == PhoneMicrophoneCapturePhase.RECORDING ||
+            capture.state.value.phase == PhoneMicrophoneCapturePhase.STOPPING
+        if (wasRecording && !capture.stopAndAwait(CAPTURE_STOP_TIMEOUT_MS)) {
+            return@withContext failStop(context, "停止手机录音超时，已保留临时录音数据")
+        }
+
+        val sampleCount = synchronized(lock) { context.writtenSamples }
+        if (sampleCount == 0L) {
+            context.writer.close()
+            synchronized(lock) {
+                if (active === context) active = null
+                publishTerminalLocked(context, PhoneMicrophoneRecordingPhase.EMPTY)
+            }
+            return@withContext PhoneMicrophoneRecordingStopResult.Empty
+        }
+
+        val finalized =
+            try {
+                context.writer.finalizeSegment()
+            } catch (failure: Throwable) {
+                return@withContext failStop(
+                    context,
+                    "无法完成手机录音 WAV：${failure.message.orEmpty()}",
+                    context.targetFile.takeIf(File::exists),
+                )
+            }
+
+        val completedAt = nowInstant()
+        val registration =
+            PhoneMicrophoneRecordingRegistration(
+                recordingId = context.recordingId,
+                originalFilename = context.originalFilename,
+                displayName = context.displayName,
+                recordedAtLocalIso = context.startedAt.atZone(zoneId()).toOffsetDateTime().toString(),
+                startedAtMs = context.startedAt.toEpochMilli(),
+                completedAtMs = completedAt.toEpochMilli(),
+                relativePath = context.relativePath,
+                mediaDurationMs =
+                    finalized.sampleCount * 1_000L / CanonicalPcmProfile.SAMPLE_RATE_HZ,
+                sizeBytes = finalized.sizeBytes,
+                sha256 = finalized.sha256,
+                sampleRateHz = CanonicalPcmProfile.SAMPLE_RATE_HZ,
+                channelCount = CanonicalPcmProfile.CHANNEL_COUNT,
+            )
+
+        try {
+            registerRecording(registration)
+        } catch (failure: Throwable) {
+            return@withContext failStop(
+                context,
+                "录音文件已保存，但写入录音库失败：${failure.message.orEmpty()}",
+                finalized.file,
+            )
+        }
+
+        synchronized(lock) {
+            val totalCompletedEpochs =
+                context.completedEpochs + if (context.activeEpochSamples > 0L) 1 else 0
+            if (active === context) active = null
+            mutableState.value =
+                PhoneMicrophoneRecordingSnapshot(
+                    phase = PhoneMicrophoneRecordingPhase.COMPLETED,
+                    recordingId = context.recordingId,
+                    displayName = context.displayName,
+                    relativePath = context.relativePath,
+                    canonicalSessionId = context.canonicalSessionId,
+                    activeEpochId = context.epochId,
+                    completedEpochs = totalCompletedEpochs,
+                    writtenSamples = finalized.sampleCount,
+                    finalizedSizeBytes = finalized.sizeBytes,
+                    finalizedSha256 = finalized.sha256,
+                )
+        }
+
+        PhoneMicrophoneRecordingStopResult.Saved(
+            recordingId = context.recordingId,
+            file = finalized.file,
+            sampleCount = finalized.sampleCount,
+            sizeBytes = finalized.sizeBytes,
+            sha256 = finalized.sha256,
+        )
+    }
+
+    override fun close() {
+        val context = synchronized(lock) {
+            if (closed) return
+            closed = true
+            val current = active
+            active = null
+            mutableState.value =
+                mutableState.value.copy(phase = PhoneMicrophoneRecordingPhase.CLOSED)
+            current
+        }
+        capture.close()
+        context?.writer?.close()
+    }
+
+    private fun consumerFor(context: ActiveRecording): PhoneMicrophonePcmConsumer =
+        PhoneMicrophonePcmConsumer { frame ->
+            val epoch = synchronized(lock) {
+                check(active === context) { "stale phone microphone capture frame" }
+                EpochDescriptor(context.epochId, context.epochStartReason)
+            }
+            val canonical =
+                RealtimeCanonicalPcmFrame(
+                    sessionId = context.canonicalSessionId,
+                    epochId = epoch.id,
+                    startSampleIndex = frame.startSampleIndex,
+                    samples = frame.samples,
+                    epochStartReason = if (frame.startSampleIndex == 0L) epoch.reason else null,
+                )
+
+            // Formal recording truth is committed synchronously before any future realtime fan-out.
+            context.writer.accept(canonical)
+            synchronized(lock) {
+                check(active === context) { "phone recording ended while accepting PCM" }
+                context.writtenSamples = Math.addExact(context.writtenSamples, frame.samples.size.toLong())
+                context.activeEpochSamples =
+                    Math.addExact(context.activeEpochSamples, frame.samples.size.toLong())
+                publishLocked(context, mutableState.value.phase)
+            }
+        }
+
+    private fun failAction(
+        context: ActiveRecording,
+        message: String,
+    ): PhoneMicrophoneRecordingActionResult.Rejected {
+        synchronized(lock) {
+            if (active === context) {
+                publishLocked(context, PhoneMicrophoneRecordingPhase.FAILED, failure = message)
+            }
+        }
+        return PhoneMicrophoneRecordingActionResult.Rejected(message)
+    }
+
+    private fun failStop(
+        context: ActiveRecording,
+        message: String,
+        preservedFile: File? = null,
+    ): PhoneMicrophoneRecordingStopResult.Failed {
+        synchronized(lock) {
+            if (active === context) {
+                publishLocked(context, PhoneMicrophoneRecordingPhase.FAILED, failure = message)
+            }
+        }
+        return PhoneMicrophoneRecordingStopResult.Failed(message, preservedFile)
+    }
+
+    private fun publishLocked(
+        context: ActiveRecording,
+        phase: PhoneMicrophoneRecordingPhase,
+        failure: String? = null,
+    ) {
+        mutableState.value =
+            PhoneMicrophoneRecordingSnapshot(
+                phase = phase,
+                recordingId = context.recordingId,
+                displayName = context.displayName,
+                relativePath = context.relativePath,
+                canonicalSessionId = context.canonicalSessionId,
+                activeEpochId = context.epochId,
+                completedEpochs = context.completedEpochs,
+                writtenSamples = context.writtenSamples,
+                lastFailure = failure,
+            )
+    }
+
+    private fun publishTerminalLocked(
+        context: ActiveRecording,
+        phase: PhoneMicrophoneRecordingPhase,
+    ) {
+        mutableState.value =
+            PhoneMicrophoneRecordingSnapshot(
+                phase = phase,
+                recordingId = context.recordingId,
+                displayName = context.displayName,
+                relativePath = context.relativePath,
+                canonicalSessionId = context.canonicalSessionId,
+                activeEpochId = context.epochId,
+                completedEpochs = context.completedEpochs,
+                writtenSamples = context.writtenSamples,
+            )
+    }
+
+    private data class EpochDescriptor(
+        val id: Long,
+        val reason: RealtimeCanonicalEpochStartReason,
+    )
+
+    private data class ActiveRecording(
+        val recordingId: String,
+        val originalFilename: String,
+        val displayName: String,
+        val relativePath: String,
+        val targetFile: File,
+        val startedAt: Instant,
+        val canonicalSessionId: Long,
+        val writer: RealtimePcmWavSegmentWriter,
+        var epochId: Long = 1L,
+        var epochStartReason: RealtimeCanonicalEpochStartReason =
+            RealtimeCanonicalEpochStartReason.SESSION_START,
+        var completedEpochs: Int = 0,
+        var writtenSamples: Long = 0L,
+        var activeEpochSamples: Long = 0L,
+    )
+
+    private companion object {
+        const val CAPTURE_STOP_TIMEOUT_MS = 3_000L
+        val FILE_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")
+        val DISPLAY_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+
+        fun positiveIdentity(uuid: UUID): Long {
+            val value = uuid.mostSignificantBits and Long.MAX_VALUE
+            return if (value == 0L) 1L else value
+        }
+    }
+}
