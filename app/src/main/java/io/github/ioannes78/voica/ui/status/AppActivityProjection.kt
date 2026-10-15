@@ -55,6 +55,7 @@ internal data class AppActivityFact(
     val progressFraction: Float? = null,
     val recordingId: String? = null,
     val taskId: String? = null,
+    val destination: AppActivityDestination? = null,
     val availableActions: Set<AppActivityAction> = emptySet(),
     /** Higher values win only inside the presentation resolver. They never alter business truth. */
     val priorityHint: Int = 0,
