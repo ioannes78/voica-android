@@ -366,6 +366,34 @@ class AppContainer(
             currentDeviceFilename = { defaultDeviceRepository.recordingState.value.filename },
         )
 
+    private val phoneMicrophoneRecordingRegistrar =
+        io.github.ioannes78.voica.database.PhoneMicrophoneRecordingRegistrar(
+            database = recordingDatabase,
+            recordingsRoot = recordingsRoot,
+        )
+    private val phoneMicrophoneIntegrationRepository =
+        io.github.ioannes78.voica.database.RealtimeRecordingIntegrationRepository(recordingDatabase)
+
+    internal val phoneMicrophoneRecordingRuntime =
+        PhoneMicrophoneRecordingRuntime(
+            capture = AndroidPhoneMicrophoneCaptureDriver(application),
+            recordingsRoot = recordingsRoot,
+            registerRecording = phoneMicrophoneRecordingRegistrar::register,
+        )
+
+    internal val phoneMicrophoneRealtimeRuntime =
+        PhoneMicrophoneRealtimeRuntime(
+            scope = applicationScope,
+            recordingRuntime = phoneMicrophoneRecordingRuntime,
+            modelResolver = stage16ARealtimeModelResolver,
+            pipelineFactory = stage16ARealtimePipelineFactory,
+            persistenceRepository = stage16ARealtimePersistenceRepository,
+            recordingLibraryRepository = recordingLibraryRepository,
+            integrationRepository = phoneMicrophoneIntegrationRepository,
+            recordingsRoot = recordingsRoot,
+            localSpeechSettings = { localSpeechSettingsStore.settings.value },
+        )
+
     val deviceRepository: DeviceRepository =
         ServiceBackedDeviceRepository(
             context = application,
