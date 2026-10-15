@@ -165,8 +165,12 @@ class HomeActivityProjectionTest {
             recording =
                 PhoneMicrophoneRecordingSnapshot(
                     phase = phase,
-                    durationMs = durationMs,
+                    writtenSamples = durationMs * TEST_SAMPLES_PER_MILLISECOND,
                 ),
             ownedByRealtime = ownedByRealtime,
         )
+
+    private companion object {
+        const val TEST_SAMPLES_PER_MILLISECOND = 16L
+    }
 }
