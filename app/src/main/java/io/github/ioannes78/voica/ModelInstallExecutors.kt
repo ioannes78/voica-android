@@ -262,7 +262,6 @@ class ModelInstallActionReceiver : BroadcastReceiver() {
 }
 
 internal object ModelInstallNotifications {
-    private const val CHANNEL_ID = "model-install"
     private const val CHANNEL_NAME = "模型安装"
 
     fun foregroundInfo(
@@ -339,7 +338,7 @@ internal object ModelInstallNotifications {
                 phaseText(record)
             }
         val builder =
-            NotificationCompat.Builder(context, CHANNEL_ID)
+            NotificationCompat.Builder(context, VoicaNotificationChannels.MODEL_INSTALL)
                 .setSmallIcon(android.R.drawable.stat_sys_download)
                 .setContentTitle(record.snapshot.descriptor.displayName)
                 .setContentText(contentText)
@@ -400,11 +399,11 @@ internal object ModelInstallNotifications {
 
     private fun ensureChannel(manager: NotificationManager) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-            manager.getNotificationChannel(CHANNEL_ID) == null
+            manager.getNotificationChannel(VoicaNotificationChannels.MODEL_INSTALL) == null
         ) {
             manager.createNotificationChannel(
                 NotificationChannel(
-                    CHANNEL_ID,
+                    VoicaNotificationChannels.MODEL_INSTALL,
                     CHANNEL_NAME,
                     NotificationManager.IMPORTANCE_LOW,
                 ),
