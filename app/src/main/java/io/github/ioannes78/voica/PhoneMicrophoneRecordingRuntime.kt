@@ -139,6 +139,8 @@ internal class PhoneMicrophoneRecordingRuntime(
     private val lock = Any()
     private val mutableState = MutableStateFlow(PhoneMicrophoneRecordingSnapshot())
     val state: StateFlow<PhoneMicrophoneRecordingSnapshot> = mutableState.asStateFlow()
+    val captureState: StateFlow<PhoneMicrophoneCaptureSnapshot>
+        get() = capture.state
 
     private var active: ActiveRecording? = null
     private var closed = false
@@ -299,7 +301,7 @@ internal class PhoneMicrophoneRecordingRuntime(
     }
 
     suspend fun stop(): PhoneMicrophoneRecordingStopResult = withContext(ioDispatcher) {
-        val context = synchronized(lock) {
+        val preparation = synchronized(lock) {
             val current = active
                 ?: return@withContext PhoneMicrophoneRecordingStopResult.Failed("当前没有手机录音")
             val phase = mutableState.value.phase
@@ -309,9 +311,18 @@ internal class PhoneMicrophoneRecordingRuntime(
             ) {
                 return@withContext PhoneMicrophoneRecordingStopResult.Failed("当前状态不能停止录音")
             }
+            val captureBeforeStop = capture.state.value
+            val interrupted =
+                phase == PhoneMicrophoneRecordingPhase.RECORDING &&
+                    captureBeforeStop.phase in INTERRUPTED_CAPTURE_PHASES
             publishLocked(current, PhoneMicrophoneRecordingPhase.STOPPING)
-            current
+            StopPreparation(
+                context = current,
+                interrupted = interrupted,
+                interruptionMessage = captureBeforeStop.lastFailure,
+            )
         }
+        val context = preparation.context
 
         val wasRecording = capture.state.value.phase == PhoneMicrophoneCapturePhase.RECORDING ||
             capture.state.value.phase == PhoneMicrophoneCapturePhase.STOPPING
@@ -341,11 +352,13 @@ internal class PhoneMicrophoneRecordingRuntime(
             }
 
         val completedAt = nowInstant()
+        val savedDisplayName =
+            if (preparation.interrupted) interruptedDisplayName(context.displayName) else context.displayName
         val registration =
             PhoneMicrophoneRecordingRegistration(
                 recordingId = context.recordingId,
                 originalFilename = context.originalFilename,
-                displayName = context.displayName,
+                displayName = savedDisplayName,
                 recordedAtLocalIso = context.startedAt.atZone(zoneId()).toOffsetDateTime().toString(),
                 startedAtMs = context.startedAt.toEpochMilli(),
                 completedAtMs = completedAt.toEpochMilli(),
@@ -374,9 +387,14 @@ internal class PhoneMicrophoneRecordingRuntime(
             if (active === context) active = null
             mutableState.value =
                 PhoneMicrophoneRecordingSnapshot(
-                    phase = PhoneMicrophoneRecordingPhase.COMPLETED,
+                    phase =
+                        if (preparation.interrupted) {
+                            PhoneMicrophoneRecordingPhase.FAILED
+                        } else {
+                            PhoneMicrophoneRecordingPhase.COMPLETED
+                        },
                     recordingId = context.recordingId,
-                    displayName = context.displayName,
+                    displayName = savedDisplayName,
                     relativePath = context.relativePath,
                     canonicalSessionId = context.canonicalSessionId,
                     activeEpochId = context.epochId,
@@ -387,6 +405,12 @@ internal class PhoneMicrophoneRecordingRuntime(
                     finalizedSizeBytes = finalized.sizeBytes,
                     finalizedSha256 = finalized.sha256,
                     lastPostWriteFailure = context.lastPostWriteFailure,
+                    lastFailure =
+                        if (preparation.interrupted) {
+                            buildInterruptedMessage(preparation.interruptionMessage)
+                        } else {
+                            null
+                        },
                 )
         }
 
@@ -523,6 +547,12 @@ internal class PhoneMicrophoneRecordingRuntime(
             )
     }
 
+    private data class StopPreparation(
+        val context: ActiveRecording,
+        val interrupted: Boolean,
+        val interruptionMessage: String?,
+    )
+
     private data class EpochDescriptor(
         val id: Long,
         val reason: RealtimeCanonicalEpochStartReason,
@@ -553,6 +583,26 @@ internal class PhoneMicrophoneRecordingRuntime(
         const val CAPTURE_STOP_TIMEOUT_MS = 3_000L
         val FILE_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")
         val DISPLAY_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+        val INTERRUPTED_CAPTURE_PHASES =
+            setOf(
+                PhoneMicrophoneCapturePhase.FAILED,
+                PhoneMicrophoneCapturePhase.STOPPED,
+                PhoneMicrophoneCapturePhase.CLOSED,
+            )
+
+        fun interruptedDisplayName(displayName: String): String =
+            if (displayName.startsWith("手机录音 ")) {
+                displayName.replaceFirst("手机录音 ", "手机录音（异常中断） ")
+            } else {
+                "$displayName（异常中断）"
+            }
+
+        fun buildInterruptedMessage(detail: String?): String =
+            if (detail.isNullOrBlank()) {
+                "麦克风采集异常中断，已保存中断前的可用音频"
+            } else {
+                "麦克风采集异常中断，已保存中断前的可用音频：$detail"
+            }
 
         fun positiveIdentity(uuid: UUID): Long {
             val value = uuid.mostSignificantBits and Long.MAX_VALUE
