@@ -74,11 +74,11 @@ fun RealtimeTranscriptionEntryCard(
             state.modelLabel != null ->
                 listOfNotNull(
                     sourceLabel,
-                    realtimePhaseLabel(state.phase),
+                    realtimeStatusLabel(state),
                     state.modelLabel,
                 ).joinToString(" · ")
             else ->
-                listOfNotNull(sourceLabel, realtimePhaseLabel(state.phase)).joinToString(" · ")
+                listOfNotNull(sourceLabel, realtimeStatusLabel(state)).joinToString(" · ")
         }
 
     Card(
@@ -108,7 +108,7 @@ private fun RealtimeMiniLiveBar(
     val status =
         listOfNotNull(
             sourceLabel,
-            realtimePhaseLabel(state.phase),
+            realtimeStatusLabel(state),
             modelLabel,
         ).joinToString(" · ")
 
@@ -257,14 +257,14 @@ internal fun RealtimeTranscriptionScreen(
                 Text(
                     listOfNotNull(
                         sourceLabel,
-                        state.modelLabel ?: realtimePhaseLabel(state.phase),
+                        state.modelLabel ?: realtimeStatusLabel(state),
                     ).joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             Text(
-                realtimePhaseLabel(state.phase),
+                realtimeStatusLabel(state),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -275,7 +275,7 @@ internal fun RealtimeTranscriptionScreen(
         if (shouldShowRealtimeWaveform(state.phase)) {
             RealtimeAudioActivityWaveform(
                 levels = state.audioActivityLevels,
-                active = state.phase == Stage16ARealtimeUiPhase.ACTIVE,
+                active = state.phase == Stage16ARealtimeUiPhase.ACTIVE && !state.recordingOnlyMode,
             )
             Spacer(modifier = Modifier.height(4.dp))
         }
@@ -292,7 +292,7 @@ internal fun RealtimeTranscriptionScreen(
             if (showEmptyReader) {
                 item(key = "empty") {
                     Text(
-                        emptyReaderMessage(state.phase),
+                        emptyReaderMessage(state),
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -382,7 +382,8 @@ internal fun RealtimeTranscriptionScreen(
 
         if (
             Stage16AQaArtificialAsrSlowdown.isEnabled &&
-            state.phase == Stage16ARealtimeUiPhase.ACTIVE
+            state.phase == Stage16ARealtimeUiPhase.ACTIVE &&
+            !state.recordingOnlyMode
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -594,7 +595,7 @@ private fun RealtimeControls(
             ) {
                 CircularProgressIndicator()
                 Text(
-                    realtimePhaseLabel(state.phase),
+                    realtimeStatusLabel(state),
                     modifier = Modifier.padding(start = 12.dp),
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -612,6 +613,19 @@ private fun RealtimeControls(
     }
 }
 
+internal fun realtimeStatusLabel(state: Stage16ARealtimeUiState): String =
+    if (state.recordingOnlyMode) {
+        when (state.phase) {
+            Stage16ARealtimeUiPhase.ACTIVE -> "录音中 · 转写已停止"
+            Stage16ARealtimeUiPhase.PAUSED -> "录音已暂停 · 转写已停止"
+            Stage16ARealtimeUiPhase.RESUMING -> "正在继续录音 · 转写已停止"
+            Stage16ARealtimeUiPhase.FINALIZING -> "正在保存录音 · 转写已停止"
+            else -> "实时转写已停止"
+        }
+    } else {
+        realtimePhaseLabel(state.phase)
+    }
+
 internal fun realtimePhaseLabel(phase: Stage16ARealtimeUiPhase): String =
     when (phase) {
         Stage16ARealtimeUiPhase.IDLE -> "未开始"
@@ -626,13 +640,17 @@ internal fun realtimePhaseLabel(phase: Stage16ARealtimeUiPhase): String =
         Stage16ARealtimeUiPhase.FAILED -> "启动失败"
     }
 
-private fun emptyReaderMessage(phase: Stage16ARealtimeUiPhase): String =
-    when (phase) {
-        Stage16ARealtimeUiPhase.IDLE,
-        Stage16ARealtimeUiPhase.COMPLETED,
-        Stage16ARealtimeUiPhase.FAILED,
-        -> "开始后，实时识别内容会显示在这里。"
-        Stage16ARealtimeUiPhase.PAUSED -> "录音已暂停，已确认的内容会保留在这里。"
-        Stage16ARealtimeUiPhase.INTERRUPTED -> "连接已中断，已完成的转写内容仍会保留。"
-        else -> "正在等待语音内容…"
+private fun emptyReaderMessage(state: Stage16ARealtimeUiState): String =
+    if (state.recordingOnlyMode) {
+        "实时转写已停止，手机录音仍会继续保存。"
+    } else {
+        when (state.phase) {
+            Stage16ARealtimeUiPhase.IDLE,
+            Stage16ARealtimeUiPhase.COMPLETED,
+            Stage16ARealtimeUiPhase.FAILED,
+            -> "开始后，实时识别内容会显示在这里。"
+            Stage16ARealtimeUiPhase.PAUSED -> "录音已暂停，已确认的内容会保留在这里。"
+            Stage16ARealtimeUiPhase.INTERRUPTED -> "连接已中断，已完成的转写内容仍会保留。"
+            else -> "正在等待语音内容…"
+        }
     }
