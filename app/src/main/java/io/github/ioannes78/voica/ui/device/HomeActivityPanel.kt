@@ -29,11 +29,15 @@ internal fun HomeActivityPanel(
     projection: AppActivityProjection,
     sourcePreference: HomeActivitySourcePreference,
     recorderAvailable: Boolean,
+    canStartRecording: Boolean,
+    canStartRealtime: Boolean,
+    permissionMessage: String?,
     onSourcePreferenceChanged: (HomeActivitySourcePreference) -> Unit,
-    onOpenRecording: () -> Unit,
-    onOpenRealtime: () -> Unit,
+    onStartRecording: () -> Unit,
+    onStartRealtime: () -> Unit,
     onAction: (AppActivityFact, AppActivityAction) -> Unit,
     onOpenActivity: (AppActivityFact) -> Unit,
+    onSelectSecondaryActivity: (AppActivityFact) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -45,9 +49,12 @@ internal fun HomeActivityPanel(
             IdleHomeQuickActions(
                 sourcePreference = sourcePreference,
                 recorderAvailable = recorderAvailable,
+                canStartRecording = canStartRecording,
+                canStartRealtime = canStartRealtime,
+                permissionMessage = permissionMessage,
                 onSourcePreferenceChanged = onSourcePreferenceChanged,
-                onOpenRecording = onOpenRecording,
-                onOpenRealtime = onOpenRealtime,
+                onStartRecording = onStartRecording,
+                onStartRealtime = onStartRealtime,
             )
         } else {
             PrimaryHomeActivityCard(
@@ -60,7 +67,7 @@ internal fun HomeActivityPanel(
         projection.secondaryActivities.forEach { activity ->
             SecondaryHomeActivityRow(
                 activity = activity,
-                onOpen = { onOpenActivity(activity) },
+                onSelect = { onSelectSecondaryActivity(activity) },
             )
         }
 
@@ -78,9 +85,12 @@ internal fun HomeActivityPanel(
 private fun IdleHomeQuickActions(
     sourcePreference: HomeActivitySourcePreference,
     recorderAvailable: Boolean,
+    canStartRecording: Boolean,
+    canStartRealtime: Boolean,
+    permissionMessage: String?,
     onSourcePreferenceChanged: (HomeActivitySourcePreference) -> Unit,
-    onOpenRecording: () -> Unit,
-    onOpenRealtime: () -> Unit,
+    onStartRecording: () -> Unit,
+    onStartRealtime: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -127,17 +137,27 @@ private fun IdleHomeQuickActions(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Button(
-                    onClick = onOpenRecording,
+                    onClick = onStartRecording,
+                    enabled = canStartRecording,
                     modifier = Modifier.weight(1f),
                 ) {
                     Text("录音")
                 }
                 OutlinedButton(
-                    onClick = onOpenRealtime,
+                    onClick = onStartRealtime,
+                    enabled = canStartRealtime,
                     modifier = Modifier.weight(1f),
                 ) {
                     Text("实时转写")
                 }
+            }
+
+            if (!permissionMessage.isNullOrBlank()) {
+                Text(
+                    permissionMessage,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
@@ -248,24 +268,18 @@ private fun PrimaryHomeActivityCard(
 @Composable
 private fun SecondaryHomeActivityRow(
     activity: AppActivityFact,
-    onOpen: () -> Unit,
+    onSelect: () -> Unit,
 ) {
-    val modifier =
-        if (activity.destination != null) {
-            Modifier.fillMaxWidth().clickable(onClick = onOpen)
-        } else {
-            Modifier.fillMaxWidth()
-        }
-    Card(modifier = modifier) {
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onSelect),
+    ) {
         ListItem(
             headlineContent = { Text(activity.title, maxLines = 1) },
             supportingContent = {
                 activity.subtitle?.let { Text(it, maxLines = 1) }
             },
             trailingContent = {
-                if (activity.destination != null) {
-                    Icon(Icons.Outlined.ChevronRight, contentDescription = null)
-                }
+                Icon(Icons.Outlined.ChevronRight, contentDescription = null)
             },
         )
     }
