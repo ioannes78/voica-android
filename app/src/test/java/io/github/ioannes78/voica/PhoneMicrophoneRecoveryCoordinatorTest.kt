@@ -102,6 +102,24 @@ class PhoneMicrophoneRecoveryCoordinatorTest {
     }
 
     @Test
+    fun `registration lookup failure retains staging and never attempts recovery`() = runBlocking {
+        val recordingId = "recording-lookup-failure"
+        val staging = stagingFile(recordingId, "phone_20261015_120107.wav.part")
+        writeCanonicalWav(staging, payloadBytes = 640, finalizedHeader = false)
+
+        val report =
+            coordinator(
+                isRegisteredOverride = { error("database unavailable") },
+            ).reconcileOnStartup()
+
+        assertTrue(report.recoveredRecordingIds.isEmpty())
+        assertEquals(1, report.failures.size)
+        assertTrue(report.failures.single().contains("registration_lookup"))
+        assertTrue(registrations.isEmpty())
+        assertTrue(staging.exists())
+    }
+
+    @Test
     fun `malformed staging is retained for diagnosis and never registered`() = runBlocking {
         val staging = stagingFile("recording-bad", "phone_20261015_120106.wav.part")
         staging.parentFile.mkdirs()
@@ -115,18 +133,19 @@ class PhoneMicrophoneRecoveryCoordinatorTest {
         assertTrue(staging.exists())
     }
 
-    private fun coordinator() =
-        PhoneMicrophoneRecoveryCoordinator(
-            recordingsRoot = root,
-            isRegistered = { recordingId -> recordingId in registered },
-            registerRecording = { registration ->
-                registrations += registration
-                registered += registration.recordingId
-                registration.recordingId
-            },
-            nowInstant = { Instant.parse("2026-10-15T05:00:00Z") },
-            zoneId = { ZoneId.of("Asia/Shanghai") },
-        )
+    private fun coordinator(
+        isRegisteredOverride: suspend (String) -> Boolean = { recordingId -> recordingId in registered },
+    ) = PhoneMicrophoneRecoveryCoordinator(
+        recordingsRoot = root,
+        isRegistered = isRegisteredOverride,
+        registerRecording = { registration ->
+            registrations += registration
+            registered += registration.recordingId
+            registration.recordingId
+        },
+        nowInstant = { Instant.parse("2026-10-15T05:00:00Z") },
+        zoneId = { ZoneId.of("Asia/Shanghai") },
+    )
 
     private fun stagingFile(recordingId: String, name: String): File =
         File(root, "phone/$recordingId/$name")
