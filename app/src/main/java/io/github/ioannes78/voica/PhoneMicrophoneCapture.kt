@@ -33,6 +33,14 @@ internal enum class PhoneMicrophoneCapturePhase {
     CLOSED,
 }
 
+internal enum class PhoneMicrophoneCaptureTerminalReason {
+    START_REJECTED,
+    CLIENT_SILENCED,
+    READ_ERROR,
+    CONSUMER_ERROR,
+    EXECUTION_OWNER_FAILURE,
+}
+
 internal enum class PhoneMicrophoneAudioSource(
     val platformValue: Int,
     val diagnosticsName: String,
@@ -68,6 +76,22 @@ internal fun interface PhoneMicrophonePcmConsumer {
     fun onPcm(frame: PhoneMicrophonePcmFrame)
 }
 
+/**
+ * Recording-truth guard used immediately after AudioRecord.read() and before any formal WAV or ASR
+ * consumer receives the frame. Android can keep returning successful reads containing zeroed PCM
+ * while another higher-priority recorder owns the microphone; those samples are not real capture
+ * truth and must never be persisted as normal audio.
+ */
+internal fun deliverPhoneMicrophonePcmIfAudible(
+    clientSilenced: Boolean?,
+    frame: PhoneMicrophonePcmFrame,
+    consumer: PhoneMicrophonePcmConsumer,
+): Boolean {
+    if (clientSilenced == true) return false
+    consumer.onPcm(frame)
+    return true
+}
+
 internal data class PhoneMicrophoneCaptureSnapshot(
     val phase: PhoneMicrophoneCapturePhase = PhoneMicrophoneCapturePhase.IDLE,
     val sampleRateHz: Int = CanonicalPcmProfile.SAMPLE_RATE_HZ,
@@ -81,11 +105,15 @@ internal data class PhoneMicrophoneCaptureSnapshot(
     val route: PhoneMicrophoneRoute? = null,
     val clientSilenced: Boolean? = null,
     val readCalls: Long = 0L,
+    /** Samples accepted as real microphone capture truth and forwarded to the primary consumer. */
     val samplesRead: Long = 0L,
     val shortReads: Long = 0L,
+    val silencedReadCalls: Long = 0L,
+    val silencedSamplesRejected: Long = 0L,
     val readErrors: Long = 0L,
     val consumerErrors: Long = 0L,
     val lastReadCode: Int? = null,
+    val terminalReason: PhoneMicrophoneCaptureTerminalReason? = null,
     val foregroundPhase: PhoneMicrophoneForegroundPhase = PhoneMicrophoneForegroundPhase.IDLE,
     val wakeLockHeld: Boolean = false,
     val lastFailure: String? = null,
@@ -105,8 +133,12 @@ internal data class PhoneMicrophoneCaptureSnapshot(
                 "consumerErrors=$consumerErrors lastReadCode=${lastReadCode ?: 0}",
         )
         appendLine(
-            "route=${route?.productName ?: "n/a"}/${route?.deviceType ?: -1}/${route?.deviceId ?: -1} " +
-                "clientSilenced=${clientSilenced ?: "n/a"}",
+            "clientSilenced=${clientSilenced ?: "n/a"} silencedReads=$silencedReadCalls " +
+                "silencedSamplesRejected=$silencedSamplesRejected " +
+                "terminalReason=${terminalReason?.name ?: "n/a"}",
+        )
+        appendLine(
+            "route=${route?.productName ?: "n/a"}/${route?.deviceType ?: -1}/${route?.deviceId ?: -1}",
         )
         append(
             "foreground=$foregroundPhase wakeLockHeld=$wakeLockHeld " +
@@ -187,9 +219,9 @@ internal interface PhoneMicrophoneAudioRecordFactory {
 /**
  * Single-owner Android microphone capture foundation for both Stage 16A.1 products.
  *
- * This class owns exactly one AudioRecord at a time. It has no ASR dependency and never silently
- * drops PCM: consumer failure terminates the capture as FAILED. P2 will attach the formal recording
- * sink; P3 will fan out from that recording-owned path to the bounded realtime ASR consumer.
+ * This class owns exactly one AudioRecord at a time. It has no ASR dependency. Formal recording
+ * truth is protected before the consumer boundary: successful platform reads are still rejected if
+ * Android reports that this recording client has been silenced by a higher-priority recorder.
  */
 internal class PhoneMicrophoneCapture(
     context: Context,
@@ -232,6 +264,7 @@ internal class PhoneMicrophoneCapture(
                 updateStateLocked(
                     PhoneMicrophoneCaptureSnapshot(
                         phase = PhoneMicrophoneCapturePhase.FAILED,
+                        terminalReason = PhoneMicrophoneCaptureTerminalReason.START_REJECTED,
                         lastFailure = "需要麦克风权限才能开始手机录音",
                     ),
                 )
@@ -455,18 +488,26 @@ internal class PhoneMicrophoneCapture(
                     break
                 }
 
-                val ownedSamples = buffer.copyOf(readCount)
                 val frameStart = synchronized(lock) { currentSnapshotLocked().samplesRead }
-                try {
-                    consumer.onPcm(
-                        PhoneMicrophonePcmFrame(
-                            startSampleIndex = frameStart,
-                            samples = ownedSamples,
-                        ),
+                val frame =
+                    PhoneMicrophonePcmFrame(
+                        startSampleIndex = frameStart,
+                        samples = buffer.copyOf(readCount),
                     )
-                } catch (failure: Throwable) {
+                val clientSilenced = record.clientSilenced
+                val delivered =
+                    try {
+                        deliverPhoneMicrophonePcmIfAudible(clientSilenced, frame, consumer)
+                    } catch (failure: Throwable) {
+                        terminalFailure = failure
+                        incrementConsumerError(readCount, buffer.size, record, failure)
+                        break
+                    }
+
+                if (!delivered) {
+                    val failure = PhoneMicrophoneClientSilencedException()
                     terminalFailure = failure
-                    incrementConsumerError(readCount, buffer.size, record, failure)
+                    markClientSilencedRead(readCount, buffer.size, record, failure)
                     break
                 }
 
@@ -479,7 +520,7 @@ internal class PhoneMicrophoneCapture(
                             shortReads = current.shortReads + if (readCount < buffer.size) 1 else 0,
                             lastReadCode = readCount,
                             route = record.route,
-                            clientSilenced = record.clientSilenced,
+                            clientSilenced = clientSilenced,
                             foregroundPhase = PhoneMicrophoneForegroundDiagnostics.state.value.phase,
                             wakeLockHeld = executionLease.snapshot().wakeLockHeld,
                         ),
@@ -514,6 +555,34 @@ internal class PhoneMicrophoneCapture(
         }
     }
 
+    private fun markClientSilencedRead(
+        readCount: Int,
+        requestedSamples: Int,
+        record: PhoneMicrophoneAudioRecordHandle,
+        failure: Throwable,
+    ) {
+        Log.w(TAG, "phone microphone client was silenced by the platform; rejecting silent PCM")
+        synchronized(lock) {
+            val current = currentSnapshotLocked()
+            updateStateLocked(
+                current.copy(
+                    phase = PhoneMicrophoneCapturePhase.FAILED,
+                    readCalls = current.readCalls + 1,
+                    shortReads = current.shortReads + if (readCount < requestedSamples) 1 else 0,
+                    silencedReadCalls = current.silencedReadCalls + 1,
+                    silencedSamplesRejected = current.silencedSamplesRejected + readCount,
+                    lastReadCode = readCount,
+                    route = record.route,
+                    clientSilenced = true,
+                    terminalReason = PhoneMicrophoneCaptureTerminalReason.CLIENT_SILENCED,
+                    foregroundPhase = PhoneMicrophoneForegroundDiagnostics.state.value.phase,
+                    wakeLockHeld = executionLease.snapshot().wakeLockHeld,
+                    lastFailure = failure.describePhoneMicrophoneCaptureFailure(),
+                ),
+            )
+        }
+    }
+
     private fun incrementReadError(
         readCode: Int?,
         record: PhoneMicrophoneAudioRecordHandle,
@@ -529,6 +598,7 @@ internal class PhoneMicrophoneCapture(
                     lastReadCode = readCode,
                     route = record.route,
                     clientSilenced = record.clientSilenced,
+                    terminalReason = PhoneMicrophoneCaptureTerminalReason.READ_ERROR,
                     foregroundPhase = PhoneMicrophoneForegroundDiagnostics.state.value.phase,
                     lastFailure = failure.describePhoneMicrophoneCaptureFailure(),
                 ),
@@ -553,6 +623,7 @@ internal class PhoneMicrophoneCapture(
                     lastReadCode = readCount,
                     route = record.route,
                     clientSilenced = record.clientSilenced,
+                    terminalReason = PhoneMicrophoneCaptureTerminalReason.CONSUMER_ERROR,
                     foregroundPhase = PhoneMicrophoneForegroundDiagnostics.state.value.phase,
                     lastFailure = failure.describePhoneMicrophoneCaptureFailure(),
                 ),
@@ -571,6 +642,7 @@ internal class PhoneMicrophoneCapture(
                 current.copy(
                     route = record.route,
                     clientSilenced = record.clientSilenced,
+                    terminalReason = PhoneMicrophoneCaptureTerminalReason.EXECUTION_OWNER_FAILURE,
                     foregroundPhase = PhoneMicrophoneForegroundDiagnostics.state.value.phase,
                     lastFailure = failure.describePhoneMicrophoneCaptureFailure(),
                 ),
@@ -587,6 +659,7 @@ internal class PhoneMicrophoneCapture(
             updateStateLocked(
                 currentSnapshotLocked().copy(
                     phase = phase,
+                    terminalReason = PhoneMicrophoneCaptureTerminalReason.START_REJECTED,
                     foregroundPhase = PhoneMicrophoneForegroundDiagnostics.state.value.phase,
                     wakeLockHeld = executionLease.snapshot().wakeLockHeld,
                     lastFailure = failure?.describePhoneMicrophoneCaptureFailure() ?: message,
@@ -690,5 +763,14 @@ private fun AudioDeviceInfo.toPhoneMicrophoneRoute(): PhoneMicrophoneRoute =
         productName = productName.toString().ifBlank { "未知音频设备" },
     )
 
+private const val PHONE_MICROPHONE_CLIENT_SILENCED_MESSAGE =
+    "麦克风被其他应用占用，采集已中断；系统静音数据未写入录音"
+
+private class PhoneMicrophoneClientSilencedException :
+    IllegalStateException(PHONE_MICROPHONE_CLIENT_SILENCED_MESSAGE)
+
 private fun Throwable.describePhoneMicrophoneCaptureFailure(): String =
-    "${javaClass.simpleName}:${message.orEmpty()}"
+    when (this) {
+        is PhoneMicrophoneClientSilencedException -> PHONE_MICROPHONE_CLIENT_SILENCED_MESSAGE
+        else -> "${javaClass.simpleName}:${message.orEmpty()}"
+    }
