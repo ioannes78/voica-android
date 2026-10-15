@@ -49,6 +49,7 @@ internal data class PhoneMicrophoneRecordingSnapshot(
     val writtenSamples: Long = 0L,
     val postWriteOffers: Long = 0L,
     val postWriteOfferFailures: Long = 0L,
+    val hadCaptureInterruption: Boolean = false,
     val finalizedSizeBytes: Long? = null,
     val finalizedSha256: String? = null,
     val lastPostWriteFailure: String? = null,
@@ -236,7 +237,12 @@ internal class PhoneMicrophoneRecordingRuntime(
             if (mutableState.value.phase != PhoneMicrophoneRecordingPhase.RECORDING) {
                 return PhoneMicrophoneRecordingActionResult.Rejected("当前状态不能暂停")
             }
-            publishLocked(current, PhoneMicrophoneRecordingPhase.PAUSING)
+            markCaptureInterruptionLocked(current, capture.state.value)
+            publishLocked(
+                current,
+                PhoneMicrophoneRecordingPhase.PAUSING,
+                failure = current.lastCaptureInterruption,
+            )
             current
         }
 
@@ -250,7 +256,11 @@ internal class PhoneMicrophoneRecordingRuntime(
                     context.completedEpochs += 1
                     context.activeEpochSamples = 0L
                 }
-                publishLocked(context, PhoneMicrophoneRecordingPhase.PAUSED)
+                publishLocked(
+                    context,
+                    PhoneMicrophoneRecordingPhase.PAUSED,
+                    failure = context.lastCaptureInterruption,
+                )
             }
         }
         return PhoneMicrophoneRecordingActionResult.Success
@@ -266,7 +276,11 @@ internal class PhoneMicrophoneRecordingRuntime(
             current.epochId = Math.addExact(current.epochId, 1L)
             current.epochStartReason = RealtimeCanonicalEpochStartReason.CONTROL_BOUNDARY
             current.activeEpochSamples = 0L
-            publishLocked(current, PhoneMicrophoneRecordingPhase.RESUMING)
+            publishLocked(
+                current,
+                PhoneMicrophoneRecordingPhase.RESUMING,
+                failure = current.lastCaptureInterruption,
+            )
             current
         }
 
@@ -279,7 +293,11 @@ internal class PhoneMicrophoneRecordingRuntime(
             is PhoneMicrophoneStartResult.Started -> {
                 synchronized(lock) {
                     if (active === context) {
-                        publishLocked(context, PhoneMicrophoneRecordingPhase.RECORDING)
+                        publishLocked(
+                            context,
+                            PhoneMicrophoneRecordingPhase.RECORDING,
+                            failure = context.lastCaptureInterruption,
+                        )
                     }
                 }
                 PhoneMicrophoneRecordingActionResult.Success
@@ -311,15 +329,15 @@ internal class PhoneMicrophoneRecordingRuntime(
             ) {
                 return@withContext PhoneMicrophoneRecordingStopResult.Failed("当前状态不能停止录音")
             }
-            val captureBeforeStop = capture.state.value
-            val interrupted =
-                phase == PhoneMicrophoneRecordingPhase.RECORDING &&
-                    captureBeforeStop.phase in INTERRUPTED_CAPTURE_PHASES
+            if (phase == PhoneMicrophoneRecordingPhase.RECORDING) {
+                markCaptureInterruptionLocked(current, capture.state.value)
+            }
+            val interrupted = current.hadCaptureInterruption
             publishLocked(current, PhoneMicrophoneRecordingPhase.STOPPING)
             StopPreparation(
                 context = current,
                 interrupted = interrupted,
-                interruptionMessage = captureBeforeStop.lastFailure,
+                interruptionMessage = current.lastCaptureInterruption,
             )
         }
         val context = preparation.context
@@ -404,6 +422,7 @@ internal class PhoneMicrophoneRecordingRuntime(
                     writtenSamples = finalized.sampleCount,
                     postWriteOffers = context.postWriteOffers,
                     postWriteOfferFailures = context.postWriteOfferFailures,
+                    hadCaptureInterruption = context.hadCaptureInterruption,
                     finalizedSizeBytes = finalized.sizeBytes,
                     finalizedSha256 = finalized.sha256,
                     lastPostWriteFailure = context.lastPostWriteFailure,
@@ -464,7 +483,11 @@ internal class PhoneMicrophoneRecordingRuntime(
                 context.writtenSamples = Math.addExact(context.writtenSamples, frame.samples.size.toLong())
                 context.activeEpochSamples =
                     Math.addExact(context.activeEpochSamples, frame.samples.size.toLong())
-                publishLocked(context, mutableState.value.phase)
+                publishLocked(
+                    context,
+                    mutableState.value.phase,
+                    failure = context.lastCaptureInterruption,
+                )
             }
 
             val postWriteSink = context.postWriteSink
@@ -478,11 +501,29 @@ internal class PhoneMicrophoneRecordingRuntime(
                             context.lastPostWriteFailure =
                                 "${failure.javaClass.simpleName}:${failure.message.orEmpty()}"
                         }
-                        publishLocked(context, mutableState.value.phase)
+                        publishLocked(
+                            context,
+                            mutableState.value.phase,
+                            failure = context.lastCaptureInterruption,
+                        )
                     }
                 }
             }
         }
+
+    private fun markCaptureInterruptionLocked(
+        context: ActiveRecording,
+        captureSnapshot: PhoneMicrophoneCaptureSnapshot,
+    ) {
+        if (captureSnapshot.phase !in INTERRUPTED_CAPTURE_PHASES) return
+        context.hadCaptureInterruption = true
+        val detail = captureSnapshot.lastFailure?.trim()?.takeIf { it.isNotEmpty() }
+        if (detail != null) {
+            context.lastCaptureInterruption = detail
+        } else if (context.lastCaptureInterruption == null) {
+            context.lastCaptureInterruption = "capture=${captureSnapshot.phase.name}"
+        }
+    }
 
     private fun failAction(
         context: ActiveRecording,
@@ -526,6 +567,7 @@ internal class PhoneMicrophoneRecordingRuntime(
                 writtenSamples = context.writtenSamples,
                 postWriteOffers = context.postWriteOffers,
                 postWriteOfferFailures = context.postWriteOfferFailures,
+                hadCaptureInterruption = context.hadCaptureInterruption,
                 lastPostWriteFailure = context.lastPostWriteFailure,
                 lastFailure = failure,
             )
@@ -547,7 +589,9 @@ internal class PhoneMicrophoneRecordingRuntime(
                 writtenSamples = context.writtenSamples,
                 postWriteOffers = context.postWriteOffers,
                 postWriteOfferFailures = context.postWriteOfferFailures,
+                hadCaptureInterruption = context.hadCaptureInterruption,
                 lastPostWriteFailure = context.lastPostWriteFailure,
+                lastFailure = context.lastCaptureInterruption,
             )
     }
 
@@ -581,6 +625,8 @@ internal class PhoneMicrophoneRecordingRuntime(
         var postWriteOffers: Long = 0L,
         var postWriteOfferFailures: Long = 0L,
         var lastPostWriteFailure: String? = null,
+        var hadCaptureInterruption: Boolean = false,
+        var lastCaptureInterruption: String? = null,
     )
 
     private companion object {
