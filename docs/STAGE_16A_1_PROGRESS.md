@@ -2,14 +2,14 @@
 
 日期：2026-10-15
 
-状态：**P1 CI PASS / P2 CI PASS / P3 CI PASS / P4 NEXT**
+状态：**P1 CI PASS / P2 CI PASS / P3 CI PASS / P4 CI PASS / P5 NEXT**
 
 ## 当前 GitHub 基线
 
 - base `main`：`075bc9689b011678685e1046e3590a26d787067f`
 - branch：`stage16a1-phone-microphone`
 - PR：#29（Draft / WIP）
-- P3 source candidate：`942fcdb176cec99f77083ac4a45d61f83c2c7c08`
+- P4 source candidate：`e263d8cf9c5e7bf4783710564a50dfbf4d391d41`
 - Room：v13，未新增 migration
 - versionCode：91
 - versionName：`1.1.0-stage16a`
@@ -140,20 +140,46 @@ AudioRecord
 - Android PR CI #1475 — SUCCESS；
 - Unit tests and debug compile gate — SUCCESS。
 
+## P4 — UI / UX / Product Entry
+
+已实现并通过 CI：
+
+- realtime reader 改为 source-neutral `RealtimeTranscriptionUiController`，不再把 recorder-card runtime 作为 reader 唯一控制类型；
+- recorder-card Stage 16A 历史入口通过薄适配保持既有行为；
+- 新增两个独立产品入口：`手机录音`、`手机实时转写`；
+- 两个手机入口在 BLE 未连接和已连接时都可用，不依赖录音卡连接状态；
+- `手机录音` 展示正式媒体时长、16 kHz / mono、waveform、Pause / Resume / Stop；
+- `手机实时转写` 复用 Stage 16A reader / waveform / PARTIAL / STABLE / FINAL / controls；
+- 两个入口共用 P1 permission policy：首次申请、rationale、永久拒绝、Settings recovery；
+- application-scope phone recording/realtime runtime 在 `AppContainer` 统一持有，Compose 不创建 `AudioRecord`；
+- phone recording 与 phone realtime 共用同一个正式录音 runtime，保持单一 AudioRecord owner；
+- realtime runner 在正式录音已开始后失败时，UI 投影为 `录音仍在继续 · 实时转写已停止`，仍保留 Pause / Resume / Stop，不把正式录音误判为结束；
+- Stage 16A recorder-card notification overlay / deep-link 在 P4 未改动，P5 再独立接手机后台导航；
+- Room v13 / version / production model channel 均未修改。
+
+验证：
+
+- P4-A source-neutral reader：Android PR CI #1480 — SUCCESS；
+- recording-only degraded state：Android PR CI #1484 — compile/unit SUCCESS；
+- P4-B full AppContainer + permission + two-entry wiring：Android PR CI #1489 — SUCCESS；
+- #1489 `Unit tests and debug compile gate` — SUCCESS。
+
+P4 CI 只证明代码/单测/Debug 编译通过；手机麦克风真实权限、Home、screen-off、notification、route / contention 仍必须在 P5/P6/P7 真机验证。
+
 ## 当前明确未完成
 
-- P4：`手机录音` / `手机实时转写` 用户入口、共享 realtime reader、权限 UX、状态展示；
 - P5：notification deep link / Home / screen-off 完整后台生命周期产品化；
 - P6：abnormal process interruption staging recovery、mic contention / route resilience；
 - P7：Stage 16A.1 真机 S1–S15；
 - Freeze / Handoff / merge。
 
-进程异常恢复不得在 P3 被伪装为已完成；正式实现继续在 P6 收口，并执行 S13。
+进程异常恢复不得在 P4 被伪装为已完成；正式实现继续在 P6 收口，并执行 S13。
 
 ## 下一门禁
 
-1. 进入 P4 UI / UX；
-2. P4 必须提供两个独立产品入口：`手机录音`、`手机实时转写`；
-3. `手机实时转写` 复用 Stage 16A reader，但不得把 recorder-card runtime 类型继续暴露为 UI 唯一控制接口；
-4. 在 P4 有真实用户入口并通过 CI 前，不把 S1–S4 写成已执行；
-5. CI 不能替代真机 S1–S15。
+1. 进入 P5 background lifecycle；
+2. microphone FGS / WakeLock 必须独立于 ASR 生命周期，ASR 停止不能终止仍在进行的正式录音；
+3. 增加手机录音 / 手机实时转写 notification 与 deep-link，并保持 recorder-card Stage 16A 历史 deep-link 不回归；
+4. 验证 Home / screen-off 生命周期代码路径，但真机 PASS 仍留给 P7；
+5. P5 CI 通过前不进入 P6；
+6. CI 不能替代真机 S1–S15。
