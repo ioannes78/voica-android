@@ -275,7 +275,10 @@ internal fun RealtimeTranscriptionScreen(
         if (shouldShowRealtimeWaveform(state.phase)) {
             RealtimeAudioActivityWaveform(
                 levels = state.audioActivityLevels,
-                active = state.phase == Stage16ARealtimeUiPhase.ACTIVE && !state.recordingOnlyMode,
+                active =
+                    state.phase == Stage16ARealtimeUiPhase.ACTIVE &&
+                        !state.recordingOnlyMode &&
+                        !state.sourceCaptureInterrupted,
             )
             Spacer(modifier = Modifier.height(4.dp))
         }
@@ -383,7 +386,8 @@ internal fun RealtimeTranscriptionScreen(
         if (
             Stage16AQaArtificialAsrSlowdown.isEnabled &&
             state.phase == Stage16ARealtimeUiPhase.ACTIVE &&
-            !state.recordingOnlyMode
+            !state.recordingOnlyMode &&
+            !state.sourceCaptureInterrupted
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -614,16 +618,17 @@ private fun RealtimeControls(
 }
 
 internal fun realtimeStatusLabel(state: Stage16ARealtimeUiState): String =
-    if (state.recordingOnlyMode) {
-        when (state.phase) {
-            Stage16ARealtimeUiPhase.ACTIVE -> "录音中 · 转写已停止"
-            Stage16ARealtimeUiPhase.PAUSED -> "录音已暂停 · 转写已停止"
-            Stage16ARealtimeUiPhase.RESUMING -> "正在继续录音 · 转写已停止"
-            Stage16ARealtimeUiPhase.FINALIZING -> "正在保存录音 · 转写已停止"
-            else -> "实时转写已停止"
-        }
-    } else {
-        realtimePhaseLabel(state.phase)
+    when {
+        state.sourceCaptureInterrupted -> "麦克风采集中断"
+        state.recordingOnlyMode ->
+            when (state.phase) {
+                Stage16ARealtimeUiPhase.ACTIVE -> "录音中 · 转写已停止"
+                Stage16ARealtimeUiPhase.PAUSED -> "录音已暂停 · 转写已停止"
+                Stage16ARealtimeUiPhase.RESUMING -> "正在继续录音 · 转写已停止"
+                Stage16ARealtimeUiPhase.FINALIZING -> "正在保存录音 · 转写已停止"
+                else -> "实时转写已停止"
+            }
+        else -> realtimePhaseLabel(state.phase)
     }
 
 internal fun realtimePhaseLabel(phase: Stage16ARealtimeUiPhase): String =
@@ -641,16 +646,19 @@ internal fun realtimePhaseLabel(phase: Stage16ARealtimeUiPhase): String =
     }
 
 private fun emptyReaderMessage(state: Stage16ARealtimeUiState): String =
-    if (state.recordingOnlyMode) {
-        "实时转写已停止，手机录音仍会继续保存。"
-    } else {
-        when (state.phase) {
-            Stage16ARealtimeUiPhase.IDLE,
-            Stage16ARealtimeUiPhase.COMPLETED,
-            Stage16ARealtimeUiPhase.FAILED,
-            -> "开始后，实时识别内容会显示在这里。"
-            Stage16ARealtimeUiPhase.PAUSED -> "录音已暂停，已确认的内容会保留在这里。"
-            Stage16ARealtimeUiPhase.INTERRUPTED -> "连接已中断，已完成的转写内容仍会保留。"
-            else -> "正在等待语音内容…"
-        }
+    when {
+        state.sourceCaptureInterrupted ->
+            "麦克风采集中断，可先暂停后继续，或停止保存已录音频。"
+        state.recordingOnlyMode ->
+            "实时转写已停止，手机录音仍会继续保存。"
+        else ->
+            when (state.phase) {
+                Stage16ARealtimeUiPhase.IDLE,
+                Stage16ARealtimeUiPhase.COMPLETED,
+                Stage16ARealtimeUiPhase.FAILED,
+                -> "开始后，实时识别内容会显示在这里。"
+                Stage16ARealtimeUiPhase.PAUSED -> "录音已暂停，已确认的内容会保留在这里。"
+                Stage16ARealtimeUiPhase.INTERRUPTED -> "连接已中断，已完成的转写内容仍会保留。"
+                else -> "正在等待语音内容…"
+            }
     }
