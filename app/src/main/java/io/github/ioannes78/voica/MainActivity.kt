@@ -18,6 +18,8 @@ import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.ble.DeviceRepository
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.ui.VoicaApp
+import io.github.ioannes78.voica.ui.phone.LocalPhoneMicrophoneRealtimeRuntime
+import io.github.ioannes78.voica.ui.phone.LocalPhoneMicrophoneRecordingRuntime
 import io.github.ioannes78.voica.ui.realtime.LocalStage16ARealtimeRuntime
 import io.github.ioannes78.voica.ui.realtime.RealtimeTranscriptionScreen
 import io.github.ioannes78.voica.ui.theme.VoicaTheme
@@ -70,6 +72,8 @@ class MainActivity : ComponentActivity() {
             VoicaTheme(settings = themeSettings) {
                 CompositionLocalProvider(
                     LocalStage16ARealtimeRuntime provides appContainer.stage16ARealtimeRuntime,
+                    LocalPhoneMicrophoneRecordingRuntime provides appContainer.phoneMicrophoneRecordingRuntime,
+                    LocalPhoneMicrophoneRealtimeRuntime provides appContainer.phoneMicrophoneRealtimeRuntime,
                 ) {
                     Box(modifier = Modifier.fillMaxSize()) {
                         Stage13B5Qa4GlobalAttentionHost(container = appContainer) {
