@@ -92,6 +92,33 @@ class PhoneMicrophoneRecordingRuntimeTest {
     }
 
     @Test
+    fun `capture failure saves usable media but never reports normal completion`() = runBlocking {
+        val runtime = runtime()
+        assertTrue(runtime.start() is PhoneMicrophoneRecordingStartResult.Started)
+        capture.emit(ShortArray(1_280) { 33 })
+        capture.fail("synthetic microphone interruption")
+
+        val stopped = runtime.stop()
+
+        assertTrue(stopped is PhoneMicrophoneRecordingStopResult.Saved)
+        stopped as PhoneMicrophoneRecordingStopResult.Saved
+        assertEquals(1_280L, stopped.sampleCount)
+        assertEquals(PhoneMicrophoneRecordingPhase.FAILED, runtime.state.value.phase)
+        assertTrue(runtime.state.value.finalizedSha256?.isNotBlank() == true)
+        assertTrue(runtime.state.value.lastFailure?.contains("异常中断") == true)
+        assertTrue(runtime.state.value.lastFailure?.contains("synthetic microphone interruption") == true)
+        assertEquals(1, registrations.size)
+        assertEquals(
+            "手机录音（异常中断） 2026-10-15 08:00:00",
+            registrations.single().displayName,
+        )
+        assertTrue(stopped.file.isFile)
+        assertEquals(44L + 1_280L * 2L, stopped.file.length())
+
+        runtime.close()
+    }
+
+    @Test
     fun `stop before first PCM sample does not create empty library recording`() = runBlocking {
         val runtime = runtime()
         assertTrue(runtime.start() is PhoneMicrophoneRecordingStartResult.Started)
@@ -182,6 +209,16 @@ private class FakePhoneMicrophoneCaptureDriver : PhoneMicrophoneCaptureDriver {
         val start = nextSampleIndex
         checkNotNull(consumer).onPcm(PhoneMicrophonePcmFrame(start, samples))
         nextSampleIndex += samples.size
+    }
+
+    fun fail(message: String) {
+        consumer = null
+        mutableState.value =
+            PhoneMicrophoneCaptureSnapshot(
+                phase = PhoneMicrophoneCapturePhase.FAILED,
+                samplesRead = nextSampleIndex,
+                lastFailure = message,
+            )
     }
 
     override suspend fun stopAndAwait(timeoutMs: Long): Boolean {
