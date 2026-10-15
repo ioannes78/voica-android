@@ -19,6 +19,7 @@ class Stage13B5Qa4CandidateNotificationController(
     private val qa4Repository: Stage13B5Qa4Repository,
 ) {
     private val notificationManager = context.getSystemService(NotificationManager::class.java)
+    private val presentationStore = NotificationPresentationStore(context)
     private var transcriptionNotificationIds: Set<Int> = emptySet()
     private var aiSummaryNotificationIds: Set<Int> = emptySet()
 
@@ -33,18 +34,22 @@ class Stage13B5Qa4CandidateNotificationController(
                     val nextIds = mutableSetOf<Int>()
                     candidates.forEach { candidate ->
                         val notificationId = transcriptionCandidateNotificationId(candidate.id)
-                        nextIds += notificationId
-                        notificationManager.notify(
-                            notificationId,
-                            buildNotification(
-                                notificationId = notificationId,
-                                title = "转写已完成",
-                                text = "新的转写结果已生成",
-                                recordingId = candidate.recordingId,
-                                recordingName = recordingName(recordings, candidate.recordingId),
-                                destination = RecordingDetailDestination.TRANSCRIPT,
-                            ),
-                        )
+                        val logicalKey = transcriptionCandidatePresentationKey(candidate.id)
+                        if (!presentationStore.isSystemDismissed(logicalKey)) {
+                            nextIds += notificationId
+                            notificationManager.notify(
+                                notificationId,
+                                buildNotification(
+                                    notificationId = notificationId,
+                                    logicalKey = logicalKey,
+                                    title = "转写已完成",
+                                    text = "新的转写结果已生成",
+                                    recordingId = candidate.recordingId,
+                                    recordingName = recordingName(recordings, candidate.recordingId),
+                                    destination = RecordingDetailDestination.TRANSCRIPT,
+                                ),
+                            )
+                        }
                     }
                     (transcriptionNotificationIds - nextIds).forEach(notificationManager::cancel)
                     transcriptionNotificationIds = nextIds
@@ -59,18 +64,22 @@ class Stage13B5Qa4CandidateNotificationController(
                     val nextIds = mutableSetOf<Int>()
                     candidates.forEach { candidate ->
                         val notificationId = aiSummaryCandidateNotificationId(candidate.id)
-                        nextIds += notificationId
-                        notificationManager.notify(
-                            notificationId,
-                            buildNotification(
-                                notificationId = notificationId,
-                                title = "AI 总结已完成",
-                                text = "新的总结结果已生成",
-                                recordingId = candidate.recordingId,
-                                recordingName = recordingName(recordings, candidate.recordingId),
-                                destination = RecordingDetailDestination.SUMMARY,
-                            ),
-                        )
+                        val logicalKey = aiSummaryCandidatePresentationKey(candidate.id)
+                        if (!presentationStore.isSystemDismissed(logicalKey)) {
+                            nextIds += notificationId
+                            notificationManager.notify(
+                                notificationId,
+                                buildNotification(
+                                    notificationId = notificationId,
+                                    logicalKey = logicalKey,
+                                    title = "AI 总结已完成",
+                                    text = "新的总结结果已生成",
+                                    recordingId = candidate.recordingId,
+                                    recordingName = recordingName(recordings, candidate.recordingId),
+                                    destination = RecordingDetailDestination.SUMMARY,
+                                ),
+                            )
+                        }
                     }
                     (aiSummaryNotificationIds - nextIds).forEach(notificationManager::cancel)
                     aiSummaryNotificationIds = nextIds
@@ -80,13 +89,14 @@ class Stage13B5Qa4CandidateNotificationController(
 
     private fun buildNotification(
         notificationId: Int,
+        logicalKey: String,
         title: String,
         text: String,
         recordingId: String,
         recordingName: String,
         destination: RecordingDetailDestination,
     ): Notification =
-        Notification.Builder(context, CHANNEL_ID)
+        Notification.Builder(context, VoicaNotificationChannels.TASK_RESULT)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setContentTitle(title)
             .setContentText(text)
@@ -99,6 +109,13 @@ class Stage13B5Qa4CandidateNotificationController(
                     destination = destination,
                 ),
             )
+            .setDeleteIntent(
+                notificationDismissPendingIntent(
+                    context = context,
+                    logicalKey = logicalKey,
+                    requestCode = notificationId,
+                ),
+            )
             .setOnlyAlertOnce(true)
             .setOngoing(false)
             .setAutoCancel(false)
@@ -108,7 +125,7 @@ class Stage13B5Qa4CandidateNotificationController(
     private fun createChannel() {
         notificationManager.createNotificationChannel(
             NotificationChannel(
-                CHANNEL_ID,
+                VoicaNotificationChannels.TASK_RESULT,
                 "任务结果",
                 NotificationManager.IMPORTANCE_LOW,
             ).apply {
@@ -120,18 +137,21 @@ class Stage13B5Qa4CandidateNotificationController(
 
     private fun recordingName(recordings: List<RecordingLibraryItem>, recordingId: String): String =
         recordings.firstOrNull { it.id == recordingId }?.displayName ?: "录音"
-
-    private fun transcriptionCandidateNotificationId(id: String): Int =
-        TRANSCRIPTION_CANDIDATE_BASE + stableOffset(id)
-
-    private fun aiSummaryCandidateNotificationId(id: String): Int =
-        AI_SUMMARY_CANDIDATE_BASE + stableOffset(id)
-
-    private fun stableOffset(id: String): Int = id.hashCode() and 0x000f_ffff
-
-    private companion object {
-        const val CHANNEL_ID = "voica-task-result"
-        const val TRANSCRIPTION_CANDIDATE_BASE = 160_000_000
-        const val AI_SUMMARY_CANDIDATE_BASE = 170_000_000
-    }
 }
+
+internal fun transcriptionCandidatePresentationKey(id: String): String =
+    "candidate:transcription:$id"
+
+internal fun aiSummaryCandidatePresentationKey(id: String): String =
+    "candidate:summary:$id"
+
+internal fun transcriptionCandidateNotificationId(id: String): Int =
+    TRANSCRIPTION_CANDIDATE_BASE + candidateStableOffset(id)
+
+internal fun aiSummaryCandidateNotificationId(id: String): Int =
+    AI_SUMMARY_CANDIDATE_BASE + candidateStableOffset(id)
+
+private fun candidateStableOffset(id: String): Int = id.hashCode() and 0x000f_ffff
+
+private const val TRANSCRIPTION_CANDIDATE_BASE = 160_000_000
+private const val AI_SUMMARY_CANDIDATE_BASE = 170_000_000
