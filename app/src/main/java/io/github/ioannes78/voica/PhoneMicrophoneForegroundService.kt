@@ -3,7 +3,6 @@ package io.github.ioannes78.voica
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -128,11 +127,17 @@ class PhoneMicrophoneForegroundService : Service() {
                         ?.trim()
                         ?.takeIf { it.isNotEmpty() }
                         ?: DEFAULT_LABEL
+                val target =
+                    intent.getStringExtra(EXTRA_TARGET)
+                        ?.let { encoded ->
+                            runCatching { PhoneMicrophoneProductTarget.valueOf(encoded) }.getOrNull()
+                        }
+                        ?: PhoneMicrophoneProductTarget.RECORDING
                 try {
                     ServiceCompat.startForeground(
                         this,
                         NOTIFICATION_ID,
-                        buildNotification(label),
+                        buildNotification(label, target),
                         ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
                     )
                     PhoneMicrophoneForegroundDiagnostics.markActive(generation, label)
@@ -156,25 +161,34 @@ class PhoneMicrophoneForegroundService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun buildNotification(label: String): Notification =
+    private fun buildNotification(
+        label: String,
+        target: PhoneMicrophoneProductTarget,
+    ): Notification =
         Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Voica 手机录音")
+            .setContentTitle(
+                when (target) {
+                    PhoneMicrophoneProductTarget.RECORDING -> "Voica 手机录音"
+                    PhoneMicrophoneProductTarget.REALTIME -> "Voica 手机实时转写"
+                },
+            )
             .setContentText(label)
-            .setContentIntent(mainActivityPendingIntent())
+            .setContentIntent(
+                phoneMicrophoneOpenPendingIntent(
+                    context = this,
+                    target = target,
+                    requestCode =
+                        when (target) {
+                            PhoneMicrophoneProductTarget.RECORDING -> REQUEST_CONTENT_RECORDING
+                            PhoneMicrophoneProductTarget.REALTIME -> REQUEST_CONTENT_REALTIME
+                        },
+                ),
+            )
             .setOnlyAlertOnce(true)
             .setOngoing(true)
             .setCategory(Notification.CATEGORY_SERVICE)
             .build()
-
-    private fun mainActivityPendingIntent(): PendingIntent =
-        PendingIntent.getActivity(
-            this,
-            REQUEST_CONTENT,
-            Intent(this, MainActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
 
     private fun createChannel() {
         notificationManager.createNotificationChannel(
@@ -193,10 +207,12 @@ class PhoneMicrophoneForegroundService : Service() {
         private const val TAG = "VoicaPhoneMicFGS"
         private const val CHANNEL_ID = "voica-phone-microphone"
         private const val NOTIFICATION_ID = 13061
-        private const val REQUEST_CONTENT = 13061
+        private const val REQUEST_CONTENT_RECORDING = 13061
+        private const val REQUEST_CONTENT_REALTIME = 13062
         private const val ACTION_ACQUIRE = "io.github.ioannes78.voica.phone_mic.ACQUIRE"
         private const val EXTRA_LABEL = "label"
         private const val EXTRA_GENERATION = "generation"
+        private const val EXTRA_TARGET = "target"
         private const val DEFAULT_LABEL = "正在使用手机麦克风录音"
 
         internal fun acquire(
@@ -205,13 +221,21 @@ class PhoneMicrophoneForegroundService : Service() {
         ): PhoneMicrophoneForegroundAcquireResult {
             val safeLabel = label.trim().ifEmpty { DEFAULT_LABEL }
             val generation = PhoneMicrophoneForegroundDiagnostics.begin(safeLabel)
+            val target =
+                phoneMicrophoneProductTarget(
+                    realtimeActiveRunId =
+                        ((context.applicationContext as? VoicaApplication)
+                            ?.runCatching { container.phoneMicrophoneRealtimeRuntime.snapshot().activeRunId }
+                            ?.getOrNull()),
+                )
             return try {
                 ContextCompat.startForegroundService(
                     context,
                     Intent(context, PhoneMicrophoneForegroundService::class.java)
                         .setAction(ACTION_ACQUIRE)
                         .putExtra(EXTRA_LABEL, safeLabel)
-                        .putExtra(EXTRA_GENERATION, generation),
+                        .putExtra(EXTRA_GENERATION, generation)
+                        .putExtra(EXTRA_TARGET, target.name),
                 )
                 PhoneMicrophoneForegroundAcquireResult(
                     generation = generation,
