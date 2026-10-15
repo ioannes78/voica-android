@@ -20,6 +20,22 @@ internal data class PhoneMicrophonePermissionDecision(
     val message: String,
 )
 
+internal class PhoneMicrophonePermissionRequestStore(context: Context) {
+    private val preferences =
+        context.applicationContext.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+
+    fun requestedBefore(): Boolean = preferences.getBoolean(KEY_REQUESTED_BEFORE, false)
+
+    fun markRequested() {
+        preferences.edit().putBoolean(KEY_REQUESTED_BEFORE, true).apply()
+    }
+
+    private companion object {
+        const val PREFERENCES_NAME = "phone_microphone_permission"
+        const val KEY_REQUESTED_BEFORE = "requested_before"
+    }
+}
+
 /**
  * Pure permission policy for Stage 16A.1.
  *
