@@ -381,6 +381,8 @@ internal class PhoneMicrophoneRecordingRuntime(
             )
         }
 
+        val interruptedMessage =
+            if (preparation.interrupted) buildInterruptedMessage(preparation.interruptionMessage) else null
         synchronized(lock) {
             val totalCompletedEpochs =
                 context.completedEpochs + if (context.activeEpochSamples > 0L) 1 else 0
@@ -405,13 +407,15 @@ internal class PhoneMicrophoneRecordingRuntime(
                     finalizedSizeBytes = finalized.sizeBytes,
                     finalizedSha256 = finalized.sha256,
                     lastPostWriteFailure = context.lastPostWriteFailure,
-                    lastFailure =
-                        if (preparation.interrupted) {
-                            buildInterruptedMessage(preparation.interruptionMessage)
-                        } else {
-                            null
-                        },
+                    lastFailure = interruptedMessage,
                 )
+        }
+
+        if (preparation.interrupted) {
+            return@withContext PhoneMicrophoneRecordingStopResult.Failed(
+                message = checkNotNull(interruptedMessage),
+                preservedFile = finalized.file,
+            )
         }
 
         PhoneMicrophoneRecordingStopResult.Saved(
