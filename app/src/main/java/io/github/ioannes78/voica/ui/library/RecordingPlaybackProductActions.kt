@@ -101,6 +101,7 @@ fun RecordingPlaybackProductActions(
                 "本地标准音频"
             availability.remotePending && !availability.originalReady && !effectiveCanonicalReady ->
                 "录音卡（待下载）"
+            recording.sourceType == RecordingSourceType.PHONE_MICROPHONE -> "手机麦克风"
             recording.sourceType == RecordingSourceType.LOCAL_IMPORT -> "本地导入"
             recording.sourceType == RecordingSourceType.DEVICE_DOWNLOAD -> "录音卡"
             else -> recording.sourceType
