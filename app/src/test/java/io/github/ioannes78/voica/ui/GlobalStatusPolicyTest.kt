@@ -1,10 +1,13 @@
 package io.github.ioannes78.voica.ui
 
 import io.github.ioannes78.voica.AiSummaryRunState
+import io.github.ioannes78.voica.Qa4GlobalAttentionItem
+import io.github.ioannes78.voica.TaskCompletionKind
 import io.github.ioannes78.voica.TranscriptionRunState
 import io.github.ioannes78.voica.audio.PlaybackSnapshot
 import io.github.ioannes78.voica.audio.PlaybackState
 import io.github.ioannes78.voica.transcript.TranscriptionMode
+import io.github.ioannes78.voica.ui.library.RecordingDetailDestination
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -48,6 +51,81 @@ class GlobalStatusPolicyTest {
                 ),
             ),
         )
+    }
+
+    @Test
+    fun consolidatedGlobalTasksCombineRunningAndDurableAttention() {
+        val running =
+            GlobalTaskItem(
+                key = "transcription-running-recording-a",
+                recordingId = "recording-a",
+                recordingName = "A",
+                label = "转写中",
+                progress = "43%",
+                destination = RecordingDetailDestination.TRANSCRIPT,
+                terminal = false,
+            )
+        val completion =
+            Qa4GlobalAttentionItem(
+                key = "completion:TRANSCRIPTION:tx-b",
+                recordingId = "recording-b",
+                recordingName = "B",
+                label = "转写完成",
+                destination = RecordingDetailDestination.TRANSCRIPT,
+                completionKind = TaskCompletionKind.TRANSCRIPTION,
+                completionTaskId = "tx-b",
+            )
+
+        val result =
+            buildConsolidatedGlobalTaskItems(
+                runningTasks = listOf(running),
+                attentionItems = listOf(completion),
+            )
+
+        assertEquals(2, result.size)
+        assertFalse(result.first().terminal)
+        assertTrue(result.last().terminal)
+        assertEquals("完成", result.last().progress)
+    }
+
+    @Test
+    fun consolidatedGlobalTasksSuppressOnlyExactVisibleDestination() {
+        val runningTranscript =
+            GlobalTaskItem(
+                key = "running-a",
+                recordingId = "recording-a",
+                recordingName = "A",
+                label = "转写中",
+                progress = null,
+                destination = RecordingDetailDestination.TRANSCRIPT,
+                terminal = false,
+            )
+        val transcriptAttention =
+            Qa4GlobalAttentionItem(
+                key = "attention-a-transcript",
+                recordingId = "recording-a",
+                recordingName = "A",
+                label = "转写失败",
+                destination = RecordingDetailDestination.TRANSCRIPT,
+            )
+        val summaryAttention =
+            Qa4GlobalAttentionItem(
+                key = "attention-a-summary",
+                recordingId = "recording-a",
+                recordingName = "A",
+                label = "总结失败",
+                destination = RecordingDetailDestination.SUMMARY,
+            )
+
+        val result =
+            buildConsolidatedGlobalTaskItems(
+                runningTasks = listOf(runningTranscript),
+                attentionItems = listOf(transcriptAttention, summaryAttention),
+                visibleRecordingId = "recording-a",
+                visibleDestination = RecordingDetailDestination.TRANSCRIPT,
+            )
+
+        assertEquals(listOf("attention-a-summary"), result.map { it.key })
     }
 
     @Test
