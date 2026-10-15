@@ -6,7 +6,87 @@ import io.github.ioannes78.voica.CanonicalGenerationProgress
 import io.github.ioannes78.voica.database.AudioDerivationState
 import io.github.ioannes78.voica.database.RecordingLibraryItem
 import io.github.ioannes78.voica.ui.library.RecordingDetailDestination
+import io.github.ioannes78.voica.ui.status.AppActivityAction
+import io.github.ioannes78.voica.ui.status.AppActivityDestination
+import io.github.ioannes78.voica.ui.status.AppActivityFact
+import io.github.ioannes78.voica.ui.status.AppActivityKind
+import io.github.ioannes78.voica.ui.status.AppActivityLifecycleClass
+import io.github.ioannes78.voica.ui.status.AppActivitySource
 import kotlin.math.roundToInt
+
+internal fun buildCanonicalActivityFacts(
+    progressByRecording: Map<String, CanonicalGenerationProgress>,
+    recordings: List<RecordingLibraryItem>,
+): List<AppActivityFact> {
+    val recordingsById = recordings.associateBy(RecordingLibraryItem::id)
+    val activeIds = progressByRecording.keys
+    val active =
+        progressByRecording.values
+            .sortedBy(CanonicalGenerationProgress::startedAtMs)
+            .map { progress ->
+                val recording = recordingsById[progress.recordingId]
+                AppActivityFact(
+                    logicalKey = "canonical:${progress.recordingId}",
+                    kind = AppActivityKind.CANONICAL_GENERATION,
+                    source = AppActivitySource.LOCAL_PROCESSING,
+                    lifecycleClass = AppActivityLifecycleClass.BACKGROUND_RUNNING,
+                    title = "标准 WAV 生成",
+                    subtitle =
+                        listOfNotNull(
+                            recording?.displayName ?: "录音",
+                            canonicalProgressText(progress),
+                        ).joinToString(" · "),
+                    progressFraction = progress.fraction,
+                    recordingId = progress.recordingId,
+                    destination =
+                        AppActivityDestination.RecordingDetail(
+                            recordingId = progress.recordingId,
+                            destination = RecordingDetailDestination.PLAYBACK,
+                        ),
+                    availableActions =
+                        buildSet {
+                            add(AppActivityAction.OPEN)
+                            if (progress.cancellable) add(AppActivityAction.CANCEL)
+                        },
+                    priorityHint = CANONICAL_PRIORITY,
+                    startedAtMs = progress.startedAtMs,
+                )
+            }
+    val failures =
+        recordings.mapNotNull { recording ->
+            if (recording.id in activeIds) return@mapNotNull null
+            val derivation = currentCanonicalFailure(recording) ?: return@mapNotNull null
+            val recoverable = derivation.state == AudioDerivationState.FAILED_RECOVERABLE
+            AppActivityFact(
+                logicalKey =
+                    "canonical:${recording.id}:${derivation.sourceSha256}:${derivation.state}:${derivation.errorCode.orEmpty()}",
+                kind = AppActivityKind.CANONICAL_GENERATION,
+                source = AppActivitySource.LOCAL_PROCESSING,
+                lifecycleClass =
+                    if (recoverable) {
+                        AppActivityLifecycleClass.INTERRUPTED_ATTENTION
+                    } else {
+                        AppActivityLifecycleClass.FAILED_ATTENTION
+                    },
+                title = if (recoverable) "标准 WAV 生成中断" else "标准 WAV 生成失败",
+                subtitle = recording.displayName,
+                recordingId = recording.id,
+                destination =
+                    AppActivityDestination.RecordingDetail(
+                        recordingId = recording.id,
+                        destination = RecordingDetailDestination.PLAYBACK,
+                    ),
+                availableActions =
+                    if (recoverable) {
+                        setOf(AppActivityAction.OPEN, AppActivityAction.RETRY)
+                    } else {
+                        setOf(AppActivityAction.OPEN)
+                    },
+                priorityHint = CANONICAL_PRIORITY,
+            )
+        }
+    return active + failures
+}
 
 internal fun buildCanonicalGlobalTaskItems(
     progressByRecording: Map<String, CanonicalGenerationProgress>,
@@ -33,15 +113,7 @@ internal fun buildCanonicalGlobalTaskItems(
     val failures =
         recordings.mapNotNull { recording ->
             if (recording.id in activeIds) return@mapNotNull null
-            val derivation =
-                recording.derivations
-                    .filter {
-                        it.profileId == CanonicalAudioCoordinator.PROFILE_ID &&
-                            it.pipelineVersion == CanonicalAudioCoordinator.PIPELINE_VERSION &&
-                            it.state in CANONICAL_FAILURE_STATES
-                    }
-                    .lastOrNull()
-                    ?: return@mapNotNull null
+            val derivation = currentCanonicalFailure(recording) ?: return@mapNotNull null
             GlobalTaskItem(
                 key =
                     buildString {
@@ -89,8 +161,19 @@ internal fun canonicalProgressText(progress: CanonicalGenerationProgress): Strin
     }
 }
 
+private fun currentCanonicalFailure(recording: RecordingLibraryItem) =
+    recording.derivations
+        .filter {
+            it.profileId == CanonicalAudioCoordinator.PROFILE_ID &&
+                it.pipelineVersion == CanonicalAudioCoordinator.PIPELINE_VERSION &&
+                it.state in CANONICAL_FAILURE_STATES
+        }
+        .lastOrNull()
+
 private val CANONICAL_FAILURE_STATES =
     setOf(
         AudioDerivationState.FAILED_RECOVERABLE,
         AudioDerivationState.FAILED_PERMANENT,
     )
+
+private const val CANONICAL_PRIORITY = 40
