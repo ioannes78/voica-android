@@ -71,8 +71,9 @@ class PhoneMicrophoneRecordingRegistrarTest {
             ),
         )
 
-        val recording = assertNotNull(library.loadRecording("phone-1"))
-        recording!!
+        val loaded = library.loadRecording("phone-1")
+        assertNotNull(loaded)
+        val recording = requireNotNull(loaded)
         assertEquals(RecordingSourceType.PHONE_MICROPHONE, recording.sourceType)
         assertEquals("手机录音 2026-10-15 08:00:00", recording.displayName)
         assertEquals(1L, recording.mediaDurationMs)
