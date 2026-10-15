@@ -510,11 +510,11 @@ class LongTaskNotificationController(
         private const val AI_SUMMARY_NOTIFICATION_ID = 13051
         private const val AI_SUMMARY_REQUEST_CONTENT = 13051
         private const val AI_SUMMARY_REQUEST_CANCEL = 13052
-        private const val TRANSCRIPTION_ATTENTION_BASE = 140_000_000
-        private const val AI_ATTENTION_BASE = 150_000_000
-        private const val TRANSCRIPTION_COMPLETION_BASE = 180_000_000
-        private const val DIARIZATION_COMPLETION_BASE = 190_000_000
-        private const val AI_SUMMARY_COMPLETION_BASE = 200_000_000
+        internal const val TRANSCRIPTION_ATTENTION_BASE = 140_000_000
+        internal const val AI_ATTENTION_BASE = 150_000_000
+        internal const val TRANSCRIPTION_COMPLETION_BASE = 180_000_000
+        internal const val DIARIZATION_COMPLETION_BASE = 190_000_000
+        internal const val AI_SUMMARY_COMPLETION_BASE = 200_000_000
     }
 }
 
