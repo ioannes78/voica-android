@@ -99,6 +99,42 @@ class PhoneMicrophoneFoundationTest {
 
         assertEquals(1_920L, frame.endSampleIndexExclusive)
     }
+
+    @Test
+    fun `platform silenced PCM never reaches recording consumer`() {
+        var consumerCalls = 0
+        var acceptedSamples = 0
+        val consumer =
+            PhoneMicrophonePcmConsumer { frame ->
+                consumerCalls += 1
+                acceptedSamples += frame.samples.size
+            }
+        val frame =
+            PhoneMicrophonePcmFrame(
+                startSampleIndex = 0L,
+                samples = ShortArray(1_280),
+            )
+
+        assertFalse(
+            deliverPhoneMicrophonePcmIfAudible(
+                clientSilenced = true,
+                frame = frame,
+                consumer = consumer,
+            ),
+        )
+        assertEquals(0, consumerCalls)
+        assertEquals(0, acceptedSamples)
+
+        assertTrue(
+            deliverPhoneMicrophonePcmIfAudible(
+                clientSilenced = false,
+                frame = frame,
+                consumer = consumer,
+            ),
+        )
+        assertEquals(1, consumerCalls)
+        assertEquals(1_280, acceptedSamples)
+    }
 }
 
 private class FakeForegroundLease(
