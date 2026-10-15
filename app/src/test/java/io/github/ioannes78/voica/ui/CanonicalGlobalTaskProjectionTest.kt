@@ -7,6 +7,8 @@ import io.github.ioannes78.voica.database.AudioDerivationState
 import io.github.ioannes78.voica.database.RecordingDerivation
 import io.github.ioannes78.voica.database.RecordingLibraryItem
 import io.github.ioannes78.voica.ui.library.RecordingDetailDestination
+import io.github.ioannes78.voica.ui.status.AppActivityLifecycleClass
+import io.github.ioannes78.voica.ui.status.AppActivityProjectionResolver
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -35,6 +37,30 @@ class CanonicalGlobalTaskProjectionTest {
         assertEquals("标准 WAV 生成", task.label)
         assertEquals("50%", task.progress)
         assertEquals(RecordingDetailDestination.PLAYBACK, task.destination)
+    }
+
+    @Test
+    fun activeCanonicalFactResolvesAsBackgroundTask() {
+        val progress =
+            CanonicalGenerationProgress(
+                recordingId = "recording-a",
+                phase = CanonicalGenerationPhase.WRITING,
+                processedDurationUs = 5_000_000L,
+                totalDurationUs = 10_000_000L,
+                startedAtMs = 10L,
+                updatedAtMs = 20L,
+            )
+
+        val projection =
+            AppActivityProjectionResolver.resolve(
+                buildCanonicalActivityFacts(
+                    progressByRecording = mapOf("recording-a" to progress),
+                    recordings = listOf(recording("recording-a", "A")),
+                ),
+            )
+
+        assertEquals(1, projection.backgroundTasks.size)
+        assertEquals(0.5f, projection.backgroundTasks.single().progressFraction)
     }
 
     @Test
@@ -76,6 +102,15 @@ class CanonicalGlobalTaskProjectionTest {
         assertTrue(task.terminal)
         assertEquals("标准 WAV 生成中断", task.label)
         assertEquals("查看", task.progress)
+
+        val attention =
+            AppActivityProjectionResolver.resolve(
+                buildCanonicalActivityFacts(
+                    progressByRecording = emptyMap(),
+                    recordings = listOf(recording("recording-a", "A", listOf(failed))),
+                ),
+            ).attentionItems.single()
+        assertEquals(AppActivityLifecycleClass.INTERRUPTED_ATTENTION, attention.lifecycleClass)
     }
 
     @Test
@@ -85,6 +120,16 @@ class CanonicalGlobalTaskProjectionTest {
 
         assertTrue(
             buildCanonicalGlobalTaskItems(
+                progressByRecording = emptyMap(),
+                recordings =
+                    listOf(
+                        recording("recording-ready", "Ready", listOf(ready)),
+                        recording("recording-cancelled", "Cancelled", listOf(cancelled)),
+                    ),
+            ).isEmpty(),
+        )
+        assertTrue(
+            buildCanonicalActivityFacts(
                 progressByRecording = emptyMap(),
                 recordings =
                     listOf(
