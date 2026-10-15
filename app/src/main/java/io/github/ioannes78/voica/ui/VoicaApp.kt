@@ -64,6 +64,7 @@ import io.github.ioannes78.voica.CanonicalAudioCoordinator
 import io.github.ioannes78.voica.DiarizationBenchmarkRunner
 import io.github.ioannes78.voica.DiarizationCoordinator
 import io.github.ioannes78.voica.DiarizationRunState
+import io.github.ioannes78.voica.LocalQa4GlobalAttentionProjection
 import io.github.ioannes78.voica.ModelUpdateController
 import io.github.ioannes78.voica.LocalAudioImportCoordinator
 import io.github.ioannes78.voica.LocalAudioExportCoordinator
@@ -71,6 +72,7 @@ import io.github.ioannes78.voica.LocalAudioShareOutcome
 import io.github.ioannes78.voica.LocalSpeechSettingsStore
 import io.github.ioannes78.voica.AudioExportVariant
 import io.github.ioannes78.voica.LocalRecordingDeleteCoordinator
+import io.github.ioannes78.voica.Qa4GlobalAttentionItem
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.StorageManagementCoordinator
 import io.github.ioannes78.voica.SpeechBenchmarkRunner
@@ -329,6 +331,7 @@ fun VoicaApp(
         },
     )
 
+    val qa4AttentionProjection = LocalQa4GlobalAttentionProjection.current
     val globalRecording by deviceViewModel.recordingState.collectAsState()
     val libraryRecordings by deviceViewModel.libraryRecordings.collectAsState(initial = emptyList())
     val globalTranscription by transcriptionViewModel.runState.collectAsState()
@@ -339,74 +342,23 @@ fun VoicaApp(
     var openRequestToken by rememberSaveable { mutableIntStateOf(0) }
     var libraryOpenRequest by remember { mutableStateOf<GlobalRecordingOpenRequest?>(null) }
     var activeDetailContext by remember { mutableStateOf<GlobalDetailContext?>(null) }
-    var dismissedTaskKeys by remember { mutableStateOf(setOf<String>()) }
-    var terminalTaskNotices by remember { mutableStateOf<List<GlobalTaskItem>>(emptyList()) }
     var lastExternalOpenToken by rememberSaveable { mutableStateOf<Long?>(null) }
 
-    val liveGlobalTasks =
+    val liveRunningTasks =
         buildGlobalTaskItems(
             transcription = globalTranscription,
             diarization = globalDiarization,
             aiSummary = globalAiSummary,
             recordings = libraryRecordings,
-        )
-    val liveRunningTasks = liveGlobalTasks.filterNot { it.terminal }
-    val liveTerminalTasks =
-        liveGlobalTasks.filter { task ->
-            task.terminal && task.key.startsWith("diarization-")
-        }
-
-    LaunchedEffect(activeDetailContext, liveTerminalTasks.map { it.key }) {
-        val current = activeDetailContext
-        var nextNotices = terminalTaskNotices
-
-        liveTerminalTasks.forEach { task ->
-            val alreadyRead = task.key in dismissedTaskKeys
-            val visibleOnCurrentPage =
-                current != null &&
-                    task.recordingId == current.recordingId &&
-                    task.destination == current.destination
-            when {
-                visibleOnCurrentPage -> {
-                    dismissedTaskKeys = dismissedTaskKeys + task.key
-                    nextNotices = nextNotices.filterNot { it.key == task.key }
-                }
-                !alreadyRead && nextNotices.none { it.key == task.key } -> {
-                    nextNotices = nextNotices + task
-                }
-            }
-        }
-
-        if (current != null) {
-            val readFromQueue =
-                nextNotices.filter { task ->
-                    task.recordingId == current.recordingId &&
-                        task.destination == current.destination
-                }
-            if (readFromQueue.isNotEmpty()) {
-                dismissedTaskKeys =
-                    dismissedTaskKeys + readFromQueue.map { it.key }
-                nextNotices =
-                    nextNotices.filterNot { task ->
-                        readFromQueue.any { it.key == task.key }
-                    }
-            }
-        }
-
-        terminalTaskNotices = nextNotices
-    }
-
+        ).filterNot { it.terminal }
+    val attentionByKey = qa4AttentionProjection.items.associateBy { it.key }
     val globalTasks =
-        (liveRunningTasks + terminalTaskNotices)
-            .filter { task ->
-                val current = activeDetailContext
-                task.key !in dismissedTaskKeys &&
-                    !(
-                        current != null &&
-                            task.recordingId == current.recordingId &&
-                            task.destination == current.destination
-                    )
-            }
+        buildConsolidatedGlobalTaskItems(
+            runningTasks = liveRunningTasks,
+            attentionItems = qa4AttentionProjection.items,
+            visibleRecordingId = activeDetailContext?.recordingId,
+            visibleDestination = activeDetailContext?.destination,
+        )
     val requestOpenRecording: (String, RecordingDetailDestination) -> Unit =
         { recordingId, destination ->
             openRequestToken += 1
@@ -456,12 +408,12 @@ fun VoicaApp(
                     GlobalTaskStatusBar(
                         tasks = globalTasks,
                         onOpen = { task ->
-                            if (task.terminal) {
-                                dismissedTaskKeys = dismissedTaskKeys + task.key
-                                terminalTaskNotices =
-                                    terminalTaskNotices.filterNot { it.key == task.key }
+                            val attentionItem = attentionByKey[task.key]
+                            if (attentionItem != null) {
+                                qa4AttentionProjection.onOpen(attentionItem)
+                            } else {
+                                requestOpenRecording(task.recordingId, task.destination)
                             }
-                            requestOpenRecording(task.recordingId, task.destination)
                         },
                     )
                 }
@@ -1038,6 +990,35 @@ private fun LocalFilesScreen(
 internal fun shouldShowGlobalPlayback(snapshot: PlaybackSnapshot): Boolean =
     snapshot.recordingId != null &&
         snapshot.state in setOf(PlaybackState.PLAYING, PlaybackState.PAUSED)
+
+internal fun buildConsolidatedGlobalTaskItems(
+    runningTasks: List<GlobalTaskItem>,
+    attentionItems: List<Qa4GlobalAttentionItem>,
+    visibleRecordingId: String? = null,
+    visibleDestination: RecordingDetailDestination? = null,
+): List<GlobalTaskItem> {
+    fun visible(recordingId: String, destination: RecordingDetailDestination): Boolean =
+        visibleRecordingId != null &&
+            visibleDestination != null &&
+            recordingId == visibleRecordingId &&
+            destination == visibleDestination
+
+    val projectedAttention =
+        attentionItems.map { item ->
+            GlobalTaskItem(
+                key = item.key,
+                recordingId = item.recordingId,
+                recordingName = item.recordingName,
+                label = item.label,
+                progress = if (item.completionKind != null) "完成" else "查看",
+                destination = item.destination,
+                terminal = true,
+            )
+        }
+    return (runningTasks + projectedAttention)
+        .filterNot { task -> visible(task.recordingId, task.destination) }
+        .distinctBy(GlobalTaskItem::key)
+}
 
 internal fun buildGlobalTaskItems(
     transcription: TranscriptionRunState,
