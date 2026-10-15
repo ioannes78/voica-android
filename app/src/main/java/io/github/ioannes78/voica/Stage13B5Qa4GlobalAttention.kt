@@ -83,24 +83,14 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
     val diarizationAttention by
         Stage13CDiarizationAttentionRuntime.repository.observeAll()
             .collectAsState(initial = emptyList())
-    val diarizationState by container.diarizationCoordinator.state.collectAsState()
     val recordings by
         container.recordingLibraryRepository.recordings
             .collectAsState(initial = emptyList())
     val visibleDetail by Stage13B5Qa4PageVisibility.current.collectAsState()
 
-    val currentDiarizationCompletionId =
-        (diarizationState as? DiarizationRunState.Completed)?.runId
     val completionItems =
         buildCompletionAttentionItems(
-            notices =
-                completionNotices.filterNot { notice ->
-                    // VoicaApp can still have the current in-process diarization terminal state.
-                    // Avoid duplicate presentation while that exact completion is live; the durable
-                    // notice remains the recovery fallback.
-                    notice.kind == TaskCompletionKind.DIARIZATION &&
-                        notice.taskId == currentDiarizationCompletionId
-                },
+            notices = completionNotices,
             recordings = recordings,
         )
     val speakerAttentionItems =
