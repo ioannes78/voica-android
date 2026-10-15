@@ -1,23 +1,11 @@
 package io.github.ioannes78.voica
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Card
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.staticCompositionLocalOf
 import io.github.ioannes78.voica.database.AiSummaryEntity
 import io.github.ioannes78.voica.database.AiSummaryStateValue
 import io.github.ioannes78.voica.database.RecordingLibraryItem
@@ -59,6 +47,15 @@ internal data class Qa4GlobalAttentionItem(
     val completionTaskId: String? = null,
 )
 
+/** Presentation-only bridge consumed by VoicaApp's single global status surface. */
+internal data class Qa4GlobalAttentionProjection(
+    val items: List<Qa4GlobalAttentionItem> = emptyList(),
+    val onOpen: (Qa4GlobalAttentionItem) -> Unit = {},
+)
+
+internal val LocalQa4GlobalAttentionProjection =
+    staticCompositionLocalOf { Qa4GlobalAttentionProjection() }
+
 @Composable
 internal fun Stage13B5Qa4GlobalAttentionHost(
     container: AppContainer,
@@ -85,14 +82,6 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
         container.recordingLibraryRepository.recordings
             .collectAsState(initial = emptyList())
     val visibleDetail by Stage13B5Qa4PageVisibility.current.collectAsState()
-    val openRequest by AppRecordingNavigation.request.collectAsState()
-
-    LaunchedEffect(openRequest?.token) {
-        val request = openRequest ?: return@LaunchedEffect
-        val completionKind = request.completionKind ?: return@LaunchedEffect
-        val completionTaskId = request.completionTaskId ?: return@LaunchedEffect
-        container.taskCompletionNoticeStore.acknowledge(completionKind, completionTaskId)
-    }
 
     val currentDiarizationCompletionId =
         (diarizationState as? DiarizationRunState.Completed)?.runId
@@ -100,9 +89,9 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
         buildCompletionAttentionItems(
             notices =
                 completionNotices.filterNot { notice ->
-                    // VoicaApp still carries the Stage 12B in-process diarization terminal bar.
-                    // Avoid a duplicate row while that exact completion is still live; the
-                    // persistent notice remains the fallback after process recreation.
+                    // VoicaApp can still have the current in-process diarization terminal state.
+                    // Avoid duplicate presentation while that exact completion is live; the durable
+                    // notice remains the recovery fallback.
                     notice.kind == TaskCompletionKind.DIARIZATION &&
                         notice.taskId == currentDiarizationCompletionId
                 },
@@ -126,34 +115,33 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
             visibleDetail = visibleDetail,
         )
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        if (items.isNotEmpty()) {
-            Qa4GlobalAttentionBar(
+    // A navigation request alone is not proof that the user actually saw the result. Acknowledge
+    // ordinary completion attention only when the exact result destination is visibly active.
+    LaunchedEffect(
+        visibleDetail,
+        completionNotices.map { notice -> "${notice.kind.name}:${notice.taskId}" },
+    ) {
+        val visible = visibleDetail ?: return@LaunchedEffect
+        container.taskCompletionNoticeStore.acknowledgeVisible(
+            recordingId = visible.recordingId,
+            includeTranscriptResults = visible.destination == RecordingDetailDestination.TRANSCRIPT,
+            includeSummaryResults = visible.destination == RecordingDetailDestination.SUMMARY,
+        )
+    }
+
+    CompositionLocalProvider(
+        LocalQa4GlobalAttentionProjection provides
+            Qa4GlobalAttentionProjection(
                 items = items,
                 onOpen = { item ->
-                    val completionKind = item.completionKind
-                    val completionTaskId = item.completionTaskId
-                    if (completionKind != null && completionTaskId != null) {
-                        container.taskCompletionNoticeStore.acknowledge(
-                            completionKind,
-                            completionTaskId,
-                        )
-                    }
                     AppRecordingNavigation.publish(
                         recordingId = item.recordingId,
                         destination = item.destination,
                     )
                 },
-            )
-        }
-        Box(
-            modifier =
-                Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-        ) {
-            content()
-        }
+            ),
+    ) {
+        content()
     }
 }
 
@@ -267,48 +255,6 @@ internal fun buildQa4GlobalAttentionItems(
                     destination = RecordingDetailDestination.SUMMARY,
                 ),
             )
-        }
-    }
-}
-
-@Composable
-private fun Qa4GlobalAttentionBar(
-    items: List<Qa4GlobalAttentionItem>,
-    onOpen: (Qa4GlobalAttentionItem) -> Unit,
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-            verticalArrangement = Arrangement.spacedBy(3.dp),
-        ) {
-            Text(
-                if (items.size == 1) "任务通知" else "${items.size} 条任务通知",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            items.forEach { item ->
-                Row(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable { onOpen(item) }
-                            .padding(vertical = 3.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        item.label + " · " + item.recordingName,
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1,
-                    )
-                    Text(
-                        "查看 ›",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
         }
     }
 }
