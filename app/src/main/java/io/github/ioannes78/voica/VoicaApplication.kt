@@ -478,6 +478,16 @@ class AppContainer(
 
         applicationScope.launch(Dispatchers.IO) {
             recordingLibraryRepository.reconcilePendingDeletes()
+            runCatching {
+                stage16ARealtimePersistenceRepository.interruptNonTerminalRunsForSource(
+                    audioSourceType =
+                        io.github.ioannes78.voica.database.RealtimeAudioSourceTypeValue.PHONE_MICROPHONE,
+                    endedAtMs = System.currentTimeMillis(),
+                    endReason = "PROCESS_RESTART",
+                    errorCode = "PHONE_MIC_PROCESS_INTERRUPTED",
+                    errorMessage = "应用进程中断，手机实时转写未正常结束",
+                )
+            }
             runCatching { phoneMicrophoneRecoveryCoordinator.reconcileOnStartup() }
             localAudioImportCoordinator.cleanupStaleStaging()
             localAudioExportCoordinator.cleanupStaleShareCache()
