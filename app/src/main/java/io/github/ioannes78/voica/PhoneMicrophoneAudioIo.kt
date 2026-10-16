@@ -180,6 +180,21 @@ internal data class PhoneMicrophoneSignalSnapshot(
     val zeroSampleRatio: Double,
 )
 
+internal data class PhoneMicrophoneSignalSummary(
+    val frameCount: Long,
+    val sampleCount: Long,
+    val peakSample: Int,
+    val peakDbfs: Double,
+    val rms: Double,
+    val rmsDbfs: Double,
+    /** Lowest observed 80 ms frame RMS. It is a calibration hint, not a lab-grade noise floor. */
+    val noiseFloorCandidateDbfs: Double,
+    val clippingSamples: Long,
+    val clippingRatio: Double,
+    val zeroSamples: Long,
+    val zeroSampleRatio: Double,
+)
+
 /** Read-only PCM diagnostics. This never changes samples. */
 internal object PhoneMicrophoneSignalMeter {
     private const val FULL_SCALE = 32_768.0
@@ -215,9 +230,50 @@ internal object PhoneMicrophoneSignalMeter {
         )
     }
 
-    private fun amplitudeToDbfs(amplitude: Double): Double {
+    fun amplitudeToDbfs(amplitude: Double): Double {
         if (amplitude <= 0.0) return DBFS_FLOOR
         return (20.0 * log10(amplitude / FULL_SCALE)).coerceAtLeast(DBFS_FLOOR)
+    }
+}
+
+/** Aggregates accepted audible PCM across one capture run for A/B calibration. */
+internal class PhoneMicrophoneSignalAccumulator {
+    private var frameCount = 0L
+    private var sampleCount = 0L
+    private var peakSample = 0
+    private var sumSquares = 0.0
+    private var minimumFrameRmsDbfs = Double.POSITIVE_INFINITY
+    private var clippingSamples = 0L
+    private var zeroSamples = 0L
+
+    fun add(samples: ShortArray): PhoneMicrophoneSignalSummary {
+        val frame = PhoneMicrophoneSignalMeter.analyze(samples)
+        frameCount = Math.addExact(frameCount, 1L)
+        sampleCount = Math.addExact(sampleCount, frame.sampleCount.toLong())
+        peakSample = maxOf(peakSample, frame.peakSample)
+        sumSquares += frame.rms * frame.rms * frame.sampleCount.toDouble()
+        minimumFrameRmsDbfs = minOf(minimumFrameRmsDbfs, frame.rmsDbfs)
+        clippingSamples = Math.addExact(clippingSamples, frame.clippingSamples.toLong())
+        zeroSamples = Math.addExact(zeroSamples, frame.zeroSamples.toLong())
+        return snapshot()
+    }
+
+    fun snapshot(): PhoneMicrophoneSignalSummary {
+        require(sampleCount > 0L)
+        val rms = sqrt(sumSquares / sampleCount.toDouble())
+        return PhoneMicrophoneSignalSummary(
+            frameCount = frameCount,
+            sampleCount = sampleCount,
+            peakSample = peakSample,
+            peakDbfs = PhoneMicrophoneSignalMeter.amplitudeToDbfs(peakSample.toDouble()),
+            rms = rms,
+            rmsDbfs = PhoneMicrophoneSignalMeter.amplitudeToDbfs(rms),
+            noiseFloorCandidateDbfs = minimumFrameRmsDbfs,
+            clippingSamples = clippingSamples,
+            clippingRatio = clippingSamples.toDouble() / sampleCount.toDouble(),
+            zeroSamples = zeroSamples,
+            zeroSampleRatio = zeroSamples.toDouble() / sampleCount.toDouble(),
+        )
     }
 }
 
