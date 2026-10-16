@@ -36,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.protocol.RecordingGain
+import io.github.ioannes78.voica.ui.phone.PhoneMicrophoneInputSelectorRow
 import io.github.ioannes78.voica.ui.realtime.RealtimeAudioActivityWaveform
 import io.github.ioannes78.voica.ui.status.AppActivityAction
 import io.github.ioannes78.voica.ui.status.AppActivityFact
@@ -136,6 +137,9 @@ private fun IdleHomeQuickActions(
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionHeading("录音来源", "选择录音来源")
         SourceSelector(sourcePreference, recorderAvailable, onSourcePreferenceChanged)
+        if (sourcePreference == HomeActivitySourcePreference.PHONE_MICROPHONE) {
+            PhoneMicrophoneInputSelectorRow()
+        }
         SectionHeading("模式选择", "选择功能模式")
         ModeSelector(mode) { mode = it }
         IdleMainActivityCard(

@@ -294,7 +294,7 @@ internal class PhoneMicrophoneCapture(
     fun start(
         consumer: PhoneMicrophonePcmConsumer,
         foregroundLabel: String = "正在使用手机麦克风录音",
-        inputRequest: PhoneMicrophoneInputRequest = PhoneMicrophoneInputRequest.Auto,
+        inputRequest: PhoneMicrophoneInputRequest = PhoneMicrophoneInputSelectionRuntime.currentRequest(),
     ): PhoneMicrophoneStartResult {
         synchronized(lock) {
             if (closed) {
