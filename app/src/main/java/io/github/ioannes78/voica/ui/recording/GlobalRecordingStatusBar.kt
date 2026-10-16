@@ -13,13 +13,24 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import io.github.ioannes78.voica.R
+import io.github.ioannes78.voica.AppPhoneMicrophoneNavigation
+import io.github.ioannes78.voica.AppRealtimeNavigation
+import io.github.ioannes78.voica.PhoneMicrophoneProductTarget
 import io.github.ioannes78.voica.ble.RecordingDeviceState
-import io.github.ioannes78.voica.protocol.RecordingStatus
+import io.github.ioannes78.voica.ui.phone.LocalPhoneMicrophoneRealtimeRuntime
+import io.github.ioannes78.voica.ui.phone.LocalPhoneMicrophoneRecordingRuntime
+import io.github.ioannes78.voica.ui.realtime.LocalStage16ARealtimeRuntime
+import io.github.ioannes78.voica.ui.status.AppActivitySource
+import io.github.ioannes78.voica.ui.status.AppLiveActivityVisibility
+import io.github.ioannes78.voica.ui.status.LiveActivityStripKind
+import io.github.ioannes78.voica.ui.status.LiveActivityStripPhase
+import io.github.ioannes78.voica.ui.status.resolveLiveActivityStrip
+import java.util.Locale
 
 @Composable
 fun GlobalRecordingStatusBar(
@@ -27,27 +38,50 @@ fun GlobalRecordingStatusBar(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val status = state.status
-    if (status != RecordingStatus.Recording && status != RecordingStatus.Paused) {
-        return
+    val deviceRealtime by LocalStage16ARealtimeRuntime.current.state.collectAsState()
+    val phoneRecording by LocalPhoneMicrophoneRecordingRuntime.current.state.collectAsState()
+    val phoneRealtime by LocalPhoneMicrophoneRealtimeRuntime.current.state.collectAsState()
+    val visibleRealtimeSource by AppLiveActivityVisibility.visibleRealtimeSource.collectAsState()
+    val item =
+        resolveLiveActivityStrip(
+            deviceRecording = state,
+            deviceRealtime = deviceRealtime,
+            phoneRecording = phoneRecording,
+            phoneRealtime = phoneRealtime,
+            visibleRealtimeSource = visibleRealtimeSource,
+        ) ?: return
+
+    val paused = item.phase == LiveActivityStripPhase.PAUSED
+    val realtime = item.kind == LiveActivityStripKind.REALTIME
+    val stripClick = {
+        when {
+            realtime && item.source == AppActivitySource.RECORDER_CARD -> {
+                AppPhoneMicrophoneNavigation.dismiss()
+                AppRealtimeNavigation.publish()
+            }
+            realtime && item.source == AppActivitySource.PHONE_MICROPHONE -> {
+                AppRealtimeNavigation.dismiss()
+                AppPhoneMicrophoneNavigation.publish(PhoneMicrophoneProductTarget.REALTIME)
+            }
+            else -> onClick()
+        }
     }
 
-    val recording = status == RecordingStatus.Recording
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .clickable(onClick = stripClick),
         color =
-            if (recording) {
-                MaterialTheme.colorScheme.errorContainer
-            } else {
-                MaterialTheme.colorScheme.secondaryContainer
+            when {
+                paused -> MaterialTheme.colorScheme.secondaryContainer
+                realtime -> MaterialTheme.colorScheme.primaryContainer
+                else -> MaterialTheme.colorScheme.errorContainer
             },
         contentColor =
-            if (recording) {
-                MaterialTheme.colorScheme.onErrorContainer
-            } else {
-                MaterialTheme.colorScheme.onSecondaryContainer
+            when {
+                paused -> MaterialTheme.colorScheme.onSecondaryContainer
+                realtime -> MaterialTheme.colorScheme.onPrimaryContainer
+                else -> MaterialTheme.colorScheme.onErrorContainer
             },
     ) {
         Row(
@@ -56,39 +90,26 @@ fun GlobalRecordingStatusBar(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Icon(
-                imageVector =
-                    if (recording) {
-                        Icons.Filled.FiberManualRecord
-                    } else {
-                        Icons.Filled.PauseCircle
-                    },
+                imageVector = if (paused) Icons.Filled.PauseCircle else Icons.Filled.FiberManualRecord,
                 contentDescription = null,
             )
             Text(
-                text =
-                    stringResource(
-                        if (recording) {
-                            R.string.global_recording_active
-                        } else {
-                            R.string.global_recording_paused
-                        },
-                        formatDuration(state.durationSeconds),
-                    ),
+                text = "${item.statusLabel} · ${item.sourceLabel} · ${formatDuration(item.elapsedMs)}",
                 style = MaterialTheme.typography.labelLarge,
                 modifier = Modifier.weight(1f),
             )
             Text(
-                text = stringResource(R.string.global_recording_open),
+                text = "查看",
                 style = MaterialTheme.typography.labelLarge,
             )
         }
     }
 }
 
-private fun formatDuration(seconds: Int?): String {
-    val value = seconds ?: 0
-    val hours = value / 3600
-    val minutes = (value % 3600) / 60
-    val remainingSeconds = value % 60
-    return "%02d:%02d:%02d".format(hours, minutes, remainingSeconds)
+private fun formatDuration(elapsedMs: Long): String {
+    val value = elapsedMs.coerceAtLeast(0L) / 1_000L
+    val hours = value / 3_600L
+    val minutes = (value % 3_600L) / 60L
+    val seconds = value % 60L
+    return String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
 }
