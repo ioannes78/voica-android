@@ -179,7 +179,7 @@ class DeviceSessionForegroundService : Service() {
 
     private fun buildNotification(deviceName: String, label: String): Notification =
         Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+            .setSmallIcon(R.drawable.ic_voica_notification)
             .setContentTitle(deviceName)
             .setContentText(label)
             .setContentIntent(mainActivityPendingIntent(this, REQUEST_CONTENT))
@@ -362,7 +362,7 @@ class MediaProcessingForegroundService : Service() {
             }
         val builder =
             Notification.Builder(this, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.stat_sys_download)
+                .setSmallIcon(R.drawable.ic_voica_notification)
                 .setContentTitle(task.title)
                 .setContentText(text)
                 .setContentIntent(contentIntent)

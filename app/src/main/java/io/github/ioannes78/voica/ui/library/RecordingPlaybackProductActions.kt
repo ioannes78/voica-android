@@ -46,9 +46,6 @@ import io.github.ioannes78.voica.ble.DeviceConnectionState
 import io.github.ioannes78.voica.ble.FileListFreshness
 import io.github.ioannes78.voica.database.RecordingLibraryItem
 import io.github.ioannes78.voica.database.RecordingSourceType
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -78,16 +75,7 @@ fun RecordingPlaybackProductActions(
     val availability = recording.localMediaAvailability()
     val effectiveCanonicalReady = canonicalReady || availability.canonicalReady
     val displayAsset = availability.displayAsset
-    val recordedAt =
-        recording.recordedAtLocalIso?.takeIf { it.isNotBlank() }
-            ?: recording.createdAtMs
-                .takeIf { it > 0L }
-                ?.let { epochMs ->
-                    Instant.ofEpochMilli(epochMs)
-                        .atZone(ZoneId.systemDefault())
-                        .format(DISPLAY_TIME)
-                }
-            ?: "--"
+    val recordedAt = RecordingDisplayTimeFormatter.format(recording.recordedAtLocalIso, recording.createdAtMs)
     val duration =
         (recording.mediaDurationMs ?: recording.deviceReportedDurationMs)
             ?.takeIf { it >= 0L }
@@ -95,12 +83,9 @@ fun RecordingPlaybackProductActions(
             ?: "--"
     val source =
         when {
-            availability.originalReady && recording.sourceType == RecordingSourceType.DEVICE_DOWNLOAD ->
-                "录音卡"
-            effectiveCanonicalReady && availability.remoteOriginalAvailable ->
-                "本地标准音频"
-            availability.remotePending && !availability.originalReady && !effectiveCanonicalReady ->
-                "录音卡（待下载）"
+            availability.originalReady && recording.sourceType == RecordingSourceType.DEVICE_DOWNLOAD -> "录音卡"
+            effectiveCanonicalReady && availability.remoteOriginalAvailable -> "本地标准音频"
+            availability.remotePending && !availability.originalReady && !effectiveCanonicalReady -> "录音卡（待下载）"
             recording.sourceType == RecordingSourceType.PHONE_MICROPHONE -> "手机麦克风"
             recording.sourceType == RecordingSourceType.LOCAL_IMPORT -> "本地导入"
             recording.sourceType == RecordingSourceType.DEVICE_DOWNLOAD -> "录音卡"
@@ -109,9 +94,7 @@ fun RecordingPlaybackProductActions(
     val format = displayAsset?.container.toProductAudioFormatLabel()
     val size = displayAsset?.sizeBytes?.let(::formatInfoBytes) ?: "--"
     val shareExportEnabled =
-        availability.canShareOrExport ||
-            effectiveCanonicalReady ||
-            availability.remoteOriginalAvailable
+        availability.canShareOrExport || effectiveCanonicalReady || availability.remoteOriginalAvailable
 
     fun requestOriginal(onReady: () -> Unit) {
         if (originalActionInFlight) return
@@ -142,68 +125,37 @@ fun RecordingPlaybackProductActions(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
-        colors =
-            CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            ),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(
-                "录音信息",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-            )
-            ProductInfoLine(
-                icon = Icons.Outlined.CalendarMonth,
-                label = "录制时间",
-                value = recordedAt,
-            )
-            ProductInfoLine(
-                icon = Icons.Outlined.AccessTime,
-                label = "录音时长",
-                value = duration,
-            )
-            ProductInfoLine(
-                icon = Icons.Outlined.Description,
-                label = "文件大小",
-                value = size,
-            )
-            ProductInfoLine(
-                icon = Icons.Outlined.MicNone,
-                label = "来源 / 格式",
-                value = "$source · $format",
-            )
+            Text("录音信息", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            ProductInfoLine(Icons.Outlined.CalendarMonth, "录制时间", recordedAt)
+            ProductInfoLine(Icons.Outlined.AccessTime, "录音时长", duration)
+            ProductInfoLine(Icons.Outlined.Description, "文件大小", size)
+            ProductInfoLine(Icons.Outlined.MicNone, "来源 / 格式", "$source · $format")
             if (recording.sourceType == RecordingSourceType.DEVICE_DOWNLOAD) {
                 ProductInfoLine(
-                    icon = Icons.Outlined.Description,
-                    label = "标准音频",
-                    value =
-                        if (effectiveCanonicalReady) {
-                            "WAV · 已在本机"
-                        } else {
-                            "未生成"
-                        },
+                    Icons.Outlined.Description,
+                    "标准音频",
+                    if (effectiveCanonicalReady) "WAV · 已在本机" else "未生成",
                 )
                 ProductInfoLine(
-                    icon = Icons.Outlined.Description,
-                    label = "原始音频",
-                    value =
-                        when {
-                            availability.originalReady ->
-                                "${availability.originalAsset?.container.toProductAudioFormatLabel()} · 已下载"
-                            availability.remoteOriginalAvailable ->
-                                buildString {
-                                    append("OPUS · 录音卡上可下载")
-                                    availability.remoteOriginalSizeBytes?.let { bytes ->
-                                        append(" · ")
-                                        append(formatInfoBytes(bytes))
-                                    }
-                                }
-                            else -> "--"
-                        },
+                    Icons.Outlined.Description,
+                    "原始音频",
+                    when {
+                        availability.originalReady -> "${availability.originalAsset?.container.toProductAudioFormatLabel()} · 已下载"
+                        availability.remoteOriginalAvailable -> buildString {
+                            append("OPUS · 录音卡上可下载")
+                            availability.remoteOriginalSizeBytes?.let { bytes ->
+                                append(" · ")
+                                append(formatInfoBytes(bytes))
+                            }
+                        }
+                        else -> "--"
+                    },
                 )
             }
             if (availability.remotePending && !availability.originalReady && !effectiveCanonicalReady) {
@@ -214,43 +166,17 @@ fun RecordingPlaybackProductActions(
                 )
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ProductActionTile(Modifier.weight(1f), Icons.Outlined.Edit, "重命名", onClick = onRename)
                 ProductActionTile(
-                    modifier = Modifier.weight(1f),
-                    icon = Icons.Outlined.Edit,
-                    label = "重命名",
-                    onClick = onRename,
+                    Modifier.weight(1f), Icons.Outlined.Share, "分享", enabled = shareExportEnabled,
+                    onClick = { originalActionMessage = null; sharePickerOpen = true },
                 )
                 ProductActionTile(
-                    modifier = Modifier.weight(1f),
-                    icon = Icons.Outlined.Share,
-                    label = "分享",
-                    enabled = shareExportEnabled,
-                    onClick = {
-                        originalActionMessage = null
-                        sharePickerOpen = true
-                    },
+                    Modifier.weight(1f), Icons.Outlined.FileUpload, "导出", enabled = shareExportEnabled,
+                    onClick = { originalActionMessage = null; exportPickerOpen = true },
                 )
-                ProductActionTile(
-                    modifier = Modifier.weight(1f),
-                    icon = Icons.Outlined.FileUpload,
-                    label = "导出",
-                    enabled = shareExportEnabled,
-                    onClick = {
-                        originalActionMessage = null
-                        exportPickerOpen = true
-                    },
-                )
-                ProductActionTile(
-                    modifier = Modifier.weight(1f),
-                    icon = Icons.Outlined.DeleteOutline,
-                    label = "删除",
-                    destructive = true,
-                    onClick = onDelete,
-                )
+                ProductActionTile(Modifier.weight(1f), Icons.Outlined.DeleteOutline, "删除", destructive = true, onClick = onDelete)
             }
         }
     }
@@ -265,22 +191,11 @@ fun RecordingPlaybackProductActions(
             originalActionMessage = originalActionMessage,
             canonicalLabel = "标准 WAV",
             originalLabel = "原始 OPUS",
-            onDismiss = {
-                if (!originalActionInFlight) sharePickerOpen = false
-            },
-            onCanonical = {
-                sharePickerOpen = false
-                onShareCanonical()
-            },
-            onOriginal = {
-                requestOriginal {
-                    sharePickerOpen = false
-                    onShareOriginal()
-                }
-            },
+            onDismiss = { if (!originalActionInFlight) sharePickerOpen = false },
+            onCanonical = { sharePickerOpen = false; onShareCanonical() },
+            onOriginal = { requestOriginal { sharePickerOpen = false; onShareOriginal() } },
         )
     }
-
     if (exportPickerOpen) {
         AudioVariantDialog(
             title = "导出录音",
@@ -291,52 +206,23 @@ fun RecordingPlaybackProductActions(
             originalActionMessage = originalActionMessage,
             canonicalLabel = "标准 WAV",
             originalLabel = "原始 OPUS",
-            onDismiss = {
-                if (!originalActionInFlight) exportPickerOpen = false
-            },
-            onCanonical = {
-                exportPickerOpen = false
-                onExportCanonical()
-            },
-            onOriginal = {
-                requestOriginal {
-                    exportPickerOpen = false
-                    onExportOriginal()
-                }
-            },
+            onDismiss = { if (!originalActionInFlight) exportPickerOpen = false },
+            onCanonical = { exportPickerOpen = false; onExportCanonical() },
+            onOriginal = { requestOriginal { exportPickerOpen = false; onExportOriginal() } },
         )
     }
 }
 
 @Composable
-private fun ProductInfoLine(
-    icon: ImageVector,
-    label: String,
-    value: String,
-) {
+private fun ProductInfoLine(icon: ImageVector, label: String, value: String) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(22.dp),
-        )
-        Text(
-            text = label,
-            modifier = Modifier.width(86.dp),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            text = value,
-            modifier = Modifier.weight(1f),
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
+        Text(label, modifier = Modifier.width(86.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
     }
 }
 
@@ -349,18 +235,16 @@ private fun ProductActionTile(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    val contentColor =
-        when {
-            !enabled -> MaterialTheme.colorScheme.outline
-            destructive -> MaterialTheme.colorScheme.error
-            else -> MaterialTheme.colorScheme.onSurface
-        }
-    val containerColor =
-        if (destructive && enabled) {
-            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.55f)
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerHighest
-        }
+    val contentColor = when {
+        !enabled -> MaterialTheme.colorScheme.outline
+        destructive -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+    val containerColor = if (destructive && enabled) {
+        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.55f)
+    } else {
+        MaterialTheme.colorScheme.surfaceContainerHighest
+    }
     Surface(
         modifier = modifier.clickable(enabled = enabled, onClick = onClick),
         shape = RoundedCornerShape(16.dp),
@@ -372,16 +256,8 @@ private fun ProductActionTile(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                modifier = Modifier.size(27.dp),
-            )
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelLarge,
-                color = contentColor,
-            )
+            Icon(icon, contentDescription = label, modifier = Modifier.size(27.dp))
+            Text(label, style = MaterialTheme.typography.labelLarge, color = contentColor)
         }
     }
 }
@@ -405,70 +281,48 @@ private fun AudioVariantDialog(
         title = { Text(title) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(
-                    onClick = onCanonical,
-                    enabled = canonicalReady && !originalActionInFlight,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
+                TextButton(onClick = onCanonical, enabled = canonicalReady && !originalActionInFlight, modifier = Modifier.fillMaxWidth()) {
                     Text(canonicalLabel)
                 }
                 TextButton(
                     onClick = onOriginal,
-                    enabled =
-                        (originalReady || remoteOriginalAvailable) &&
-                            !originalActionInFlight,
+                    enabled = (originalReady || remoteOriginalAvailable) && !originalActionInFlight,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(
-                        if (!originalReady && remoteOriginalAvailable) {
-                            "$originalLabel · 下载"
-                        } else {
-                            originalLabel
-                        },
-                    )
+                    Text(if (!originalReady && remoteOriginalAvailable) "$originalLabel · 下载" else originalLabel)
                 }
                 when {
-                    originalActionInFlight ->
-                        Text(
-                            "正在从录音卡下载原始 OPUS…",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    !originalActionMessage.isNullOrBlank() ->
-                        Text(
-                            originalActionMessage,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    canonicalReady && !originalReady && remoteOriginalAvailable ->
-                        Text(
-                            "标准 WAV 已在本机；原始 OPUS 保留在录音卡，点击后按需下载。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    !canonicalReady && !originalReady && remoteOriginalAvailable ->
-                        Text(
-                            "原始 OPUS 尚未下载到手机，点击后从录音卡下载。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    !canonicalReady && originalReady ->
-                        Text(
-                            "标准 WAV 尚未生成，可先使用原始 OPUS。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    originalActionInFlight -> Text(
+                        "正在从录音卡下载原始 OPUS…",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    !originalActionMessage.isNullOrBlank() -> Text(
+                        originalActionMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    canonicalReady && !originalReady && remoteOriginalAvailable -> Text(
+                        "标准 WAV 已在本机；原始 OPUS 保留在录音卡，点击后按需下载。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    !canonicalReady && !originalReady && remoteOriginalAvailable -> Text(
+                        "原始 OPUS 尚未下载到手机，点击后从录音卡下载。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    !canonicalReady && originalReady -> Text(
+                        "标准 WAV 尚未生成，可先使用原始 OPUS。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         },
         confirmButton = {},
         dismissButton = {
-            TextButton(
-                onClick = onDismiss,
-                enabled = !originalActionInFlight,
-            ) {
-                Text("取消")
-            }
+            TextButton(onClick = onDismiss, enabled = !originalActionInFlight) { Text("取消") }
         },
     )
 }
@@ -491,54 +345,39 @@ private suspend fun ensureOriginalOpusDownloaded(
 
     val before = repository.deviceFileListState.value
     val refreshFailure = runCatching { repository.refreshDeviceFiles() }.exceptionOrNull()
-    if (refreshFailure != null) {
-        return refreshFailure.message ?: "刷新录音卡文件失败"
-    }
-    val refreshed =
-        withTimeoutOrNull(DEVICE_FILE_REFRESH_TIMEOUT_MS) {
-            repository.deviceFileListState
-                .filter { state ->
-                    state.freshness in TERMINAL_FILE_LIST_STATES &&
-                        (
-                            state.lastUpdatedTimeMs != before.lastUpdatedTimeMs ||
-                                state.activeSessionId != before.activeSessionId
-                        )
-                }
-                .first()
-        } ?: repository.deviceFileListState.value
-    if (refreshed.freshness == FileListFreshness.FAILED) {
-        return "刷新录音卡文件失败"
-    }
+    if (refreshFailure != null) return refreshFailure.message ?: "刷新录音卡文件失败"
+    val refreshed = withTimeoutOrNull(DEVICE_FILE_REFRESH_TIMEOUT_MS) {
+        repository.deviceFileListState
+            .filter { state ->
+                state.freshness in TERMINAL_FILE_LIST_STATES &&
+                    (state.lastUpdatedTimeMs != before.lastUpdatedTimeMs || state.activeSessionId != before.activeSessionId)
+            }
+            .first()
+    } ?: repository.deviceFileListState.value
+    if (refreshed.freshness == FileListFreshness.FAILED) return "刷新录音卡文件失败"
 
     val expectedSize = recording.localMediaAvailability().remoteOriginalSizeBytes
-    val remote =
-        refreshed.files.firstOrNull { file -> file.identity == remoteIdentity }
-            ?: refreshed.files.firstOrNull { file ->
-                file.deviceAddress.equals(sourceDeviceAddress, ignoreCase = true) &&
-                    file.displayFilename.equals(recording.originalFilename, ignoreCase = true) &&
-                    (expectedSize == null || file.sizeBytes == expectedSize)
+    val remote = refreshed.files.firstOrNull { file -> file.identity == remoteIdentity }
+        ?: refreshed.files.firstOrNull { file ->
+            file.deviceAddress.equals(sourceDeviceAddress, ignoreCase = true) &&
+                file.displayFilename.equals(recording.originalFilename, ignoreCase = true) &&
+                (expectedSize == null || file.sizeBytes == expectedSize)
+        }
+        ?: return "录音卡中未找到对应的原始 OPUS"
+
+    val downloadFailure = runCatching { repository.downloadDeviceFile(remote, DeviceAudioFormat.OPUS) }.exceptionOrNull()
+    if (downloadFailure != null) return downloadFailure.message ?: "原始 OPUS 下载失败"
+
+    val registered = withTimeoutOrNull(ORIGINAL_REGISTRATION_TIMEOUT_MS) {
+        application.container.recordingLibraryRepository.recordings
+            .map { items ->
+                items.firstOrNull { item -> item.id == recording.id }
+                    ?.localMediaAvailability()
+                    ?.originalReady == true
             }
-            ?: return "录音卡中未找到对应的原始 OPUS"
-
-    val downloadFailure =
-        runCatching {
-            repository.downloadDeviceFile(remote, DeviceAudioFormat.OPUS)
-        }.exceptionOrNull()
-    if (downloadFailure != null) {
-        return downloadFailure.message ?: "原始 OPUS 下载失败"
-    }
-
-    val registered =
-        withTimeoutOrNull(ORIGINAL_REGISTRATION_TIMEOUT_MS) {
-            application.container.recordingLibraryRepository.recordings
-                .map { items ->
-                    items.firstOrNull { item -> item.id == recording.id }
-                        ?.localMediaAvailability()
-                        ?.originalReady == true
-                }
-                .filter { it }
-                .first()
-        } == true
+            .filter { it }
+            .first()
+    } == true
     return if (registered) null else "原始 OPUS 下载未完成，请重试"
 }
 
@@ -568,13 +407,10 @@ private fun formatInfoBytes(bytes: Long): String {
     return String.format(Locale.US, "%.2f GB", mb / 1024.0)
 }
 
-private val TERMINAL_FILE_LIST_STATES =
-    setOf(
-        FileListFreshness.FRESH,
-        FileListFreshness.EMPTY,
-        FileListFreshness.FAILED,
-    )
+private val TERMINAL_FILE_LIST_STATES = setOf(
+    FileListFreshness.FRESH,
+    FileListFreshness.EMPTY,
+    FileListFreshness.FAILED,
+)
 private const val DEVICE_FILE_REFRESH_TIMEOUT_MS = 6_000L
 private const val ORIGINAL_REGISTRATION_TIMEOUT_MS = 12_000L
-private val DISPLAY_TIME: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")

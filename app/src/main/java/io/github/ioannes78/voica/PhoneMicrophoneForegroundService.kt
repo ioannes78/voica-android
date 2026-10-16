@@ -166,7 +166,7 @@ class PhoneMicrophoneForegroundService : Service() {
         target: PhoneMicrophoneProductTarget,
     ): Notification =
         Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_voica_notification)
             .setContentTitle(
                 when (target) {
                     PhoneMicrophoneProductTarget.RECORDING -> "Voica 手机录音"

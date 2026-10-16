@@ -20,6 +20,7 @@ import io.github.ioannes78.voica.audio.PlaybackErrorCode
 import io.github.ioannes78.voica.audio.PlaybackSnapshot
 import io.github.ioannes78.voica.audio.PlaybackState as VoicaPlaybackState
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
+import io.github.ioannes78.voica.ui.library.RecordingDetailDestination
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -40,6 +41,23 @@ internal fun playbackErrorMessage(code: PlaybackErrorCode): String =
         PlaybackErrorCode.SOURCE_REMOVED -> "音频文件已被移除"
         PlaybackErrorCode.INTERNAL_STATE_ERROR -> "播放状态异常"
     }
+
+internal fun playbackNotificationOpenIntent(
+    context: Context,
+    recordingId: String?,
+): Intent {
+    val safeRecordingId = recordingId?.trim()?.takeIf { it.isNotEmpty() }
+    return if (safeRecordingId != null) {
+        recordingOpenIntent(
+            context = context,
+            recordingId = safeRecordingId,
+            destination = RecordingDetailDestination.PLAYBACK,
+        )
+    } else {
+        Intent(context, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+    }
+}
 
 /**
  * Stage 13B mediaPlayback foreground owner for the existing Voica playback runtime.
@@ -284,8 +302,7 @@ class PlaybackForegroundService : Service() {
             PendingIntent.getActivity(
                 this,
                 REQUEST_CONTENT,
-                Intent(this, MainActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                playbackNotificationOpenIntent(this, snapshot.recordingId),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
         val rewind = notificationAction(ACTION_REWIND, android.R.drawable.ic_media_rew, "后退 10 秒", REQUEST_REWIND)
@@ -309,8 +326,8 @@ class PlaybackForegroundService : Service() {
                 else -> "录音播放"
             }
 
-        return Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(if (playing) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause)
+        return Notification.Builder(this, VoicaNotificationChannels.PLAYBACK)
+            .setSmallIcon(R.drawable.ic_voica_notification)
             .setContentTitle(currentRecordingName)
             .setContentText(text)
             .setContentIntent(contentIntent)
@@ -367,7 +384,7 @@ class PlaybackForegroundService : Service() {
     private fun createChannel() {
         notificationManager.createNotificationChannel(
             NotificationChannel(
-                CHANNEL_ID,
+                VoicaNotificationChannels.PLAYBACK,
                 "录音播放",
                 NotificationManager.IMPORTANCE_LOW,
             ).apply {
@@ -387,7 +404,6 @@ class PlaybackForegroundService : Service() {
     )
 
     companion object {
-        private const val CHANNEL_ID = "voica-playback"
         private const val NOTIFICATION_ID = 13021
         private const val SESSION_TAG = "VoicaPlayback"
         private const val SEEK_SECONDS = 10L

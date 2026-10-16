@@ -98,6 +98,10 @@
             android:name=".ModelInstallActionReceiver"
             android:exported="false" />
 
+        <receiver
+            android:name=".NotificationPresentationDismissReceiver"
+            android:exported="false" />
+
         <!-- Stage 15 QA probes remain available to in-app/internal tooling only.
              They must never create additional launcher icons. -->
         <activity

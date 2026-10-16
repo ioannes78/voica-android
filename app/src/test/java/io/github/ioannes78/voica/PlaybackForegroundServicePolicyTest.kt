@@ -6,8 +6,10 @@ import android.app.NotificationManager
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import io.github.ioannes78.voica.audio.PlaybackErrorCode
+import io.github.ioannes78.voica.ui.library.RecordingDetailDestination
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -25,6 +27,24 @@ class PlaybackForegroundServicePolicyTest {
             assertNotEquals(code.name, message)
         }
         assertEquals("读取音频失败", playbackErrorMessage(PlaybackErrorCode.AUDIO_READ_FAILED))
+    }
+
+    @Test
+    fun playbackNotificationTargetsExactRecordingPlaybackPage() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val target = parseRecordingOpenIntent(playbackNotificationOpenIntent(context, " recording-a "))
+
+        requireNotNull(target)
+        assertEquals("recording-a", target.recordingId)
+        assertEquals(RecordingDetailDestination.PLAYBACK, target.destination)
+    }
+
+    @Test
+    fun playbackNotificationFallsBackToMainActivityWithoutRecording() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+
+        assertNull(parseRecordingOpenIntent(playbackNotificationOpenIntent(context, null)))
+        assertNull(parseRecordingOpenIntent(playbackNotificationOpenIntent(context, "   ")))
     }
 
     @Test

@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
+import io.github.ioannes78.voica.AppRecordingNavigation
 import io.github.ioannes78.voica.PhoneMicrophoneCapturePhase
 import io.github.ioannes78.voica.PhoneMicrophoneCaptureSnapshot
 import io.github.ioannes78.voica.PhoneMicrophoneRealtimeActionOutcome
@@ -27,16 +28,11 @@ internal data class RealtimeTranscriptionUiActionOutcome(
     val degraded: Boolean = false,
 )
 
-/** UI-only contract shared by recorder-card and phone-microphone realtime products. */
 internal interface RealtimeTranscriptionUiController {
     val state: StateFlow<Stage16ARealtimeUiState>
-
     suspend fun start(): RealtimeTranscriptionUiActionOutcome
-
     suspend fun pause(): RealtimeTranscriptionUiActionOutcome
-
     suspend fun resume(): RealtimeTranscriptionUiActionOutcome
-
     suspend fun stop(): RealtimeTranscriptionUiActionOutcome
 }
 
@@ -47,12 +43,15 @@ internal class RecorderCardRealtimeUiController(
         get() = runtime.state
 
     override suspend fun start(): RealtimeTranscriptionUiActionOutcome = runtime.start().toUiOutcome()
-
     override suspend fun pause(): RealtimeTranscriptionUiActionOutcome = runtime.pause().toUiOutcome()
-
     override suspend fun resume(): RealtimeTranscriptionUiActionOutcome = runtime.resume().toUiOutcome()
 
-    override suspend fun stop(): RealtimeTranscriptionUiActionOutcome = runtime.stop().toUiOutcome()
+    override suspend fun stop(): RealtimeTranscriptionUiActionOutcome {
+        AppRecordingNavigation.suppressNextRecorderRealtimePlaybackOpen()
+        val outcome = runtime.stop().toUiOutcome()
+        if (!outcome.success) AppRecordingNavigation.clearRecorderRealtimePlaybackSuppression()
+        return outcome
+    }
 }
 
 internal class PhoneMicrophoneRealtimeUiController(
@@ -62,30 +61,21 @@ internal class PhoneMicrophoneRealtimeUiController(
 ) : RealtimeTranscriptionUiController {
     override val state: StateFlow<Stage16ARealtimeUiState> =
         combine(runtime.state, runtime.recordingState, captureState) { realtime, recording, capture ->
-            projectPhoneRealtimeUiState(
-                realtime = realtime,
-                recording = recording,
-                capture = capture,
-                runnerFailure = runtime.snapshot().runnerFailure,
-            )
+            projectPhoneRealtimeUiState(realtime, recording, capture, runtime.snapshot().runnerFailure)
         }.stateIn(
             scope = scope,
             started = SharingStarted.Eagerly,
-            initialValue =
-                projectPhoneRealtimeUiState(
-                    realtime = runtime.state.value,
-                    recording = runtime.recordingState.value,
-                    capture = captureState.value,
-                    runnerFailure = runtime.snapshot().runnerFailure,
-                ),
+            initialValue = projectPhoneRealtimeUiState(
+                runtime.state.value,
+                runtime.recordingState.value,
+                captureState.value,
+                runtime.snapshot().runnerFailure,
+            ),
         )
 
     override suspend fun start(): RealtimeTranscriptionUiActionOutcome = runtime.start().toUiOutcome()
-
     override suspend fun pause(): RealtimeTranscriptionUiActionOutcome = runtime.pause().toUiOutcome()
-
     override suspend fun resume(): RealtimeTranscriptionUiActionOutcome = runtime.resume().toUiOutcome()
-
     override suspend fun stop(): RealtimeTranscriptionUiActionOutcome = runtime.stop().toUiOutcome()
 }
 
@@ -95,17 +85,13 @@ internal fun projectPhoneRealtimeUiState(
     capture: PhoneMicrophoneCaptureSnapshot,
     runnerFailure: String?,
 ): Stage16ARealtimeUiState {
-    if (
-        recording.phase == PhoneMicrophoneRecordingPhase.RECORDING &&
-        capture.phase == PhoneMicrophoneCapturePhase.FAILED
-    ) {
+    if (recording.phase == PhoneMicrophoneRecordingPhase.RECORDING && capture.phase == PhoneMicrophoneCapturePhase.FAILED) {
         val detail = capture.lastFailure?.trim()?.takeIf { it.isNotEmpty() }
-        val message =
-            if (detail == null) {
-                "麦克风采集中断，可先暂停后继续，或停止保存已录音频"
-            } else {
-                "麦克风采集中断，可先暂停后继续，或停止保存已录音频：$detail"
-            }
+        val message = if (detail == null) {
+            "麦克风采集中断，可先暂停后继续，或停止保存已录音频"
+        } else {
+            "麦克风采集中断，可先暂停后继续，或停止保存已录音频：$detail"
+        }
         return realtime.copy(
             phase = Stage16ARealtimeUiPhase.ACTIVE,
             audioActivityLevels = emptyList(),
@@ -116,33 +102,28 @@ internal fun projectPhoneRealtimeUiState(
             errorMessage = message,
         )
     }
-
     if (runnerFailure == null) return realtime
-
-    val projectedPhase =
-        when (recording.phase) {
-            PhoneMicrophoneRecordingPhase.STARTING -> Stage16ARealtimeUiPhase.STARTING
-            PhoneMicrophoneRecordingPhase.RECORDING,
-            PhoneMicrophoneRecordingPhase.PAUSING,
-            -> Stage16ARealtimeUiPhase.ACTIVE
-            PhoneMicrophoneRecordingPhase.PAUSED -> Stage16ARealtimeUiPhase.PAUSED
-            PhoneMicrophoneRecordingPhase.RESUMING -> Stage16ARealtimeUiPhase.RESUMING
-            PhoneMicrophoneRecordingPhase.STOPPING -> Stage16ARealtimeUiPhase.FINALIZING
-            PhoneMicrophoneRecordingPhase.IDLE,
-            PhoneMicrophoneRecordingPhase.COMPLETED,
-            PhoneMicrophoneRecordingPhase.EMPTY,
-            PhoneMicrophoneRecordingPhase.FAILED,
-            PhoneMicrophoneRecordingPhase.CLOSED,
-            -> return realtime
-        }
-
-    val message =
-        when (projectedPhase) {
-            Stage16ARealtimeUiPhase.PAUSED -> "录音已暂停 · 实时转写已停止"
-            Stage16ARealtimeUiPhase.RESUMING -> "正在继续录音 · 实时转写已停止"
-            Stage16ARealtimeUiPhase.FINALIZING -> "正在保存录音 · 实时转写已停止"
-            else -> "录音仍在继续 · 实时转写已停止"
-        }
+    val projectedPhase = when (recording.phase) {
+        PhoneMicrophoneRecordingPhase.STARTING -> Stage16ARealtimeUiPhase.STARTING
+        PhoneMicrophoneRecordingPhase.RECORDING,
+        PhoneMicrophoneRecordingPhase.PAUSING,
+        -> Stage16ARealtimeUiPhase.ACTIVE
+        PhoneMicrophoneRecordingPhase.PAUSED -> Stage16ARealtimeUiPhase.PAUSED
+        PhoneMicrophoneRecordingPhase.RESUMING -> Stage16ARealtimeUiPhase.RESUMING
+        PhoneMicrophoneRecordingPhase.STOPPING -> Stage16ARealtimeUiPhase.FINALIZING
+        PhoneMicrophoneRecordingPhase.IDLE,
+        PhoneMicrophoneRecordingPhase.COMPLETED,
+        PhoneMicrophoneRecordingPhase.EMPTY,
+        PhoneMicrophoneRecordingPhase.FAILED,
+        PhoneMicrophoneRecordingPhase.CLOSED,
+        -> return realtime
+    }
+    val message = when (projectedPhase) {
+        Stage16ARealtimeUiPhase.PAUSED -> "录音已暂停 · 实时转写已停止"
+        Stage16ARealtimeUiPhase.RESUMING -> "正在继续录音 · 实时转写已停止"
+        Stage16ARealtimeUiPhase.FINALIZING -> "正在保存录音 · 实时转写已停止"
+        else -> "录音仍在继续 · 实时转写已停止"
+    }
     return realtime.copy(
         phase = projectedPhase,
         stableText = "",
@@ -155,10 +136,6 @@ internal fun projectPhoneRealtimeUiState(
     )
 }
 
-/**
- * Historical Stage 16A composition seam retained as a thin adapter only. New shared reader code does
- * not depend on the recorder-card runtime type.
- */
 val LocalStage16ARealtimeRuntime = staticCompositionLocalOf<Stage16ARealtimeRuntime> {
     error("Stage16ARealtimeRuntime was not provided")
 }
@@ -167,7 +144,6 @@ internal val LocalRecorderCardRealtimeController = staticCompositionLocalOf<Real
     error("Recorder-card realtime UI controller was not provided")
 }
 
-/** Compatibility overload for the frozen recorder-card product/navigation path. */
 @Composable
 fun RealtimeTranscriptionScreen(
     padding: PaddingValues,
@@ -176,26 +152,19 @@ fun RealtimeTranscriptionScreen(
     onBack: () -> Unit,
 ) {
     val controller = remember(runtime) { RecorderCardRealtimeUiController(runtime) }
-    RealtimeTranscriptionScreen(
-        padding = padding,
-        controller = controller,
-        canStart = canStart,
-        onBack = onBack,
-    )
+    RealtimeTranscriptionScreen(padding, controller, canStart, onBack)
 }
 
-private fun Stage16ARealtimeActionOutcome.toUiOutcome() =
-    RealtimeTranscriptionUiActionOutcome(
-        success = success,
-        code = code,
-        message = message,
-        degraded = degraded,
-    )
+private fun Stage16ARealtimeActionOutcome.toUiOutcome() = RealtimeTranscriptionUiActionOutcome(
+    success = success,
+    code = code,
+    message = message,
+    degraded = degraded,
+)
 
-private fun PhoneMicrophoneRealtimeActionOutcome.toUiOutcome() =
-    RealtimeTranscriptionUiActionOutcome(
-        success = success,
-        code = code,
-        message = message,
-        degraded = degraded,
-    )
+private fun PhoneMicrophoneRealtimeActionOutcome.toUiOutcome() = RealtimeTranscriptionUiActionOutcome(
+    success = success,
+    code = code,
+    message = message,
+    degraded = degraded,
+)
