@@ -334,12 +334,13 @@ internal class PhoneMicrophoneCapture(
             return rejectStart("当前设备不支持 16 kHz 单声道 PCM 麦克风录音")
         }
         val effectiveBufferBytes = PhoneMicrophoneBufferPolicy.effectiveBufferBytes(minBufferBytes)
+        val sourceOrder = Stage16A16QaAudioSourceOverride.sourceOrder(SOURCE_FALLBACK_ORDER)
 
         var selectedSource: PhoneMicrophoneAudioSource? = null
         var selectedRecord: PhoneMicrophoneAudioRecordHandle? = null
         var lastFailure: Throwable? = null
         var sourceAttempts = 0
-        for (source in SOURCE_FALLBACK_ORDER) {
+        for (source in sourceOrder) {
             if (synchronized(lock) { closed || stopRequested }) break
             sourceAttempts += 1
 
@@ -439,11 +440,11 @@ internal class PhoneMicrophoneCapture(
                     requestedInput = inputRequest,
                     selectedAudioSource = source,
                     audioSourceAttempts = sourceAttempts,
-                    sourceFallbackUsed = source != SOURCE_FALLBACK_ORDER.first(),
+                    sourceFallbackUsed = source != sourceOrder.first(),
                     sourceFallbackReason =
-                        if (source != SOURCE_FALLBACK_ORDER.first()) {
+                        if (source != sourceOrder.first()) {
                             lastFailure?.describePhoneMicrophoneCaptureFailure()
-                                ?: "${SOURCE_FALLBACK_ORDER.first().diagnosticsName} unavailable"
+                                ?: "${sourceOrder.first().diagnosticsName} unavailable"
                         } else {
                             null
                         },
@@ -871,7 +872,8 @@ private class AndroidPhoneMicrophoneAudioRecordFactory(
                         audioManager
                             .getDevices(AudioManager.GET_DEVICES_INPUTS)
                             .firstOrNull { it.isSource && it.id == inputRequest.deviceId }
-                    requestedDevice != null && runCatching { record.setPreferredDevice(requestedDevice) }.getOrDefault(false)
+                    requestedDevice != null &&
+                        runCatching { record.setPreferredDevice(requestedDevice) }.getOrDefault(false)
                 }
             }
         return AndroidPhoneMicrophoneAudioRecordHandle(record, preferredAccepted)
