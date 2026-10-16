@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
@@ -60,7 +59,6 @@ private enum class DevicePage {
     PHONE_RECORDING,
     PHONE_REALTIME,
     FILES,
-    RECENT_ALL,
     DIAGNOSTICS,
 }
 
@@ -70,6 +68,7 @@ fun DeviceProductScreen(
     viewModel: DeviceViewModel,
     homeRequestToken: Int,
     onSecondaryPageChanged: (Boolean) -> Unit,
+    onOpenLibrary: () -> Unit = { AppRecordingNavigation.publishLibraryRoot() },
 ) {
     val scan by viewModel.scanState.collectAsState()
     val connection by viewModel.connectionState.collectAsState()
@@ -329,7 +328,7 @@ fun DeviceProductScreen(
                             operationState = fileOperation,
                             onOpenRecording = ::openRecording,
                             onDownload = viewModel::downloadDeviceFile,
-                            onViewAll = { page = DevicePage.RECENT_ALL },
+                            onViewAll = onOpenLibrary,
                         )
                     }
                 }
@@ -391,31 +390,6 @@ fun DeviceProductScreen(
                 )
             }
 
-            DevicePage.RECENT_ALL -> {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize().padding(padding),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    item {
-                        CompactRecentHeader(title = "录音库", onBack = { page = DevicePage.HOME })
-                    }
-                    item {
-                        HomeRecentContent(
-                            recordings = libraryRecordings,
-                            deviceFiles = deviceFiles.files,
-                            operationState = fileOperation,
-                            onOpenRecording = ::openRecording,
-                            onDownload = viewModel::downloadDeviceFile,
-                            onViewAll = {},
-                            maxItems = Int.MAX_VALUE,
-                            showHeader = false,
-                            showViewAll = false,
-                        )
-                    }
-                }
-            }
-
             DevicePage.DIAGNOSTICS -> FullDiagnosticsScreen(
                 padding = padding,
                 diagnostics = diagnostics,
@@ -426,19 +400,6 @@ fun DeviceProductScreen(
             )
         }
         SnackbarHost(hostState = snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
-    }
-}
-
-@Composable
-private fun CompactRecentHeader(title: String, onBack: () -> Unit) {
-    androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
-        androidx.compose.material3.IconButton(onClick = onBack) {
-            androidx.compose.material3.Icon(
-                androidx.compose.material.icons.Icons.AutoMirrored.Outlined.ArrowBack,
-                contentDescription = "返回",
-            )
-        }
-        androidx.compose.material3.Text(title, style = androidx.compose.material3.MaterialTheme.typography.headlineSmall)
     }
 }
 
