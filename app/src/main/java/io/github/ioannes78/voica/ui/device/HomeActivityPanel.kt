@@ -36,11 +36,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import io.github.ioannes78.voica.protocol.RecordingGain
 import io.github.ioannes78.voica.ui.realtime.RealtimeAudioActivityWaveform
 import io.github.ioannes78.voica.ui.status.AppActivityAction
 import io.github.ioannes78.voica.ui.status.AppActivityFact
 import io.github.ioannes78.voica.ui.status.AppActivityKind
 import io.github.ioannes78.voica.ui.status.AppActivityProjection
+import io.github.ioannes78.voica.ui.status.AppActivitySource
 import java.util.Locale
 
 private enum class HomeModePreference {
@@ -56,9 +58,14 @@ internal fun HomeActivityPanel(
     canStartRecording: Boolean,
     canStartRealtime: Boolean,
     permissionMessage: String?,
+    recorderGain: RecordingGain?,
+    recorderGainInteractionEnabled: Boolean,
+    recorderGainBusy: Boolean,
+    recorderGainErrorMessage: String?,
     onSourcePreferenceChanged: (HomeActivitySourcePreference) -> Unit,
     onStartRecording: () -> Unit,
     onStartRealtime: () -> Unit,
+    onSetRecordingGain: (RecordingGain) -> Unit,
     onAction: (AppActivityFact, AppActivityAction) -> Unit,
     onOpenActivity: (AppActivityFact) -> Unit,
     onSelectSecondaryActivity: (AppActivityFact) -> Unit,
@@ -76,13 +83,23 @@ internal fun HomeActivityPanel(
                 canStartRecording = canStartRecording,
                 canStartRealtime = canStartRealtime,
                 permissionMessage = permissionMessage,
+                recorderGain = recorderGain,
+                recorderGainInteractionEnabled = recorderGainInteractionEnabled,
+                recorderGainBusy = recorderGainBusy,
+                recorderGainErrorMessage = recorderGainErrorMessage,
                 onSourcePreferenceChanged = onSourcePreferenceChanged,
                 onStartRecording = onStartRecording,
                 onStartRealtime = onStartRealtime,
+                onSetRecordingGain = onSetRecordingGain,
             )
         } else {
             PrimaryHomeActivityCard(
                 activity = primary,
+                recorderGain = recorderGain,
+                recorderGainInteractionEnabled = recorderGainInteractionEnabled,
+                recorderGainBusy = recorderGainBusy,
+                recorderGainErrorMessage = recorderGainErrorMessage,
+                onSetRecordingGain = onSetRecordingGain,
                 onAction = onAction,
                 onOpen = { onOpenActivity(primary) },
             )
@@ -112,9 +129,14 @@ private fun IdleHomeQuickActions(
     canStartRecording: Boolean,
     canStartRealtime: Boolean,
     permissionMessage: String?,
+    recorderGain: RecordingGain?,
+    recorderGainInteractionEnabled: Boolean,
+    recorderGainBusy: Boolean,
+    recorderGainErrorMessage: String?,
     onSourcePreferenceChanged: (HomeActivitySourcePreference) -> Unit,
     onStartRecording: () -> Unit,
     onStartRealtime: () -> Unit,
+    onSetRecordingGain: (RecordingGain) -> Unit,
 ) {
     var mode by remember { mutableStateOf(HomeModePreference.RECORDING) }
 
@@ -146,6 +168,11 @@ private fun IdleHomeQuickActions(
             mode = mode,
             enabled = if (mode == HomeModePreference.RECORDING) canStartRecording else canStartRealtime,
             permissionMessage = permissionMessage,
+            recorderGain = recorderGain,
+            recorderGainInteractionEnabled = recorderGainInteractionEnabled,
+            recorderGainBusy = recorderGainBusy,
+            recorderGainErrorMessage = recorderGainErrorMessage,
+            onSetRecordingGain = onSetRecordingGain,
             onStart = if (mode == HomeModePreference.RECORDING) onStartRecording else onStartRealtime,
         )
     }
@@ -284,6 +311,11 @@ private fun IdleMainActivityCard(
     mode: HomeModePreference,
     enabled: Boolean,
     permissionMessage: String?,
+    recorderGain: RecordingGain?,
+    recorderGainInteractionEnabled: Boolean,
+    recorderGainBusy: Boolean,
+    recorderGainErrorMessage: String?,
+    onSetRecordingGain: (RecordingGain) -> Unit,
     onStart: () -> Unit,
 ) {
     val sourceTitle =
@@ -315,17 +347,32 @@ private fun IdleMainActivityCard(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    "$sourceTitle$modeTitle",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    sourceSubtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "$sourceTitle$modeTitle",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        sourceSubtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (sourcePreference == HomeActivitySourcePreference.RECORDER_CARD) {
+                    HomeRecordingGainControl(
+                        gain = recorderGain,
+                        interactionEnabled = recorderGainInteractionEnabled,
+                        busy = recorderGainBusy,
+                        errorMessage = recorderGainErrorMessage,
+                        onSetGain = onSetRecordingGain,
+                    )
+                }
             }
 
             Row(
@@ -381,23 +428,23 @@ private fun DecorativeWaveform() {
     val bars =
         remember {
             listOf(
-                4, 5, 7, 10, 15, 9, 18, 28, 18, 10, 7, 12, 20, 11, 6, 5, 9, 16, 23, 15, 8, 6, 10,
-                17, 27, 18, 11, 7, 5, 9, 14, 20, 13, 8, 5, 4,
+                6, 9, 14, 21, 31, 17, 36, 23, 13, 8, 12, 20, 32, 18, 9, 7, 13, 24, 35,
+                21, 11, 8, 15, 26, 38, 24, 14, 9, 7, 12, 20, 30, 17, 10, 7, 6,
             )
         }
     val color = MaterialTheme.colorScheme.primary
     Canvas(
-        modifier = Modifier.fillMaxWidth().height(40.dp),
+        modifier = Modifier.fillMaxWidth().height(44.dp),
     ) {
         val step = size.width / (bars.size + 1)
         bars.forEachIndexed { index, value ->
             val x = step * (index + 1)
             val halfHeight = value.dp.toPx() / 2f
             drawLine(
-                color = color.copy(alpha = if (index % 5 == 0) 0.88f else 0.62f),
+                color = color.copy(alpha = if (index % 6 == 0) 0.82f else 0.56f),
                 start = Offset(x, size.height / 2f - halfHeight),
                 end = Offset(x, size.height / 2f + halfHeight),
-                strokeWidth = if (index % 5 == 0) 2.5.dp.toPx() else 1.5.dp.toPx(),
+                strokeWidth = if (index % 6 == 0) 2.4.dp.toPx() else 1.7.dp.toPx(),
                 cap = StrokeCap.Round,
             )
         }
@@ -407,6 +454,11 @@ private fun DecorativeWaveform() {
 @Composable
 private fun PrimaryHomeActivityCard(
     activity: AppActivityFact,
+    recorderGain: RecordingGain?,
+    recorderGainInteractionEnabled: Boolean,
+    recorderGainBusy: Boolean,
+    recorderGainErrorMessage: String?,
+    onSetRecordingGain: (RecordingGain) -> Unit,
     onAction: (AppActivityFact, AppActivityAction) -> Unit,
     onOpen: () -> Unit,
 ) {
@@ -448,6 +500,15 @@ private fun PrimaryHomeActivityCard(
                             maxLines = 1,
                         )
                     }
+                }
+                if (activity.source == AppActivitySource.RECORDER_CARD) {
+                    HomeRecordingGainControl(
+                        gain = recorderGain,
+                        interactionEnabled = recorderGainInteractionEnabled,
+                        busy = recorderGainBusy,
+                        errorMessage = recorderGainErrorMessage,
+                        onSetGain = onSetRecordingGain,
+                    )
                 }
                 if (clickable) {
                     Icon(
