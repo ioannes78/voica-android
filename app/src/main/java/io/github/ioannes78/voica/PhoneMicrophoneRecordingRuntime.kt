@@ -49,6 +49,9 @@ internal data class PhoneMicrophoneRecordingSnapshot(
     val writtenSamples: Long = 0L,
     val postWriteOffers: Long = 0L,
     val postWriteOfferFailures: Long = 0L,
+    val routeBoundaryCount: Long = 0L,
+    val discontinuityEpochCount: Long = 0L,
+    val lastRouteBoundaryReason: PhoneMicrophoneRouteBoundaryReason? = null,
     val hadCaptureInterruption: Boolean = false,
     val finalizedSizeBytes: Long? = null,
     val finalizedSha256: String? = null,
@@ -126,7 +129,9 @@ internal class AndroidPhoneMicrophoneCaptureDriver(
  * The synchronous writer is the primary consumer of microphone PCM. No bounded ASR queue sits in
  * front of the formal recording path. Pause ends the current capture epoch without finalizing the
  * WAV; resume opens a new CONTROL_BOUNDARY epoch, so paused wall-clock time is never synthesized as
- * silence. Optional realtime fan-out is invoked only after the formal WAV accepted the same frame.
+ * silence. AUTO input reroutes open a DISCONTINUITY epoch before the first PCM frame from the new
+ * route is committed. Optional realtime fan-out is invoked only after the formal WAV accepted the
+ * same frame.
  */
 internal class PhoneMicrophoneRecordingRuntime(
     private val capture: PhoneMicrophoneCaptureDriver,
@@ -145,6 +150,8 @@ internal class PhoneMicrophoneRecordingRuntime(
 
     private var active: ActiveRecording? = null
     private var closed = false
+    private val routeBoundarySubscription =
+        PhoneMicrophoneRouteBoundaryHub.subscribe(::onRouteBoundary)
 
     suspend fun start(
         postWriteSink: PhoneMicrophoneCanonicalPostWriteSink? = null,
@@ -237,6 +244,7 @@ internal class PhoneMicrophoneRecordingRuntime(
             if (mutableState.value.phase != PhoneMicrophoneRecordingPhase.RECORDING) {
                 return PhoneMicrophoneRecordingActionResult.Rejected("当前状态不能暂停")
             }
+            current.pendingRouteBoundary = null
             markCaptureInterruptionLocked(current, capture.state.value)
             publishLocked(
                 current,
@@ -276,6 +284,8 @@ internal class PhoneMicrophoneRecordingRuntime(
             current.epochId = Math.addExact(current.epochId, 1L)
             current.epochStartReason = RealtimeCanonicalEpochStartReason.CONTROL_BOUNDARY
             current.activeEpochSamples = 0L
+            current.captureEpochBaseSampleIndex = 0L
+            current.pendingRouteBoundary = null
             publishLocked(
                 current,
                 PhoneMicrophoneRecordingPhase.RESUMING,
@@ -332,6 +342,7 @@ internal class PhoneMicrophoneRecordingRuntime(
             if (phase == PhoneMicrophoneRecordingPhase.RECORDING) {
                 markCaptureInterruptionLocked(current, capture.state.value)
             }
+            current.pendingRouteBoundary = null
             val interrupted = current.hadCaptureInterruption
             publishLocked(current, PhoneMicrophoneRecordingPhase.STOPPING)
             StopPreparation(
@@ -422,6 +433,9 @@ internal class PhoneMicrophoneRecordingRuntime(
                     writtenSamples = finalized.sampleCount,
                     postWriteOffers = context.postWriteOffers,
                     postWriteOfferFailures = context.postWriteOfferFailures,
+                    routeBoundaryCount = context.routeBoundaryCount,
+                    discontinuityEpochCount = context.discontinuityEpochCount,
+                    lastRouteBoundaryReason = context.lastRouteBoundaryReason,
                     hadCaptureInterruption = context.hadCaptureInterruption,
                     finalizedSizeBytes = finalized.sizeBytes,
                     finalizedSha256 = finalized.sha256,
@@ -457,23 +471,62 @@ internal class PhoneMicrophoneRecordingRuntime(
                 mutableState.value.copy(phase = PhoneMicrophoneRecordingPhase.CLOSED)
             current
         }
+        routeBoundarySubscription.close()
         capture.close()
         context?.writer?.close()
+    }
+
+    private fun onRouteBoundary(boundary: PhoneMicrophoneRouteBoundary) {
+        synchronized(lock) {
+            val context = active ?: return
+            if (mutableState.value.phase != PhoneMicrophoneRecordingPhase.RECORDING) return
+            if (capture.state.value.requestedInput !is PhoneMicrophoneInputRequest.Auto) return
+            context.pendingRouteBoundary = boundary
+            context.routeBoundaryCount = Math.addExact(context.routeBoundaryCount, 1L)
+            context.lastRouteBoundaryReason = boundary.reason
+            publishLocked(
+                context,
+                PhoneMicrophoneRecordingPhase.RECORDING,
+                failure = context.lastCaptureInterruption,
+            )
+        }
     }
 
     private fun consumerFor(context: ActiveRecording): PhoneMicrophonePcmConsumer =
         PhoneMicrophonePcmConsumer { frame ->
             val epoch = synchronized(lock) {
                 check(active === context) { "stale phone microphone capture frame" }
-                EpochDescriptor(context.epochId, context.epochStartReason)
+                val boundary = context.pendingRouteBoundary
+                if (boundary != null) {
+                    check(boundary.reason != PhoneMicrophoneRouteBoundaryReason.ROUTE_LOST) {
+                        "phone microphone route lost before PCM delivery"
+                    }
+                    if (context.activeEpochSamples > 0L) {
+                        context.completedEpochs += 1
+                    }
+                    context.epochId = Math.addExact(context.epochId, 1L)
+                    context.epochStartReason = RealtimeCanonicalEpochStartReason.DISCONTINUITY
+                    context.activeEpochSamples = 0L
+                    context.captureEpochBaseSampleIndex = frame.startSampleIndex
+                    context.pendingRouteBoundary = null
+                    context.discontinuityEpochCount =
+                        Math.addExact(context.discontinuityEpochCount, 1L)
+                }
+                val epochLocalStart = frame.startSampleIndex - context.captureEpochBaseSampleIndex
+                check(epochLocalStart >= 0L) { "phone microphone epoch sample index moved backwards" }
+                EpochDescriptor(
+                    id = context.epochId,
+                    reason = context.epochStartReason,
+                    startSampleIndex = epochLocalStart,
+                )
             }
             val canonical =
                 RealtimeCanonicalPcmFrame(
                     sessionId = context.canonicalSessionId,
                     epochId = epoch.id,
-                    startSampleIndex = frame.startSampleIndex,
+                    startSampleIndex = epoch.startSampleIndex,
                     samples = frame.samples,
-                    epochStartReason = if (frame.startSampleIndex == 0L) epoch.reason else null,
+                    epochStartReason = if (epoch.startSampleIndex == 0L) epoch.reason else null,
                 )
 
             // Formal recording truth is committed synchronously before any realtime fan-out.
@@ -567,6 +620,9 @@ internal class PhoneMicrophoneRecordingRuntime(
                 writtenSamples = context.writtenSamples,
                 postWriteOffers = context.postWriteOffers,
                 postWriteOfferFailures = context.postWriteOfferFailures,
+                routeBoundaryCount = context.routeBoundaryCount,
+                discontinuityEpochCount = context.discontinuityEpochCount,
+                lastRouteBoundaryReason = context.lastRouteBoundaryReason,
                 hadCaptureInterruption = context.hadCaptureInterruption,
                 lastPostWriteFailure = context.lastPostWriteFailure,
                 lastFailure = failure,
@@ -589,6 +645,9 @@ internal class PhoneMicrophoneRecordingRuntime(
                 writtenSamples = context.writtenSamples,
                 postWriteOffers = context.postWriteOffers,
                 postWriteOfferFailures = context.postWriteOfferFailures,
+                routeBoundaryCount = context.routeBoundaryCount,
+                discontinuityEpochCount = context.discontinuityEpochCount,
+                lastRouteBoundaryReason = context.lastRouteBoundaryReason,
                 hadCaptureInterruption = context.hadCaptureInterruption,
                 lastPostWriteFailure = context.lastPostWriteFailure,
                 lastFailure = context.lastCaptureInterruption,
@@ -604,6 +663,7 @@ internal class PhoneMicrophoneRecordingRuntime(
     private data class EpochDescriptor(
         val id: Long,
         val reason: RealtimeCanonicalEpochStartReason,
+        val startSampleIndex: Long,
     )
 
     private data class ActiveRecording(
@@ -622,6 +682,11 @@ internal class PhoneMicrophoneRecordingRuntime(
         var completedEpochs: Int = 0,
         var writtenSamples: Long = 0L,
         var activeEpochSamples: Long = 0L,
+        var captureEpochBaseSampleIndex: Long = 0L,
+        var pendingRouteBoundary: PhoneMicrophoneRouteBoundary? = null,
+        var routeBoundaryCount: Long = 0L,
+        var discontinuityEpochCount: Long = 0L,
+        var lastRouteBoundaryReason: PhoneMicrophoneRouteBoundaryReason? = null,
         var postWriteOffers: Long = 0L,
         var postWriteOfferFailures: Long = 0L,
         var lastPostWriteFailure: String? = null,
