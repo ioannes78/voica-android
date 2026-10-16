@@ -102,10 +102,7 @@ internal fun HomeDeviceScanSheet(
                     items(compatibleDevices, key = { device -> device.address }) { device ->
                         CompactScanDeviceRow(
                             device = device,
-                            onConnect = { address ->
-                                onConnect(address)
-                                onDismiss()
-                            },
+                            onConnect = onConnect,
                         )
                     }
                 } else {
@@ -138,10 +135,7 @@ internal fun HomeDeviceScanSheet(
                         items(otherDevices, key = { device -> device.address }) { device ->
                             CompactScanDeviceRow(
                                 device = device,
-                                onConnect = { address ->
-                                    onConnect(address)
-                                    onDismiss()
-                                },
+                                onConnect = onConnect,
                             )
                         }
                     }
