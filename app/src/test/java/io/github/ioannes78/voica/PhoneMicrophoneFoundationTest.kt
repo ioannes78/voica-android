@@ -135,6 +135,112 @@ class PhoneMicrophoneFoundationTest {
         assertEquals(1, consumerCalls)
         assertEquals(1_280, acceptedSamples)
     }
+
+    @Test
+    fun `signal meter observes silence without changing canonical samples`() {
+        val samples = ShortArray(1_280)
+        val before = samples.copyOf()
+
+        val signal = PhoneMicrophoneSignalMeter.analyze(samples)
+
+        assertTrue(samples.contentEquals(before))
+        assertEquals(1_280, signal.sampleCount)
+        assertEquals(0, signal.peakSample)
+        assertEquals(-120.0, signal.peakDbfs, 0.0)
+        assertEquals(0.0, signal.rms, 0.0)
+        assertEquals(-120.0, signal.rmsDbfs, 0.0)
+        assertEquals(0, signal.clippingSamples)
+        assertEquals(0.0, signal.clippingRatio, 0.0)
+        assertEquals(1_280, signal.zeroSamples)
+        assertEquals(1.0, signal.zeroSampleRatio, 0.0)
+    }
+
+    @Test
+    fun `signal meter records peak rms clipping and zero ratios`() {
+        val samples =
+            shortArrayOf(
+                0,
+                16_384,
+                -16_384,
+                Short.MAX_VALUE,
+                Short.MIN_VALUE,
+            )
+
+        val signal = PhoneMicrophoneSignalMeter.analyze(samples)
+
+        assertEquals(32_768, signal.peakSample)
+        assertEquals(0.0, signal.peakDbfs, 0.0001)
+        assertTrue(signal.rms > 0.0)
+        assertTrue(signal.rmsDbfs < 0.0)
+        assertEquals(2, signal.clippingSamples)
+        assertEquals(0.4, signal.clippingRatio, 0.0001)
+        assertEquals(1, signal.zeroSamples)
+        assertEquals(0.2, signal.zeroSampleRatio, 0.0001)
+    }
+
+    @Test
+    fun `route tracker increments generation only when actual route changes`() {
+        val routeA =
+            PhoneMicrophoneRoute(
+                deviceId = 1,
+                deviceType = 15,
+                productName = "Built-in microphone",
+            )
+        val routeB =
+            PhoneMicrophoneRoute(
+                deviceId = 7,
+                deviceType = 11,
+                productName = "USB microphone",
+            )
+        val tracker = PhoneMicrophoneRouteTracker()
+
+        val initial = tracker.reset(routeA)
+        assertFalse(initial.changed)
+        assertEquals(0L, initial.generation)
+        assertEquals(0L, initial.changeCount)
+        assertEquals(PhoneMicrophoneRouteChangeReason.START, initial.lastChangeReason)
+
+        val same = tracker.observe(routeA)
+        assertFalse(same.changed)
+        assertEquals(0L, same.generation)
+        assertEquals(0L, same.changeCount)
+
+        val changed = tracker.observe(routeB)
+        assertTrue(changed.changed)
+        assertEquals(routeB, changed.route)
+        assertEquals(1L, changed.generation)
+        assertEquals(1L, changed.changeCount)
+        assertEquals(PhoneMicrophoneRouteChangeReason.PLATFORM_REROUTE, changed.lastChangeReason)
+    }
+
+    @Test
+    fun `input inventory only resolves current source device id`() {
+        val source =
+            PhoneMicrophoneAudioDeviceDescriptor(
+                deviceId = 10,
+                deviceType = 11,
+                productName = "USB Mic",
+                address = null,
+                isSource = true,
+            )
+        val outputOnly =
+            PhoneMicrophoneAudioDeviceDescriptor(
+                deviceId = 11,
+                deviceType = 11,
+                productName = "USB Speaker",
+                address = null,
+                isSource = false,
+            )
+        val snapshot =
+            PhoneMicrophoneAudioDeviceInventorySnapshot(
+                generation = 2L,
+                devices = listOf(source, outputOnly),
+            )
+
+        assertEquals(source, snapshot.sourceById(10))
+        assertEquals(null, snapshot.sourceById(11))
+        assertEquals(null, snapshot.sourceById(999))
+    }
 }
 
 private class FakeForegroundLease(
