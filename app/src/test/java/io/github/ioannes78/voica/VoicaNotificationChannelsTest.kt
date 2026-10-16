@@ -60,5 +60,6 @@ class VoicaNotificationChannelsTest {
     @Test
     fun `qa1 visual revision keeps notification channel topology unchanged`() {
         assertEquals(9, VoicaNotificationChannels.all.size)
+        assertTrue(VoicaNotificationChannels.all.all { it.id.isNotBlank() })
     }
 }
