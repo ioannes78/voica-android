@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -29,6 +30,7 @@ import io.github.ioannes78.voica.ble.BleScanDevice
  * Presentation-only device picker for homepage scans.
  * Scanning/connecting remains owned by the existing DeviceViewModel/BLE repository.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun HomeDeviceScanSheet(
     visible: Boolean,
