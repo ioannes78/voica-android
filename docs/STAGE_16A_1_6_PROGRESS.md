@@ -1,6 +1,6 @@
 # Stage 16A.1.6 — Android Audio I/O Compatibility Progress
 
-状态：**IN DEVELOPMENT — A1 CALIBRATION CANDIDATE**
+状态：**IN DEVELOPMENT — A1 REAL-DEVICE QA**
 
 日期：2026-10-16
 
@@ -27,11 +27,13 @@
 
 分支严格从上述 base SHA 创建。
 
-A1 功能实现候选（文档进度更新前）：
+A1 QA binary/source candidate：
 
-- `094215aa916341a9980799548b0e3aaca38bf71b`
+- `18c992b1a259494ffa736b0d8d4c3c58e852cf3e`
 
-PR title 已切换为 `[APK] Stage 16A.1.6 — Android Audio I/O Compatibility`，用于触发 production-like QA APK Gate。
+其中 A1 功能代码在 `094215aa916341a9980799548b0e3aaca38bf71b` 已完成；`18c992b1...` 仅继续记录 A1 candidate 进度，未改变产品代码。
+
+PR title：`[APK] Stage 16A.1.6 — Android Audio I/O Compatibility`，用于触发 production-like QA APK Gate。
 
 ## 3. 上一阶段冻结基线
 
@@ -169,7 +171,33 @@ A1 结论前：
 - QA forced VOICE_RECOGNITION / MIC 无 fallback；
 - QA calibration entry 只在 `.qa` applicationId 可见。
 
-## 11. 当前待办
+## 11. A1 Candidate CI / Artifact
+
+A1 binary/source candidate：`18c992b1a259494ffa736b0d8d4c3c58e852cf3e`。
+
+Android PR CI：
+
+- run number：`#1657`
+- run id：`38920825453`
+- Fast PR Gate：**SUCCESS**
+- `Unit tests and debug compile gate`：**SUCCESS**
+- QA APK Gate：**SUCCESS**
+- `Build production-like QA APK only`：**SUCCESS**
+- `Verify QA APK`：**SUCCESS**
+- `Upload QA APK`：**SUCCESS**
+- Android Production Gate #517：PR policy 下 skipped，不是失败。
+
+A1 artifact：
+
+- artifact id：`12055151881`
+- artifact name：`Voica-1.1.0-stage16a-export-qa-apk`
+- artifact ZIP digest：`sha256:ef980cf1b04a795ea54e605345aa7e3f7eb0e39d56d745a324182d348c2dd6b3`
+- extracted APK：`app-releaseQa.apk`
+- locally rechecked APK SHA-256：`fe26ac054b8cde024e657f632fc2d07f60d1f314199f152cf65699ec7ae23fc8`
+
+CI SUCCESS 只证明自动化 Gate 通过，不等于 A1 真机 PASS。
+
+## 12. 当前待办
 
 - [x] Requirements V1 用户确认
 - [x] Development Plan V1 用户确认
@@ -180,8 +208,8 @@ A1 结论前：
 - [x] P0 Room/model-channel/notification/S15 不变量核验
 - [x] P1 Audio I/O diagnostics foundation
 - [x] P2 A1 calibration foundation
-- [ ] current A1 candidate Fast PR Gate
-- [ ] production-like QA APK Gate / artifact
+- [x] current A1 candidate Fast PR Gate
+- [x] production-like QA APK Gate / artifact
 - [ ] A1 真机 VOICE_RECOGNITION vs MIC calibration
 - [ ] A1 source/gain decision
 - [ ] P3+ product compatibility implementation
@@ -189,17 +217,17 @@ A1 结论前：
 - [ ] QS668 coexistence QA
 - [ ] Final Freeze/Handoff
 
-## 12. 文档一致性待办
+## 13. 文档一致性待办
 
 `AGENTS.md` 顶部“当前接管状态”仍是 Stage 16A.1 / PR #29 的旧时点；其中历史冻结规则仍有效，但顶部 current-stage metadata 需要更新为 Stage 16A.1.6 / PR #31。
 
 当前 GitHub 写入接口对该长期规则文件需要整文件替换。为避免在 A1 候选前对大量历史冻结规则做无意义重写或截断，这项只作为 docs-only consistency follow-up，不改变本 A1 二进制候选、技术边界或开发授权事实。后续更新时必须完整保留历史规则正文。
 
-## 13. 下一步
+## 14. 下一步
 
-1. 以当前 HEAD 重新跑 `[APK]` Fast PR Gate + production-like QA APK Gate；
-2. CI / APK verification 成功后固定 A1 QA APK artifact；
-3. 真机 QA 严格每次只发送一条测试项；
-4. 首先执行 A1-1（VOICE_RECOGNITION），收集诊断与实际听感；
-5. 在后续独立测试项执行 MIC，同条件比较；
-6. 得到 A1 结论前不进入 P3+。
+真机 QA 严格每次只发送一条测试项：
+
+1. 先执行 A1-1（VOICE_RECOGNITION），收集诊断与实际听感；
+2. 用户完成 A1-1 后，再单独发送 A1-2（MIC）；
+3. 同条件完成两侧后做 source/gain 结论；
+4. 得到 A1 结论前不进入 P3+。
