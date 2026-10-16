@@ -135,11 +135,8 @@ private fun IdleHomeQuickActions(
 ) {
     var mode by remember { mutableStateOf(HomeModePreference.RECORDING) }
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionHeading("录音来源", "选择录音来源")
+        SourceSectionHeading(sourcePreference)
         SourceSelector(sourcePreference, recorderAvailable, onSourcePreferenceChanged)
-        if (sourcePreference == HomeActivitySourcePreference.PHONE_MICROPHONE) {
-            PhoneMicrophoneInputSelectorRow()
-        }
         SectionHeading("模式选择", "选择功能模式")
         ModeSelector(mode) { mode = it }
         IdleMainActivityCard(
@@ -154,6 +151,26 @@ private fun IdleHomeQuickActions(
             onSetRecordingGain = onSetRecordingGain,
             onStart = if (mode == HomeModePreference.RECORDING) onStartRecording else onStartRealtime,
         )
+    }
+}
+
+@Composable
+private fun SourceSectionHeading(sourcePreference: HomeActivitySourcePreference) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("录音来源", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        if (sourcePreference == HomeActivitySourcePreference.PHONE_MICROPHONE) {
+            PhoneMicrophoneInputSelectorRow()
+        } else {
+            Text(
+                "选择录音来源",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

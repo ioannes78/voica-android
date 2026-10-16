@@ -2,9 +2,12 @@ package io.github.ioannes78.voica.ui.phone
 
 import android.media.AudioDeviceInfo
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ChevronRight
@@ -22,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -43,40 +47,40 @@ internal fun PhoneMicrophoneInputSelectorRow(
     var sheetVisible by remember { mutableStateOf(false) }
 
     val selectedLabel =
-        when (val request = state.request) {
+        when (state.request) {
             PhoneMicrophoneInputRequest.Auto -> "自动"
             is PhoneMicrophoneInputRequest.SpecificDevice ->
-                state.selectedDevice?.productName
-                    ?: "所选设备已断开"
+                state.selectedDevice?.compactInputLabel() ?: "已断开"
         }
 
-    ListItem(
-        modifier = modifier.fillMaxWidth().clickable { sheetVisible = true },
-        headlineContent = { Text("输入设备") },
-        supportingContent = {
-            Text(
+    Row(
+        modifier =
+            modifier
+                .clickable { sheetVisible = true }
+                .padding(horizontal = 4.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "输入：$selectedLabel",
+            modifier = Modifier.widthIn(max = 180.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color =
                 if (state.selectedDeviceMissing) {
-                    "手动选择的麦克风当前不可用；开始录音时不会静默切回手机麦克风"
+                    MaterialTheme.colorScheme.error
                 } else {
-                    "手机录音与手机实时转写共用"
+                    MaterialTheme.colorScheme.onSurfaceVariant
                 },
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        },
-        trailingContent = {
-            Column {
-                Text(
-                    selectedLabel,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Icon(Icons.Outlined.ChevronRight, contentDescription = "选择输入设备")
-            }
-        },
-    )
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Icon(
+            Icons.Outlined.ChevronRight,
+            contentDescription = "选择输入设备",
+            modifier = Modifier.size(18.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 
     if (!sheetVisible) return
     ModalBottomSheet(onDismissRequest = { sheetVisible = false }) {
@@ -84,6 +88,21 @@ internal fun PhoneMicrophoneInputSelectorRow(
             "选择输入设备",
             style = MaterialTheme.typography.titleLarge,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+        )
+        Text(
+            if (state.selectedDeviceMissing) {
+                "手动选择的麦克风当前不可用；开始录音时不会静默切回手机麦克风"
+            } else {
+                "手机录音与手机实时转写共用此输入设备"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color =
+                if (state.selectedDeviceMissing) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
         )
         ListItem(
             modifier = Modifier.fillMaxWidth().clickable {
@@ -135,6 +154,19 @@ internal fun PhoneMicrophoneInputSelectorRow(
         }
     }
 }
+
+private fun PhoneMicrophoneAudioDeviceDescriptor.compactInputLabel(): String =
+    when (deviceType) {
+        AudioDeviceInfo.TYPE_BUILTIN_MIC -> "内置麦克风"
+        AudioDeviceInfo.TYPE_WIRED_HEADSET -> "有线耳麦"
+        AudioDeviceInfo.TYPE_USB_DEVICE,
+        AudioDeviceInfo.TYPE_USB_HEADSET,
+        -> "USB 麦克风"
+        AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+        AudioDeviceInfo.TYPE_BLE_HEADSET,
+        -> "蓝牙耳机"
+        else -> productName.trim().ifBlank { "输入设备" }
+    }
 
 private fun PhoneMicrophoneAudioDeviceDescriptor.inputTypeLabel(): String =
     when (deviceType) {
