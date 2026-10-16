@@ -116,6 +116,7 @@ internal data class PhoneMicrophoneCaptureSnapshot(
     val lastRouteChangeReason: PhoneMicrophoneRouteChangeReason? = null,
     val clientSilenced: Boolean? = null,
     val signal: PhoneMicrophoneSignalSnapshot? = null,
+    val signalSummary: PhoneMicrophoneSignalSummary? = null,
     val readCalls: Long = 0L,
     /** Samples accepted as real microphone capture truth and forwarded to the primary consumer. */
     val samplesRead: Long = 0L,
@@ -168,6 +169,19 @@ internal data class PhoneMicrophoneCaptureSnapshot(
                     "rms:${formatOneDecimal(signalSnapshot.rms)}/${formatDbfs(signalSnapshot.rmsDbfs)}dBFS " +
                     "clip:${signalSnapshot.clippingSamples}/${formatRatio(signalSnapshot.clippingRatio)} " +
                     "zero:${signalSnapshot.zeroSamples}/${formatRatio(signalSnapshot.zeroSampleRatio)}",
+            )
+        }
+        val summary = signalSummary
+        if (summary == null) {
+            appendLine("signalSummary=n/a")
+        } else {
+            appendLine(
+                "signalSummary=frames:${summary.frameCount} samples:${summary.sampleCount} " +
+                    "peak:${summary.peakSample}/${formatDbfs(summary.peakDbfs)}dBFS " +
+                    "overallRms:${formatOneDecimal(summary.rms)}/${formatDbfs(summary.rmsDbfs)}dBFS " +
+                    "noiseFloorCandidate:${formatDbfs(summary.noiseFloorCandidateDbfs)}dBFS " +
+                    "clip:${summary.clippingSamples}/${formatRatio(summary.clippingRatio)} " +
+                    "zero:${summary.zeroSamples}/${formatRatio(summary.zeroSampleRatio)}",
             )
         }
         append(
@@ -532,6 +546,7 @@ internal class PhoneMicrophoneCapture(
         routeTracker: PhoneMicrophoneRouteTracker,
     ) {
         val buffer = ShortArray(PhoneMicrophoneBufferPolicy.READ_CHUNK_SAMPLES)
+        val signalAccumulator = PhoneMicrophoneSignalAccumulator()
         var terminalFailure: Throwable? = null
         try {
             while (true) {
@@ -595,6 +610,7 @@ internal class PhoneMicrophoneCapture(
                     break
                 }
                 val signal = PhoneMicrophoneSignalMeter.analyze(frame.samples)
+                val signalSummary = signalAccumulator.add(frame.samples)
                 val delivered =
                     try {
                         deliverPhoneMicrophonePcmIfAudible(clientSilenced, frame, consumer)
@@ -606,6 +622,7 @@ internal class PhoneMicrophoneCapture(
                             record,
                             routeObservation,
                             signal,
+                            signalSummary,
                             failure,
                         )
                         break
@@ -632,6 +649,7 @@ internal class PhoneMicrophoneCapture(
                             lastRouteChangeReason = routeObservation.lastChangeReason,
                             clientSilenced = clientSilenced,
                             signal = signal,
+                            signalSummary = signalSummary,
                             foregroundPhase = PhoneMicrophoneForegroundDiagnostics.state.value.phase,
                             wakeLockHeld = executionLease.snapshot().wakeLockHeld,
                         ),
@@ -752,6 +770,7 @@ internal class PhoneMicrophoneCapture(
         record: PhoneMicrophoneAudioRecordHandle,
         routeObservation: PhoneMicrophoneRouteObservation,
         signal: PhoneMicrophoneSignalSnapshot,
+        signalSummary: PhoneMicrophoneSignalSummary,
         failure: Throwable,
     ) {
         Log.e(TAG, "phone microphone consumer failed", failure)
@@ -769,6 +788,7 @@ internal class PhoneMicrophoneCapture(
                     lastRouteChangeReason = routeObservation.lastChangeReason,
                     clientSilenced = record.clientSilenced,
                     signal = signal,
+                    signalSummary = signalSummary,
                     terminalReason = PhoneMicrophoneCaptureTerminalReason.CONSUMER_ERROR,
                     foregroundPhase = PhoneMicrophoneForegroundDiagnostics.state.value.phase,
                     lastFailure = failure.describePhoneMicrophoneCaptureFailure(),
