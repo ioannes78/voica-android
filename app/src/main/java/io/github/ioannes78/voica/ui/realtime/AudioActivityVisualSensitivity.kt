@@ -17,7 +17,7 @@ internal object AudioActivityVisualSensitivity {
         if (!rawLevel.isFinite() || rawLevel <= 0f) return 0f
 
         val clampedMagnitude = rawLevel.coerceIn(MIN_NORMALIZED_MAGNITUDE, 1f)
-        val dbfs = 20f * log10(clampedMagnitude)
+        val dbfs = (20.0 * log10(clampedMagnitude.toDouble())).toFloat()
         return ((dbfs - NOISE_FLOOR_DBFS) / VISUAL_RANGE_DB)
             .coerceIn(0f, 1f)
     }
