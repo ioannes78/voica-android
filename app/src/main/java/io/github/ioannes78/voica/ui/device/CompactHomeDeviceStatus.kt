@@ -92,23 +92,23 @@ private fun ConnectedDeviceStatus(
     onDisconnect: () -> Unit,
 ) {
     Column(
-        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Image(
-                painter = painterResource(R.drawable.voica_qs668_device),
+                painter = painterResource(R.drawable.voica_qs668_device_photo),
                 contentDescription = "QS668 / CB08",
-                modifier = Modifier.size(width = 82.dp, height = 88.dp),
+                modifier = Modifier.size(width = 66.dp, height = 72.dp),
                 contentScale = ContentScale.Fit,
             )
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                verticalArrangement = Arrangement.spacedBy(1.dp),
             ) {
                 Text(
                     "QS668 / CB08",
@@ -170,7 +170,7 @@ private fun DeviceMetric(
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(1.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         Text(
             value,
@@ -192,7 +192,7 @@ private fun MetricDivider() {
         modifier =
             Modifier
                 .width(1.dp)
-                .height(34.dp)
+                .height(28.dp)
                 .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)),
     )
 }
@@ -230,22 +230,22 @@ private fun DisconnectedDeviceStatus(
         }
 
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Image(
-            painter = painterResource(R.drawable.voica_qs668_device),
+            painter = painterResource(R.drawable.voica_qs668_device_photo),
             contentDescription = "QS668 / CB08",
             modifier =
                 Modifier
-                    .size(width = 82.dp, height = 88.dp)
+                    .size(width = 62.dp, height = 68.dp)
                     .alpha(0.42f),
             contentScale = ContentScale.Fit,
         )
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(3.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
                 title,
