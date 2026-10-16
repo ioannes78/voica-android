@@ -77,4 +77,15 @@ class AppRecordingNavigationTest {
         assertEquals(first.recordingId, second.recordingId)
         assertEquals(first.destination, second.destination)
     }
+
+    @Test
+    fun libraryRootHandoffUsesReservedNonPlaybackTarget() {
+        AppRecordingNavigation.clearRecorderRealtimePlaybackSuppression()
+        val request = requireNotNull(AppRecordingNavigation.publishLibraryRoot())
+
+        assertEquals(LIBRARY_ROOT_NAVIGATION_ID, request.recordingId)
+        assertEquals(RecordingDetailDestination.TRANSCRIPT, request.destination)
+        assertNull(request.completionKind)
+        assertNull(request.completionTaskId)
+    }
 }
