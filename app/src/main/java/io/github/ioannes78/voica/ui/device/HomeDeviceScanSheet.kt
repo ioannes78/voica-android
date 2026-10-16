@@ -16,6 +16,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -26,10 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.ble.BleScanDevice
 
-/**
- * Presentation-only device picker for homepage scans.
- * Scanning/connecting remains owned by the existing DeviceViewModel/BLE repository.
- */
+/** Presentation-only device picker. BLE scan/connect ownership remains unchanged. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun HomeDeviceScanSheet(
@@ -44,14 +42,20 @@ internal fun HomeDeviceScanSheet(
     if (!visible) return
 
     var showOtherDevices by rememberSaveable { mutableStateOf(false) }
+    var selectionPending by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(selectionPending, isScanning) {
+        if (selectionPending && !isScanning) onDismiss()
+    }
+
+    fun select(address: String) {
+        selectionPending = true
+        onConnect(address)
+    }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 20.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Row(
@@ -60,30 +64,19 @@ internal fun HomeDeviceScanSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("选择录音设备", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "选择录音设备",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        if (isScanning) {
-                            "正在扫描附近设备"
-                        } else {
-                            "选择设备后自动返回主页"
-                        },
+                        if (selectionPending) "正在连接所选设备" else if (isScanning) "正在扫描附近设备" else "选择设备后自动返回主页",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                if (!isScanning) {
+                if (!isScanning && !selectionPending) {
                     TextButton(onClick = onRescan) { Text("重新扫描") }
                 }
             }
 
-            if (isScanning) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            }
-
+            if (isScanning || selectionPending) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             HorizontalDivider()
 
             LazyColumn(
@@ -99,11 +92,8 @@ internal fun HomeDeviceScanSheet(
                             modifier = Modifier.padding(vertical = 2.dp),
                         )
                     }
-                    items(compatibleDevices, key = { device -> device.address }) { device ->
-                        CompactScanDeviceRow(
-                            device = device,
-                            onConnect = onConnect,
-                        )
+                    items(compatibleDevices, key = { it.address }) { device ->
+                        CompactScanDeviceRow(device = device, onConnect = ::select)
                     }
                 } else {
                     item(key = "compatible-empty") {
@@ -122,21 +112,12 @@ internal fun HomeDeviceScanSheet(
                             onClick = { showOtherDevices = !showOtherDevices },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text(
-                                if (showOtherDevices) {
-                                    "收起其它蓝牙设备 (${otherDevices.size})"
-                                } else {
-                                    "其它蓝牙设备 ${otherDevices.size} >"
-                                },
-                            )
+                            Text(if (showOtherDevices) "收起其它蓝牙设备 (${otherDevices.size})" else "其它蓝牙设备 ${otherDevices.size} >")
                         }
                     }
                     if (showOtherDevices) {
-                        items(otherDevices, key = { device -> device.address }) { device ->
-                            CompactScanDeviceRow(
-                                device = device,
-                                onConnect = onConnect,
-                            )
+                        items(otherDevices, key = { it.address }) { device ->
+                            CompactScanDeviceRow(device = device, onConnect = ::select)
                         }
                     }
                 }
