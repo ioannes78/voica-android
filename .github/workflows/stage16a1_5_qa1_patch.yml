@@ -1,0 +1,63 @@
+name: Stage16A1.5 QA1 Source Patch
+
+on:
+  push:
+    branches:
+      - stage16a1_5-home-notification-ux
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: startsWith(github.event.head_commit.message, 'chore: run stage16a1.5 qa1 source patch')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Apply presentation-only patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          branch = 'stage16a1_5-home-notification-ux'
+          screen = Path('app/src/main/java/io/github/ioannes78/voica/ui/device/DeviceProductScreen.kt')
+          text = screen.read_text(encoding='utf-8')
+          old = 'DeviceHeader(\n                            connected = recorderAvailable,'
+          new = 'VoicaBrandHeader(\n                            connected = recorderAvailable,'
+          if old not in text:
+              raise SystemExit('home DeviceHeader call not found')
+          text = text.replace(old, new, 1)
+          screen.write_text(text, encoding='utf-8')
+
+          changed_notification_files = []
+          for path in Path('app/src/main/java').rglob('*.kt'):
+              source = path.read_text(encoding='utf-8')
+              if '.setSmallIcon(' not in source:
+                  continue
+              updated = re.sub(
+                  r'\.setSmallIcon\([^\n]*\)',
+                  '.setSmallIcon(R.drawable.ic_voica_notification)',
+                  source,
+              )
+              if updated == source:
+                  continue
+              package_line = updated.splitlines()[0]
+              if package_line != 'package io.github.ioannes78.voica' and 'import io.github.ioannes78.voica.R' not in updated:
+                  updated = updated.replace(package_line + '\n', package_line + '\n\nimport io.github.ioannes78.voica.R\n', 1)
+              path.write_text(updated, encoding='utf-8')
+              changed_notification_files.append(str(path))
+
+          if not changed_notification_files:
+              raise SystemExit('no notification small icons changed')
+          print('notification files:', *changed_notification_files, sep='\n- ')
+          PY
+
+          git config user.name "ioannes78"
+          git config user.email "70731599+ioannes78@users.noreply.github.com"
+          git add app/src/main/java
+          git commit -m "feat: connect qa1 brand header and notification icon"
+          git push origin HEAD:stage16a1_5-home-notification-ux
