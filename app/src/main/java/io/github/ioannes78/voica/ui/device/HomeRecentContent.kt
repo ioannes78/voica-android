@@ -21,7 +21,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,7 +30,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.ioannes78.voica.ble.DeviceAudioFormat
 import io.github.ioannes78.voica.ble.DeviceFileOperationType
 import io.github.ioannes78.voica.ble.FileOperationState
@@ -39,7 +37,6 @@ import io.github.ioannes78.voica.ble.RemoteDeviceFile
 import io.github.ioannes78.voica.database.RecordingLibraryItem
 import io.github.ioannes78.voica.database.RecordingLibraryRow
 import io.github.ioannes78.voica.database.RecordingSourceType
-import io.github.ioannes78.voica.ui.DeviceViewModel
 import io.github.ioannes78.voica.ui.library.RecordingDisplayTimeFormatter
 import io.github.ioannes78.voica.ui.library.localMediaAvailability
 import java.time.Instant
@@ -111,6 +108,7 @@ internal fun buildHomeRecentContentItems(
 internal fun HomeRecentContent(
     recordings: List<RecordingLibraryItem>,
     deviceFiles: List<RemoteDeviceFile>,
+    libraryRows: List<RecordingLibraryRow>,
     operationState: FileOperationState,
     onOpenRecording: (String) -> Unit,
     onDownload: (RemoteDeviceFile, DeviceAudioFormat) -> Unit,
@@ -119,11 +117,6 @@ internal fun HomeRecentContent(
     showHeader: Boolean = true,
     showViewAll: Boolean = true,
 ) {
-    // DeviceProductScreen receives this same activity-scoped DeviceViewModel from VoicaApp. Reusing
-    // the existing instance here keeps the recent-content transcript badge on the unfiltered library
-    // truth instead of inheriting whichever filters happen to be active on the library tab.
-    val deviceViewModel: DeviceViewModel = viewModel()
-    val libraryRows by deviceViewModel.homeRecentLibraryRows.collectAsState(initial = emptyList())
     val recent = remember(recordings, deviceFiles, libraryRows, maxItems) {
         buildHomeRecentContentItems(
             recordings = recordings,
