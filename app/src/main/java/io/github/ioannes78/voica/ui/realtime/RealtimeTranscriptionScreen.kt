@@ -31,6 +31,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -43,10 +44,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import io.github.ioannes78.voica.Stage16AQaArtificialAsrSlowdown
 import io.github.ioannes78.voica.Stage16ARealtimeUiPhase
 import io.github.ioannes78.voica.Stage16ARealtimeUiState
+import io.github.ioannes78.voica.ui.phone.LocalPhoneMicrophoneRecordingRuntime
+import io.github.ioannes78.voica.ui.status.AppActivitySource
+import io.github.ioannes78.voica.ui.status.AppLiveActivityVisibility
+import io.github.ioannes78.voica.ui.status.LocalRecorderRecordingState
+import java.util.Locale
 import kotlinx.coroutines.launch
 
 @Composable
@@ -94,6 +100,7 @@ private fun RealtimeMiniLiveBar(
     }
 }
 
+@Suppress("UNUSED_PARAMETER")
 @Composable
 internal fun RealtimeTranscriptionScreen(
     padding: PaddingValues,
@@ -106,6 +113,33 @@ internal fun RealtimeTranscriptionScreen(
     qaScenarioLabel: String = "S10",
 ) {
     val state by controller.state.collectAsState()
+    val recorderRecording by LocalRecorderRecordingState.current.collectAsState()
+    val phoneRecordingRuntime = LocalPhoneMicrophoneRecordingRuntime.current
+    val phoneRecording by phoneRecordingRuntime.state.collectAsState()
+    val activitySource =
+        if (controller is PhoneMicrophoneRealtimeUiController) {
+            AppActivitySource.PHONE_MICROPHONE
+        } else {
+            AppActivitySource.RECORDER_CARD
+        }
+    val detailSourceLabel =
+        if (activitySource == AppActivitySource.PHONE_MICROPHONE) "手机" else "QS668 / CB08"
+    val displayTitle =
+        if (activitySource == AppActivitySource.PHONE_MICROPHONE) "实时转写" else title
+    val elapsedMs =
+        if (activitySource == AppActivitySource.PHONE_MICROPHONE) {
+            phoneRecording.durationMs
+        } else {
+            (recorderRecording.durationSeconds ?: 0).coerceAtLeast(0) * 1_000L
+        }
+    val detailModelLabel = state.modelLabel?.trim()?.takeIf { it.isNotEmpty() }
+        ?: if (state.phase in REALTIME_LOADING_PHASES) "模型加载中…" else null
+
+    DisposableEffect(activitySource) {
+        AppLiveActivityVisibility.enterRealtime(activitySource)
+        onDispose { AppLiveActivityVisibility.leaveRealtime(activitySource) }
+    }
+
     val scope = rememberCoroutineScope()
     val readerListState = rememberLazyListState()
     val readerDragged by readerListState.interactionSource.collectIsDraggedAsState()
@@ -113,7 +147,6 @@ internal fun RealtimeTranscriptionScreen(
     var readerFollowMode by remember { mutableStateOf(RealtimeReaderFollowMode.FOLLOW_LIVE) }
     var actionInFlight by remember { mutableStateOf(false) }
     var actionMessage by remember { mutableStateOf<String?>(null) }
-    var qaSlowdownMessage by remember { mutableStateOf<String?>(null) }
 
     val showEmptyReader = state.finalized.isEmpty() && state.stableText.isBlank() && state.partialText.isBlank()
     val hasTranscriptContent = state.finalized.isNotEmpty() || state.stableText.isNotBlank() || state.partialText.isNotBlank()
@@ -125,7 +158,6 @@ internal fun RealtimeTranscriptionScreen(
 
     LaunchedEffect(state.runId) {
         readerFollowMode = RealtimeReaderFollowMode.FOLLOW_LIVE
-        qaSlowdownMessage = null
     }
     LaunchedEffect(readerDragged, readerAtBottom) {
         readerFollowMode = RealtimeReaderFollowPolicy.reduce(readerFollowMode, readerDragged, readerAtBottom)
@@ -155,23 +187,15 @@ internal fun RealtimeTranscriptionScreen(
         }
     }
 
-    fun armQaSlowdown(delayMs: Long) {
-        qaSlowdownMessage = if (Stage16AQaArtificialAsrSlowdown.armOnce(delayMs)) {
-            "$qaScenarioLabel 已武装：下一个 PCM 处理将暂停 ${delayMs} ms"
-        } else {
-            "$qaScenarioLabel 未武装：已有延迟待触发或当前不是 QA 包"
-        }
-    }
-
     Column(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 12.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
             }
             Column(modifier = Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.headlineSmall)
+                Text(displayTitle, style = MaterialTheme.typography.headlineSmall)
                 Text(
-                    listOfNotNull(sourceLabel, state.modelLabel ?: realtimeStatusLabel(state)).joinToString(" · "),
+                    listOfNotNull(detailSourceLabel, detailModelLabel).joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -179,6 +203,13 @@ internal fun RealtimeTranscriptionScreen(
             Text(realtimeStatusLabel(state), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         HorizontalDivider()
+        Text(
+            text = formatRealtimeElapsed(elapsedMs),
+            modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 2.dp),
+            style = MaterialTheme.typography.displaySmall,
+            fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.Center,
+        )
 
         if (shouldShowRealtimeWaveform(state.phase)) {
             RealtimeAudioActivityWaveform(
@@ -235,21 +266,6 @@ internal fun RealtimeTranscriptionScreen(
         val visibleMessage = actionMessage ?: state.errorMessage
         if (!visibleMessage.isNullOrBlank()) {
             Text(visibleMessage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(bottom = 8.dp))
-        }
-
-        if (
-            Stage16AQaArtificialAsrSlowdown.isEnabled &&
-            state.phase == Stage16ARealtimeUiPhase.ACTIVE &&
-            !state.recordingOnlyMode &&
-            !state.sourceCaptureInterrupted
-        ) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { armQaSlowdown(1_200L) }, modifier = Modifier.weight(1f)) { Text("$qaScenarioLabel-A 延迟 1.2s") }
-                OutlinedButton(onClick = { armQaSlowdown(2_500L) }, modifier = Modifier.weight(1f)) { Text("$qaScenarioLabel-B 延迟 2.5s") }
-            }
-            qaSlowdownMessage?.let { message ->
-                Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
-            }
         }
 
         RealtimeControls(
@@ -423,3 +439,17 @@ private fun emptyReaderMessage(state: Stage16ARealtimeUiState): String = when {
         else -> "正在等待语音内容…"
     }
 }
+
+private fun formatRealtimeElapsed(elapsedMs: Long): String {
+    val totalSeconds = elapsedMs.coerceAtLeast(0L) / 1_000L
+    val hours = totalSeconds / 3_600L
+    val minutes = (totalSeconds % 3_600L) / 60L
+    val seconds = totalSeconds % 60L
+    return String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
+}
+
+private val REALTIME_LOADING_PHASES = setOf(
+    Stage16ARealtimeUiPhase.PREPARING,
+    Stage16ARealtimeUiPhase.STARTING,
+    Stage16ARealtimeUiPhase.RESUMING,
+)
