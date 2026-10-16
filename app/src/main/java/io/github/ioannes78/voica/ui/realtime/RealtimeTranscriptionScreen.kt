@@ -46,7 +46,6 @@ import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.Stage16AQaArtificialAsrSlowdown
 import io.github.ioannes78.voica.Stage16ARealtimeUiPhase
 import io.github.ioannes78.voica.Stage16ARealtimeUiState
-import kotlin.math.sqrt
 import kotlinx.coroutines.launch
 
 @Composable
@@ -467,7 +466,7 @@ internal fun RealtimeAudioActivityWaveform(
                 } else {
                     0f
                 }
-            val visualLevel = sqrt(rawLevel.coerceIn(0f, 1f))
+            val visualLevel = AudioActivityVisualSensitivity.toVisualLevel(rawLevel)
             val halfHeight =
                 minHalfHeight + visualLevel * (maxHalfHeight - minHalfHeight)
             val x = step * (index + 0.5f)
