@@ -1,6 +1,7 @@
 package io.github.ioannes78.voica.ui.status
 
 import androidx.compose.runtime.staticCompositionLocalOf
+import io.github.ioannes78.voica.LocalSpeechSettings
 import io.github.ioannes78.voica.LocalSpeechSettingsStore
 import io.github.ioannes78.voica.RealtimeAsrModelChoice
 import io.github.ioannes78.voica.ble.RecordingDeviceState
@@ -16,9 +17,15 @@ import kotlinx.coroutines.flow.asStateFlow
  * business-state owner.
  */
 internal val LocalRecorderRecordingState = staticCompositionLocalOf<StateFlow<RecordingDeviceState>> {
-    error("Recorder recording state was not provided")
+    MutableStateFlow(RecordingDeviceState()).asStateFlow()
 }
 
+/** Safe presentation flow for product UI/tests; the real app provides the canonical settings flow. */
+internal val LocalProductSpeechSettings = staticCompositionLocalOf<StateFlow<LocalSpeechSettings>> {
+    MutableStateFlow(LocalSpeechSettings()).asStateFlow()
+}
+
+/** Kept as a compatibility seam while Stage 16A.1.5 callers move to the read-only settings flow. */
 internal val LocalProductSpeechSettingsStore = staticCompositionLocalOf<LocalSpeechSettingsStore> {
     error("LocalSpeechSettingsStore was not provided")
 }
