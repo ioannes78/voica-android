@@ -347,7 +347,7 @@ class LongTaskNotificationController(
         logicalKey: String,
     ): Notification =
         Notification.Builder(context, VoicaNotificationChannels.TASK_ATTENTION)
-            .setSmallIcon(android.R.drawable.stat_notify_error)
+            .setSmallIcon(R.drawable.ic_voica_notification)
             .setContentTitle(title)
             .setContentText(text)
             .setSubText(recordingName)
@@ -398,7 +398,7 @@ class LongTaskNotificationController(
                 TaskCompletionKind.AI_SUMMARY -> "总结结果已生成"
             }
         return Notification.Builder(context, VoicaNotificationChannels.TASK_RESULT)
-            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setSmallIcon(R.drawable.ic_voica_notification)
             .setContentTitle(title)
             .setContentText(text)
             .setSubText(recordingName)
@@ -442,7 +442,7 @@ class LongTaskNotificationController(
             }
         val builder =
             Notification.Builder(context, VoicaNotificationChannels.AI_SUMMARY)
-                .setSmallIcon(android.R.drawable.stat_sys_upload)
+                .setSmallIcon(R.drawable.ic_voica_notification)
                 .setContentTitle(title)
                 .setContentText(buildAiSummaryLabel(running))
                 .setContentIntent(

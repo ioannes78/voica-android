@@ -102,7 +102,7 @@ internal object DeviceSessionNotificationUpdater {
         val safeLabel = label.trim().ifEmpty { "保持连接" }
         val notification =
             Notification.Builder(context, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+                .setSmallIcon(R.drawable.ic_voica_notification)
                 .setContentTitle(safeName)
                 .setContentText(safeLabel)
                 .setContentIntent(

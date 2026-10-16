@@ -190,7 +190,7 @@ class Stage13CDiarizationAttentionNotificationController(
         logicalKey: String,
     ): Notification =
         Notification.Builder(appContext, VoicaNotificationChannels.DIARIZATION_ATTENTION)
-            .setSmallIcon(android.R.drawable.stat_notify_error)
+            .setSmallIcon(R.drawable.ic_voica_notification)
             .setContentTitle(item.productLabel())
             .setContentText(item.productMessage())
             .setSubText(recordingName)

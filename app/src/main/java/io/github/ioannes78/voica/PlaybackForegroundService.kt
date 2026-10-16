@@ -327,7 +327,7 @@ class PlaybackForegroundService : Service() {
             }
 
         return Notification.Builder(this, VoicaNotificationChannels.PLAYBACK)
-            .setSmallIcon(if (playing) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause)
+            .setSmallIcon(R.drawable.ic_voica_notification)
             .setContentTitle(currentRecordingName)
             .setContentText(text)
             .setContentIntent(contentIntent)

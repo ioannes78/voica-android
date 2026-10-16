@@ -268,7 +268,7 @@ fun DeviceProductScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     item {
-                        DeviceHeader(
+                        VoicaBrandHeader(
                             connected = recorderAvailable,
                             onRefresh = viewModel::refreshDeviceInfo,
                             onSyncTime = viewModel::syncTime,
