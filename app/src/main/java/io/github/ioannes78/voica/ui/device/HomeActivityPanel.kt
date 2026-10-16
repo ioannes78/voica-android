@@ -24,6 +24,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,6 +42,8 @@ import io.github.ioannes78.voica.ui.status.AppActivityFact
 import io.github.ioannes78.voica.ui.status.AppActivityKind
 import io.github.ioannes78.voica.ui.status.AppActivityProjection
 import io.github.ioannes78.voica.ui.status.AppActivitySource
+import io.github.ioannes78.voica.ui.status.LocalProductSpeechSettingsStore
+import io.github.ioannes78.voica.ui.status.productDisplayName
 import java.util.Locale
 
 private enum class HomeModePreference { RECORDING, REALTIME }
@@ -248,8 +251,16 @@ private fun IdleMainActivityCard(
     onStart: () -> Unit,
 ) {
     val recorder = sourcePreference == HomeActivitySourcePreference.RECORDER_CARD
+    val speechSettings by LocalProductSpeechSettingsStore.current.settings.collectAsState()
+    val configuredRealtimeModel = speechSettings.realtimeAsrModel.productDisplayName()
     val sourceTitle = if (recorder) "录音卡" else "手机"
-    val sourceSubtitle = if (recorder) "QS668 / CB08" else "手机"
+    val sourceName = if (recorder) "QS668 / CB08" else "手机"
+    val sourceSubtitle =
+        if (mode == HomeModePreference.REALTIME) {
+            "$sourceName · $configuredRealtimeModel"
+        } else {
+            sourceName
+        }
     val modeTitle = if (mode == HomeModePreference.RECORDING) "录音" else "实时转写"
     val readyText = if (mode == HomeModePreference.RECORDING) "准备录音" else "准备实时转写"
     val actionText = if (mode == HomeModePreference.RECORDING) "开始录音" else "开始实时转写"
@@ -267,7 +278,13 @@ private fun IdleMainActivityCard(
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("$sourceTitle$modeTitle", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                    Text(sourceSubtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        sourceSubtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
                 if (recorder) {
                     HomeRecordingGainControl(
@@ -326,10 +343,10 @@ private fun PrimaryHomeActivityCard(
                     Text(activity.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                     if (realtime) {
                         Text(
-                            "${if (recorder) "录音卡" else "手机"} · ${activity.modelLabel?.trim()?.takeIf { it.isNotEmpty() } ?: "模型加载中…"}",
+                            "${if (recorder) "QS668 / CB08" else "手机"} · ${activity.modelLabel?.trim()?.takeIf { it.isNotEmpty() } ?: "模型加载中…"}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
                     } else if (recorder) {
@@ -432,11 +449,12 @@ private fun SecondaryHomeActivityRow(activity: AppActivityFact, onSelect: () -> 
             supportingContent = {
                 Text(
                     if (activity.kind == AppActivityKind.REALTIME_TRANSCRIPTION) {
-                        "${if (activity.source == AppActivitySource.RECORDER_CARD) "录音卡" else "手机"} · ${activity.modelLabel ?: "模型加载中…"}"
+                        "${if (activity.source == AppActivitySource.RECORDER_CARD) "QS668 / CB08" else "手机"} · ${activity.modelLabel ?: "模型加载中…"}"
                     } else {
                         activity.subtitle.orEmpty()
                     },
-                    maxLines = 1,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
             },
             trailingContent = { Icon(Icons.Outlined.ChevronRight, contentDescription = null) },
