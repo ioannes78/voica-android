@@ -27,6 +27,7 @@ import io.github.ioannes78.voica.ui.phone.PhoneMicrophoneRealtimeScreen
 import io.github.ioannes78.voica.ui.realtime.LocalStage16ARealtimeRuntime
 import io.github.ioannes78.voica.ui.realtime.PhoneMicrophoneRealtimeUiController
 import io.github.ioannes78.voica.ui.realtime.RealtimeTranscriptionScreen
+import io.github.ioannes78.voica.ui.status.LocalProductSpeechSettings
 import io.github.ioannes78.voica.ui.status.LocalProductSpeechSettingsStore
 import io.github.ioannes78.voica.ui.status.LocalRecorderRecordingState
 import io.github.ioannes78.voica.ui.theme.VoicaTheme
@@ -107,6 +108,7 @@ class MainActivity : ComponentActivity() {
                     LocalPhoneMicrophoneRecordingRuntime provides appContainer.phoneMicrophoneRecordingRuntime,
                     LocalPhoneMicrophoneRealtimeRuntime provides appContainer.phoneMicrophoneRealtimeRuntime,
                     LocalRecorderRecordingState provides deviceRepository.recordingState,
+                    LocalProductSpeechSettings provides appContainer.localSpeechSettingsStore.settings,
                     LocalProductSpeechSettingsStore provides appContainer.localSpeechSettingsStore,
                 ) {
                     Box(modifier = Modifier.fillMaxSize()) {
