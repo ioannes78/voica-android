@@ -77,6 +77,7 @@ fun DeviceProductScreen(
     val deviceFiles by viewModel.deviceFileListState.collectAsState()
     val fileOperation by viewModel.fileOperationState.collectAsState()
     val libraryRecordings by viewModel.libraryRecordings.collectAsState(initial = emptyList())
+    val homeRecentLibraryRows by viewModel.homeRecentLibraryRows.collectAsState(initial = emptyList())
     val diagnostics by viewModel.diagnostics.collectAsState()
     val fileTransferDiagnostics by viewModel.fileTransferDiagnostics.collectAsState()
     val remoteDeleteDiagnostics by viewModel.remoteDeleteDiagnostics.collectAsState()
@@ -325,6 +326,7 @@ fun DeviceProductScreen(
                         HomeRecentContent(
                             recordings = libraryRecordings,
                             deviceFiles = deviceFiles.files,
+                            libraryRows = homeRecentLibraryRows,
                             operationState = fileOperation,
                             onOpenRecording = ::openRecording,
                             onDownload = viewModel::downloadDeviceFile,
