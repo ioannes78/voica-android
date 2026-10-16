@@ -77,6 +77,52 @@ class LiveActivityStripProjectionTest {
     }
 
     @Test
+    fun `two concurrent sources remain independently visible outside exact pages`() {
+        val items =
+            resolveLiveActivityStrips(
+                deviceRecording = RecordingDeviceState(
+                    status = RecordingStatus.Recording,
+                    durationSeconds = 14,
+                ),
+                deviceRealtime = Stage16ARealtimeUiState(phase = Stage16ARealtimeUiPhase.ACTIVE),
+                phoneRecording = PhoneMicrophoneRecordingSnapshot(
+                    phase = PhoneMicrophoneRecordingPhase.RECORDING,
+                    writtenSamples = 16_000L * 6L,
+                ),
+                phoneRealtime = Stage16ARealtimeUiState(),
+                visibleRealtimeSource = null,
+            )
+
+        assertEquals(2, items.size)
+        assertEquals(AppActivitySource.RECORDER_CARD, items[0].source)
+        assertEquals(LiveActivityStripKind.REALTIME, items[0].kind)
+        assertEquals(AppActivitySource.PHONE_MICROPHONE, items[1].source)
+        assertEquals(LiveActivityStripKind.RECORDING, items[1].kind)
+    }
+
+    @Test
+    fun `exact suppression removes only matching realtime source`() {
+        val items =
+            resolveLiveActivityStrips(
+                deviceRecording = RecordingDeviceState(
+                    status = RecordingStatus.Recording,
+                    durationSeconds = 14,
+                ),
+                deviceRealtime = Stage16ARealtimeUiState(phase = Stage16ARealtimeUiPhase.ACTIVE),
+                phoneRecording = PhoneMicrophoneRecordingSnapshot(
+                    phase = PhoneMicrophoneRecordingPhase.RECORDING,
+                    writtenSamples = 16_000L * 6L,
+                ),
+                phoneRealtime = Stage16ARealtimeUiState(),
+                visibleRealtimeSource = AppActivitySource.RECORDER_CARD,
+            )
+
+        assertEquals(1, items.size)
+        assertEquals(AppActivitySource.PHONE_MICROPHONE, items.single().source)
+        assertEquals(LiveActivityStripKind.RECORDING, items.single().kind)
+    }
+
+    @Test
     fun `paused phone realtime keeps realtime paused wording`() {
         val item =
             resolveLiveActivityStrip(
