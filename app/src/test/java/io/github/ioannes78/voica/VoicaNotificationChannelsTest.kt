@@ -56,4 +56,9 @@ class VoicaNotificationChannelsTest {
             VoicaNotificationChannels.all.associate { it.id to it.category },
         )
     }
+
+    @Test
+    fun `qa1 visual revision keeps notification channel topology unchanged`() {
+        assertEquals(9, VoicaNotificationChannels.all.size)
+    }
 }
