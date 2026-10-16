@@ -215,6 +215,18 @@ fun DeviceProductScreen(
             sourcePreference = effectiveSourcePreference,
         )
 
+    val recorderGainInteractionEnabled =
+        recorderAvailable &&
+            recording.freshness == RecordingFreshness.FRESH &&
+            recording.commandState == RecordingCommandState.IDLE
+    val recorderGainBusy =
+        recording.commandState == RecordingCommandState.SETTING_GAIN ||
+            recording.commandState == RecordingCommandState.RECONCILING
+    val recorderGainErrorMessage =
+        recording.lastError?.let { error ->
+            error.code.name + (error.detail?.let { detail -> " · $detail" } ?: "")
+        }
+
     fun showActionMessage(message: String?) {
         if (message.isNullOrBlank()) return
         phoneUiScope.launch { snackbarHostState.showSnackbar(message) }
@@ -338,6 +350,10 @@ fun DeviceProductScreen(
                                     } else {
                                         null
                                     },
+                                recorderGain = recording.gain,
+                                recorderGainInteractionEnabled = recorderGainInteractionEnabled,
+                                recorderGainBusy = recorderGainBusy,
+                                recorderGainErrorMessage = recorderGainErrorMessage,
                                 onSourcePreferenceChanged = { homeSourcePreference = it },
                                 onStartRecording = {
                                     when (effectiveSourcePreference) {
@@ -360,6 +376,7 @@ fun DeviceProductScreen(
                                             requestPhoneStart(HomePhoneMicrophoneStartAction.REALTIME)
                                     }
                                 },
+                                onSetRecordingGain = viewModel::setRecordingGain,
                                 onAction = { activity, action ->
                                     when {
                                         activity.source == AppActivitySource.RECORDER_CARD &&
