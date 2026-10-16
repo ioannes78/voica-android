@@ -57,6 +57,12 @@ internal data class AppActivityFact(
     val taskId: String? = null,
     val destination: AppActivityDestination? = null,
     val availableActions: Set<AppActivityAction> = emptySet(),
+    /** Optional live-media presentation fields. They are rebuilt from existing runtime truth. */
+    val elapsedMs: Long? = null,
+    val mediaDisplayName: String? = null,
+    val mediaSizeBytes: Long? = null,
+    val audioActivityLevels: List<Float> = emptyList(),
+    val waveformActive: Boolean = false,
     /** Higher values win only inside the presentation resolver. They never alter business truth. */
     val priorityHint: Int = 0,
     /** Set by UI/navigation context when the user explicitly selected this active source. */
@@ -71,6 +77,11 @@ internal data class AppActivityFact(
             require(progress.isFinite() && progress in 0f..1f) {
                 "progressFraction must be finite and between 0 and 1"
             }
+        }
+        elapsedMs?.let { elapsed -> require(elapsed >= 0L) { "elapsedMs must not be negative" } }
+        mediaSizeBytes?.let { size -> require(size >= 0L) { "mediaSizeBytes must not be negative" } }
+        require(audioActivityLevels.all { level -> level.isFinite() && level in 0f..1f }) {
+            "audioActivityLevels must be finite and between 0 and 1"
         }
     }
 }
