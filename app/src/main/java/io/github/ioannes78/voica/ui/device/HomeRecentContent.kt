@@ -32,7 +32,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import io.github.ioannes78.voica.AppRecordingNavigation
 import io.github.ioannes78.voica.ble.DeviceAudioFormat
 import io.github.ioannes78.voica.ble.DeviceFileOperationType
 import io.github.ioannes78.voica.ble.FileOperationState
@@ -155,15 +154,7 @@ internal fun HomeRecentContent(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("最近内容", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                if (showViewAll) {
-                    TextButton(
-                        onClick = {
-                            // Hand off to the existing full recording library. The old RECENT_ALL
-                            // surface remains only as a defensive fallback for a rejected request.
-                            if (AppRecordingNavigation.publishLibraryRoot() == null) onViewAll()
-                        },
-                    ) { Text("查看全部") }
-                }
+                if (showViewAll) TextButton(onClick = onViewAll) { Text("查看全部") }
             }
         }
         if (recent.isEmpty()) {
@@ -176,6 +167,7 @@ internal fun HomeRecentContent(
         } else {
             recent.forEach { item ->
                 val recording = item.recording
+                val remote = item.remote
                 val availability = recording?.localMediaAvailability()
                 val remoteOnly =
                     recording == null ||
@@ -183,7 +175,7 @@ internal fun HomeRecentContent(
                             availability != null &&
                                 !availability.originalReady &&
                                 !availability.canonicalReady &&
-                                (availability.remoteOriginalAvailable || item.remote != null)
+                                (availability.remoteOriginalAvailable || remote != null)
                         )
                 val active = (operationState as? FileOperationState.Active)
                     ?.takeIf {
@@ -201,8 +193,8 @@ internal fun HomeRecentContent(
                             recording?.id?.let(onOpenRecording)
                         }
                     },
-                    onDownload = if (remoteOnly && item.remote != null && active == null) {
-                        { onDownload(item.remote, DeviceAudioFormat.OPUS) }
+                    onDownload = if (remoteOnly && remote != null && active == null) {
+                        { onDownload(remote, DeviceAudioFormat.OPUS) }
                     } else null,
                 )
             }
