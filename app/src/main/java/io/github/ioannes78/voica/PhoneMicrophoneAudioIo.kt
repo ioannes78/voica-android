@@ -151,11 +151,26 @@ internal class PhoneMicrophoneRouteTracker {
         if (!initialized) return reset(nextRoute)
         if (route == nextRoute) return observation(changed = false)
 
+        val oldRoute = route
         route = nextRoute
         generation = Math.addExact(generation, 1L)
         changeCount = Math.addExact(changeCount, 1L)
         lastChangeReason = PhoneMicrophoneRouteChangeReason.PLATFORM_REROUTE
-        return observation(changed = true)
+        val result = observation(changed = true)
+        PhoneMicrophoneRouteBoundaryHub.emit(
+            PhoneMicrophoneRouteBoundary(
+                reason =
+                    if (nextRoute == null) {
+                        PhoneMicrophoneRouteBoundaryReason.ROUTE_LOST
+                    } else {
+                        PhoneMicrophoneRouteBoundaryReason.ROUTE_CHANGED
+                    },
+                oldRoute = oldRoute,
+                newRoute = nextRoute,
+                routeGeneration = generation,
+            ),
+        )
+        return result
     }
 
     private fun observation(changed: Boolean): PhoneMicrophoneRouteObservation =
