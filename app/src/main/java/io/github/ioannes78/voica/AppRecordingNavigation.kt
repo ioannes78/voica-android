@@ -68,6 +68,20 @@ internal object AppRecordingNavigation {
         ).also { mutableRequest.value = it }
     }
 
+    /**
+     * Stage 16A.1.5 keeps the existing single navigation owner in VoicaApp and must not introduce a
+     * second recording-library surface. A library-root request therefore hands control to that owner
+     * with a reserved, non-recording id. The library owner switches to the canonical library tab; the
+     * unresolved id intentionally leaves no detail selected, so the existing full library route is
+     * shown. TRANSCRIPT is used only as a non-playback handoff marker so realtime-stop playback
+     * suppression can never consume this navigation request.
+     */
+    fun publishLibraryRoot(): AppRecordingOpenRequest? =
+        publish(
+            recordingId = LIBRARY_ROOT_NAVIGATION_ID,
+            destination = RecordingDetailDestination.TRANSCRIPT,
+        )
+
     private fun consumeRealtimePlaybackSuppression(): Boolean {
         while (true) {
             val until = suppressNextPlainPlaybackUntilMs.get()
@@ -162,6 +176,7 @@ internal fun recordingOpenPendingIntent(
 )
 
 internal const val ACTION_OPEN_RECORDING = "io.github.ioannes78.voica.OPEN_RECORDING"
+internal const val LIBRARY_ROOT_NAVIGATION_ID = "__voica_library_root__"
 private const val EXTRA_RECORDING_ID = "io.github.ioannes78.voica.extra.RECORDING_ID"
 private const val EXTRA_DESTINATION = "io.github.ioannes78.voica.extra.DESTINATION"
 private const val EXTRA_COMPLETION_KIND = "io.github.ioannes78.voica.extra.COMPLETION_KIND"
