@@ -131,6 +131,7 @@ fun DeviceProductScreen(
     var homeSourcePreference by rememberSaveable {
         mutableStateOf(HomeActivitySourcePreference.RECORDER_CARD)
     }
+    var showDevicePicker by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(page) {
         onSecondaryPageChanged(page != DevicePage.HOME)
@@ -145,6 +146,9 @@ fun DeviceProductScreen(
     LaunchedEffect(connection) {
         if (connection is DeviceConnectionState.PermissionRequired) {
             viewModel.refreshPermissions()
+        }
+        if (connection is DeviceConnectionState.Ready) {
+            showDevicePicker = false
         }
     }
 
@@ -284,8 +288,14 @@ fun DeviceProductScreen(
                             isScanning = scan.isScanning,
                             discoveredCount = scan.devices.size,
                             missingPermissions = missingPermissions,
-                            onScan = viewModel::startScan,
-                            onStopScan = viewModel::stopScan,
+                            onScan = {
+                                showDevicePicker = true
+                                viewModel.startScan()
+                            },
+                            onStopScan = {
+                                showDevicePicker = false
+                                viewModel.stopScan()
+                            },
                             onRequestPermissions = {
                                 permissionLauncher.launch(missingPermissions.toTypedArray())
                             },
@@ -395,34 +405,7 @@ fun DeviceProductScreen(
                         }
                     }
 
-                    if (!recorderAvailable) {
-                        if (compatibleDevices.isNotEmpty()) {
-                            item {
-                                Text(
-                                    "兼容录音设备",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            items(
-                                items = compatibleDevices.take(MAX_HOME_SCAN_RESULTS),
-                                key = { it.address },
-                            ) { device ->
-                                CompactScanDeviceRow(
-                                    device = device,
-                                    onConnect = viewModel::connect,
-                                )
-                            }
-                        }
-
-                        if (otherDevices.isNotEmpty()) {
-                            item {
-                                TextButton(onClick = { page = DevicePage.ALL_DEVICES }) {
-                                    Text("其它蓝牙设备 " + otherDevices.size + " >")
-                                }
-                            }
-                        }
-                    } else {
+                    if (recorderAvailable) {
                         item {
                             DeviceFilesEntry(
                                 count = deviceFiles.files.size,
@@ -432,6 +415,19 @@ fun DeviceProductScreen(
                         }
                     }
                 }
+
+                HomeDeviceScanSheet(
+                    visible = showDevicePicker,
+                    isScanning = scan.isScanning,
+                    compatibleDevices = compatibleDevices,
+                    otherDevices = otherDevices,
+                    onDismiss = {
+                        showDevicePicker = false
+                        if (scan.isScanning) viewModel.stopScan()
+                    },
+                    onConnect = viewModel::connect,
+                    onRescan = viewModel::startScan,
+                )
             }
 
             DevicePage.REALTIME -> {
@@ -697,5 +693,3 @@ private val PHONE_MIC_STARTABLE_PHASES =
         PhoneMicrophoneRecordingPhase.EMPTY,
         PhoneMicrophoneRecordingPhase.FAILED,
     )
-
-private const val MAX_HOME_SCAN_RESULTS = 4
