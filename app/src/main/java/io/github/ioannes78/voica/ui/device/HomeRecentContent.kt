@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,15 +31,82 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import io.github.ioannes78.voica.AppRecordingNavigation
 import io.github.ioannes78.voica.ble.DeviceAudioFormat
 import io.github.ioannes78.voica.ble.DeviceFileOperationType
 import io.github.ioannes78.voica.ble.FileOperationState
 import io.github.ioannes78.voica.ble.RemoteDeviceFile
 import io.github.ioannes78.voica.database.RecordingLibraryItem
+import io.github.ioannes78.voica.database.RecordingLibraryRow
 import io.github.ioannes78.voica.database.RecordingSourceType
+import io.github.ioannes78.voica.ui.DeviceViewModel
 import io.github.ioannes78.voica.ui.library.RecordingDisplayTimeFormatter
 import io.github.ioannes78.voica.ui.library.localMediaAvailability
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.OffsetDateTime
+import java.time.ZoneId
 import java.util.Locale
+
+internal data class HomeRecentContentItem(
+    val recording: RecordingLibraryItem?,
+    val remote: RemoteDeviceFile?,
+    val hasCompletedTranscription: Boolean,
+    val sortTimeMs: Long,
+    val sortTieBreaker: Int,
+) {
+    val remoteIdentity: String?
+        get() = recording?.sourceRemoteIdentity ?: remote?.identity
+}
+
+internal fun buildHomeRecentContentItems(
+    recordings: List<RecordingLibraryItem>,
+    deviceFiles: List<RemoteDeviceFile>,
+    libraryRows: List<RecordingLibraryRow>,
+    maxItems: Int,
+): List<HomeRecentContentItem> {
+    val rowByRecordingId = libraryRows.associateBy(RecordingLibraryRow::id)
+    val remoteByIdentity = deviceFiles.associateBy(RemoteDeviceFile::identity)
+    val linkedRemoteIdentities =
+        recordings.mapNotNullTo(mutableSetOf()) { recording ->
+            recording.sourceRemoteIdentity?.trim()?.takeIf(String::isNotEmpty)
+        }
+
+    val localItems =
+        recordings.map { recording ->
+            val remote = recording.sourceRemoteIdentity?.let(remoteByIdentity::get)
+            HomeRecentContentItem(
+                recording = recording,
+                remote = remote,
+                hasCompletedTranscription =
+                    rowByRecordingId[recording.id]?.hasCompletedTranscription == true,
+                sortTimeMs = recordingRecentSortTimeMs(recording),
+                sortTieBreaker = remote?.deviceOrder?.let { -it } ?: 0,
+            )
+        }
+    val remoteOnlyItems =
+        deviceFiles
+            .asSequence()
+            .filterNot { remote -> remote.identity in linkedRemoteIdentities }
+            .map { remote ->
+                HomeRecentContentItem(
+                    recording = null,
+                    remote = remote,
+                    hasCompletedTranscription = false,
+                    sortTimeMs = remoteRecentSortTimeMs(remote),
+                    sortTieBreaker = -remote.deviceOrder,
+                )
+            }
+            .toList()
+
+    return (localItems + remoteOnlyItems)
+        .sortedWith(
+            compareByDescending<HomeRecentContentItem> { item -> item.sortTimeMs }
+                .thenByDescending { item -> item.sortTieBreaker },
+        )
+        .take(maxItems.coerceAtLeast(0))
+}
 
 @Composable
 internal fun HomeRecentContent(
@@ -52,21 +120,30 @@ internal fun HomeRecentContent(
     showHeader: Boolean = true,
     showViewAll: Boolean = true,
 ) {
-    val recent = remember(recordings, maxItems) {
-        recordings
-            .sortedByDescending { item -> maxOf(item.updatedAtMs, item.createdAtMs) }
-            .take(maxItems.coerceAtLeast(0))
+    // DeviceProductScreen receives this same activity-scoped DeviceViewModel from VoicaApp. Reusing
+    // the existing instance here keeps the recent-content transcript badge on the unfiltered library
+    // truth instead of inheriting whichever filters happen to be active on the library tab.
+    val deviceViewModel: DeviceViewModel = viewModel()
+    val libraryRows by deviceViewModel.homeRecentLibraryRows.collectAsState(initial = emptyList())
+    val recent = remember(recordings, deviceFiles, libraryRows, maxItems) {
+        buildHomeRecentContentItems(
+            recordings = recordings,
+            deviceFiles = deviceFiles,
+            libraryRows = libraryRows,
+            maxItems = maxItems,
+        )
     }
-    var pendingSheet by remember { mutableStateOf<RecordingLibraryItem?>(null) }
-    var openAfterDownloadId by remember { mutableStateOf<String?>(null) }
+    var pendingSheet by remember { mutableStateOf<HomeRecentContentItem?>(null) }
+    var openAfterDownloadRemoteIdentity by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(recordings, openAfterDownloadId) {
-        val id = openAfterDownloadId ?: return@LaunchedEffect
-        val item = recordings.firstOrNull { it.id == id } ?: return@LaunchedEffect
+    LaunchedEffect(recordings, openAfterDownloadRemoteIdentity) {
+        val remoteIdentity = openAfterDownloadRemoteIdentity ?: return@LaunchedEffect
+        val item = recordings.firstOrNull { it.sourceRemoteIdentity == remoteIdentity }
+            ?: return@LaunchedEffect
         val available = item.localMediaAvailability()
         if (available.originalReady || available.canonicalReady) {
-            openAfterDownloadId = null
-            onOpenRecording(id)
+            openAfterDownloadRemoteIdentity = null
+            onOpenRecording(item.id)
         }
     }
 
@@ -78,7 +155,15 @@ internal fun HomeRecentContent(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("最近内容", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                if (showViewAll) TextButton(onClick = onViewAll) { Text("查看全部") }
+                if (showViewAll) {
+                    TextButton(
+                        onClick = {
+                            // Hand off to the existing full recording library. The old RECENT_ALL
+                            // surface remains only as a defensive fallback for a rejected request.
+                            if (AppRecordingNavigation.publishLibraryRoot() == null) onViewAll()
+                        },
+                    ) { Text("查看全部") }
+                }
             }
         }
         if (recent.isEmpty()) {
@@ -90,20 +175,34 @@ internal fun HomeRecentContent(
             )
         } else {
             recent.forEach { item ->
-                val availability = item.localMediaAvailability()
-                val remoteOnly = !availability.originalReady && !availability.canonicalReady && availability.remoteOriginalAvailable
-                val remote = item.sourceRemoteIdentity?.let { id -> deviceFiles.firstOrNull { it.identity == id } }
+                val recording = item.recording
+                val availability = recording?.localMediaAvailability()
+                val remoteOnly =
+                    recording == null ||
+                        (
+                            availability != null &&
+                                !availability.originalReady &&
+                                !availability.canonicalReady &&
+                                (availability.remoteOriginalAvailable || item.remote != null)
+                        )
                 val active = (operationState as? FileOperationState.Active)
-                    ?.takeIf { it.operation == DeviceFileOperationType.DOWNLOAD && it.remoteIdentity == item.sourceRemoteIdentity }
+                    ?.takeIf {
+                        it.operation == DeviceFileOperationType.DOWNLOAD &&
+                            it.remoteIdentity == item.remoteIdentity
+                    }
                 RecentRecordingRow(
-                    recording = item,
+                    item = item,
                     remoteOnly = remoteOnly,
                     active = active,
                     onClick = {
-                        if (remoteOnly) pendingSheet = item else onOpenRecording(item.id)
+                        if (remoteOnly) {
+                            pendingSheet = item
+                        } else {
+                            recording?.id?.let(onOpenRecording)
+                        }
                     },
-                    onDownload = if (remoteOnly && remote != null && active == null) {
-                        { onDownload(remote, DeviceAudioFormat.OPUS) }
+                    onDownload = if (remoteOnly && item.remote != null && active == null) {
+                        { onDownload(item.remote, DeviceAudioFormat.OPUS) }
                     } else null,
                 )
             }
@@ -111,7 +210,7 @@ internal fun HomeRecentContent(
     }
 
     pendingSheet?.let { item ->
-        val remote = item.sourceRemoteIdentity?.let { id -> deviceFiles.firstOrNull { it.identity == id } }
+        val remote = item.remote
         ModalBottomSheet(onDismissRequest = { pendingSheet = null }) {
             Column(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp),
@@ -126,7 +225,7 @@ internal fun HomeRecentContent(
                 Button(
                     onClick = {
                         if (remote != null) {
-                            openAfterDownloadId = item.id
+                            openAfterDownloadRemoteIdentity = remote.identity
                             pendingSheet = null
                             onDownload(remote, DeviceAudioFormat.OPUS)
                         }
@@ -151,20 +250,32 @@ internal fun HomeRecentContent(
 
 @Composable
 private fun RecentRecordingRow(
-    recording: RecordingLibraryItem,
+    item: HomeRecentContentItem,
     remoteOnly: Boolean,
     active: FileOperationState.Active?,
     onClick: () -> Unit,
     onDownload: (() -> Unit)?,
 ) {
-    val source = when (recording.sourceType) {
+    val recording = item.recording
+    val remote = item.remote
+    val displayName = recording?.displayName ?: remote?.displayFilename ?: "录音"
+    val source = when (recording?.sourceType) {
         RecordingSourceType.PHONE_MICROPHONE -> "手机"
         RecordingSourceType.DEVICE_DOWNLOAD -> "录音卡"
         RecordingSourceType.LOCAL_IMPORT -> "本地导入"
+        null -> "录音卡"
         else -> recording.sourceType
     }
-    val duration = (recording.mediaDurationMs ?: recording.deviceReportedDurationMs)?.let(::formatRecentDuration)
-    val recordedAt = RecordingDisplayTimeFormatter.format(recording.recordedAtLocalIso, recording.createdAtMs)
+    val durationMs =
+        (recording?.mediaDurationMs ?: recording?.deviceReportedDurationMs)
+            ?: remote?.durationSeconds?.let { seconds -> seconds.coerceAtLeast(0L) * 1000L }
+    val duration = durationMs?.let(::formatRecentDuration)
+    val recordedAt =
+        if (recording != null) {
+            RecordingDisplayTimeFormatter.format(recording.recordedAtLocalIso, recording.createdAtMs)
+        } else {
+            RecordingDisplayTimeFormatter.format(remote?.recordedAt?.toString(), 0L)
+        }
     Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
@@ -172,15 +283,32 @@ private fun RecentRecordingRow(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(recording.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+                Text(displayName, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
                 Text(
-                    listOfNotNull(source, duration, recordedAt).joinToString(" · "),
+                    listOfNotNull(source, duration, recordedAt.takeUnless { it == "--" }).joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (remoteOnly) Text("仅在录音卡", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                if (remoteOnly || item.hasCompletedTranscription) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        if (remoteOnly) {
+                            Text(
+                                "仅在录音卡",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        if (item.hasCompletedTranscription) {
+                            Text(
+                                "已转写",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                }
                 active?.progress?.fraction?.let { fraction ->
                     LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
                 }
@@ -192,6 +320,34 @@ private fun RecentRecordingRow(
             }
         }
     }
+}
+
+private fun recordingRecentSortTimeMs(recording: RecordingLibraryItem): Long =
+    parseRecordedAtToEpochMs(recording.recordedAtLocalIso)
+        ?: recording.createdAtMs.takeIf { it > 0L }
+        ?: 0L
+
+private fun remoteRecentSortTimeMs(remote: RemoteDeviceFile): Long =
+    remote.recordedAt
+        ?.atZone(ZoneId.systemDefault())
+        ?.toInstant()
+        ?.toEpochMilli()
+        ?: 0L
+
+private fun parseRecordedAtToEpochMs(rawValue: String?): Long? {
+    val raw = rawValue?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    runCatching { OffsetDateTime.parse(raw).toInstant().toEpochMilli() }
+        .getOrNull()
+        ?.let { return it }
+    runCatching { Instant.parse(raw).toEpochMilli() }
+        .getOrNull()
+        ?.let { return it }
+    return runCatching {
+        LocalDateTime.parse(raw)
+            .atZone(ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli()
+    }.getOrNull()
 }
 
 private fun formatRecentDuration(ms: Long): String {
