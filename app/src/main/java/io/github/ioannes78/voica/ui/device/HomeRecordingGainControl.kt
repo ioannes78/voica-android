@@ -12,6 +12,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,9 +35,21 @@ internal fun HomeRecordingGainControl(
     modifier: Modifier = Modifier,
 ) {
     var sheetVisible by remember { mutableStateOf(false) }
+    var pendingTarget by remember { mutableStateOf<RecordingGain?>(null) }
+
+    LaunchedEffect(sheetVisible, pendingTarget, gain, busy, errorMessage) {
+        val target = pendingTarget ?: return@LaunchedEffect
+        if (sheetVisible && !busy && errorMessage.isNullOrBlank() && gain == target) {
+            pendingTarget = null
+            sheetVisible = false
+        }
+    }
 
     TextButton(
-        onClick = { sheetVisible = true },
+        onClick = {
+            pendingTarget = null
+            sheetVisible = true
+        },
         enabled = interactionEnabled || gain != null,
         modifier = modifier,
     ) {
@@ -49,7 +62,25 @@ internal fun HomeRecordingGainControl(
 
     if (!sheetVisible) return
 
-    ModalBottomSheet(onDismissRequest = { if (!busy) sheetVisible = false }) {
+    fun select(target: RecordingGain) {
+        if (busy) return
+        if (gain == target) {
+            pendingTarget = null
+            sheetVisible = false
+            return
+        }
+        pendingTarget = target
+        onSetGain(target)
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = {
+            if (!busy) {
+                pendingTarget = null
+                sheetVisible = false
+            }
+        },
+    ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp).padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -62,6 +93,7 @@ internal fun HomeRecordingGainControl(
             Text(
                 when {
                     busy -> "正在设置并读取设备真实值…"
+                    !errorMessage.isNullOrBlank() -> "设备设置未完成，请检查后重试"
                     gain == null -> "尚未取得设备增益值"
                     else -> "当前设备值：${gainLabel(gain)}"
                 },
@@ -73,19 +105,19 @@ internal fun HomeRecordingGainControl(
                 label = "低",
                 selected = gain == RecordingGain.Low,
                 enabled = interactionEnabled && !busy,
-                onClick = { onSetGain(RecordingGain.Low) },
+                onClick = { select(RecordingGain.Low) },
             )
             GainChoiceRow(
                 label = "中",
                 selected = gain == RecordingGain.Medium,
                 enabled = interactionEnabled && !busy,
-                onClick = { onSetGain(RecordingGain.Medium) },
+                onClick = { select(RecordingGain.Medium) },
             )
             GainChoiceRow(
                 label = "高",
                 selected = gain == RecordingGain.High,
                 enabled = interactionEnabled && !busy,
-                onClick = { onSetGain(RecordingGain.High) },
+                onClick = { select(RecordingGain.High) },
             )
 
             if (!errorMessage.isNullOrBlank()) {

@@ -1,6 +1,5 @@
 package io.github.ioannes78.voica.ui.device
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -15,12 +14,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -31,10 +30,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.protocol.RecordingGain
 import io.github.ioannes78.voica.ui.realtime.RealtimeAudioActivityWaveform
@@ -45,10 +43,7 @@ import io.github.ioannes78.voica.ui.status.AppActivityProjection
 import io.github.ioannes78.voica.ui.status.AppActivitySource
 import java.util.Locale
 
-private enum class HomeModePreference {
-    RECORDING,
-    REALTIME,
-}
+private enum class HomeModePreference { RECORDING, REALTIME }
 
 @Composable
 internal fun HomeActivityPanel(
@@ -106,12 +101,8 @@ internal fun HomeActivityPanel(
         }
 
         projection.secondaryActivities.forEach { activity ->
-            SecondaryHomeActivityRow(
-                activity = activity,
-                onSelect = { onSelectSecondaryActivity(activity) },
-            )
+            SecondaryHomeActivityRow(activity = activity, onSelect = { onSelectSecondaryActivity(activity) })
         }
-
         projection.attentionItems.firstOrNull()?.let { attention ->
             HomeAttentionRow(
                 activity = attention,
@@ -139,30 +130,11 @@ private fun IdleHomeQuickActions(
     onSetRecordingGain: (RecordingGain) -> Unit,
 ) {
     var mode by remember { mutableStateOf(HomeModePreference.RECORDING) }
-
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        SectionHeading(
-            title = "录音来源",
-            hint = "选择录音来源",
-        )
-        SourceSelector(
-            sourcePreference = sourcePreference,
-            recorderAvailable = recorderAvailable,
-            onSourcePreferenceChanged = onSourcePreferenceChanged,
-        )
-
-        SectionHeading(
-            title = "模式选择",
-            hint = "选择功能模式",
-        )
-        ModeSelector(
-            mode = mode,
-            onModeChanged = { mode = it },
-        )
-
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionHeading("录音来源", "选择录音来源")
+        SourceSelector(sourcePreference, recorderAvailable, onSourcePreferenceChanged)
+        SectionHeading("模式选择", "选择功能模式")
+        ModeSelector(mode) { mode = it }
         IdleMainActivityCard(
             sourcePreference = sourcePreference,
             mode = mode,
@@ -179,25 +151,14 @@ private fun IdleHomeQuickActions(
 }
 
 @Composable
-private fun SectionHeading(
-    title: String,
-    hint: String,
-) {
+private fun SectionHeading(title: String, hint: String) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Text(
-            hint,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -208,63 +169,40 @@ private fun SourceSelector(
     onSourcePreferenceChanged: (HomeActivitySourcePreference) -> Unit,
 ) {
     Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .background(
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                    shape = RoundedCornerShape(21.dp),
-                )
-                .padding(2.dp),
+        modifier = Modifier.fillMaxWidth().background(
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+            RoundedCornerShape(21.dp),
+        ).padding(2.dp),
         horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         SegmentedChoice(
-            label = "手机",
-            selected = sourcePreference == HomeActivitySourcePreference.PHONE_MICROPHONE,
-            enabled = true,
-            onClick = { onSourcePreferenceChanged(HomeActivitySourcePreference.PHONE_MICROPHONE) },
-            modifier = Modifier.weight(1f),
+            "手机",
+            sourcePreference == HomeActivitySourcePreference.PHONE_MICROPHONE,
+            true,
+            { onSourcePreferenceChanged(HomeActivitySourcePreference.PHONE_MICROPHONE) },
+            Modifier.weight(1f),
         )
         SegmentedChoice(
-            label = "录音卡",
-            selected = sourcePreference == HomeActivitySourcePreference.RECORDER_CARD,
-            enabled = recorderAvailable,
-            onClick = { onSourcePreferenceChanged(HomeActivitySourcePreference.RECORDER_CARD) },
-            modifier = Modifier.weight(1f),
+            "录音卡",
+            sourcePreference == HomeActivitySourcePreference.RECORDER_CARD,
+            recorderAvailable,
+            { onSourcePreferenceChanged(HomeActivitySourcePreference.RECORDER_CARD) },
+            Modifier.weight(1f),
         )
     }
 }
 
 @Composable
-private fun ModeSelector(
-    mode: HomeModePreference,
-    onModeChanged: (HomeModePreference) -> Unit,
-) {
+private fun ModeSelector(mode: HomeModePreference, onModeChanged: (HomeModePreference) -> Unit) {
     Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .background(
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                    shape = RoundedCornerShape(21.dp),
-                )
-                .padding(2.dp),
+        modifier = Modifier.fillMaxWidth().background(
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+            RoundedCornerShape(21.dp),
+        ).padding(2.dp),
         horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        SegmentedChoice(
-            label = "录音",
-            selected = mode == HomeModePreference.RECORDING,
-            enabled = true,
-            onClick = { onModeChanged(HomeModePreference.RECORDING) },
-            modifier = Modifier.weight(1f),
-        )
-        SegmentedChoice(
-            label = "实时转写",
-            selected = mode == HomeModePreference.REALTIME,
-            enabled = true,
-            onClick = { onModeChanged(HomeModePreference.REALTIME) },
-            modifier = Modifier.weight(1f),
-        )
+        SegmentedChoice("录音", mode == HomeModePreference.RECORDING, true, { onModeChanged(HomeModePreference.RECORDING) }, Modifier.weight(1f))
+        SegmentedChoice("实时转写", mode == HomeModePreference.REALTIME, true, { onModeChanged(HomeModePreference.REALTIME) }, Modifier.weight(1f))
     }
 }
 
@@ -277,16 +215,8 @@ private fun SegmentedChoice(
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        modifier =
-            modifier
-                .height(40.dp)
-                .clickable(enabled = enabled, onClick = onClick),
-        color =
-            if (selected) {
-                MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.35f)
-            } else {
-                Color.Transparent
-            },
+        modifier = modifier.height(40.dp).clickable(enabled = enabled, onClick = onClick),
+        color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.35f) else Color.Transparent,
         shape = RoundedCornerShape(19.dp),
     ) {
         Box(contentAlignment = Alignment.Center) {
@@ -294,12 +224,11 @@ private fun SegmentedChoice(
                 label,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                color =
-                    when {
-                        !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
-                        selected -> MaterialTheme.colorScheme.onPrimary
-                        else -> MaterialTheme.colorScheme.onSurfaceVariant
-                    },
+                color = when {
+                    !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                    selected -> MaterialTheme.colorScheme.onPrimary
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
             )
         }
     }
@@ -318,18 +247,9 @@ private fun IdleMainActivityCard(
     onSetRecordingGain: (RecordingGain) -> Unit,
     onStart: () -> Unit,
 ) {
-    val sourceTitle =
-        if (sourcePreference == HomeActivitySourcePreference.PHONE_MICROPHONE) {
-            "手机"
-        } else {
-            "录音卡"
-        }
-    val sourceSubtitle =
-        if (sourcePreference == HomeActivitySourcePreference.PHONE_MICROPHONE) {
-            "手机麦克风"
-        } else {
-            "QS668 / CB08"
-        }
+    val recorder = sourcePreference == HomeActivitySourcePreference.RECORDER_CARD
+    val sourceTitle = if (recorder) "录音卡" else "手机"
+    val sourceSubtitle = if (recorder) "QS668 / CB08" else "手机"
     val modeTitle = if (mode == HomeModePreference.RECORDING) "录音" else "实时转写"
     val readyText = if (mode == HomeModePreference.RECORDING) "准备录音" else "准备实时转写"
     val actionText = if (mode == HomeModePreference.RECORDING) "开始录音" else "开始实时转写"
@@ -337,34 +257,19 @@ private fun IdleMainActivityCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
-        colors =
-            CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
-            ),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)),
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        "$sourceTitle$modeTitle",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        sourceSubtitle,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Text("$sourceTitle$modeTitle", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                    Text(sourceSubtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                if (sourcePreference == HomeActivitySourcePreference.RECORDER_CARD) {
+                if (recorder) {
                     HomeRecordingGainControl(
                         gain = recorderGain,
                         interactionEnabled = recorderGainInteractionEnabled,
@@ -374,79 +279,20 @@ private fun IdleMainActivityCard(
                     )
                 }
             }
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                Box(
-                    modifier =
-                        Modifier
-                            .size(9.dp)
-                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(50)),
-                )
-                Text(
-                    readyText,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                Box(Modifier.size(9.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(50)))
+                Text(readyText, style = MaterialTheme.typography.bodyMedium)
             }
-
-            Text(
-                "00:00:00",
-                style = MaterialTheme.typography.displaySmall,
-                fontWeight = FontWeight.Medium,
-            )
-
-            DecorativeWaveform()
-
+            Text("00:00:00", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Medium)
             if (!permissionMessage.isNullOrBlank()) {
-                Text(
-                    permissionMessage,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Text(permissionMessage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-
             Button(
                 onClick = onStart,
                 enabled = enabled,
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(26.dp),
-            ) {
-                Text(
-                    actionText,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun DecorativeWaveform() {
-    val bars =
-        remember {
-            listOf(
-                6, 9, 14, 21, 31, 17, 36, 23, 13, 8, 12, 20, 32, 18, 9, 7, 13, 24, 35,
-                21, 11, 8, 15, 26, 38, 24, 14, 9, 7, 12, 20, 30, 17, 10, 7, 6,
-            )
-        }
-    val color = MaterialTheme.colorScheme.primary
-    Canvas(
-        modifier = Modifier.fillMaxWidth().height(44.dp),
-    ) {
-        val step = size.width / (bars.size + 1)
-        bars.forEachIndexed { index, value ->
-            val x = step * (index + 1)
-            val halfHeight = value.dp.toPx() / 2f
-            drawLine(
-                color = color.copy(alpha = if (index % 6 == 0) 0.82f else 0.56f),
-                start = Offset(x, size.height / 2f - halfHeight),
-                end = Offset(x, size.height / 2f + halfHeight),
-                strokeWidth = if (index % 6 == 0) 2.4.dp.toPx() else 1.7.dp.toPx(),
-                cap = StrokeCap.Round,
-            )
+            ) { Text(actionText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
         }
     }
 }
@@ -463,45 +309,36 @@ private fun PrimaryHomeActivityCard(
     onOpen: () -> Unit,
 ) {
     val clickable = activity.destination != null
+    val recorder = activity.source == AppActivitySource.RECORDER_CARD
+    val realtime = activity.kind == AppActivityKind.REALTIME_TRANSCRIPTION
     Card(
-        modifier =
-            if (clickable) {
-                Modifier.fillMaxWidth().clickable(onClick = onOpen)
-            } else {
-                Modifier.fillMaxWidth()
-            },
+        modifier = if (clickable) Modifier.fillMaxWidth().clickable(onClick = onOpen) else Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
-        colors =
-            CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
-            ),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)),
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        activity.title,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    liveMediaSummary(activity)?.let { summary ->
+                    Text(activity.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                    if (realtime) {
                         Text(
-                            summary,
+                            "${if (recorder) "录音卡" else "手机"} · ${activity.modelLabel?.trim()?.takeIf { it.isNotEmpty() } ?: "模型加载中…"}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
+                    } else if (recorder) {
+                        Text("录音设备：QS668 / CB08", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        Text("手机", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                if (activity.source == AppActivitySource.RECORDER_CARD) {
+                if (recorder) {
                     HomeRecordingGainControl(
                         gain = recorderGain,
                         interactionEnabled = recorderGainInteractionEnabled,
@@ -510,77 +347,41 @@ private fun PrimaryHomeActivityCard(
                         onSetGain = onSetRecordingGain,
                     )
                 }
-                if (clickable) {
-                    Icon(
-                        Icons.Outlined.ChevronRight,
-                        contentDescription = "查看",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                if (clickable) Icon(Icons.Outlined.ChevronRight, contentDescription = "查看", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+
+            if (!realtime) {
+                activity.mediaDisplayName?.trim()?.takeIf { it.isNotEmpty() }?.let { filename ->
+                    Text(
+                        filename,
+                        modifier = Modifier.fillMaxWidth(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                activity.mediaSizeBytes?.let { bytes ->
+                    Text(
+                        formatBytes(bytes),
+                        modifier = Modifier.fillMaxWidth(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
 
-            Text(
-                formatElapsed(activity.elapsedMs),
-                style = MaterialTheme.typography.displaySmall,
-                fontWeight = FontWeight.Medium,
-            )
+            Text(formatElapsed(activity.elapsedMs), style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Medium)
 
-            if (activity.audioActivityLevels.isNotEmpty()) {
-                RealtimeAudioActivityWaveform(
-                    levels = activity.audioActivityLevels,
-                    active = activity.waveformActive,
-                )
-            } else {
-                DecorativeWaveform()
+            if (realtime || activity.source == AppActivitySource.PHONE_MICROPHONE) {
+                RealtimeAudioActivityWaveform(levels = activity.audioActivityLevels, active = activity.waveformActive)
             }
 
-            val transportActions =
-                listOf(
-                    AppActivityAction.PAUSE,
-                    AppActivityAction.RESUME,
-                    AppActivityAction.STOP,
-                ).filter(activity.availableActions::contains)
-            if (transportActions.isNotEmpty()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    transportActions.forEach { action ->
-                        val label =
-                            when (action) {
-                                AppActivityAction.PAUSE -> "暂停"
-                                AppActivityAction.RESUME -> "继续"
-                                AppActivityAction.STOP -> "停止"
-                                else -> ""
-                            }
-                        if (action == AppActivityAction.STOP) {
-                            Button(
-                                onClick = { onAction(activity, action) },
-                                modifier = Modifier.weight(1f),
-                            ) {
-                                Text(label)
-                            }
-                        } else {
-                            OutlinedButton(
-                                onClick = { onAction(activity, action) },
-                                modifier = Modifier.weight(1f),
-                            ) {
-                                Text(label)
-                            }
-                        }
-                    }
-                }
-            }
+            TransportActions(activity, onAction)
 
             if (AppActivityAction.OPEN in activity.availableActions && clickable) {
                 TextButton(onClick = onOpen) {
-                    Text(
-                        if (activity.kind == AppActivityKind.REALTIME_TRANSCRIPTION) {
-                            "查看实时文字"
-                        } else {
-                            "查看"
-                        },
-                    )
+                    Text(if (realtime) "查看实时文字" else "查看")
                 }
             }
         }
@@ -588,67 +389,75 @@ private fun PrimaryHomeActivityCard(
 }
 
 @Composable
-private fun SecondaryHomeActivityRow(
+private fun TransportActions(
     activity: AppActivityFact,
-    onSelect: () -> Unit,
+    onAction: (AppActivityFact, AppActivityAction) -> Unit,
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onSelect),
-        shape = RoundedCornerShape(18.dp),
-    ) {
-        ListItem(
-            headlineContent = { Text(activity.title, maxLines = 1) },
-            supportingContent = {
-                Text(liveMediaSummary(activity) ?: activity.subtitle.orEmpty(), maxLines = 1)
-            },
-            trailingContent = {
-                Icon(Icons.Outlined.ChevronRight, contentDescription = null)
-            },
-        )
+    val actions = listOf(AppActivityAction.PAUSE, AppActivityAction.RESUME, AppActivityAction.STOP)
+        .filter(activity.availableActions::contains)
+    if (actions.isEmpty()) return
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        actions.forEach { action ->
+            val label = when (action) {
+                AppActivityAction.PAUSE -> "暂停"
+                AppActivityAction.RESUME -> "继续"
+                AppActivityAction.STOP -> "停止"
+                else -> ""
+            }
+            val colors = if (action == AppActivityAction.STOP) {
+                ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
+                )
+            } else {
+                ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                )
+            }
+            Button(
+                onClick = { onAction(activity, action) },
+                modifier = Modifier.weight(1f),
+                colors = colors,
+            ) { Text(label) }
+        }
     }
 }
 
 @Composable
-private fun HomeAttentionRow(
-    activity: AppActivityFact,
-    additionalCount: Int,
-    onOpen: () -> Unit,
-) {
-    val modifier =
-        if (activity.destination != null) {
-            Modifier.fillMaxWidth().clickable(onClick = onOpen)
-        } else {
-            Modifier.fillMaxWidth()
-        }
-    Card(modifier = modifier, shape = RoundedCornerShape(18.dp)) {
+private fun SecondaryHomeActivityRow(activity: AppActivityFact, onSelect: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onSelect), shape = RoundedCornerShape(18.dp)) {
         ListItem(
             headlineContent = { Text(activity.title, maxLines = 1) },
             supportingContent = {
                 Text(
-                    buildString {
-                        append(activity.subtitle ?: "需要处理")
-                        if (additionalCount > 0) append(" · 另有 $additionalCount 项")
+                    if (activity.kind == AppActivityKind.REALTIME_TRANSCRIPTION) {
+                        "${if (activity.source == AppActivitySource.RECORDER_CARD) "录音卡" else "手机"} · ${activity.modelLabel ?: "模型加载中…"}"
+                    } else {
+                        activity.subtitle.orEmpty()
                     },
                     maxLines = 1,
                 )
             },
-            trailingContent = {
-                if (activity.destination != null) {
-                    Icon(Icons.Outlined.ChevronRight, contentDescription = null)
-                }
-            },
+            trailingContent = { Icon(Icons.Outlined.ChevronRight, contentDescription = null) },
         )
     }
 }
 
-private fun liveMediaSummary(activity: AppActivityFact): String? {
-    val filename = activity.mediaDisplayName?.trim()?.takeIf { it.isNotEmpty() }
-    val size = activity.mediaSizeBytes?.let(::formatBytes)
-    return when {
-        filename != null && size != null -> "$filename · $size"
-        filename != null -> filename
-        size != null -> size
-        else -> activity.subtitle?.trim()?.takeIf { it.isNotEmpty() }
+@Composable
+private fun HomeAttentionRow(activity: AppActivityFact, additionalCount: Int, onOpen: () -> Unit) {
+    val modifier = if (activity.destination != null) Modifier.fillMaxWidth().clickable(onClick = onOpen) else Modifier.fillMaxWidth()
+    Card(modifier = modifier, shape = RoundedCornerShape(18.dp)) {
+        ListItem(
+            headlineContent = { Text(activity.title, maxLines = 1) },
+            supportingContent = {
+                Text(buildString {
+                    append(activity.subtitle ?: "需要处理")
+                    if (additionalCount > 0) append(" · 另有 $additionalCount 项")
+                }, maxLines = 1)
+            },
+            trailingContent = { if (activity.destination != null) Icon(Icons.Outlined.ChevronRight, contentDescription = null) },
+        )
     }
 }
 
@@ -657,11 +466,8 @@ private fun formatElapsed(elapsedMs: Long?): String {
     val hours = totalSeconds / 3_600L
     val minutes = (totalSeconds % 3_600L) / 60L
     val seconds = totalSeconds % 60L
-    return if (hours > 0L) {
-        String.format(Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
-    } else {
-        String.format(Locale.US, "%02d:%02d", minutes, seconds)
-    }
+    return if (hours > 0L) String.format(Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
+    else String.format(Locale.US, "%02d:%02d", minutes, seconds)
 }
 
 private fun formatBytes(bytes: Long): String {

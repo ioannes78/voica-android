@@ -21,13 +21,13 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -105,14 +105,8 @@ internal class PhoneMicrophoneRecordingUiController(
     scope: CoroutineScope,
 ) {
     private val waveformSink = PhoneMicrophoneRecordingWaveformSink()
-
     val state: StateFlow<PhoneMicrophoneRecordingUiState> =
-        combine(
-            recordingRuntime.state,
-            recordingRuntime.captureState,
-            waveformSink.levels,
-            realtimeRuntime.state,
-        ) { recording, capture, levels, _ ->
+        combine(recordingRuntime.state, recordingRuntime.captureState, waveformSink.levels, realtimeRuntime.state) { recording, capture, levels, _ ->
             PhoneMicrophoneRecordingUiState(
                 recording = recording,
                 capture = capture,
@@ -122,23 +116,20 @@ internal class PhoneMicrophoneRecordingUiController(
         }.stateIn(
             scope = scope,
             started = SharingStarted.Eagerly,
-            initialValue =
-                PhoneMicrophoneRecordingUiState(
-                    recording = recordingRuntime.state.value,
-                    capture = recordingRuntime.captureState.value,
-                    audioActivityLevels = waveformSink.levels.value,
-                    ownedByRealtime = realtimeRuntime.snapshot().activeRunId != null,
-                ),
+            initialValue = PhoneMicrophoneRecordingUiState(
+                recording = recordingRuntime.state.value,
+                capture = recordingRuntime.captureState.value,
+                audioActivityLevels = waveformSink.levels.value,
+                ownedByRealtime = realtimeRuntime.snapshot().activeRunId != null,
+            ),
         )
 
     suspend fun start(): PhoneMicrophoneRecordingUiActionOutcome {
         if (realtimeOwnsRecording()) return realtimeOwnershipFailure()
         waveformSink.reset()
         return when (val result = recordingRuntime.start(postWriteSink = waveformSink)) {
-            is PhoneMicrophoneRecordingStartResult.Started ->
-                PhoneMicrophoneRecordingUiActionOutcome(success = true)
-            is PhoneMicrophoneRecordingStartResult.Rejected ->
-                PhoneMicrophoneRecordingUiActionOutcome(false, result.message)
+            is PhoneMicrophoneRecordingStartResult.Started -> PhoneMicrophoneRecordingUiActionOutcome(success = true)
+            is PhoneMicrophoneRecordingStartResult.Rejected -> PhoneMicrophoneRecordingUiActionOutcome(false, result.message)
         }
     }
 
@@ -155,35 +146,23 @@ internal class PhoneMicrophoneRecordingUiController(
     suspend fun stop(): PhoneMicrophoneRecordingUiActionOutcome {
         if (realtimeOwnsRecording()) return realtimeOwnershipFailure()
         return when (val result = recordingRuntime.stop()) {
-            is PhoneMicrophoneRecordingStopResult.Saved ->
-                PhoneMicrophoneRecordingUiActionOutcome(true, "录音已保存到录音库")
-            PhoneMicrophoneRecordingStopResult.Empty ->
-                PhoneMicrophoneRecordingUiActionOutcome(false, "没有录到有效音频")
-            is PhoneMicrophoneRecordingStopResult.Failed ->
-                PhoneMicrophoneRecordingUiActionOutcome(false, result.message)
+            is PhoneMicrophoneRecordingStopResult.Saved -> PhoneMicrophoneRecordingUiActionOutcome(true, "录音已保存到录音库")
+            PhoneMicrophoneRecordingStopResult.Empty -> PhoneMicrophoneRecordingUiActionOutcome(false, "没有录到有效音频")
+            is PhoneMicrophoneRecordingStopResult.Failed -> PhoneMicrophoneRecordingUiActionOutcome(false, result.message)
         }
     }
 
     private fun realtimeOwnsRecording(): Boolean = realtimeRuntime.snapshot().activeRunId != null
-
-    private fun realtimeOwnershipFailure() =
-        PhoneMicrophoneRecordingUiActionOutcome(
-            success = false,
-            message = "手机实时转写正在使用麦克风，请在实时转写页面操作",
-        )
-
-    private fun PhoneMicrophoneRecordingActionResult.toUiOutcome(): PhoneMicrophoneRecordingUiActionOutcome =
-        when (this) {
-            PhoneMicrophoneRecordingActionResult.Success -> PhoneMicrophoneRecordingUiActionOutcome(true)
-            is PhoneMicrophoneRecordingActionResult.Rejected ->
-                PhoneMicrophoneRecordingUiActionOutcome(false, message)
-        }
+    private fun realtimeOwnershipFailure() = PhoneMicrophoneRecordingUiActionOutcome(false, "手机实时转写正在使用麦克风，请在实时转写页面操作")
+    private fun PhoneMicrophoneRecordingActionResult.toUiOutcome(): PhoneMicrophoneRecordingUiActionOutcome = when (this) {
+        PhoneMicrophoneRecordingActionResult.Success -> PhoneMicrophoneRecordingUiActionOutcome(true)
+        is PhoneMicrophoneRecordingActionResult.Rejected -> PhoneMicrophoneRecordingUiActionOutcome(false, message)
+    }
 }
 
 private class PhoneMicrophoneRecordingWaveformSink : PhoneMicrophoneCanonicalPostWriteSink {
     private val mutableLevels = MutableStateFlow<List<Float>>(emptyList())
     val levels: StateFlow<List<Float>> = mutableLevels
-
     override fun offer(frame: RealtimeCanonicalPcmFrame) {
         if (frame.samples.isEmpty()) return
         var squareSum = 0.0
@@ -192,67 +171,37 @@ private class PhoneMicrophoneRecordingWaveformSink : PhoneMicrophoneCanonicalPos
             squareSum += normalized * normalized
         }
         val rms = sqrt(squareSum / frame.samples.size.toDouble()).toFloat().coerceIn(0f, 1f)
-        mutableLevels.update { current ->
-            if (current.size >= WAVEFORM_WINDOW) {
-                current.drop(1) + rms
-            } else {
-                current + rms
-            }
-        }
+        mutableLevels.update { current -> if (current.size >= WAVEFORM_WINDOW) current.drop(1) + rms else current + rms }
     }
-
-    fun reset() {
-        mutableLevels.value = emptyList()
-    }
-
-    private companion object {
-        const val WAVEFORM_WINDOW = 28
-    }
+    fun reset() { mutableLevels.value = emptyList() }
+    private companion object { const val WAVEFORM_WINDOW = 28 }
 }
 
 internal fun phoneMicrophoneCaptureInterruptionMessage(
     recording: PhoneMicrophoneRecordingSnapshot,
     capture: PhoneMicrophoneCaptureSnapshot,
 ): String? {
-    if (
-        recording.phase != PhoneMicrophoneRecordingPhase.RECORDING ||
-        capture.phase != PhoneMicrophoneCapturePhase.FAILED
-    ) {
-        return null
-    }
+    if (recording.phase != PhoneMicrophoneRecordingPhase.RECORDING || capture.phase != PhoneMicrophoneCapturePhase.FAILED) return null
     val detail = capture.lastFailure?.trim()?.takeIf { it.isNotEmpty() }
-    return if (detail == null) {
-        "麦克风采集中断，可先暂停后继续，或停止保存已录音频"
-    } else {
-        "麦克风采集中断，可先暂停后继续，或停止保存已录音频：$detail"
-    }
+    return if (detail == null) "麦克风采集中断，可先暂停后继续，或停止保存已录音频"
+    else "麦克风采集中断，可先暂停后继续，或停止保存已录音频：$detail"
 }
 
 @Composable
-internal fun PhoneMicrophoneRecordingEntryCard(
-    state: PhoneMicrophoneRecordingUiState,
-    onClick: () -> Unit,
-) {
+internal fun PhoneMicrophoneRecordingEntryCard(state: PhoneMicrophoneRecordingUiState, onClick: () -> Unit) {
     val recording = state.recording
     val captureInterruption = phoneMicrophoneCaptureInterruptionMessage(recording, state.capture)
-    val supporting =
-        when {
-            state.ownedByRealtime -> "手机实时转写正在使用麦克风"
-            captureInterruption != null -> captureInterruption
-            recording.phase == PhoneMicrophoneRecordingPhase.RECORDING ->
-                "录音中 · ${formatPhoneRecordingDuration(recording.durationMs)}"
-            recording.phase == PhoneMicrophoneRecordingPhase.PAUSED ->
-                "已暂停 · ${formatPhoneRecordingDuration(recording.durationMs)}"
-            recording.phase == PhoneMicrophoneRecordingPhase.STOPPING -> "正在保存录音…"
-            recording.phase == PhoneMicrophoneRecordingPhase.COMPLETED -> "已保存到录音库"
-            recording.phase == PhoneMicrophoneRecordingPhase.FAILED ->
-                recording.lastFailure ?: "上次录音未完成"
-            else -> "本地录音 · 16 kHz · 单声道"
-        }
-
-    Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-    ) {
+    val supporting = when {
+        state.ownedByRealtime -> "手机实时转写正在使用麦克风"
+        captureInterruption != null -> captureInterruption
+        recording.phase == PhoneMicrophoneRecordingPhase.RECORDING -> "录音中 · ${formatPhoneRecordingDuration(recording.durationMs)}"
+        recording.phase == PhoneMicrophoneRecordingPhase.PAUSED -> "已暂停 · ${formatPhoneRecordingDuration(recording.durationMs)}"
+        recording.phase == PhoneMicrophoneRecordingPhase.STOPPING -> "正在保存录音…"
+        recording.phase == PhoneMicrophoneRecordingPhase.COMPLETED -> "已保存到录音库"
+        recording.phase == PhoneMicrophoneRecordingPhase.FAILED -> recording.lastFailure ?: "上次录音未完成"
+        else -> "本地录音 · 16 kHz · 单声道"
+    }
+    Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         ListItem(
             headlineContent = { Text("手机录音") },
             supportingContent = { Text(supporting, maxLines = 1) },
@@ -291,7 +240,6 @@ internal fun PhoneMicrophoneRecordingScreen(
     val scope = rememberCoroutineScope()
     var actionInFlight by remember { mutableStateOf(false) }
     var actionMessage by remember { mutableStateOf<String?>(null) }
-
     fun launch(action: suspend () -> PhoneMicrophoneRecordingUiActionOutcome) {
         if (actionInFlight) return
         actionInFlight = true
@@ -302,34 +250,16 @@ internal fun PhoneMicrophoneRecordingScreen(
             actionMessage = result.message
         }
     }
-
-    PhoneMicrophonePermissionGate(
-        onPermissionReady = { launch(controller::start) },
-    ) { requestStart, permissionMessage ->
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(horizontal = 12.dp),
-        ) {
+    PhoneMicrophonePermissionGate(onPermissionReady = { launch(controller::start) }) { requestStart, permissionMessage ->
+        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 12.dp)) {
             PhoneMicrophoneHeader(
                 title = "手机录音",
-                status =
-                    if (captureInterruption != null) {
-                        "采集中断"
-                    } else {
-                        phoneRecordingStatusLabel(recording.phase)
-                    },
+                status = if (captureInterruption != null) "采集中断" else phoneRecordingStatusLabel(recording.phase),
                 onBack = onBack,
             )
             HorizontalDivider()
             Spacer(modifier = Modifier.height(20.dp))
-
-            Text(
-                formatPhoneRecordingDuration(recording.durationMs),
-                style = MaterialTheme.typography.displaySmall,
-            )
+            Text(formatPhoneRecordingDuration(recording.durationMs), style = MaterialTheme.typography.displaySmall)
             Text(
                 recording.displayName ?: "手机麦克风 · 16 kHz · 单声道",
                 style = MaterialTheme.typography.bodySmall,
@@ -337,49 +267,29 @@ internal fun PhoneMicrophoneRecordingScreen(
             )
             val captureSummary = phoneMicrophoneCaptureSummary(capture)
             if (captureSummary.isNotBlank()) {
-                Text(
-                    captureSummary,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
+                Text(captureSummary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 2.dp))
             }
             Spacer(modifier = Modifier.height(12.dp))
             RealtimeAudioActivityWaveform(
                 levels = uiState.audioActivityLevels,
-                active =
-                    recording.phase == PhoneMicrophoneRecordingPhase.RECORDING &&
-                        capture.phase == PhoneMicrophoneCapturePhase.RECORDING,
+                active = recording.phase == PhoneMicrophoneRecordingPhase.RECORDING && capture.phase == PhoneMicrophoneCapturePhase.RECORDING,
             )
             Spacer(modifier = Modifier.weight(1f))
-
-            val message =
-                when {
-                    uiState.ownedByRealtime ->
-                        "手机实时转写正在使用麦克风，请在实时转写页面操作"
-                    captureInterruption != null -> captureInterruption
-                    !recording.lastFailure.isNullOrBlank() -> recording.lastFailure
-                    !permissionMessage.isNullOrBlank() -> permissionMessage
-                    else -> actionMessage
-                }
+            val message = when {
+                uiState.ownedByRealtime -> "手机实时转写正在使用麦克风，请在实时转写页面操作"
+                captureInterruption != null -> captureInterruption
+                !recording.lastFailure.isNullOrBlank() -> recording.lastFailure
+                !permissionMessage.isNullOrBlank() -> permissionMessage
+                else -> actionMessage
+            }
             if (!message.isNullOrBlank()) {
                 Text(
                     message,
                     style = MaterialTheme.typography.bodySmall,
-                    color =
-                        if (
-                            uiState.ownedByRealtime ||
-                            captureInterruption != null ||
-                            recording.phase == PhoneMicrophoneRecordingPhase.FAILED
-                        ) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
+                    color = if (uiState.ownedByRealtime || captureInterruption != null || recording.phase == PhoneMicrophoneRecordingPhase.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
             }
-
             PhoneMicrophoneRecordingControls(
                 phase = recording.phase,
                 enabled = !actionInFlight && !uiState.ownedByRealtime,
@@ -403,14 +313,11 @@ internal fun PhoneMicrophoneRealtimeScreen(
     val state by controller.state.collectAsState()
     val scope = rememberCoroutineScope()
     var startMessage by remember { mutableStateOf<String?>(null) }
-
-    val needsPermissionPreflight =
-        state.phase in setOf(
-            Stage16ARealtimeUiPhase.IDLE,
-            Stage16ARealtimeUiPhase.COMPLETED,
-            Stage16ARealtimeUiPhase.FAILED,
-        ) && !state.recordingOnlyMode && !PhoneMicrophonePermissionPolicy.hasPermission(LocalContext.current)
-
+    val needsPermissionPreflight = state.phase in setOf(
+        Stage16ARealtimeUiPhase.IDLE,
+        Stage16ARealtimeUiPhase.COMPLETED,
+        Stage16ARealtimeUiPhase.FAILED,
+    ) && !state.recordingOnlyMode && !PhoneMicrophonePermissionPolicy.hasPermission(LocalContext.current)
     if (!needsPermissionPreflight) {
         RealtimeTranscriptionScreen(
             padding = padding,
@@ -424,33 +331,14 @@ internal fun PhoneMicrophoneRealtimeScreen(
         )
         return
     }
-
     PhoneMicrophonePermissionGate(
-        onPermissionReady = {
-            scope.launch {
-                val outcome = controller.start()
-                startMessage = outcome.message
-            }
-        },
+        onPermissionReady = { scope.launch { startMessage = controller.start().message } },
     ) { requestStart, permissionMessage ->
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(horizontal = 12.dp),
-        ) {
-            PhoneMicrophoneHeader(
-                title = "手机实时转写",
-                status = "等待麦克风权限",
-                onBack = onBack,
-            )
+        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 12.dp)) {
+            PhoneMicrophoneHeader("手机实时转写", "等待麦克风权限", onBack)
             HorizontalDivider()
             Spacer(modifier = Modifier.height(20.dp))
-            Text(
-                "本地录音 · 实时转写",
-                style = MaterialTheme.typography.titleMedium,
-            )
+            Text("本地录音 · 实时转写", style = MaterialTheme.typography.titleMedium)
             Text(
                 "开始后会同时保存正式 WAV，并使用当前已选择的本地实时模型转写。",
                 style = MaterialTheme.typography.bodyMedium,
@@ -459,21 +347,8 @@ internal fun PhoneMicrophoneRealtimeScreen(
             )
             Spacer(modifier = Modifier.weight(1f))
             val message = permissionMessage ?: startMessage
-            if (!message.isNullOrBlank()) {
-                Text(
-                    message,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
-            }
-            Button(
-                onClick = requestStart,
-                enabled = canStart,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("允许麦克风并开始")
-            }
+            if (!message.isNullOrBlank()) Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 8.dp))
+            Button(onClick = requestStart, enabled = canStart, modifier = Modifier.fillMaxWidth()) { Text("允许麦克风并开始") }
             Spacer(modifier = Modifier.height(12.dp))
         }
     }
@@ -492,131 +367,57 @@ private fun PhoneMicrophonePermissionGate(
     var showRationale by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var lifecycleTick by remember { mutableIntStateOf(0) }
-
     DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) lifecycleTick += 1
-        }
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) lifecycleTick += 1 }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-
-    val permissionLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) {
-                message = null
-                latestOnReady()
-            } else {
-                val rationale =
-                    activity?.let {
-                        ActivityCompat.shouldShowRequestPermissionRationale(
-                            it,
-                            Manifest.permission.RECORD_AUDIO,
-                        )
-                    } ?: false
-                message =
-                    PhoneMicrophonePermissionPolicy.resolve(
-                        granted = false,
-                        requestedBefore = true,
-                        shouldShowRationale = rationale,
-                    ).message
-            }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            message = null
+            latestOnReady()
+        } else {
+            val rationale = activity?.let { ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.RECORD_AUDIO) } ?: false
+            message = PhoneMicrophonePermissionPolicy.resolve(false, true, rationale).message
         }
-
+    }
     fun launchPermissionRequest() {
         store.markRequested()
         permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
     }
-
     val requestStart = {
-        // Reading lifecycleTick makes Settings -> app resume participate in this decision.
         @Suppress("UNUSED_VARIABLE") val resumedRevision = lifecycleTick
         val granted = PhoneMicrophonePermissionPolicy.hasPermission(context)
-        val shouldShowRationale =
-            activity?.let {
-                ActivityCompat.shouldShowRequestPermissionRationale(
-                    it,
-                    Manifest.permission.RECORD_AUDIO,
-                )
-            } ?: false
-        val decision =
-            PhoneMicrophonePermissionPolicy.resolve(
-                granted = granted,
-                requestedBefore = store.requestedBefore(),
-                shouldShowRationale = shouldShowRationale,
-            )
+        val shouldShowRationale = activity?.let { ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.RECORD_AUDIO) } ?: false
+        val decision = PhoneMicrophonePermissionPolicy.resolve(granted, store.requestedBefore(), shouldShowRationale)
         when (decision.action) {
-            PhoneMicrophonePermissionAction.READY -> {
-                message = null
-                latestOnReady()
-            }
-            PhoneMicrophonePermissionAction.REQUEST_PERMISSION -> {
-                message = decision.message
-                launchPermissionRequest()
-            }
-            PhoneMicrophonePermissionAction.SHOW_RATIONALE_AND_REQUEST -> {
-                message = decision.message
-                showRationale = true
-            }
-            PhoneMicrophonePermissionAction.OPEN_APP_SETTINGS -> {
-                message = decision.message
-                context.startActivity(PhoneMicrophonePermissionPolicy.appSettingsIntent(context))
-            }
+            PhoneMicrophonePermissionAction.READY -> { message = null; latestOnReady() }
+            PhoneMicrophonePermissionAction.REQUEST_PERMISSION -> { message = decision.message; launchPermissionRequest() }
+            PhoneMicrophonePermissionAction.SHOW_RATIONALE_AND_REQUEST -> { message = decision.message; showRationale = true }
+            PhoneMicrophonePermissionAction.OPEN_APP_SETTINGS -> { message = decision.message; context.startActivity(PhoneMicrophonePermissionPolicy.appSettingsIntent(context)) }
         }
     }
-
     if (showRationale) {
         AlertDialog(
             onDismissRequest = { showRationale = false },
             title = { Text("允许麦克风") },
             text = { Text("Voica 只会在你主动开始手机录音或手机实时转写时使用麦克风。") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showRationale = false
-                        launchPermissionRequest()
-                    },
-                ) {
-                    Text("继续")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showRationale = false }) {
-                    Text("暂不")
-                }
-            },
+            confirmButton = { TextButton(onClick = { showRationale = false; launchPermissionRequest() }) { Text("继续") } },
+            dismissButton = { TextButton(onClick = { showRationale = false }) { Text("暂不") } },
         )
     }
-
     content(requestStart, message)
 }
 
 @Composable
-private fun PhoneMicrophoneHeader(
-    title: String,
-    status: String,
-    onBack: () -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(onClick = onBack) {
-            Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
-        }
+private fun PhoneMicrophoneHeader(title: String, status: String, onBack: () -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回") }
         Column(modifier = Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.headlineSmall)
-            Text(
-                "手机麦克风 · 16 kHz · 单声道",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Text("手机麦克风 · 16 kHz · 单声道", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Text(
-            status,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Text(status, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -634,37 +435,30 @@ private fun PhoneMicrophoneRecordingControls(
         PhoneMicrophoneRecordingPhase.COMPLETED,
         PhoneMicrophoneRecordingPhase.EMPTY,
         PhoneMicrophoneRecordingPhase.FAILED,
-        -> Button(
-            onClick = onStart,
-            enabled = enabled,
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("开始录音") }
+        -> Button(onClick = onStart, enabled = enabled, modifier = Modifier.fillMaxWidth()) { Text("开始录音") }
 
-        PhoneMicrophoneRecordingPhase.RECORDING ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                OutlinedButton(onClick = onPause, enabled = enabled, modifier = Modifier.weight(1f)) {
-                    Text("暂停")
-                }
-                Button(onClick = onStop, enabled = enabled, modifier = Modifier.weight(1f)) {
-                    Text("停止")
-                }
-            }
-
-        PhoneMicrophoneRecordingPhase.PAUSED ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Button(onClick = onResume, enabled = enabled, modifier = Modifier.weight(1f)) {
-                    Text("继续")
-                }
-                OutlinedButton(onClick = onStop, enabled = enabled, modifier = Modifier.weight(1f)) {
-                    Text("停止")
-                }
-            }
+        PhoneMicrophoneRecordingPhase.RECORDING,
+        PhoneMicrophoneRecordingPhase.PAUSED,
+        -> Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = if (phase == PhoneMicrophoneRecordingPhase.RECORDING) onPause else onResume,
+                enabled = enabled,
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ),
+            ) { Text(if (phase == PhoneMicrophoneRecordingPhase.RECORDING) "暂停" else "继续") }
+            Button(
+                onClick = onStop,
+                enabled = enabled,
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
+                ),
+            ) { Text("停止") }
+        }
 
         PhoneMicrophoneRecordingPhase.STARTING,
         PhoneMicrophoneRecordingPhase.PAUSING,
@@ -685,20 +479,19 @@ private fun PhoneMicrophoneRecordingControls(
     }
 }
 
-internal fun phoneRecordingStatusLabel(phase: PhoneMicrophoneRecordingPhase): String =
-    when (phase) {
-        PhoneMicrophoneRecordingPhase.IDLE -> "未开始"
-        PhoneMicrophoneRecordingPhase.STARTING -> "正在启动"
-        PhoneMicrophoneRecordingPhase.RECORDING -> "录音中"
-        PhoneMicrophoneRecordingPhase.PAUSING -> "正在暂停"
-        PhoneMicrophoneRecordingPhase.PAUSED -> "已暂停"
-        PhoneMicrophoneRecordingPhase.RESUMING -> "正在继续"
-        PhoneMicrophoneRecordingPhase.STOPPING -> "正在保存"
-        PhoneMicrophoneRecordingPhase.COMPLETED -> "已完成"
-        PhoneMicrophoneRecordingPhase.EMPTY -> "无有效音频"
-        PhoneMicrophoneRecordingPhase.FAILED -> "录音异常"
-        PhoneMicrophoneRecordingPhase.CLOSED -> "不可用"
-    }
+internal fun phoneRecordingStatusLabel(phase: PhoneMicrophoneRecordingPhase): String = when (phase) {
+    PhoneMicrophoneRecordingPhase.IDLE -> "未开始"
+    PhoneMicrophoneRecordingPhase.STARTING -> "正在启动"
+    PhoneMicrophoneRecordingPhase.RECORDING -> "录音中"
+    PhoneMicrophoneRecordingPhase.PAUSING -> "正在暂停"
+    PhoneMicrophoneRecordingPhase.PAUSED -> "已暂停"
+    PhoneMicrophoneRecordingPhase.RESUMING -> "正在继续"
+    PhoneMicrophoneRecordingPhase.STOPPING -> "正在保存"
+    PhoneMicrophoneRecordingPhase.COMPLETED -> "已完成"
+    PhoneMicrophoneRecordingPhase.EMPTY -> "无有效音频"
+    PhoneMicrophoneRecordingPhase.FAILED -> "录音异常"
+    PhoneMicrophoneRecordingPhase.CLOSED -> "不可用"
+}
 
 private fun phoneMicrophoneCaptureSummary(capture: PhoneMicrophoneCaptureSnapshot): String {
     val source = capture.selectedAudioSource?.let { "手机麦克风" }
@@ -708,20 +501,16 @@ private fun phoneMicrophoneCaptureSummary(capture: PhoneMicrophoneCaptureSnapsho
 }
 
 internal fun formatPhoneRecordingDuration(durationMs: Long): String {
-    val totalSeconds = (durationMs.coerceAtLeast(0L) / 1_000L)
+    val totalSeconds = durationMs.coerceAtLeast(0L) / 1_000L
     val hours = totalSeconds / 3_600L
     val minutes = (totalSeconds % 3_600L) / 60L
     val seconds = totalSeconds % 60L
-    return if (hours > 0L) {
-        String.format(Locale.ROOT, "%02d:%02d:%02d", hours, minutes, seconds)
-    } else {
-        String.format(Locale.ROOT, "%02d:%02d", minutes, seconds)
-    }
+    return if (hours > 0L) String.format(Locale.ROOT, "%02d:%02d:%02d", hours, minutes, seconds)
+    else String.format(Locale.ROOT, "%02d:%02d", minutes, seconds)
 }
 
-private tailrec fun Context.findActivity(): Activity? =
-    when (this) {
-        is Activity -> this
-        is ContextWrapper -> baseContext.findActivity()
-        else -> null
-    }
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}

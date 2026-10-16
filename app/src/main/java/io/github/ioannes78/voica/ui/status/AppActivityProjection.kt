@@ -61,6 +61,8 @@ internal data class AppActivityFact(
     val elapsedMs: Long? = null,
     val mediaDisplayName: String? = null,
     val mediaSizeBytes: Long? = null,
+    /** Actual runtime model label; never use a settings default as running truth. */
+    val modelLabel: String? = null,
     val audioActivityLevels: List<Float> = emptyList(),
     val waveformActive: Boolean = false,
     /** Higher values win only inside the presentation resolver. They never alter business truth. */

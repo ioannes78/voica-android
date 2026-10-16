@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -58,40 +59,19 @@ fun RealtimeTranscriptionEntryCard(
     sourceLabel: String? = null,
 ) {
     if (shouldShowRealtimeMiniLiveBar(state.phase)) {
-        RealtimeMiniLiveBar(
-            state = state,
-            onClick = onClick,
-            headline = headline,
-            sourceLabel = sourceLabel,
-        )
+        RealtimeMiniLiveBar(state, onClick, headline, sourceLabel)
         return
     }
-
-    val supporting =
-        when {
-            state.phase == Stage16ARealtimeUiPhase.IDLE && !canStart -> unavailableMessage
-            state.modelLabel != null ->
-                listOfNotNull(
-                    sourceLabel,
-                    realtimeStatusLabel(state),
-                    state.modelLabel,
-                ).joinToString(" · ")
-            else ->
-                listOfNotNull(sourceLabel, realtimeStatusLabel(state)).joinToString(" · ")
-        }
-
-    Card(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onClick),
-    ) {
+    val supporting = when {
+        state.phase == Stage16ARealtimeUiPhase.IDLE && !canStart -> unavailableMessage
+        state.modelLabel != null -> listOfNotNull(sourceLabel, realtimeStatusLabel(state), state.modelLabel).joinToString(" · ")
+        else -> listOfNotNull(sourceLabel, realtimeStatusLabel(state)).joinToString(" · ")
+    }
+    Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         ListItem(
             headlineContent = { Text(headline) },
             supportingContent = { Text(supporting, maxLines = 1) },
-            trailingContent = {
-                Icon(Icons.Outlined.ChevronRight, contentDescription = null)
-            },
+            trailingContent = { Icon(Icons.Outlined.ChevronRight, contentDescription = null) },
         )
     }
 }
@@ -104,39 +84,12 @@ private fun RealtimeMiniLiveBar(
     sourceLabel: String?,
 ) {
     val modelLabel = state.modelLabel?.trim()?.takeIf { it.isNotEmpty() }
-    val status =
-        listOfNotNull(
-            sourceLabel,
-            realtimeStatusLabel(state),
-            modelLabel,
-        ).joinToString(" · ")
-
-    Card(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onClick),
-    ) {
+    val status = listOfNotNull(sourceLabel, realtimeStatusLabel(state), modelLabel).joinToString(" · ")
+    Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         ListItem(
-            headlineContent = {
-                Text(
-                    "$headline · $status",
-                    maxLines = 1,
-                    fontWeight = FontWeight.Medium,
-                )
-            },
-            supportingContent = {
-                Text(
-                    realtimeMiniPreview(state),
-                    maxLines = 1,
-                )
-            },
-            trailingContent = {
-                Icon(
-                    Icons.Outlined.ChevronRight,
-                    contentDescription = "返回$headline",
-                )
-            },
+            headlineContent = { Text("$headline · $status", maxLines = 1, fontWeight = FontWeight.Medium) },
+            supportingContent = { Text(realtimeMiniPreview(state), maxLines = 1) },
+            trailingContent = { Icon(Icons.Outlined.ChevronRight, contentDescription = "返回$headline") },
         )
     }
 }
@@ -156,25 +109,16 @@ internal fun RealtimeTranscriptionScreen(
     val scope = rememberCoroutineScope()
     val readerListState = rememberLazyListState()
     val readerDragged by readerListState.interactionSource.collectIsDraggedAsState()
-    val readerAtBottom by remember {
-        derivedStateOf { !readerListState.canScrollForward }
-    }
+    val readerAtBottom by remember { derivedStateOf { !readerListState.canScrollForward } }
     var readerFollowMode by remember { mutableStateOf(RealtimeReaderFollowMode.FOLLOW_LIVE) }
     var actionInFlight by remember { mutableStateOf(false) }
     var actionMessage by remember { mutableStateOf<String?>(null) }
     var qaSlowdownMessage by remember { mutableStateOf<String?>(null) }
 
-    val showEmptyReader =
-        state.finalized.isEmpty() &&
-            state.stableText.isBlank() &&
-            state.partialText.isBlank()
-    val hasTranscriptContent =
-        state.finalized.isNotEmpty() ||
-            state.stableText.isNotBlank() ||
-            state.partialText.isNotBlank()
+    val showEmptyReader = state.finalized.isEmpty() && state.stableText.isBlank() && state.partialText.isBlank()
+    val hasTranscriptContent = state.finalized.isNotEmpty() || state.stableText.isNotBlank() || state.partialText.isNotBlank()
     val readerItemCount =
-        (if (showEmptyReader) 1 else 0) +
-            state.finalized.size +
+        (if (showEmptyReader) 1 else 0) + state.finalized.size +
             (if (state.stableText.isNotBlank()) 1 else 0) +
             (if (state.mutablePartialTail.isNotBlank()) 1 else 0) +
             (if (!state.lifecycleMessage.isNullOrBlank()) 1 else 0)
@@ -184,12 +128,7 @@ internal fun RealtimeTranscriptionScreen(
         qaSlowdownMessage = null
     }
     LaunchedEffect(readerDragged, readerAtBottom) {
-        readerFollowMode =
-            RealtimeReaderFollowPolicy.reduce(
-                current = readerFollowMode,
-                userDragging = readerDragged,
-                atBottom = readerAtBottom,
-            )
+        readerFollowMode = RealtimeReaderFollowPolicy.reduce(readerFollowMode, readerDragged, readerAtBottom)
     }
     LaunchedEffect(
         readerItemCount,
@@ -200,11 +139,7 @@ internal fun RealtimeTranscriptionScreen(
         readerFollowMode,
         readerDragged,
     ) {
-        if (
-            readerFollowMode == RealtimeReaderFollowMode.FOLLOW_LIVE &&
-            !readerDragged &&
-            readerItemCount > 0
-        ) {
+        if (readerFollowMode == RealtimeReaderFollowMode.FOLLOW_LIVE && !readerDragged && readerItemCount > 0) {
             readerListState.scrollToItem(readerItemCount - 1)
         }
     }
@@ -216,170 +151,90 @@ internal fun RealtimeTranscriptionScreen(
         scope.launch {
             val outcome = action()
             actionInFlight = false
-            if (!outcome.success || outcome.degraded) {
-                actionMessage = outcome.message ?: outcome.code ?: "操作未完成"
-            }
+            if (!outcome.success || outcome.degraded) actionMessage = outcome.message ?: outcome.code ?: "操作未完成"
         }
     }
 
     fun armQaSlowdown(delayMs: Long) {
-        qaSlowdownMessage =
-            if (Stage16AQaArtificialAsrSlowdown.armOnce(delayMs)) {
-                "$qaScenarioLabel 已武装：下一个 PCM 处理将暂停 ${delayMs} ms"
-            } else {
-                "$qaScenarioLabel 未武装：已有延迟待触发或当前不是 QA 包"
-            }
+        qaSlowdownMessage = if (Stage16AQaArtificialAsrSlowdown.armOnce(delayMs)) {
+            "$qaScenarioLabel 已武装：下一个 PCM 处理将暂停 ${delayMs} ms"
+        } else {
+            "$qaScenarioLabel 未武装：已有延迟待触发或当前不是 QA 包"
+        }
     }
 
-    Column(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 12.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+    Column(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 12.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
-                Icon(
-                    Icons.AutoMirrored.Outlined.ArrowBack,
-                    contentDescription = "返回",
-                )
+                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
             }
             Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.headlineSmall)
                 Text(
-                    title,
-                    style = MaterialTheme.typography.headlineSmall,
-                )
-                Text(
-                    listOfNotNull(
-                        sourceLabel,
-                        state.modelLabel ?: realtimeStatusLabel(state),
-                    ).joinToString(" · "),
+                    listOfNotNull(sourceLabel, state.modelLabel ?: realtimeStatusLabel(state)).joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Text(
-                realtimeStatusLabel(state),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Text(realtimeStatusLabel(state), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-
         HorizontalDivider()
 
         if (shouldShowRealtimeWaveform(state.phase)) {
             RealtimeAudioActivityWaveform(
                 levels = state.audioActivityLevels,
-                active =
-                    state.phase == Stage16ARealtimeUiPhase.ACTIVE &&
-                        !state.recordingOnlyMode &&
-                        !state.sourceCaptureInterrupted,
+                active = state.phase == Stage16ARealtimeUiPhase.ACTIVE && !state.recordingOnlyMode && !state.sourceCaptureInterrupted,
             )
             Spacer(modifier = Modifier.height(4.dp))
         }
 
         LazyColumn(
             state = readerListState,
-            modifier =
-                Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
+            modifier = Modifier.weight(1f).fillMaxWidth(),
             contentPadding = PaddingValues(vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (showEmptyReader) {
                 item(key = "empty") {
-                    Text(
-                        emptyReaderMessage(state),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Text(emptyReaderMessage(state), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-
             items(
                 items = state.finalized,
-                key = { item ->
-                    "${item.sessionId}:${item.epochId}:${item.continuityIndex}"
-                },
+                key = { item -> "${item.sessionId}:${item.epochId}:${item.continuityIndex}" },
             ) { item ->
-                SelectionContainer {
-                    Text(
-                        item.text,
-                        style = MaterialTheme.typography.bodyLarge,
-                    )
-                }
+                SelectionContainer { Text(item.text, style = MaterialTheme.typography.bodyLarge) }
             }
-
             if (state.stableText.isNotBlank()) {
-                item(key = "stable") {
-                    Text(
-                        state.stableText,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium,
-                    )
-                }
+                item(key = "stable") { Text(state.stableText, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium) }
             }
-
             if (state.mutablePartialTail.isNotBlank()) {
                 item(key = "partial") {
-                    Text(
-                        state.mutablePartialTail,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Text(state.mutablePartialTail, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-
             state.lifecycleMessage?.let { message ->
                 item(key = "lifecycle") {
-                    Text(
-                        message,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
 
-        if (
-            RealtimeReaderFollowPolicy.shouldShowReturnToLive(
-                mode = readerFollowMode,
-                hasTranscriptContent = hasTranscriptContent,
-            )
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-            ) {
+        if (RealtimeReaderFollowPolicy.shouldShowReturnToLive(readerFollowMode, hasTranscriptContent)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 OutlinedButton(
                     onClick = {
                         readerFollowMode = RealtimeReaderFollowMode.FOLLOW_LIVE
-                        if (readerItemCount > 0) {
-                            scope.launch {
-                                readerListState.animateScrollToItem(readerItemCount - 1)
-                            }
-                        }
+                        if (readerItemCount > 0) scope.launch { readerListState.animateScrollToItem(readerItemCount - 1) }
                     },
-                ) {
-                    Text("↓ 回到实时")
-                }
+                ) { Text("↓ 回到实时") }
             }
             Spacer(modifier = Modifier.height(8.dp))
         }
 
         val visibleMessage = actionMessage ?: state.errorMessage
         if (!visibleMessage.isNullOrBlank()) {
-            Text(
-                visibleMessage,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
+            Text(visibleMessage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(bottom = 8.dp))
         }
 
         if (
@@ -388,30 +243,12 @@ internal fun RealtimeTranscriptionScreen(
             !state.recordingOnlyMode &&
             !state.sourceCaptureInterrupted
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                OutlinedButton(
-                    onClick = { armQaSlowdown(1_200L) },
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text("$qaScenarioLabel-A 延迟 1.2s")
-                }
-                OutlinedButton(
-                    onClick = { armQaSlowdown(2_500L) },
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text("$qaScenarioLabel-B 延迟 2.5s")
-                }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { armQaSlowdown(1_200L) }, modifier = Modifier.weight(1f)) { Text("$qaScenarioLabel-A 延迟 1.2s") }
+                OutlinedButton(onClick = { armQaSlowdown(2_500L) }, modifier = Modifier.weight(1f)) { Text("$qaScenarioLabel-B 延迟 2.5s") }
             }
             qaSlowdownMessage?.let { message ->
-                Text(
-                    message,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
-                )
+                Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
             }
         }
 
@@ -430,25 +267,10 @@ internal fun RealtimeTranscriptionScreen(
 }
 
 @Composable
-internal fun RealtimeAudioActivityWaveform(
-    levels: List<Float>,
-    active: Boolean,
-) {
-    val color =
-        if (active) {
-            MaterialTheme.colorScheme.primary
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        }
+internal fun RealtimeAudioActivityWaveform(levels: List<Float>, active: Boolean) {
+    val color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
     val alpha = if (active) 0.82f else 0.38f
-
-    Canvas(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .height(40.dp)
-                .padding(horizontal = 4.dp, vertical = 6.dp),
-    ) {
+    Canvas(modifier = Modifier.fillMaxWidth().height(40.dp).padding(horizontal = 4.dp, vertical = 6.dp)) {
         val barCount = 28
         val visibleCount = levels.size.coerceAtMost(barCount)
         val leftPaddingCount = barCount - visibleCount
@@ -457,18 +279,11 @@ internal fun RealtimeAudioActivityWaveform(
         val minHalfHeight = 1.dp.toPx()
         val maxHalfHeight = (size.height * 0.46f).coerceAtLeast(minHalfHeight)
         val strokeWidth = 2.dp.toPx()
-
         for (index in 0 until barCount) {
             val sourceIndex = index - leftPaddingCount
-            val rawLevel =
-                if (sourceIndex in 0 until visibleCount) {
-                    levels[levels.size - visibleCount + sourceIndex]
-                } else {
-                    0f
-                }
+            val rawLevel = if (sourceIndex in 0 until visibleCount) levels[levels.size - visibleCount + sourceIndex] else 0f
             val visualLevel = AudioActivityVisualSensitivity.toVisualLevel(rawLevel)
-            val halfHeight =
-                minHalfHeight + visualLevel * (maxHalfHeight - minHalfHeight)
+            val halfHeight = minHalfHeight + visualLevel * (maxHalfHeight - minHalfHeight)
             val x = step * (index + 0.5f)
             drawLine(
                 color = color.copy(alpha = alpha),
@@ -481,33 +296,22 @@ internal fun RealtimeAudioActivityWaveform(
     }
 }
 
-private fun shouldShowRealtimeWaveform(phase: Stage16ARealtimeUiPhase): Boolean =
-    when (phase) {
-        Stage16ARealtimeUiPhase.STARTING,
-        Stage16ARealtimeUiPhase.ACTIVE,
-        Stage16ARealtimeUiPhase.PAUSED,
-        Stage16ARealtimeUiPhase.RESUMING,
-        -> true
+private fun shouldShowRealtimeWaveform(phase: Stage16ARealtimeUiPhase): Boolean = phase in setOf(
+    Stage16ARealtimeUiPhase.STARTING,
+    Stage16ARealtimeUiPhase.ACTIVE,
+    Stage16ARealtimeUiPhase.PAUSED,
+    Stage16ARealtimeUiPhase.RESUMING,
+)
 
-        else -> false
-    }
-
-internal fun shouldShowRealtimeMiniLiveBar(phase: Stage16ARealtimeUiPhase): Boolean =
-    when (phase) {
-        Stage16ARealtimeUiPhase.PREPARING,
-        Stage16ARealtimeUiPhase.STARTING,
-        Stage16ARealtimeUiPhase.ACTIVE,
-        Stage16ARealtimeUiPhase.PAUSED,
-        Stage16ARealtimeUiPhase.RESUMING,
-        Stage16ARealtimeUiPhase.FINALIZING,
-        Stage16ARealtimeUiPhase.INTERRUPTED,
-        -> true
-
-        Stage16ARealtimeUiPhase.IDLE,
-        Stage16ARealtimeUiPhase.COMPLETED,
-        Stage16ARealtimeUiPhase.FAILED,
-        -> false
-    }
+internal fun shouldShowRealtimeMiniLiveBar(phase: Stage16ARealtimeUiPhase): Boolean = phase in setOf(
+    Stage16ARealtimeUiPhase.PREPARING,
+    Stage16ARealtimeUiPhase.STARTING,
+    Stage16ARealtimeUiPhase.ACTIVE,
+    Stage16ARealtimeUiPhase.PAUSED,
+    Stage16ARealtimeUiPhase.RESUMING,
+    Stage16ARealtimeUiPhase.FINALIZING,
+    Stage16ARealtimeUiPhase.INTERRUPTED,
+)
 
 internal fun realtimeMiniPreview(state: Stage16ARealtimeUiState): String {
     state.partialText.trim().takeIf { it.isNotEmpty() }?.let { return it }
@@ -532,132 +336,90 @@ private fun RealtimeControls(
         Stage16ARealtimeUiPhase.IDLE,
         Stage16ARealtimeUiPhase.COMPLETED,
         Stage16ARealtimeUiPhase.FAILED,
-        -> {
+        -> Button(onClick = onStart, enabled = canStart && !actionInFlight, modifier = Modifier.fillMaxWidth()) {
+            Text(startButtonLabel)
+        }
+
+        Stage16ARealtimeUiPhase.ACTIVE,
+        Stage16ARealtimeUiPhase.PAUSED,
+        -> Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
-                onClick = onStart,
-                enabled = canStart && !actionInFlight,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(startButtonLabel)
-            }
-        }
-
-        Stage16ARealtimeUiPhase.ACTIVE -> {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                OutlinedButton(
-                    onClick = onPause,
-                    enabled = !actionInFlight,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text("暂停")
-                }
-                Button(
-                    onClick = onStop,
-                    enabled = !actionInFlight,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text("停止")
-                }
-            }
-        }
-
-        Stage16ARealtimeUiPhase.PAUSED -> {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Button(
-                    onClick = onResume,
-                    enabled = !actionInFlight,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text("继续")
-                }
-                OutlinedButton(
-                    onClick = onStop,
-                    enabled = !actionInFlight,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text("停止")
-                }
-            }
+                onClick = if (state.phase == Stage16ARealtimeUiPhase.ACTIVE) onPause else onResume,
+                enabled = !actionInFlight,
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ),
+            ) { Text(if (state.phase == Stage16ARealtimeUiPhase.ACTIVE) "暂停" else "继续") }
+            Button(
+                onClick = onStop,
+                enabled = !actionInFlight,
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
+                ),
+            ) { Text("停止") }
         }
 
         Stage16ARealtimeUiPhase.PREPARING,
         Stage16ARealtimeUiPhase.STARTING,
         Stage16ARealtimeUiPhase.RESUMING,
         Stage16ARealtimeUiPhase.FINALIZING,
-        -> {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                CircularProgressIndicator()
-                Text(
-                    realtimeStatusLabel(state),
-                    modifier = Modifier.padding(start = 12.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
+        -> Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CircularProgressIndicator()
+            Text(realtimeStatusLabel(state), modifier = Modifier.padding(start = 12.dp), style = MaterialTheme.typography.bodyMedium)
         }
 
-        Stage16ARealtimeUiPhase.INTERRUPTED -> {
-            Text(
-                state.lifecycleMessage ?: "实时转写已中断",
-                modifier = Modifier.fillMaxWidth(),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        Stage16ARealtimeUiPhase.INTERRUPTED -> Text(
+            state.lifecycleMessage ?: "实时转写已中断",
+            modifier = Modifier.fillMaxWidth(),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
-internal fun realtimeStatusLabel(state: Stage16ARealtimeUiState): String =
-    when {
-        state.sourceCaptureInterrupted -> "麦克风采集中断"
-        state.recordingOnlyMode ->
-            when (state.phase) {
-                Stage16ARealtimeUiPhase.ACTIVE -> "录音中 · 转写已停止"
-                Stage16ARealtimeUiPhase.PAUSED -> "录音已暂停 · 转写已停止"
-                Stage16ARealtimeUiPhase.RESUMING -> "正在继续录音 · 转写已停止"
-                Stage16ARealtimeUiPhase.FINALIZING -> "正在保存录音 · 转写已停止"
-                else -> "实时转写已停止"
-            }
-        else -> realtimePhaseLabel(state.phase)
+internal fun realtimeStatusLabel(state: Stage16ARealtimeUiState): String = when {
+    state.sourceCaptureInterrupted -> "麦克风采集中断"
+    state.recordingOnlyMode -> when (state.phase) {
+        Stage16ARealtimeUiPhase.ACTIVE -> "录音中 · 转写已停止"
+        Stage16ARealtimeUiPhase.PAUSED -> "录音已暂停 · 转写已停止"
+        Stage16ARealtimeUiPhase.RESUMING -> "正在继续录音 · 转写已停止"
+        Stage16ARealtimeUiPhase.FINALIZING -> "正在保存录音 · 转写已停止"
+        else -> "实时转写已停止"
     }
+    else -> realtimePhaseLabel(state.phase)
+}
 
-internal fun realtimePhaseLabel(phase: Stage16ARealtimeUiPhase): String =
-    when (phase) {
-        Stage16ARealtimeUiPhase.IDLE -> "未开始"
-        Stage16ARealtimeUiPhase.PREPARING -> "正在准备"
-        Stage16ARealtimeUiPhase.STARTING -> "正在启动"
-        Stage16ARealtimeUiPhase.ACTIVE -> "实时转写中"
-        Stage16ARealtimeUiPhase.PAUSED -> "已暂停"
-        Stage16ARealtimeUiPhase.RESUMING -> "正在继续"
-        Stage16ARealtimeUiPhase.FINALIZING -> "正在完成最后内容…"
-        Stage16ARealtimeUiPhase.INTERRUPTED -> "连接已中断"
-        Stage16ARealtimeUiPhase.COMPLETED -> "已完成"
-        Stage16ARealtimeUiPhase.FAILED -> "启动失败"
-    }
+internal fun realtimePhaseLabel(phase: Stage16ARealtimeUiPhase): String = when (phase) {
+    Stage16ARealtimeUiPhase.IDLE -> "未开始"
+    Stage16ARealtimeUiPhase.PREPARING -> "正在准备"
+    Stage16ARealtimeUiPhase.STARTING -> "正在启动"
+    Stage16ARealtimeUiPhase.ACTIVE -> "实时转写中"
+    Stage16ARealtimeUiPhase.PAUSED -> "已暂停"
+    Stage16ARealtimeUiPhase.RESUMING -> "正在继续"
+    Stage16ARealtimeUiPhase.FINALIZING -> "正在完成最后内容…"
+    Stage16ARealtimeUiPhase.INTERRUPTED -> "连接已中断"
+    Stage16ARealtimeUiPhase.COMPLETED -> "已完成"
+    Stage16ARealtimeUiPhase.FAILED -> "启动失败"
+}
 
-private fun emptyReaderMessage(state: Stage16ARealtimeUiState): String =
-    when {
-        state.sourceCaptureInterrupted ->
-            "麦克风采集中断，可先暂停后继续，或停止保存已录音频。"
-        state.recordingOnlyMode ->
-            "实时转写已停止，手机录音仍会继续保存。"
-        else ->
-            when (state.phase) {
-                Stage16ARealtimeUiPhase.IDLE,
-                Stage16ARealtimeUiPhase.COMPLETED,
-                Stage16ARealtimeUiPhase.FAILED,
-                -> "开始后，实时识别内容会显示在这里。"
-                Stage16ARealtimeUiPhase.PAUSED -> "录音已暂停，已确认的内容会保留在这里。"
-                Stage16ARealtimeUiPhase.INTERRUPTED -> "连接已中断，已完成的转写内容仍会保留。"
-                else -> "正在等待语音内容…"
-            }
+private fun emptyReaderMessage(state: Stage16ARealtimeUiState): String = when {
+    state.sourceCaptureInterrupted -> "麦克风采集中断，可先暂停后继续，或停止保存已录音频。"
+    state.recordingOnlyMode -> "实时转写已停止，手机录音仍会继续保存。"
+    else -> when (state.phase) {
+        Stage16ARealtimeUiPhase.IDLE,
+        Stage16ARealtimeUiPhase.COMPLETED,
+        Stage16ARealtimeUiPhase.FAILED,
+        -> "开始后，实时识别内容会显示在这里。"
+        Stage16ARealtimeUiPhase.PAUSED -> "录音已暂停，已确认的内容会保留在这里。"
+        Stage16ARealtimeUiPhase.INTERRUPTED -> "连接已中断，已完成的转写内容仍会保留。"
+        else -> "正在等待语音内容…"
     }
+}

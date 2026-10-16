@@ -24,10 +24,7 @@ internal enum class HomeActivitySourcePreference {
     PHONE_MICROPHONE,
 }
 
-/**
- * Maps the existing recording/realtime truths into the Stage 16A.1.5 presentation model.
- * This adapter is read-only: no controller/runtime call is made here.
- */
+/** Maps existing recording/realtime truths into the Stage 16A.1.5 presentation model. */
 internal fun buildHomeActivityProjection(
     deviceRecording: RecordingDeviceState,
     deviceRealtime: Stage16ARealtimeUiState,
@@ -55,13 +52,9 @@ private fun deviceRecordingFact(
         state.freshness == RecordingFreshness.FRESH &&
             state.commandState == RecordingCommandState.IDLE
     val actions =
-        if (!controlsEnabled) {
-            emptySet()
-        } else if (paused) {
-            setOf(AppActivityAction.RESUME, AppActivityAction.STOP)
-        } else {
-            setOf(AppActivityAction.PAUSE, AppActivityAction.STOP)
-        }
+        if (!controlsEnabled) emptySet()
+        else if (paused) setOf(AppActivityAction.RESUME, AppActivityAction.STOP)
+        else setOf(AppActivityAction.PAUSE, AppActivityAction.STOP)
     return AppActivityFact(
         logicalKey = DEVICE_LIVE_KEY,
         kind = AppActivityKind.RECORDING,
@@ -96,24 +89,12 @@ private fun deviceRealtimeFact(
     val title =
         when {
             realtime.sourceCaptureInterrupted -> "录音采集中断"
-            realtime.recordingOnlyMode ->
-                if (recording.status == RecordingStatus.Paused) "录音已暂停" else "录音继续中"
+            realtime.recordingOnlyMode -> if (recording.status == RecordingStatus.Paused) "录音已暂停" else "录音继续中"
             realtime.phase == Stage16ARealtimeUiPhase.INTERRUPTED && physicalRecordingActive -> "录音继续中"
             realtime.phase == Stage16ARealtimeUiPhase.PAUSED -> "实时转写已暂停"
             else -> "实时转写"
         }
-    val detail =
-        when {
-            realtime.sourceCaptureInterrupted -> "音频采集中断"
-            realtime.recordingOnlyMode -> "实时转写已停止"
-            realtime.phase == Stage16ARealtimeUiPhase.INTERRUPTED -> "实时转写已中断"
-            realtime.phase == Stage16ARealtimeUiPhase.PREPARING -> "正在准备"
-            realtime.phase == Stage16ARealtimeUiPhase.STARTING -> "正在启动"
-            realtime.phase == Stage16ARealtimeUiPhase.RESUMING -> "正在继续"
-            realtime.phase == Stage16ARealtimeUiPhase.FINALIZING -> "正在保存"
-            realtime.phase == Stage16ARealtimeUiPhase.PAUSED -> "已暂停"
-            else -> "转写中"
-        }
+    val detail = realtimeDetail(realtime)
     return AppActivityFact(
         logicalKey = DEVICE_LIVE_KEY,
         kind = AppActivityKind.REALTIME_TRANSCRIPTION,
@@ -122,8 +103,7 @@ private fun deviceRealtimeFact(
         title = title,
         subtitle = "录音卡 · $detail",
         elapsedMs = deviceElapsedMs(recording.durationSeconds),
-        mediaDisplayName = recording.filename,
-        mediaSizeBytes = recording.currentSizeBytes,
+        modelLabel = realtime.modelLabel,
         audioActivityLevels = realtime.audioActivityLevels,
         waveformActive =
             realtime.phase == Stage16ARealtimeUiPhase.ACTIVE &&
@@ -144,16 +124,11 @@ private fun phoneRecordingFact(
     val snapshot = state.recording
     if (!snapshot.phase.isPhoneActiveProjectionPhase()) return null
     val availableActions =
-        if (state.ownedByRealtime) {
-            emptySet()
-        } else {
-            when (snapshot.phase) {
-                PhoneMicrophoneRecordingPhase.RECORDING ->
-                    setOf(AppActivityAction.PAUSE, AppActivityAction.STOP)
-                PhoneMicrophoneRecordingPhase.PAUSED ->
-                    setOf(AppActivityAction.RESUME, AppActivityAction.STOP)
-                else -> emptySet()
-            }
+        if (state.ownedByRealtime) emptySet()
+        else when (snapshot.phase) {
+            PhoneMicrophoneRecordingPhase.RECORDING -> setOf(AppActivityAction.PAUSE, AppActivityAction.STOP)
+            PhoneMicrophoneRecordingPhase.PAUSED -> setOf(AppActivityAction.RESUME, AppActivityAction.STOP)
+            else -> emptySet()
         }
     val title =
         when (snapshot.phase) {
@@ -167,7 +142,7 @@ private fun phoneRecordingFact(
         source = AppActivitySource.PHONE_MICROPHONE,
         lifecycleClass = AppActivityLifecycleClass.ACTIVE_CONTROLLABLE,
         title = title,
-        subtitle = "手机麦克风",
+        subtitle = "手机",
         elapsedMs = snapshot.durationMs,
         mediaDisplayName = snapshot.displayName,
         mediaSizeBytes = phoneWavSizeBytes(snapshot.writtenSamples, snapshot.finalizedSizeBytes),
@@ -175,7 +150,8 @@ private fun phoneRecordingFact(
         waveformActive =
             snapshot.phase == PhoneMicrophoneRecordingPhase.RECORDING &&
                 state.capture.phase == PhoneMicrophoneCapturePhase.RECORDING,
-        destination = AppActivityDestination.PhoneMicrophone(PhoneMicrophoneProductTarget.RECORDING),
+        // Ordinary phone recording is controlled entirely on Home; completed files still use Recording Detail.
+        destination = null,
         availableActions = availableActions,
         priorityHint = RECORDING_PRIORITY,
         explicitlyFocused = sourcePreference == HomeActivitySourcePreference.PHONE_MICROPHONE,
@@ -198,39 +174,20 @@ private fun phoneRealtimeFact(
     val title =
         when {
             realtime.sourceCaptureInterrupted -> "录音采集中断"
-            realtime.recordingOnlyMode ->
-                if (recording.recording.phase == PhoneMicrophoneRecordingPhase.PAUSED) {
-                    "录音已暂停"
-                } else {
-                    "录音继续中"
-                }
+            realtime.recordingOnlyMode -> if (recording.recording.phase == PhoneMicrophoneRecordingPhase.PAUSED) "录音已暂停" else "录音继续中"
             realtime.phase == Stage16ARealtimeUiPhase.INTERRUPTED && recordingActive -> "录音继续中"
             realtime.phase == Stage16ARealtimeUiPhase.PAUSED -> "实时转写已暂停"
             else -> "实时转写"
         }
-    val detail =
-        when {
-            realtime.sourceCaptureInterrupted -> "音频采集中断"
-            realtime.recordingOnlyMode -> "实时转写已停止"
-            realtime.phase == Stage16ARealtimeUiPhase.INTERRUPTED -> "实时转写已中断"
-            realtime.phase == Stage16ARealtimeUiPhase.PREPARING -> "正在准备"
-            realtime.phase == Stage16ARealtimeUiPhase.STARTING -> "正在启动"
-            realtime.phase == Stage16ARealtimeUiPhase.RESUMING -> "正在继续"
-            realtime.phase == Stage16ARealtimeUiPhase.FINALIZING -> "正在保存"
-            realtime.phase == Stage16ARealtimeUiPhase.PAUSED -> "已暂停"
-            else -> "转写中"
-        }
-    val snapshot = recording.recording
     return AppActivityFact(
         logicalKey = PHONE_LIVE_KEY,
         kind = AppActivityKind.REALTIME_TRANSCRIPTION,
         source = AppActivitySource.PHONE_MICROPHONE,
         lifecycleClass = lifecycle,
         title = title,
-        subtitle = "手机麦克风 · $detail",
-        elapsedMs = snapshot.durationMs,
-        mediaDisplayName = snapshot.displayName,
-        mediaSizeBytes = phoneWavSizeBytes(snapshot.writtenSamples, snapshot.finalizedSizeBytes),
+        subtitle = "手机 · ${realtimeDetail(realtime)}",
+        elapsedMs = recording.recording.durationMs,
+        modelLabel = realtime.modelLabel,
         audioActivityLevels = realtime.audioActivityLevels,
         waveformActive =
             realtime.phase == Stage16ARealtimeUiPhase.ACTIVE &&
@@ -243,12 +200,23 @@ private fun phoneRealtimeFact(
     )
 }
 
+private fun realtimeDetail(state: Stage16ARealtimeUiState): String =
+    when {
+        state.sourceCaptureInterrupted -> "音频采集中断"
+        state.recordingOnlyMode -> "实时转写已停止"
+        state.phase == Stage16ARealtimeUiPhase.INTERRUPTED -> "实时转写已中断"
+        state.phase == Stage16ARealtimeUiPhase.PREPARING -> "正在准备"
+        state.phase == Stage16ARealtimeUiPhase.STARTING -> "正在启动"
+        state.phase == Stage16ARealtimeUiPhase.RESUMING -> "正在继续"
+        state.phase == Stage16ARealtimeUiPhase.FINALIZING -> "正在保存"
+        state.phase == Stage16ARealtimeUiPhase.PAUSED -> "已暂停"
+        else -> "转写中"
+    }
+
 private fun realtimeActions(state: Stage16ARealtimeUiState): Set<AppActivityAction> =
     when (state.phase) {
-        Stage16ARealtimeUiPhase.ACTIVE ->
-            setOf(AppActivityAction.PAUSE, AppActivityAction.STOP, AppActivityAction.OPEN)
-        Stage16ARealtimeUiPhase.PAUSED ->
-            setOf(AppActivityAction.RESUME, AppActivityAction.STOP, AppActivityAction.OPEN)
+        Stage16ARealtimeUiPhase.ACTIVE -> setOf(AppActivityAction.PAUSE, AppActivityAction.STOP, AppActivityAction.OPEN)
+        Stage16ARealtimeUiPhase.PAUSED -> setOf(AppActivityAction.RESUME, AppActivityAction.STOP, AppActivityAction.OPEN)
         Stage16ARealtimeUiPhase.PREPARING,
         Stage16ARealtimeUiPhase.STARTING,
         Stage16ARealtimeUiPhase.RESUMING,
@@ -262,7 +230,7 @@ private fun realtimeActions(state: Stage16ARealtimeUiState): Set<AppActivityActi
     }
 
 private fun Stage16ARealtimeUiPhase.isLiveProjectionPhase(): Boolean =
-    when (this) {
+    this in setOf(
         Stage16ARealtimeUiPhase.PREPARING,
         Stage16ARealtimeUiPhase.STARTING,
         Stage16ARealtimeUiPhase.ACTIVE,
@@ -270,37 +238,22 @@ private fun Stage16ARealtimeUiPhase.isLiveProjectionPhase(): Boolean =
         Stage16ARealtimeUiPhase.RESUMING,
         Stage16ARealtimeUiPhase.FINALIZING,
         Stage16ARealtimeUiPhase.INTERRUPTED,
-        -> true
-        Stage16ARealtimeUiPhase.IDLE,
-        Stage16ARealtimeUiPhase.COMPLETED,
-        Stage16ARealtimeUiPhase.FAILED,
-        -> false
-    }
+    )
 
 private fun PhoneMicrophoneRecordingPhase.isPhoneActiveProjectionPhase(): Boolean =
-    when (this) {
+    this in setOf(
         PhoneMicrophoneRecordingPhase.STARTING,
         PhoneMicrophoneRecordingPhase.RECORDING,
         PhoneMicrophoneRecordingPhase.PAUSING,
         PhoneMicrophoneRecordingPhase.PAUSED,
         PhoneMicrophoneRecordingPhase.RESUMING,
         PhoneMicrophoneRecordingPhase.STOPPING,
-        -> true
-        PhoneMicrophoneRecordingPhase.IDLE,
-        PhoneMicrophoneRecordingPhase.COMPLETED,
-        PhoneMicrophoneRecordingPhase.EMPTY,
-        PhoneMicrophoneRecordingPhase.FAILED,
-        PhoneMicrophoneRecordingPhase.CLOSED,
-        -> false
-    }
+    )
 
 private fun deviceElapsedMs(durationSeconds: Int?): Long =
     (durationSeconds ?: 0).coerceAtLeast(0).toLong() * 1_000L
 
-private fun phoneWavSizeBytes(
-    writtenSamples: Long,
-    finalizedSizeBytes: Long?,
-): Long? {
+private fun phoneWavSizeBytes(writtenSamples: Long, finalizedSizeBytes: Long?): Long? {
     finalizedSizeBytes?.let { return it.coerceAtLeast(0L) }
     if (writtenSamples <= 0L) return null
     return WAV_HEADER_BYTES + writtenSamples.coerceAtLeast(0L) * PCM16_BYTES_PER_SAMPLE

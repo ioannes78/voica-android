@@ -24,15 +24,24 @@ internal data class AppRecordingOpenRequest(
     val completionTaskId: String? = null,
 )
 
-/**
- * Process-local bridge between Android notification intents and the single Compose navigation owner.
- * Every publish receives a fresh token so repeated requests for the same recording/destination remain
- * commands rather than being collapsed as identical state.
- */
+/** Process-local bridge between Android notification intents and the single Compose navigation owner. */
 internal object AppRecordingNavigation {
     private val sequence = AtomicLong(0L)
+    private val suppressNextPlainPlaybackUntilMs = AtomicLong(0L)
     private val mutableRequest = MutableStateFlow<AppRecordingOpenRequest?>(null)
     val request: StateFlow<AppRecordingOpenRequest?> = mutableRequest.asStateFlow()
+
+    /**
+     * Recorder-card realtime finalization historically published a plain PLAYBACK request after Stop.
+     * V4 keeps the durable reconciliation but suppresses only that next automatic navigation command.
+     */
+    fun suppressNextRecorderRealtimePlaybackOpen(windowMs: Long = 30_000L) {
+        suppressNextPlainPlaybackUntilMs.set(System.currentTimeMillis() + windowMs.coerceAtLeast(1L))
+    }
+
+    fun clearRecorderRealtimePlaybackSuppression() {
+        suppressNextPlainPlaybackUntilMs.set(0L)
+    }
 
     fun publish(
         recordingId: String,
@@ -42,6 +51,14 @@ internal object AppRecordingNavigation {
     ): AppRecordingOpenRequest? {
         val safeRecordingId = recordingId.trim().takeIf { it.isNotEmpty() } ?: return null
         val safeCompletionTaskId = completionTaskId?.trim()?.takeIf { it.isNotEmpty() }
+        if (
+            destination == RecordingDetailDestination.PLAYBACK &&
+            completionKind == null &&
+            safeCompletionTaskId == null &&
+            consumeRealtimePlaybackSuppression()
+        ) {
+            return null
+        }
         return AppRecordingOpenRequest(
             token = sequence.incrementAndGet(),
             recordingId = safeRecordingId,
@@ -49,6 +66,18 @@ internal object AppRecordingNavigation {
             completionKind = completionKind.takeIf { safeCompletionTaskId != null },
             completionTaskId = safeCompletionTaskId.takeIf { completionKind != null },
         ).also { mutableRequest.value = it }
+    }
+
+    private fun consumeRealtimePlaybackSuppression(): Boolean {
+        while (true) {
+            val until = suppressNextPlainPlaybackUntilMs.get()
+            if (until <= 0L) return false
+            if (System.currentTimeMillis() > until) {
+                if (suppressNextPlainPlaybackUntilMs.compareAndSet(until, 0L)) return false
+                continue
+            }
+            if (suppressNextPlainPlaybackUntilMs.compareAndSet(until, 0L)) return true
+        }
     }
 
     fun consumeIntent(intent: Intent?): AppRecordingOpenRequest? {
@@ -103,15 +132,13 @@ internal fun parseRecordingOpenTarget(
 ): RecordingOpenTarget? {
     if (action != ACTION_OPEN_RECORDING) return null
     val safeRecordingId = recordingId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-    val destination =
-        destinationName?.let { name ->
-            RecordingDetailDestination.entries.firstOrNull { it.name == name }
-        } ?: return null
+    val destination = destinationName?.let { name ->
+        RecordingDetailDestination.entries.firstOrNull { it.name == name }
+    } ?: return null
     val safeCompletionTaskId = completionTaskId?.trim()?.takeIf { it.isNotEmpty() }
-    val completionKind =
-        completionKindName
-            ?.let { name -> TaskCompletionKind.entries.firstOrNull { it.name == name } }
-            ?.takeIf { safeCompletionTaskId != null }
+    val completionKind = completionKindName
+        ?.let { name -> TaskCompletionKind.entries.firstOrNull { it.name == name } }
+        ?.takeIf { safeCompletionTaskId != null }
     return RecordingOpenTarget(
         recordingId = safeRecordingId,
         destination = destination,
@@ -127,19 +154,12 @@ internal fun recordingOpenPendingIntent(
     destination: RecordingDetailDestination,
     completionKind: TaskCompletionKind? = null,
     completionTaskId: String? = null,
-): PendingIntent =
-    PendingIntent.getActivity(
-        context,
-        requestCode,
-        recordingOpenIntent(
-            context = context,
-            recordingId = recordingId,
-            destination = destination,
-            completionKind = completionKind,
-            completionTaskId = completionTaskId,
-        ),
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-    )
+): PendingIntent = PendingIntent.getActivity(
+    context,
+    requestCode,
+    recordingOpenIntent(context, recordingId, destination, completionKind, completionTaskId),
+    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+)
 
 internal const val ACTION_OPEN_RECORDING = "io.github.ioannes78.voica.OPEN_RECORDING"
 private const val EXTRA_RECORDING_ID = "io.github.ioannes78.voica.extra.RECORDING_ID"
