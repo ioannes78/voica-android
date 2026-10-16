@@ -55,7 +55,7 @@ class HomeActivityProjectionTest {
             )
 
         val primary = checkNotNull(projection.primaryActivity)
-        assertEquals("手机麦克风", primary.subtitle)
+        assertEquals("手机", primary.subtitle)
         assertFalse(primary.subtitle.orEmpty().contains("00:12"))
         assertEquals(12_000L, primary.elapsedMs)
         assertEquals("phone-qa.wav", primary.mediaDisplayName)
