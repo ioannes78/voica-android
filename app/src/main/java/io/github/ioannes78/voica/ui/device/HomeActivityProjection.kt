@@ -1,5 +1,6 @@
 package io.github.ioannes78.voica.ui.device
 
+import io.github.ioannes78.voica.PhoneMicrophoneCapturePhase
 import io.github.ioannes78.voica.PhoneMicrophoneProductTarget
 import io.github.ioannes78.voica.PhoneMicrophoneRecordingPhase
 import io.github.ioannes78.voica.Stage16ARealtimeUiPhase
@@ -67,7 +68,10 @@ private fun deviceRecordingFact(
         source = AppActivitySource.RECORDER_CARD,
         lifecycleClass = AppActivityLifecycleClass.ACTIVE_CONTROLLABLE,
         title = if (paused) "录音已暂停" else "录音中",
-        subtitle = listOf("录音卡", formatDeviceDuration(state.durationSeconds)).joinToString(" · "),
+        subtitle = "录音卡",
+        elapsedMs = deviceElapsedMs(state.durationSeconds),
+        mediaDisplayName = state.filename,
+        mediaSizeBytes = state.currentSizeBytes,
         availableActions = actions,
         priorityHint = RECORDING_PRIORITY,
         explicitlyFocused = sourcePreference == HomeActivitySourcePreference.RECORDER_CARD,
@@ -116,7 +120,15 @@ private fun deviceRealtimeFact(
         source = AppActivitySource.RECORDER_CARD,
         lifecycleClass = lifecycle,
         title = title,
-        subtitle = listOf("录音卡", formatDeviceDuration(recording.durationSeconds), detail).joinToString(" · "),
+        subtitle = "录音卡 · $detail",
+        elapsedMs = deviceElapsedMs(recording.durationSeconds),
+        mediaDisplayName = recording.filename,
+        mediaSizeBytes = recording.currentSizeBytes,
+        audioActivityLevels = realtime.audioActivityLevels,
+        waveformActive =
+            realtime.phase == Stage16ARealtimeUiPhase.ACTIVE &&
+                !realtime.recordingOnlyMode &&
+                !realtime.sourceCaptureInterrupted,
         destination = AppActivityDestination.DeviceRealtime,
         availableActions = realtimeActions(realtime),
         priorityHint = REALTIME_PRIORITY,
@@ -155,7 +167,14 @@ private fun phoneRecordingFact(
         source = AppActivitySource.PHONE_MICROPHONE,
         lifecycleClass = AppActivityLifecycleClass.ACTIVE_CONTROLLABLE,
         title = title,
-        subtitle = "手机麦克风 · ${formatDurationMs(snapshot.durationMs)}",
+        subtitle = "手机麦克风",
+        elapsedMs = snapshot.durationMs,
+        mediaDisplayName = snapshot.displayName,
+        mediaSizeBytes = phoneWavSizeBytes(snapshot.writtenSamples, snapshot.finalizedSizeBytes),
+        audioActivityLevels = state.audioActivityLevels,
+        waveformActive =
+            snapshot.phase == PhoneMicrophoneRecordingPhase.RECORDING &&
+                state.capture.phase == PhoneMicrophoneCapturePhase.RECORDING,
         destination = AppActivityDestination.PhoneMicrophone(PhoneMicrophoneProductTarget.RECORDING),
         availableActions = availableActions,
         priorityHint = RECORDING_PRIORITY,
@@ -201,13 +220,22 @@ private fun phoneRealtimeFact(
             realtime.phase == Stage16ARealtimeUiPhase.PAUSED -> "已暂停"
             else -> "转写中"
         }
+    val snapshot = recording.recording
     return AppActivityFact(
         logicalKey = PHONE_LIVE_KEY,
         kind = AppActivityKind.REALTIME_TRANSCRIPTION,
         source = AppActivitySource.PHONE_MICROPHONE,
         lifecycleClass = lifecycle,
         title = title,
-        subtitle = "手机麦克风 · ${formatDurationMs(recording.recording.durationMs)} · $detail",
+        subtitle = "手机麦克风 · $detail",
+        elapsedMs = snapshot.durationMs,
+        mediaDisplayName = snapshot.displayName,
+        mediaSizeBytes = phoneWavSizeBytes(snapshot.writtenSamples, snapshot.finalizedSizeBytes),
+        audioActivityLevels = realtime.audioActivityLevels,
+        waveformActive =
+            realtime.phase == Stage16ARealtimeUiPhase.ACTIVE &&
+                !realtime.recordingOnlyMode &&
+                !realtime.sourceCaptureInterrupted,
         destination = AppActivityDestination.PhoneMicrophone(PhoneMicrophoneProductTarget.REALTIME),
         availableActions = realtimeActions(realtime),
         priorityHint = REALTIME_PRIORITY,
@@ -266,22 +294,21 @@ private fun PhoneMicrophoneRecordingPhase.isPhoneActiveProjectionPhase(): Boolea
         -> false
     }
 
-private fun formatDeviceDuration(durationSeconds: Int?): String =
-    formatDurationMs((durationSeconds ?: 0).coerceAtLeast(0).toLong() * 1_000L)
+private fun deviceElapsedMs(durationSeconds: Int?): Long =
+    (durationSeconds ?: 0).coerceAtLeast(0).toLong() * 1_000L
 
-private fun formatDurationMs(durationMs: Long): String {
-    val totalSeconds = (durationMs.coerceAtLeast(0L) / 1_000L)
-    val hours = totalSeconds / 3_600L
-    val minutes = (totalSeconds % 3_600L) / 60L
-    val seconds = totalSeconds % 60L
-    return if (hours > 0L) {
-        "%d:%02d:%02d".format(hours, minutes, seconds)
-    } else {
-        "%02d:%02d".format(minutes, seconds)
-    }
+private fun phoneWavSizeBytes(
+    writtenSamples: Long,
+    finalizedSizeBytes: Long?,
+): Long? {
+    finalizedSizeBytes?.let { return it.coerceAtLeast(0L) }
+    if (writtenSamples <= 0L) return null
+    return WAV_HEADER_BYTES + writtenSamples.coerceAtLeast(0L) * PCM16_BYTES_PER_SAMPLE
 }
 
 private const val DEVICE_LIVE_KEY = "home-device-live"
 private const val PHONE_LIVE_KEY = "home-phone-live"
 private const val RECORDING_PRIORITY = 100
 private const val REALTIME_PRIORITY = 200
+private const val WAV_HEADER_BYTES = 44L
+private const val PCM16_BYTES_PER_SAMPLE = 2L
