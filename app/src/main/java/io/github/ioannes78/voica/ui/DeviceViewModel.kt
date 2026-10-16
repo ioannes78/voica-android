@@ -9,6 +9,7 @@ import io.github.ioannes78.voica.ble.DeviceRepository
 import io.github.ioannes78.voica.ble.DeviceFileOperationType
 import io.github.ioannes78.voica.ble.FileOperationState
 import io.github.ioannes78.voica.ble.RemoteDeviceFile
+import io.github.ioannes78.voica.database.LibraryQueryCriteria
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.protocol.RecordingGain
 import kotlinx.coroutines.Job
@@ -62,6 +63,7 @@ class DeviceViewModel(
     val rangeProbeDiagnostics = repository.rangeProbeDiagnostics
     val localRecordings = repository.localRecordings
     val libraryRecordings = recordingLibraryRepository.recordings
+    val homeRecentLibraryRows = recordingLibraryRepository.observeLibrary(LibraryQueryCriteria())
     val diagnostics = repository.diagnostics
 
     private val canonicalJobs = mutableMapOf<String, Job>()
