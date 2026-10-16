@@ -37,19 +37,19 @@ internal data class LiveActivityStripItem(
 }
 
 /**
- * Resolves the single compact live strip from existing recording/realtime truth.
+ * Resolves compact live strips from existing recording/realtime truth.
  *
  * Realtime has presentation priority over its backing recording because it is the product activity
- * the user started. An exact realtime reader that is already visible is suppressed, while another
- * concurrently active source remains eligible.
+ * the user started. Exact visible realtime readers are suppressed by source identity only, so a
+ * concurrent activity from the other source remains globally visible.
  */
-internal fun resolveLiveActivityStrip(
+internal fun resolveLiveActivityStrips(
     deviceRecording: RecordingDeviceState,
     deviceRealtime: Stage16ARealtimeUiState,
     phoneRecording: PhoneMicrophoneRecordingSnapshot,
     phoneRealtime: Stage16ARealtimeUiState,
     visibleRealtimeSource: AppActivitySource?,
-): LiveActivityStripItem? {
+): List<LiveActivityStripItem> {
     val candidates = buildList {
         realtimeStripItem(
             source = AppActivitySource.RECORDER_CARD,
@@ -80,8 +80,23 @@ internal fun resolveLiveActivityStrip(
                 { if (it.source == AppActivitySource.RECORDER_CARD) 0 else 1 },
             ),
         )
-        .firstOrNull()
 }
+
+/** Compatibility helper for callers that intentionally need only the highest-priority live item. */
+internal fun resolveLiveActivityStrip(
+    deviceRecording: RecordingDeviceState,
+    deviceRealtime: Stage16ARealtimeUiState,
+    phoneRecording: PhoneMicrophoneRecordingSnapshot,
+    phoneRealtime: Stage16ARealtimeUiState,
+    visibleRealtimeSource: AppActivitySource?,
+): LiveActivityStripItem? =
+    resolveLiveActivityStrips(
+        deviceRecording = deviceRecording,
+        deviceRealtime = deviceRealtime,
+        phoneRecording = phoneRecording,
+        phoneRealtime = phoneRealtime,
+        visibleRealtimeSource = visibleRealtimeSource,
+    ).firstOrNull()
 
 private fun realtimeStripItem(
     source: AppActivitySource,
