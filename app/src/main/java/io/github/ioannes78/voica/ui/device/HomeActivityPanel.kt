@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -16,7 +15,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -38,18 +36,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import io.github.ioannes78.voica.ui.realtime.RealtimeAudioActivityWaveform
 import io.github.ioannes78.voica.ui.status.AppActivityAction
 import io.github.ioannes78.voica.ui.status.AppActivityFact
 import io.github.ioannes78.voica.ui.status.AppActivityKind
 import io.github.ioannes78.voica.ui.status.AppActivityProjection
+import java.util.Locale
 
 private enum class HomeModePreference {
     RECORDING,
     REALTIME,
 }
-
-private val VoicaAccent = Color(0xFF18D4B3)
-private val VoicaAccentSoft = Color(0xFF0B514B)
 
 @Composable
 internal fun HomeActivityPanel(
@@ -69,7 +66,7 @@ internal fun HomeActivityPanel(
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         val primary = projection.primaryActivity
         if (primary == null) {
@@ -123,7 +120,7 @@ private fun IdleHomeQuickActions(
 
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         SectionHeading(
             title = "录音来源",
@@ -189,10 +186,10 @@ private fun SourceSelector(
                 .fillMaxWidth()
                 .background(
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                    shape = RoundedCornerShape(24.dp),
+                    shape = RoundedCornerShape(21.dp),
                 )
-                .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                .padding(2.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         SegmentedChoice(
             label = "手机",
@@ -222,10 +219,10 @@ private fun ModeSelector(
                 .fillMaxWidth()
                 .background(
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                    shape = RoundedCornerShape(24.dp),
+                    shape = RoundedCornerShape(21.dp),
                 )
-                .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                .padding(2.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         SegmentedChoice(
             label = "录音",
@@ -252,15 +249,18 @@ private fun SegmentedChoice(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val selectedColor = VoicaAccent.copy(alpha = if (enabled) 0.92f else 0.35f)
-    val idleColor = Color.Transparent
     Surface(
         modifier =
             modifier
-                .height(46.dp)
+                .height(40.dp)
                 .clickable(enabled = enabled, onClick = onClick),
-        color = if (selected) selectedColor else idleColor,
-        shape = RoundedCornerShape(21.dp),
+        color =
+            if (selected) {
+                MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.35f)
+            } else {
+                Color.Transparent
+            },
+        shape = RoundedCornerShape(19.dp),
     ) {
         Box(contentAlignment = Alignment.Center) {
             Text(
@@ -270,7 +270,7 @@ private fun SegmentedChoice(
                 color =
                     when {
                         !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
-                        selected -> Color.White
+                        selected -> MaterialTheme.colorScheme.onPrimary
                         else -> MaterialTheme.colorScheme.onSurfaceVariant
                     },
             )
@@ -311,31 +311,20 @@ private fun IdleMainActivityCard(
             ),
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column {
-                    Text(
-                        "$sourceTitle$modeTitle",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        sourceSubtitle,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+            Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    "•••",
+                    "$sourceTitle$modeTitle",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    sourceSubtitle,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.titleMedium,
                 )
             }
 
@@ -347,7 +336,7 @@ private fun IdleMainActivityCard(
                     modifier =
                         Modifier
                             .size(9.dp)
-                            .background(VoicaAccent, RoundedCornerShape(50)),
+                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(50)),
                 )
                 Text(
                     readyText,
@@ -374,13 +363,8 @@ private fun IdleMainActivityCard(
             Button(
                 onClick = onStart,
                 enabled = enabled,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = RoundedCornerShape(28.dp),
-                colors =
-                    ButtonDefaults.buttonColors(
-                        containerColor = VoicaAccent,
-                        contentColor = Color.White,
-                    ),
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(26.dp),
             ) {
                 Text(
                     actionText,
@@ -401,15 +385,16 @@ private fun DecorativeWaveform() {
                 17, 27, 18, 11, 7, 5, 9, 14, 20, 13, 8, 5, 4,
             )
         }
+    val color = MaterialTheme.colorScheme.primary
     Canvas(
-        modifier = Modifier.fillMaxWidth().height(42.dp),
+        modifier = Modifier.fillMaxWidth().height(40.dp),
     ) {
         val step = size.width / (bars.size + 1)
         bars.forEachIndexed { index, value ->
             val x = step * (index + 1)
             val halfHeight = value.dp.toPx() / 2f
             drawLine(
-                color = VoicaAccent.copy(alpha = if (index % 5 == 0) 1f else 0.72f),
+                color = color.copy(alpha = if (index % 5 == 0) 0.88f else 0.62f),
                 start = Offset(x, size.height / 2f - halfHeight),
                 end = Offset(x, size.height / 2f + halfHeight),
                 strokeWidth = if (index % 5 == 0) 2.5.dp.toPx() else 1.5.dp.toPx(),
@@ -440,7 +425,7 @@ private fun PrimaryHomeActivityCard(
             ),
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -455,9 +440,9 @@ private fun PrimaryHomeActivityCard(
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.SemiBold,
                     )
-                    activity.subtitle?.let { subtitle ->
+                    liveMediaSummary(activity)?.let { summary ->
                         Text(
-                            subtitle,
+                            summary,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -474,12 +459,19 @@ private fun PrimaryHomeActivityCard(
             }
 
             Text(
-                durationFromSubtitle(activity.subtitle) ?: "--:--",
+                formatElapsed(activity.elapsedMs),
                 style = MaterialTheme.typography.displaySmall,
                 fontWeight = FontWeight.Medium,
             )
 
-            DecorativeWaveform()
+            if (activity.audioActivityLevels.isNotEmpty()) {
+                RealtimeAudioActivityWaveform(
+                    levels = activity.audioActivityLevels,
+                    active = activity.waveformActive,
+                )
+            } else {
+                DecorativeWaveform()
+            }
 
             val transportActions =
                 listOf(
@@ -504,11 +496,6 @@ private fun PrimaryHomeActivityCard(
                             Button(
                                 onClick = { onAction(activity, action) },
                                 modifier = Modifier.weight(1f),
-                                colors =
-                                    ButtonDefaults.buttonColors(
-                                        containerColor = VoicaAccent,
-                                        contentColor = Color.White,
-                                    ),
                             ) {
                                 Text(label)
                             }
@@ -532,7 +519,6 @@ private fun PrimaryHomeActivityCard(
                         } else {
                             "查看"
                         },
-                        color = VoicaAccent,
                     )
                 }
             }
@@ -552,7 +538,7 @@ private fun SecondaryHomeActivityRow(
         ListItem(
             headlineContent = { Text(activity.title, maxLines = 1) },
             supportingContent = {
-                activity.subtitle?.let { Text(it, maxLines = 1) }
+                Text(liveMediaSummary(activity) ?: activity.subtitle.orEmpty(), maxLines = 1)
             },
             trailingContent = {
                 Icon(Icons.Outlined.ChevronRight, contentDescription = null)
@@ -594,9 +580,34 @@ private fun HomeAttentionRow(
     }
 }
 
-private fun durationFromSubtitle(subtitle: String?): String? =
-    subtitle
-        ?.split(" · ")
-        ?.firstOrNull { value ->
-            value.count { it == ':' } in 1..2 && value.all { it.isDigit() || it == ':' }
-        }
+private fun liveMediaSummary(activity: AppActivityFact): String? {
+    val filename = activity.mediaDisplayName?.trim()?.takeIf { it.isNotEmpty() }
+    val size = activity.mediaSizeBytes?.let(::formatBytes)
+    return when {
+        filename != null && size != null -> "$filename · $size"
+        filename != null -> filename
+        size != null -> size
+        else -> activity.subtitle?.trim()?.takeIf { it.isNotEmpty() }
+    }
+}
+
+private fun formatElapsed(elapsedMs: Long?): String {
+    val totalSeconds = ((elapsedMs ?: 0L).coerceAtLeast(0L) / 1_000L)
+    val hours = totalSeconds / 3_600L
+    val minutes = (totalSeconds % 3_600L) / 60L
+    val seconds = totalSeconds % 60L
+    return if (hours > 0L) {
+        String.format(Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
+    } else {
+        String.format(Locale.US, "%02d:%02d", minutes, seconds)
+    }
+}
+
+private fun formatBytes(bytes: Long): String {
+    val safe = bytes.coerceAtLeast(0L)
+    return when {
+        safe >= 1024L * 1024L -> String.format(Locale.US, "%.1f MB", safe.toDouble() / 1024.0 / 1024.0)
+        safe >= 1024L -> String.format(Locale.US, "%.1f KB", safe.toDouble() / 1024.0)
+        else -> "$safe B"
+    }
+}
