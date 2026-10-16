@@ -2,6 +2,7 @@ package io.github.ioannes78.voica.ui.recording
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -27,9 +28,10 @@ import io.github.ioannes78.voica.ui.phone.LocalPhoneMicrophoneRecordingRuntime
 import io.github.ioannes78.voica.ui.realtime.LocalStage16ARealtimeRuntime
 import io.github.ioannes78.voica.ui.status.AppActivitySource
 import io.github.ioannes78.voica.ui.status.AppLiveActivityVisibility
+import io.github.ioannes78.voica.ui.status.LiveActivityStripItem
 import io.github.ioannes78.voica.ui.status.LiveActivityStripKind
 import io.github.ioannes78.voica.ui.status.LiveActivityStripPhase
-import io.github.ioannes78.voica.ui.status.resolveLiveActivityStrip
+import io.github.ioannes78.voica.ui.status.resolveLiveActivityStrips
 import java.util.Locale
 
 @Composable
@@ -42,35 +44,51 @@ fun GlobalRecordingStatusBar(
     val phoneRecording by LocalPhoneMicrophoneRecordingRuntime.current.state.collectAsState()
     val phoneRealtime by LocalPhoneMicrophoneRealtimeRuntime.current.state.collectAsState()
     val visibleRealtimeSource by AppLiveActivityVisibility.visibleRealtimeSource.collectAsState()
-    val item =
-        resolveLiveActivityStrip(
+    val items =
+        resolveLiveActivityStrips(
             deviceRecording = state,
             deviceRealtime = deviceRealtime,
             phoneRecording = phoneRecording,
             phoneRealtime = phoneRealtime,
             visibleRealtimeSource = visibleRealtimeSource,
-        ) ?: return
+        )
+    if (items.isEmpty()) return
 
-    val paused = item.phase == LiveActivityStripPhase.PAUSED
-    val realtime = item.kind == LiveActivityStripKind.REALTIME
-    val stripClick = {
-        when {
-            realtime && item.source == AppActivitySource.RECORDER_CARD -> {
-                AppPhoneMicrophoneNavigation.dismiss()
-                AppRealtimeNavigation.publish()
-            }
-            realtime && item.source == AppActivitySource.PHONE_MICROPHONE -> {
-                AppRealtimeNavigation.dismiss()
-                AppPhoneMicrophoneNavigation.publish(PhoneMicrophoneProductTarget.REALTIME)
-            }
-            else -> onClick()
+    Column(modifier = modifier.fillMaxWidth()) {
+        items.forEach { item ->
+            LiveActivityStripRow(
+                item = item,
+                onClick = {
+                    when {
+                        item.kind == LiveActivityStripKind.REALTIME &&
+                            item.source == AppActivitySource.RECORDER_CARD -> {
+                            AppPhoneMicrophoneNavigation.dismiss()
+                            AppRealtimeNavigation.publish()
+                        }
+                        item.kind == LiveActivityStripKind.REALTIME &&
+                            item.source == AppActivitySource.PHONE_MICROPHONE -> {
+                            AppRealtimeNavigation.dismiss()
+                            AppPhoneMicrophoneNavigation.publish(PhoneMicrophoneProductTarget.REALTIME)
+                        }
+                        else -> onClick()
+                    }
+                },
+            )
         }
     }
+}
 
+@Composable
+private fun LiveActivityStripRow(
+    item: LiveActivityStripItem,
+    onClick: () -> Unit,
+) {
+    val paused = item.phase == LiveActivityStripPhase.PAUSED
+    val realtime = item.kind == LiveActivityStripKind.REALTIME
     Surface(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = stripClick),
+            .clickable(onClick = onClick),
         color =
             when {
                 paused -> MaterialTheme.colorScheme.secondaryContainer
