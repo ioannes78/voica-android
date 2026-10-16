@@ -4,32 +4,38 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class Stage16A16QaAudioSourceOverrideTest {
-    private val defaultOrder =
+    private val availableSources =
         listOf(
             PhoneMicrophoneAudioSource.VOICE_RECOGNITION,
             PhoneMicrophoneAudioSource.MIC,
         )
 
+    private val productOrder =
+        listOf(
+            PhoneMicrophoneAudioSource.MIC,
+            PhoneMicrophoneAudioSource.VOICE_RECOGNITION,
+        )
+
     @Test
-    fun `production-disabled override always preserves normal source order`() {
+    fun `production-disabled override always uses calibrated product source order`() {
         assertEquals(
-            defaultOrder,
+            productOrder,
             resolveStage16A16QaAudioSourceOrder(
                 enabled = false,
                 mode = Stage16A16QaAudioSourceMode.FORCE_MIC,
-                defaultOrder = defaultOrder,
+                availableSources = availableSources,
             ),
         )
     }
 
     @Test
-    fun `qa auto preserves normal source order`() {
+    fun `qa auto uses calibrated product source order`() {
         assertEquals(
-            defaultOrder,
+            productOrder,
             resolveStage16A16QaAudioSourceOrder(
                 enabled = true,
                 mode = Stage16A16QaAudioSourceMode.AUTO,
-                defaultOrder = defaultOrder,
+                availableSources = availableSources,
             ),
         )
     }
@@ -41,7 +47,7 @@ class Stage16A16QaAudioSourceOverrideTest {
             resolveStage16A16QaAudioSourceOrder(
                 enabled = true,
                 mode = Stage16A16QaAudioSourceMode.FORCE_VOICE_RECOGNITION,
-                defaultOrder = defaultOrder,
+                availableSources = availableSources,
             ),
         )
     }
@@ -53,7 +59,7 @@ class Stage16A16QaAudioSourceOverrideTest {
             resolveStage16A16QaAudioSourceOrder(
                 enabled = true,
                 mode = Stage16A16QaAudioSourceMode.FORCE_MIC,
-                defaultOrder = defaultOrder,
+                availableSources = availableSources,
             ),
         )
     }

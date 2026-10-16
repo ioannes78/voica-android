@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.asStateFlow
 internal enum class Stage16A16QaAudioSourceMode(
     val label: String,
 ) {
-    AUTO("自动（VOICE_RECOGNITION → MIC）"),
+    AUTO("自动（MIC → VOICE_RECOGNITION）"),
     FORCE_VOICE_RECOGNITION("强制 VOICE_RECOGNITION"),
     FORCE_MIC("强制 MIC"),
 }
@@ -24,7 +24,8 @@ internal data class Stage16A16QaAudioSourceOverrideSnapshot(
 }
 
 /**
- * QA-only calibration control. Production builds always resolve to AUTO and ignore mutation.
+ * QA-only calibration control. Production builds ignore mutation and always use the calibrated
+ * product AudioSource policy.
  *
  * This does not own AudioRecord and does not create a second capture path. PhoneMicrophoneCapture
  * only reads the mode when a normal product capture starts, so formal WAV remains the primary truth.
@@ -49,12 +50,12 @@ internal object Stage16A16QaAudioSourceOverride {
     }
 
     fun sourceOrder(
-        defaultOrder: List<PhoneMicrophoneAudioSource>,
+        availableSources: List<PhoneMicrophoneAudioSource>,
     ): List<PhoneMicrophoneAudioSource> =
         resolveStage16A16QaAudioSourceOrder(
             enabled = qaEnabled,
             mode = mutableState.value.mode,
-            defaultOrder = defaultOrder,
+            availableSources = availableSources,
         )
 
     internal fun resetForTest() {
@@ -69,12 +70,12 @@ internal object Stage16A16QaAudioSourceOverride {
 internal fun resolveStage16A16QaAudioSourceOrder(
     enabled: Boolean,
     mode: Stage16A16QaAudioSourceMode,
-    defaultOrder: List<PhoneMicrophoneAudioSource>,
+    availableSources: List<PhoneMicrophoneAudioSource>,
 ): List<PhoneMicrophoneAudioSource> {
-    require(defaultOrder.isNotEmpty())
-    if (!enabled || mode == Stage16A16QaAudioSourceMode.AUTO) return defaultOrder
+    val productOrder = PhoneMicrophoneAudioSourcePolicy.resolveAvailable(availableSources)
+    if (!enabled || mode == Stage16A16QaAudioSourceMode.AUTO) return productOrder
     return when (mode) {
-        Stage16A16QaAudioSourceMode.AUTO -> defaultOrder
+        Stage16A16QaAudioSourceMode.AUTO -> productOrder
         Stage16A16QaAudioSourceMode.FORCE_VOICE_RECOGNITION ->
             listOf(PhoneMicrophoneAudioSource.VOICE_RECOGNITION)
         Stage16A16QaAudioSourceMode.FORCE_MIC -> listOf(PhoneMicrophoneAudioSource.MIC)
