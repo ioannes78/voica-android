@@ -1,6 +1,5 @@
 package io.github.ioannes78.voica.ui.phone
 
-import android.media.AudioDeviceInfo
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -8,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ChevronRight
@@ -28,11 +28,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import io.github.ioannes78.voica.PhoneMicrophoneAudioDeviceDescriptor
+import io.github.ioannes78.voica.PhoneMicrophoneCaptureDiagnostics
 import io.github.ioannes78.voica.PhoneMicrophoneInputRequest
 import io.github.ioannes78.voica.PhoneMicrophoneInputSelectionRuntime
+import io.github.ioannes78.voica.buildPhoneMicrophoneP6DiagnosticsText
+import io.github.ioannes78.voica.phoneMicrophoneInputCompactLabel
+import io.github.ioannes78.voica.phoneMicrophoneInputUserLabel
+import io.github.ioannes78.voica.queryPhoneMicrophoneInputCapabilities
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,7 +55,7 @@ internal fun PhoneMicrophoneInputSelectorRow(
         when (state.request) {
             PhoneMicrophoneInputRequest.Auto -> "自动"
             is PhoneMicrophoneInputRequest.SpecificDevice ->
-                state.selectedDevice?.compactInputLabel() ?: "已断开"
+                state.selectedDevice?.let(::phoneMicrophoneInputCompactLabel) ?: "已断开"
         }
 
     Row(
@@ -83,6 +88,21 @@ internal fun PhoneMicrophoneInputSelectorRow(
     }
 
     if (!sheetVisible) return
+
+    val capabilityDevices =
+        remember(sheetVisible, state.inventoryGeneration) {
+            queryPhoneMicrophoneInputCapabilities(context.applicationContext)
+        }
+    val retainedCapture = remember(sheetVisible) { PhoneMicrophoneCaptureDiagnostics.snapshot() }
+    val diagnosticsText =
+        remember(state, capabilityDevices, retainedCapture) {
+            buildPhoneMicrophoneP6DiagnosticsText(
+                selection = state,
+                capture = retainedCapture,
+                capabilities = capabilityDevices,
+            )
+        }
+
     ModalBottomSheet(onDismissRequest = { sheetVisible = false }) {
         Text(
             "选择输入设备",
@@ -141,7 +161,8 @@ internal fun PhoneMicrophoneInputSelectorRow(
                     },
                     supportingContent = {
                         Text(
-                            "${device.inputTypeLabel()} · Android ID ${device.deviceId}",
+                            "${phoneMicrophoneInputUserLabel(device.deviceType)} · " +
+                                "Android ID ${device.deviceId}",
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -152,30 +173,26 @@ internal fun PhoneMicrophoneInputSelectorRow(
                 )
             }
         }
+
+        HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
+        Text(
+            "P6 输入诊断",
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+        )
+        Text(
+            "设备 capability 由 Android AudioDeviceInfo 直接报告；列表没有显式报告 16 kHz 并不等于平台不能转换到 Voica 的 16 kHz canonical PCM。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
+        )
+        SelectionContainer {
+            Text(
+                diagnosticsText,
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+            )
+        }
     }
 }
-
-private fun PhoneMicrophoneAudioDeviceDescriptor.compactInputLabel(): String =
-    when (deviceType) {
-        AudioDeviceInfo.TYPE_BUILTIN_MIC -> "内置麦克风"
-        AudioDeviceInfo.TYPE_WIRED_HEADSET -> "有线耳麦"
-        AudioDeviceInfo.TYPE_USB_DEVICE,
-        AudioDeviceInfo.TYPE_USB_HEADSET,
-        -> "USB 麦克风"
-        AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
-        AudioDeviceInfo.TYPE_BLE_HEADSET,
-        -> "蓝牙耳机"
-        else -> productName.trim().ifBlank { "输入设备" }
-    }
-
-private fun PhoneMicrophoneAudioDeviceDescriptor.inputTypeLabel(): String =
-    when (deviceType) {
-        AudioDeviceInfo.TYPE_BUILTIN_MIC -> "手机内置麦克风"
-        AudioDeviceInfo.TYPE_WIRED_HEADSET -> "有线耳机麦克风"
-        AudioDeviceInfo.TYPE_USB_DEVICE,
-        AudioDeviceInfo.TYPE_USB_HEADSET,
-        -> "USB 麦克风"
-        AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> "蓝牙耳机麦克风"
-        AudioDeviceInfo.TYPE_BLE_HEADSET -> "BLE Audio 麦克风"
-        else -> "Android 输入设备 · type $deviceType"
-    }
