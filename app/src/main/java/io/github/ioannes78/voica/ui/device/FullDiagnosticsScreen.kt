@@ -49,10 +49,13 @@ import io.github.ioannes78.voica.ble.BleDiagnostics
 import io.github.ioannes78.voica.ble.FileTransferDiagnostics
 import io.github.ioannes78.voica.ble.RangeProbeDiagnostics
 import io.github.ioannes78.voica.ble.RemoteDeleteDiagnostics
+import io.github.ioannes78.voica.playback.PlaybackOutputDiagnostics
+import io.github.ioannes78.voica.playback.toP8DiagnosticsText
 
 private enum class DiagnosticSection {
     CONNECTION,
     AUDIO_INPUT,
+    AUDIO_OUTPUT,
     RECORDING,
     FILE_LIST,
     TRANSFER,
@@ -73,7 +76,13 @@ fun FullDiagnosticsScreen(
     onBack: () -> Unit,
 ) {
     var expanded by androidx.compose.runtime.remember {
-        mutableStateOf(setOf(DiagnosticSection.CONNECTION, DiagnosticSection.AUDIO_INPUT))
+        mutableStateOf(
+            setOf(
+                DiagnosticSection.CONNECTION,
+                DiagnosticSection.AUDIO_INPUT,
+                DiagnosticSection.AUDIO_OUTPUT,
+            ),
+        )
     }
     var menuExpanded by rememberSaveable { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
@@ -94,6 +103,8 @@ fun FullDiagnosticsScreen(
             capture = captureDiagnostics,
             capabilities = inputCapabilities,
         )
+    val p8OutputDiagnosticsText =
+        PlaybackOutputDiagnostics.snapshot().toP8DiagnosticsText()
     val realtimePerformance = Stage16ARealtimePerformanceDiagnostics.snapshot()
     val stage15Realtime = runCatching {
         application?.container?.realtimeAudioRuntime?.snapshot()
@@ -152,6 +163,7 @@ fun FullDiagnosticsScreen(
                                             rangeProbe,
                                             stage15RegressionText,
                                             p6InputDiagnosticsText,
+                                            p8OutputDiagnosticsText,
                                         ),
                                     ),
                                 )
@@ -192,6 +204,30 @@ fun FullDiagnosticsScreen(
                 SelectionContainer {
                     Text(
                         p6InputDiagnosticsText,
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+            }
+        }
+
+        item {
+            DiagnosticExpandableSection(
+                title = "Android 音频输出 / P8",
+                expanded = DiagnosticSection.AUDIO_OUTPUT in expanded,
+                onToggle = {
+                    expanded = expanded.toggle(DiagnosticSection.AUDIO_OUTPUT)
+                },
+            ) {
+                Text(
+                    "实际输出路由以当前 AudioTrack routed device 为准；设备增加或移除只记录环境事件，不等同于 AudioTrack 已完成路由切换。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                SelectionContainer {
+                    Text(
+                        p8OutputDiagnosticsText,
                         style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 6.dp),
@@ -602,6 +638,7 @@ private fun buildDiagnosticsText(
     rangeProbe: RangeProbeDiagnostics,
     stage15RegressionText: String?,
     p6InputDiagnosticsText: String,
+    p8OutputDiagnosticsText: String,
 ): String =
     buildString {
         appendLine("Voica BLE diagnostics")
@@ -669,4 +706,6 @@ private fun buildDiagnosticsText(
         }
         appendLine()
         appendLine(p6InputDiagnosticsText)
+        appendLine()
+        appendLine(p8OutputDiagnosticsText)
     }
