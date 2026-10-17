@@ -33,8 +33,9 @@ import androidx.compose.ui.unit.dp
  *
  * This Activity never owns AudioRecord. It only selects which AudioSource the normal phone capture
  * lifecycle will try on its next start, then displays retained diagnostics from that same capture and
- * the formal phone-recording runtime. The latter makes P4 route-boundary / recovery behavior observable
- * without adding another capture path or changing production routing behavior.
+ * the formal phone-recording runtime. The latter makes route-boundary, bounded recovery, and manual
+ * route-loss pause behavior observable without adding another capture path or changing production
+ * routing behavior.
  */
 class Stage16A16AudioCalibrationActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -217,6 +218,11 @@ private fun PhoneMicrophoneRecordingSnapshot.toStage16A16RouteDiagnosticsText():
             "recoveryAttempts=$captureRecoveryAttempts recoverySuccesses=$captureRecoverySuccesses " +
                 "recoveryFailures=$captureRecoveryFailures " +
                 "recoveryTrigger=${lastCaptureRecoveryTrigger?.name ?: "n/a"}",
+        )
+        appendLine(
+            "manualRouteLossPauses=$manualRouteLossPauses " +
+                "manualRouteRecoveryPending=$manualRouteRecoveryPending " +
+                "lastManualRouteLostDeviceId=${lastManualRouteLostDeviceId ?: -1}",
         )
         append(
             "hadCaptureInterruption=$hadCaptureInterruption " +
