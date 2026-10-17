@@ -107,6 +107,8 @@ internal fun buildPhoneMicrophoneP6DiagnosticsText(
     selection: PhoneMicrophoneInputSelectionSnapshot,
     capture: PhoneMicrophoneCaptureSnapshot?,
     capabilities: List<PhoneMicrophoneInputCapabilitySnapshot>,
+    bluetoothCommunication: PhoneMicrophoneBluetoothCommunicationSnapshot =
+        PhoneMicrophoneBluetoothCommunicationDiagnostics.snapshot(),
 ): String =
     buildString {
         appendLine("[P6 Android input inventory]")
@@ -135,7 +137,7 @@ internal fun buildPhoneMicrophoneP6DiagnosticsText(
 
         appendLine("[P6 last AudioRecord route]")
         if (capture == null) {
-            append("capture=n/a")
+            appendLine("capture=n/a")
         } else {
             val route = capture.route
             appendLine(
@@ -179,11 +181,60 @@ internal fun buildPhoneMicrophoneP6DiagnosticsText(
                         "clip:${summary.clippingSamples}/${summary.clippingRatio.toP6Ratio()}",
                 )
             } ?: appendLine("signalSummary=n/a")
-            append(
+            appendLine(
                 "phase=${capture.phase} source=${capture.selectedAudioSource?.diagnosticsName ?: "n/a"} " +
                     "lastFailure=${capture.lastFailure ?: "n/a"}",
             )
         }
+
+        appendLine("[P6 Bluetooth communication]")
+        appendLine(
+            "phase=${bluetoothCommunication.phase} path=${bluetoothCommunication.path}",
+        )
+        appendLine(
+            "requestedInput=" +
+                bluetoothCommunication.deviceDiagnostics(
+                    id = bluetoothCommunication.requestedInputDeviceId,
+                    type = bluetoothCommunication.requestedInputType,
+                    product = bluetoothCommunication.requestedInputProductName,
+                    address = bluetoothCommunication.requestedInputAddress,
+                ),
+        )
+        appendLine(
+            "modeBefore=${bluetoothCommunication.modeBefore.toP6AudioMode()} " +
+                "modeActive=${bluetoothCommunication.modeActive.toP6AudioMode()} " +
+                "modeRestored=${bluetoothCommunication.modeRestored.toP6AudioMode()}",
+        )
+        appendLine(
+            "requestedComm=" +
+                bluetoothCommunication.deviceDiagnostics(
+                    id = bluetoothCommunication.requestedCommunicationDeviceId,
+                    type = bluetoothCommunication.requestedCommunicationDeviceType,
+                    product = bluetoothCommunication.requestedCommunicationDeviceProductName,
+                    address = bluetoothCommunication.requestedCommunicationDeviceAddress,
+                ),
+        )
+        appendLine(
+            "actualComm=" +
+                bluetoothCommunication.deviceDiagnostics(
+                    id = bluetoothCommunication.actualCommunicationDeviceId,
+                    type = bluetoothCommunication.actualCommunicationDeviceType,
+                    product = bluetoothCommunication.actualCommunicationDeviceProductName,
+                    address = bluetoothCommunication.actualCommunicationDeviceAddress,
+                ),
+        )
+        appendLine(
+            "setCommunicationDeviceAccepted=${bluetoothCommunication.setCommunicationDeviceAccepted ?: "n/a"} " +
+                "legacyScoState=${bluetoothCommunication.legacyScoState.toP6ScoState()}",
+        )
+        appendLine(
+            "setupLatencyMs=${bluetoothCommunication.setupLatencyMs ?: "n/a"} " +
+                "cleanupSucceeded=${bluetoothCommunication.cleanupSucceeded ?: "n/a"}",
+        )
+        append(
+            "failure=${bluetoothCommunication.failureCode ?: "n/a"}/" +
+                (bluetoothCommunication.failureDetail ?: "n/a"),
+        )
     }
 
 private fun PhoneMicrophoneInputRequest.toP6DiagnosticsName(): String =
@@ -207,6 +258,39 @@ private fun List<Int>.toEncodingDiagnosticsList(): String =
                 else -> encoding.toString()
             }
         }
+    }
+
+private fun PhoneMicrophoneBluetoothCommunicationSnapshot.deviceDiagnostics(
+    id: Int?,
+    type: Int?,
+    product: String?,
+    address: String?,
+): String =
+    if (id == null && type == null && product == null && address == null) {
+        "n/a"
+    } else {
+        "id:${id ?: "n/a"} type:${type?.let(::phoneMicrophoneInputTypeLabel) ?: "n/a"}" +
+            "(${type ?: "n/a"}) product:${product ?: "n/a"} address:${address ?: "n/a"}"
+    }
+
+private fun Int?.toP6AudioMode(): String =
+    when (this) {
+        null -> "n/a"
+        AudioManager.MODE_NORMAL -> "NORMAL($this)"
+        AudioManager.MODE_RINGTONE -> "RINGTONE($this)"
+        AudioManager.MODE_IN_CALL -> "IN_CALL($this)"
+        AudioManager.MODE_IN_COMMUNICATION -> "IN_COMMUNICATION($this)"
+        else -> "MODE_$this"
+    }
+
+private fun Int?.toP6ScoState(): String =
+    when (this) {
+        null -> "n/a"
+        AudioManager.SCO_AUDIO_STATE_DISCONNECTED -> "DISCONNECTED($this)"
+        AudioManager.SCO_AUDIO_STATE_CONNECTED -> "CONNECTED($this)"
+        AudioManager.SCO_AUDIO_STATE_CONNECTING -> "CONNECTING($this)"
+        AudioManager.SCO_AUDIO_STATE_ERROR -> "ERROR($this)"
+        else -> "STATE_$this"
     }
 
 private fun Double.toP6Dbfs(): String = String.format(Locale.US, "%.1f dBFS", this)
