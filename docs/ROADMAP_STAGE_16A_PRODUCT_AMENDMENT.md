@@ -1,6 +1,6 @@
 # Stage 16A+ 产品路线修订
 
-状态：**APPROVED PRODUCT ROADMAP AMENDMENT / STAGE 16A.1.5 FROZEN**
+状态：**APPROVED PRODUCT ROADMAP AMENDMENT / STAGE 16A.1.6 IN DEVELOPMENT**
 
 日期：2026-10-16
 
@@ -44,15 +44,21 @@ Stage 16A.1 后执行，负责在不改 recording / ASR / diarization / AI Summa
 - `docs/STAGE_16A_1_5_FREEZE.md`
 - `docs/STAGE_16A_1_5_HANDOFF.md`
 
-## 4. 新增预留 Stage 16A.1.6 — Android Audio I/O Compatibility
+## 4. Stage 16A.1.6 — Android Audio I/O Compatibility
 
-状态：**RESERVED / NOT STARTED**。
+状态：**IN DEVELOPMENT**。
 
 Stage 16A.1.5 Final Freeze/Handoff 后、Stage 16A.2 前执行。
 
 目标是把 Android capture/playback route compatibility 从 Home/Notification presentation 与 Timeline Annotation 中拆出，独立处理真实设备 Audio I/O 差异，同时保持 Stage 16A/16A.1 已冻结的 canonical truth 与单 owner 架构。
 
-预留问题域：
+已确认权威文档：
+
+- `docs/STAGE_16A_1_6_REQUIREMENTS_V1.md`
+- `docs/STAGE_16A_1_6_DEVELOPMENT_PLAN_V1.md`
+- `docs/STAGE_16A_1_6_PROGRESS.md`
+
+问题域：
 
 - phone actual recording level；
 - phone realtime input source；
@@ -69,11 +75,21 @@ Stage 16A.1.5 Final Freeze/Handoff 后、Stage 16A.2 前执行。
 
 - “手机”表示 Android capture source，不等于永久强制 built-in microphone；
 - 继续保持一个 `AudioRecord` owner；
+- formal WAV recording truth 继续优先于 optional realtime ASR fan-out；
+- canonical PCM 继续为 PCM16 / 16 kHz / mono；
 - QS668/CB08 BLE GATT recorder 与 Bluetooth audio route 必须分离建模；
-- playback 继续保持 single controller；
+- playback 继续保持 single controller / single sink；
+- manual selected microphone 消失时不得静默切到 built-in mic 并继续写正式录音；
+- low recording level 必须先通过 `MIC` / `VOICE_RECOGNITION` 与 signal diagnostics 真机校准，不预先引入 software gain；
 - 不得借兼容性修复改写 BLE protocol、ASR、Room、model channel 或 canonical sample truth。
 
-Stage 16A.1.6 尚未完成需求确认和开发规划确认，因此本路线图只保留阶段位置和问题域，不构成编码授权。
+当前开发分支：`stage16a1_6-android-audio-io-compatibility`。
+
+当前 Stage 16A.1 S15 历史状态继续保持：
+
+`30-minute phone microphone + Small realtime + screen-off = NOT RUN / WAIVED BY USER`
+
+任何 Stage 16A.1.6 QA 都不得把该历史 Gate 改写为 PASS。
 
 ## 5. Stage 16A.2 — Timeline Annotation
 
@@ -105,7 +121,7 @@ Stage 16A 保留 audio-source-independent 上层 seam，使 Stage 16A.1 接入�
 
 Stage 16A.1.5 的 unified projection 只能读取既有 runtime / Room / coordinator / durable journal truth，不得变成业务状态 owner。Notification/App Global UI 必须可以由底层 truth 重建。
 
-Stage 16A.1.6 只能在重新核验当前 Android capture/playback truth 后设计 route policy；不得先建立第二套 `AudioRecord` / playback controller，也不得把 Bluetooth GATT 与 Bluetooth audio 混为同一连接事实。
+Stage 16A.1.6 必须保持 one AudioRecord owner、single playback controller，并将 requested/preferred Android audio device 与 actual routed device 作为独立 truth。route change 只能通过已有 canonical continuity/discontinuity seam 影响 realtime ASR，不得建立第二套 ASR pipeline。QS668 GATT 与 Android Bluetooth Audio 必须保持独立状态域。
 
 Stage 16A.2 的 Annotation 必须属于 Recording/media timeline，不属于某一 TranscriptVersion；Room 表结构在该阶段重新核验实际 schema 后设计，不在 16A.1.5/16A.1.6 提前创建空表。
 
@@ -115,7 +131,7 @@ Stage 16A realtime UI 继续保持“阅读器 + 极简录音控制器”。
 
 Stage 16A.1.5 已将主页收口为“当前正在发生什么 + 高频启动操作”：idle 不同时展示手机/录音卡 × 录音/realtime 四张同权大卡；active 时显示一个 Primary Activity，并保留可重建的 compact secondary/global presentation seam；Mini Player 继续只服务 playback。
 
-Stage 16A.1.6 只处理 Audio I/O compatibility，不重新设计 Home IA。
+Stage 16A.1.6 只增加轻量 Audio I/O input selection / actual route / unavailable 状态，不重新设计 Home IA；playback V1 默认继续由 Android system media route 决定输出，不新增 App 自己的 output switch center。
 
 Stage 16A.2 再增加统一 `+` 入口承载快速标记、文字笔记、拍照、相册，避免 Annotation 再创建独立全局状态体系。
 
@@ -125,6 +141,6 @@ Timeline Annotation 首版不实现 OCR、图片理解或图片参与 AI 总结�
 
 ## 10. 后续接管门禁
 
-开始 Stage 16A.1.6 前必须重新核验 GitHub `main`、PR #30 merge 状态、最新 CI、当前源码、Room v13、production model channel、Stage 16A / 16A.1 / 16A.1.5 Freeze/Handoff；随后先确认需求，再确认开发规划，才允许编码。
+Stage 16A.1.6 已完成开始前的 GitHub `main`、PR #30、当前源码、Room v13、production model channel、Stage 16A / 16A.1 / 16A.1.5 Freeze/Handoff 核验，并已完成需求与开发规划确认；开发必须继续按 `STAGE_16A_1_6_REQUIREMENTS_V1.md` / `STAGE_16A_1_6_DEVELOPMENT_PLAN_V1.md` 执行。
 
-开始 Stage 16A.2 时同样必须以届时 GitHub 真实状态重新核验，不能把本文件中的 SHA 或问题列表当成未来事实来源。
+开始 Stage 16A.2 时必须以届时 GitHub 真实状态重新核验，不能把本文件中的 SHA 或问题列表当成未来事实来源。

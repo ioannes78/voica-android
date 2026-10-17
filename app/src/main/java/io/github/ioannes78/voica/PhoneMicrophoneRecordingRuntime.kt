@@ -13,10 +13,15 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 internal enum class PhoneMicrophoneRecordingPhase {
@@ -49,6 +54,16 @@ internal data class PhoneMicrophoneRecordingSnapshot(
     val writtenSamples: Long = 0L,
     val postWriteOffers: Long = 0L,
     val postWriteOfferFailures: Long = 0L,
+    val routeBoundaryCount: Long = 0L,
+    val discontinuityEpochCount: Long = 0L,
+    val lastRouteBoundaryReason: PhoneMicrophoneRouteBoundaryReason? = null,
+    val captureRecoveryAttempts: Long = 0L,
+    val captureRecoverySuccesses: Long = 0L,
+    val captureRecoveryFailures: Long = 0L,
+    val lastCaptureRecoveryTrigger: PhoneMicrophoneCaptureRecoveryTrigger? = null,
+    val manualRouteLossPauses: Long = 0L,
+    val manualRouteRecoveryPending: Boolean = false,
+    val lastManualRouteLostDeviceId: Int? = null,
     val hadCaptureInterruption: Boolean = false,
     val finalizedSizeBytes: Long? = null,
     val finalizedSha256: String? = null,
@@ -100,6 +115,12 @@ internal interface PhoneMicrophoneCaptureDriver : Closeable {
     ): PhoneMicrophoneStartResult
 
     suspend fun stopAndAwait(timeoutMs: Long): Boolean
+
+    /** Product pause seam: capture stops, but an active Bluetooth communication session may remain. */
+    suspend fun pauseAndAwait(timeoutMs: Long): Boolean = stopAndAwait(timeoutMs)
+
+    /** Final stop/close seam for any input-session resource intentionally retained across pause. */
+    fun releaseRetainedInputSession() = Unit
 }
 
 internal class AndroidPhoneMicrophoneCaptureDriver(
@@ -117,7 +138,37 @@ internal class AndroidPhoneMicrophoneCaptureDriver(
 
     override suspend fun stopAndAwait(timeoutMs: Long): Boolean = capture.stopAndAwait(timeoutMs)
 
+    override suspend fun pauseAndAwait(timeoutMs: Long): Boolean =
+        capture.stopAndAwait(
+            timeoutMs = timeoutMs,
+            keepBluetoothCommunicationSession = true,
+        )
+
+    override fun releaseRetainedInputSession() {
+        capture.releaseRetainedBluetoothCommunicationSession()
+    }
+
     override fun close() = capture.close()
+}
+
+/**
+ * Pure P5 policy: distinguish a lost manually selected device from an unrelated manual read failure.
+ * A mismatch in the actual routed device is sufficient. If the platform reports the old route while
+ * failing the read, the runtime input inventory may independently prove that the selected device is
+ * gone. Neither case authorizes a fallback to AUTO.
+ */
+internal object PhoneMicrophoneManualRouteLossPolicy {
+    fun lostSelectedDeviceId(
+        snapshot: PhoneMicrophoneCaptureSnapshot,
+        selectedDeviceMissing: Boolean = false,
+    ): Int? {
+        val request = snapshot.requestedInput as? PhoneMicrophoneInputRequest.SpecificDevice ?: return null
+        if (snapshot.phase != PhoneMicrophoneCapturePhase.FAILED) return null
+        if (snapshot.terminalReason != PhoneMicrophoneCaptureTerminalReason.READ_ERROR) return null
+        val routedDeviceId = snapshot.route?.deviceId
+        if (routedDeviceId != request.deviceId || selectedDeviceMissing) return request.deviceId
+        return null
+    }
 }
 
 /**
@@ -126,7 +177,16 @@ internal class AndroidPhoneMicrophoneCaptureDriver(
  * The synchronous writer is the primary consumer of microphone PCM. No bounded ASR queue sits in
  * front of the formal recording path. Pause ends the current capture epoch without finalizing the
  * WAV; resume opens a new CONTROL_BOUNDARY epoch, so paused wall-clock time is never synthesized as
- * silence. Optional realtime fan-out is invoked only after the formal WAV accepted the same frame.
+ * silence. An established P6-5 Bluetooth communication session may remain across a user pause while
+ * the AudioRecord itself is still fully stopped/released; final stop always releases that session.
+ * AUTO input reroutes open a DISCONTINUITY epoch before the first PCM frame from the new route is
+ * committed. If AUTO capture itself becomes invalid, one bounded sequential recreation is allowed
+ * after the old capture fully stops; the same formal WAV continues with a DISCONTINUITY epoch. A
+ * manually selected device that disappears is different: the wrong-route PCM is rejected by
+ * PhoneMicrophoneCapture, this runtime enters a recoverable PAUSED state, and no replacement input is
+ * used until the user reconnects/selects a device or explicitly selects AUTO. A successful resume
+ * after that pause opens a DISCONTINUITY epoch in the same WAV. Optional realtime fan-out is invoked
+ * only after the formal WAV accepted the same frame.
  */
 internal class PhoneMicrophoneRecordingRuntime(
     private val capture: PhoneMicrophoneCaptureDriver,
@@ -136,6 +196,7 @@ internal class PhoneMicrophoneRecordingRuntime(
     private val zoneId: () -> ZoneId = ZoneId::systemDefault,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val idFactory: () -> UUID = UUID::randomUUID,
+    private val recoveryScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) : Closeable {
     private val lock = Any()
     private val mutableState = MutableStateFlow(PhoneMicrophoneRecordingSnapshot())
@@ -145,6 +206,35 @@ internal class PhoneMicrophoneRecordingRuntime(
 
     private var active: ActiveRecording? = null
     private var closed = false
+    private val routeBoundarySubscription =
+        PhoneMicrophoneRouteBoundaryHub.subscribe(::onRouteBoundary)
+    private val captureFailureObserver =
+        recoveryScope.launch {
+            capture.state.collect { snapshot ->
+                val selection = PhoneMicrophoneInputSelectionRuntime.state.value
+                val request = snapshot.requestedInput as? PhoneMicrophoneInputRequest.SpecificDevice
+                val selectedMissing =
+                    request != null &&
+                        (selection.request as? PhoneMicrophoneInputRequest.SpecificDevice)?.deviceId ==
+                            request.deviceId &&
+                        selection.selectedDeviceMissing
+                val lostManualDevice =
+                    PhoneMicrophoneManualRouteLossPolicy.lostSelectedDeviceId(
+                        snapshot = snapshot,
+                        selectedDeviceMissing = selectedMissing,
+                    )
+                if (lostManualDevice != null) {
+                    scheduleManualRouteLossPause(
+                        lostDeviceId = lostManualDevice,
+                        detail = snapshot.lastFailure,
+                    )
+                } else {
+                    PhoneMicrophoneCaptureAutoRecoveryPolicy.triggerFor(snapshot)?.let(
+                        ::scheduleAutoCaptureRecovery,
+                    )
+                }
+            }
+        }
 
     suspend fun start(
         postWriteSink: PhoneMicrophoneCanonicalPostWriteSink? = null,
@@ -237,6 +327,8 @@ internal class PhoneMicrophoneRecordingRuntime(
             if (mutableState.value.phase != PhoneMicrophoneRecordingPhase.RECORDING) {
                 return PhoneMicrophoneRecordingActionResult.Rejected("当前状态不能暂停")
             }
+            current.pendingRouteBoundary = null
+            current.recoveryInFlight = false
             markCaptureInterruptionLocked(current, capture.state.value)
             publishLocked(
                 current,
@@ -246,7 +338,7 @@ internal class PhoneMicrophoneRecordingRuntime(
             current
         }
 
-        if (!capture.stopAndAwait(CAPTURE_STOP_TIMEOUT_MS)) {
+        if (!capture.pauseAndAwait(CAPTURE_STOP_TIMEOUT_MS)) {
             return failAction(context, "暂停手机录音超时，录音文件尚未结束")
         }
 
@@ -267,22 +359,37 @@ internal class PhoneMicrophoneRecordingRuntime(
     }
 
     suspend fun resume(): PhoneMicrophoneRecordingActionResult = withContext(ioDispatcher) {
-        val context = synchronized(lock) {
+        val preparation = synchronized(lock) {
             val current = active
                 ?: return@withContext PhoneMicrophoneRecordingActionResult.Rejected("当前没有手机录音")
             if (mutableState.value.phase != PhoneMicrophoneRecordingPhase.PAUSED) {
                 return@withContext PhoneMicrophoneRecordingActionResult.Rejected("当前状态不能继续录音")
             }
+            val previousEpochId = current.epochId
+            val previousEpochStartReason = current.epochStartReason
+            val nextEpochStartReason =
+                current.pendingResumeEpochStartReason
+                    ?: RealtimeCanonicalEpochStartReason.CONTROL_BOUNDARY
             current.epochId = Math.addExact(current.epochId, 1L)
-            current.epochStartReason = RealtimeCanonicalEpochStartReason.CONTROL_BOUNDARY
+            current.epochStartReason = nextEpochStartReason
             current.activeEpochSamples = 0L
+            current.captureEpochBaseSampleIndex = 0L
+            current.pendingRouteBoundary = null
+            current.recoveryAttempted = false
+            current.recoveryInFlight = false
             publishLocked(
                 current,
                 PhoneMicrophoneRecordingPhase.RESUMING,
-                failure = current.lastCaptureInterruption,
+                failure = current.lastRecoverablePauseMessage ?: current.lastCaptureInterruption,
             )
-            current
+            ResumePreparation(
+                context = current,
+                previousEpochId = previousEpochId,
+                previousEpochStartReason = previousEpochStartReason,
+                nextEpochStartReason = nextEpochStartReason,
+            )
         }
+        val context = preparation.context
 
         when (
             val result = capture.start(
@@ -293,6 +400,16 @@ internal class PhoneMicrophoneRecordingRuntime(
             is PhoneMicrophoneStartResult.Started -> {
                 synchronized(lock) {
                     if (active === context) {
+                        if (
+                            preparation.nextEpochStartReason ==
+                            RealtimeCanonicalEpochStartReason.DISCONTINUITY
+                        ) {
+                            context.discontinuityEpochCount =
+                                Math.addExact(context.discontinuityEpochCount, 1L)
+                        }
+                        context.pendingResumeEpochStartReason = null
+                        context.manualRouteRecoveryPending = false
+                        context.lastRecoverablePauseMessage = null
                         publishLocked(
                             context,
                             PhoneMicrophoneRecordingPhase.RECORDING,
@@ -306,6 +423,11 @@ internal class PhoneMicrophoneRecordingRuntime(
             is PhoneMicrophoneStartResult.Rejected -> {
                 synchronized(lock) {
                     if (active === context) {
+                        context.epochId = preparation.previousEpochId
+                        context.epochStartReason = preparation.previousEpochStartReason
+                        context.activeEpochSamples = 0L
+                        context.captureEpochBaseSampleIndex = 0L
+                        context.lastRecoverablePauseMessage = result.message
                         publishLocked(
                             context,
                             PhoneMicrophoneRecordingPhase.PAUSED,
@@ -332,6 +454,11 @@ internal class PhoneMicrophoneRecordingRuntime(
             if (phase == PhoneMicrophoneRecordingPhase.RECORDING) {
                 markCaptureInterruptionLocked(current, capture.state.value)
             }
+            current.pendingRouteBoundary = null
+            current.pendingResumeEpochStartReason = null
+            current.recoveryInFlight = false
+            current.manualRoutePauseInFlight = false
+            current.manualRouteRecoveryPending = false
             val interrupted = current.hadCaptureInterruption
             publishLocked(current, PhoneMicrophoneRecordingPhase.STOPPING)
             StopPreparation(
@@ -347,6 +474,7 @@ internal class PhoneMicrophoneRecordingRuntime(
         if (wasRecording && !capture.stopAndAwait(CAPTURE_STOP_TIMEOUT_MS)) {
             return@withContext failStop(context, "停止手机录音超时，已保留临时录音数据")
         }
+        capture.releaseRetainedInputSession()
 
         val sampleCount = synchronized(lock) { context.writtenSamples }
         if (sampleCount == 0L) {
@@ -422,6 +550,16 @@ internal class PhoneMicrophoneRecordingRuntime(
                     writtenSamples = finalized.sampleCount,
                     postWriteOffers = context.postWriteOffers,
                     postWriteOfferFailures = context.postWriteOfferFailures,
+                    routeBoundaryCount = context.routeBoundaryCount,
+                    discontinuityEpochCount = context.discontinuityEpochCount,
+                    lastRouteBoundaryReason = context.lastRouteBoundaryReason,
+                    captureRecoveryAttempts = context.captureRecoveryAttempts,
+                    captureRecoverySuccesses = context.captureRecoverySuccesses,
+                    captureRecoveryFailures = context.captureRecoveryFailures,
+                    lastCaptureRecoveryTrigger = context.lastCaptureRecoveryTrigger,
+                    manualRouteLossPauses = context.manualRouteLossPauses,
+                    manualRouteRecoveryPending = false,
+                    lastManualRouteLostDeviceId = context.lastManualRouteLostDeviceId,
                     hadCaptureInterruption = context.hadCaptureInterruption,
                     finalizedSizeBytes = finalized.sizeBytes,
                     finalizedSha256 = finalized.sha256,
@@ -457,23 +595,245 @@ internal class PhoneMicrophoneRecordingRuntime(
                 mutableState.value.copy(phase = PhoneMicrophoneRecordingPhase.CLOSED)
             current
         }
+        routeBoundarySubscription.close()
+        captureFailureObserver.cancel()
+        recoveryScope.cancel()
         capture.close()
         context?.writer?.close()
+    }
+
+    private fun onRouteBoundary(boundary: PhoneMicrophoneRouteBoundary) {
+        var recoverRouteLoss = false
+        var manualRouteLostDeviceId: Int? = null
+        synchronized(lock) {
+            val context = active ?: return
+            if (mutableState.value.phase != PhoneMicrophoneRecordingPhase.RECORDING) return
+            when (val requestedInput = capture.state.value.requestedInput) {
+                PhoneMicrophoneInputRequest.Auto -> {
+                    context.pendingRouteBoundary = boundary
+                    context.routeBoundaryCount = Math.addExact(context.routeBoundaryCount, 1L)
+                    context.lastRouteBoundaryReason = boundary.reason
+                    recoverRouteLoss =
+                        boundary.reason == PhoneMicrophoneRouteBoundaryReason.ROUTE_LOST &&
+                            PhoneMicrophoneCaptureAutoRecoveryPolicy.allowsRouteLossRecovery(requestedInput)
+                    publishLocked(
+                        context,
+                        PhoneMicrophoneRecordingPhase.RECORDING,
+                        failure = context.lastCaptureInterruption,
+                    )
+                }
+
+                is PhoneMicrophoneInputRequest.SpecificDevice -> {
+                    if (boundary.newRoute?.deviceId != requestedInput.deviceId) {
+                        manualRouteLostDeviceId = requestedInput.deviceId
+                    }
+                }
+            }
+        }
+        manualRouteLostDeviceId?.let { lostDeviceId ->
+            scheduleManualRouteLossPause(lostDeviceId = lostDeviceId, detail = null)
+        }
+        if (recoverRouteLoss) {
+            scheduleAutoCaptureRecovery(PhoneMicrophoneCaptureRecoveryTrigger.ROUTE_LOST)
+        }
+    }
+
+    private fun scheduleManualRouteLossPause(
+        lostDeviceId: Int,
+        detail: String?,
+    ) {
+        val context = synchronized(lock) {
+            if (closed || mutableState.value.phase != PhoneMicrophoneRecordingPhase.RECORDING) return
+            val current = active ?: return
+            val requestedInput = capture.state.value.requestedInput as? PhoneMicrophoneInputRequest.SpecificDevice
+                ?: return
+            if (requestedInput.deviceId != lostDeviceId) return
+            if (current.manualRoutePauseInFlight || current.manualRouteRecoveryPending) return
+
+            current.manualRoutePauseInFlight = true
+            current.manualRouteRecoveryPending = true
+            current.manualRouteLossPauses = Math.addExact(current.manualRouteLossPauses, 1L)
+            current.lastManualRouteLostDeviceId = lostDeviceId
+            current.pendingResumeEpochStartReason = RealtimeCanonicalEpochStartReason.DISCONTINUITY
+            current.pendingRouteBoundary = null
+            current.recoveryInFlight = false
+            current.lastRecoverablePauseMessage = manualRouteLossMessage(detail)
+            publishLocked(
+                current,
+                PhoneMicrophoneRecordingPhase.PAUSING,
+                failure = current.lastRecoverablePauseMessage,
+            )
+            current
+        }
+        recoveryScope.launch { performManualRouteLossPause(context) }
+    }
+
+    private suspend fun performManualRouteLossPause(context: ActiveRecording) {
+        val stopped = runCatching { capture.stopAndAwait(CAPTURE_STOP_TIMEOUT_MS) }.getOrDefault(false)
+        synchronized(lock) {
+            if (active !== context) return
+            context.manualRoutePauseInFlight = false
+            if (!stopped) {
+                context.manualRouteRecoveryPending = false
+                context.hadCaptureInterruption = true
+                context.lastCaptureInterruption = "所选麦克风断开后无法完整停止旧采集，已保护已录音频"
+                publishLocked(
+                    context,
+                    PhoneMicrophoneRecordingPhase.FAILED,
+                    failure = context.lastCaptureInterruption,
+                )
+                return
+            }
+            if (context.activeEpochSamples > 0L) {
+                context.completedEpochs += 1
+                context.activeEpochSamples = 0L
+            }
+            publishLocked(
+                context,
+                PhoneMicrophoneRecordingPhase.PAUSED,
+                failure = context.lastRecoverablePauseMessage,
+            )
+        }
+    }
+
+    private fun scheduleAutoCaptureRecovery(trigger: PhoneMicrophoneCaptureRecoveryTrigger) {
+        val context = synchronized(lock) {
+            if (closed || mutableState.value.phase != PhoneMicrophoneRecordingPhase.RECORDING) return
+            val current = active ?: return
+            if (capture.state.value.requestedInput !is PhoneMicrophoneInputRequest.Auto) return
+            if (current.recoveryAttempted || current.recoveryInFlight) return
+            current.recoveryAttempted = true
+            current.recoveryInFlight = true
+            current.captureRecoveryAttempts = Math.addExact(current.captureRecoveryAttempts, 1L)
+            current.lastCaptureRecoveryTrigger = trigger
+            publishLocked(
+                current,
+                PhoneMicrophoneRecordingPhase.RECORDING,
+                failure = current.lastCaptureInterruption,
+            )
+            current
+        }
+        recoveryScope.launch { performAutoCaptureRecovery(context, trigger) }
+    }
+
+    private suspend fun performAutoCaptureRecovery(
+        context: ActiveRecording,
+        trigger: PhoneMicrophoneCaptureRecoveryTrigger,
+    ) {
+        val oldSnapshot = capture.state.value
+        val stopped = runCatching { capture.stopAndAwait(CAPTURE_STOP_TIMEOUT_MS) }.getOrDefault(false)
+        if (!stopped) {
+            recordCaptureRecoveryFailure(context, trigger, "自动恢复前无法完整停止旧麦克风采集")
+            return
+        }
+
+        val stillEligible = synchronized(lock) {
+            !closed &&
+                active === context &&
+                mutableState.value.phase == PhoneMicrophoneRecordingPhase.RECORDING &&
+                context.recoveryInFlight
+        }
+        if (!stillEligible) return
+
+        // The old capture is fully joined/released here. Emit the canonical boundary before a new
+        // AudioRecord can start, so its first successful PCM frame cannot outrun DISCONTINUITY.
+        PhoneMicrophoneRouteBoundaryHub.emit(
+            PhoneMicrophoneRouteBoundary(
+                reason = PhoneMicrophoneRouteBoundaryReason.CAPTURE_RECREATED,
+                oldRoute = oldSnapshot.route,
+                newRoute = null,
+                routeGeneration = Math.addExact(oldSnapshot.routeGeneration, 1L),
+            ),
+        )
+
+        val result =
+            capture.start(
+                consumer = consumerFor(context),
+                foregroundLabel = "正在录制：${context.displayName}",
+            )
+        synchronized(lock) {
+            if (active !== context) return
+            context.recoveryInFlight = false
+            when (result) {
+                is PhoneMicrophoneStartResult.Started -> {
+                    context.captureRecoverySuccesses =
+                        Math.addExact(context.captureRecoverySuccesses, 1L)
+                    publishLocked(
+                        context,
+                        PhoneMicrophoneRecordingPhase.RECORDING,
+                        failure = context.lastCaptureInterruption,
+                    )
+                }
+                is PhoneMicrophoneStartResult.Rejected -> {
+                    context.captureRecoveryFailures =
+                        Math.addExact(context.captureRecoveryFailures, 1L)
+                    context.hadCaptureInterruption = true
+                    context.lastCaptureInterruption =
+                        "自动恢复手机麦克风失败（${trigger.name}）：${result.message}"
+                    publishLocked(
+                        context,
+                        PhoneMicrophoneRecordingPhase.RECORDING,
+                        failure = context.lastCaptureInterruption,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun recordCaptureRecoveryFailure(
+        context: ActiveRecording,
+        trigger: PhoneMicrophoneCaptureRecoveryTrigger,
+        message: String,
+    ) {
+        synchronized(lock) {
+            if (active !== context) return
+            context.recoveryInFlight = false
+            context.captureRecoveryFailures = Math.addExact(context.captureRecoveryFailures, 1L)
+            context.hadCaptureInterruption = true
+            context.lastCaptureInterruption = "$message（${trigger.name}）"
+            publishLocked(
+                context,
+                PhoneMicrophoneRecordingPhase.RECORDING,
+                failure = context.lastCaptureInterruption,
+            )
+        }
     }
 
     private fun consumerFor(context: ActiveRecording): PhoneMicrophonePcmConsumer =
         PhoneMicrophonePcmConsumer { frame ->
             val epoch = synchronized(lock) {
                 check(active === context) { "stale phone microphone capture frame" }
-                EpochDescriptor(context.epochId, context.epochStartReason)
+                val boundary = context.pendingRouteBoundary
+                if (boundary != null) {
+                    check(boundary.reason != PhoneMicrophoneRouteBoundaryReason.ROUTE_LOST) {
+                        "phone microphone route lost before PCM delivery"
+                    }
+                    if (context.activeEpochSamples > 0L) {
+                        context.completedEpochs += 1
+                    }
+                    context.epochId = Math.addExact(context.epochId, 1L)
+                    context.epochStartReason = RealtimeCanonicalEpochStartReason.DISCONTINUITY
+                    context.activeEpochSamples = 0L
+                    context.captureEpochBaseSampleIndex = frame.startSampleIndex
+                    context.pendingRouteBoundary = null
+                    context.discontinuityEpochCount =
+                        Math.addExact(context.discontinuityEpochCount, 1L)
+                }
+                val epochLocalStart = frame.startSampleIndex - context.captureEpochBaseSampleIndex
+                check(epochLocalStart >= 0L) { "phone microphone epoch sample index moved backwards" }
+                EpochDescriptor(
+                    id = context.epochId,
+                    reason = context.epochStartReason,
+                    startSampleIndex = epochLocalStart,
+                )
             }
             val canonical =
                 RealtimeCanonicalPcmFrame(
                     sessionId = context.canonicalSessionId,
                     epochId = epoch.id,
-                    startSampleIndex = frame.startSampleIndex,
+                    startSampleIndex = epoch.startSampleIndex,
                     samples = frame.samples,
-                    epochStartReason = if (frame.startSampleIndex == 0L) epoch.reason else null,
+                    epochStartReason = if (epoch.startSampleIndex == 0L) epoch.reason else null,
                 )
 
             // Formal recording truth is committed synchronously before any realtime fan-out.
@@ -486,7 +846,7 @@ internal class PhoneMicrophoneRecordingRuntime(
                 publishLocked(
                     context,
                     mutableState.value.phase,
-                    failure = context.lastCaptureInterruption,
+                    failure = context.lastRecoverablePauseMessage ?: context.lastCaptureInterruption,
                 )
             }
 
@@ -504,7 +864,7 @@ internal class PhoneMicrophoneRecordingRuntime(
                         publishLocked(
                             context,
                             mutableState.value.phase,
-                            failure = context.lastCaptureInterruption,
+                            failure = context.lastRecoverablePauseMessage ?: context.lastCaptureInterruption,
                         )
                     }
                 }
@@ -567,6 +927,16 @@ internal class PhoneMicrophoneRecordingRuntime(
                 writtenSamples = context.writtenSamples,
                 postWriteOffers = context.postWriteOffers,
                 postWriteOfferFailures = context.postWriteOfferFailures,
+                routeBoundaryCount = context.routeBoundaryCount,
+                discontinuityEpochCount = context.discontinuityEpochCount,
+                lastRouteBoundaryReason = context.lastRouteBoundaryReason,
+                captureRecoveryAttempts = context.captureRecoveryAttempts,
+                captureRecoverySuccesses = context.captureRecoverySuccesses,
+                captureRecoveryFailures = context.captureRecoveryFailures,
+                lastCaptureRecoveryTrigger = context.lastCaptureRecoveryTrigger,
+                manualRouteLossPauses = context.manualRouteLossPauses,
+                manualRouteRecoveryPending = context.manualRouteRecoveryPending,
+                lastManualRouteLostDeviceId = context.lastManualRouteLostDeviceId,
                 hadCaptureInterruption = context.hadCaptureInterruption,
                 lastPostWriteFailure = context.lastPostWriteFailure,
                 lastFailure = failure,
@@ -589,6 +959,16 @@ internal class PhoneMicrophoneRecordingRuntime(
                 writtenSamples = context.writtenSamples,
                 postWriteOffers = context.postWriteOffers,
                 postWriteOfferFailures = context.postWriteOfferFailures,
+                routeBoundaryCount = context.routeBoundaryCount,
+                discontinuityEpochCount = context.discontinuityEpochCount,
+                lastRouteBoundaryReason = context.lastRouteBoundaryReason,
+                captureRecoveryAttempts = context.captureRecoveryAttempts,
+                captureRecoverySuccesses = context.captureRecoverySuccesses,
+                captureRecoveryFailures = context.captureRecoveryFailures,
+                lastCaptureRecoveryTrigger = context.lastCaptureRecoveryTrigger,
+                manualRouteLossPauses = context.manualRouteLossPauses,
+                manualRouteRecoveryPending = context.manualRouteRecoveryPending,
+                lastManualRouteLostDeviceId = context.lastManualRouteLostDeviceId,
                 hadCaptureInterruption = context.hadCaptureInterruption,
                 lastPostWriteFailure = context.lastPostWriteFailure,
                 lastFailure = context.lastCaptureInterruption,
@@ -601,9 +981,17 @@ internal class PhoneMicrophoneRecordingRuntime(
         val interruptionMessage: String?,
     )
 
+    private data class ResumePreparation(
+        val context: ActiveRecording,
+        val previousEpochId: Long,
+        val previousEpochStartReason: RealtimeCanonicalEpochStartReason,
+        val nextEpochStartReason: RealtimeCanonicalEpochStartReason,
+    )
+
     private data class EpochDescriptor(
         val id: Long,
         val reason: RealtimeCanonicalEpochStartReason,
+        val startSampleIndex: Long,
     )
 
     private data class ActiveRecording(
@@ -622,6 +1010,23 @@ internal class PhoneMicrophoneRecordingRuntime(
         var completedEpochs: Int = 0,
         var writtenSamples: Long = 0L,
         var activeEpochSamples: Long = 0L,
+        var captureEpochBaseSampleIndex: Long = 0L,
+        var pendingRouteBoundary: PhoneMicrophoneRouteBoundary? = null,
+        var pendingResumeEpochStartReason: RealtimeCanonicalEpochStartReason? = null,
+        var routeBoundaryCount: Long = 0L,
+        var discontinuityEpochCount: Long = 0L,
+        var lastRouteBoundaryReason: PhoneMicrophoneRouteBoundaryReason? = null,
+        var recoveryAttempted: Boolean = false,
+        var recoveryInFlight: Boolean = false,
+        var captureRecoveryAttempts: Long = 0L,
+        var captureRecoverySuccesses: Long = 0L,
+        var captureRecoveryFailures: Long = 0L,
+        var lastCaptureRecoveryTrigger: PhoneMicrophoneCaptureRecoveryTrigger? = null,
+        var manualRoutePauseInFlight: Boolean = false,
+        var manualRouteLossPauses: Long = 0L,
+        var manualRouteRecoveryPending: Boolean = false,
+        var lastManualRouteLostDeviceId: Int? = null,
+        var lastRecoverablePauseMessage: String? = null,
         var postWriteOffers: Long = 0L,
         var postWriteOfferFailures: Long = 0L,
         var lastPostWriteFailure: String? = null,
@@ -639,6 +1044,13 @@ internal class PhoneMicrophoneRecordingRuntime(
                 PhoneMicrophoneCapturePhase.STOPPED,
                 PhoneMicrophoneCapturePhase.CLOSED,
             )
+
+        fun manualRouteLossMessage(detail: String?): String {
+            val base =
+                "所选麦克风已断开，录音已暂停；重新连接、选择其他输入或切换为自动后可继续，也可停止保存已录音频"
+            val normalized = detail?.trim()?.takeIf { it.isNotEmpty() }
+            return if (normalized == null) base else "$base：$normalized"
+        }
 
         fun interruptedDisplayName(displayName: String): String =
             if (displayName.startsWith("手机录音 ")) {

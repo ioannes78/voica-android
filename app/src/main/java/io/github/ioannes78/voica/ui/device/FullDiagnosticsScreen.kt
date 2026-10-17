@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ContentCopy
@@ -24,25 +25,37 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import io.github.ioannes78.voica.PhoneMicrophoneCaptureDiagnostics
+import io.github.ioannes78.voica.PhoneMicrophoneInputSelectionRuntime
 import io.github.ioannes78.voica.Stage16ARealtimePerformanceDiagnostics
 import io.github.ioannes78.voica.VoicaApplication
+import io.github.ioannes78.voica.buildPhoneMicrophoneP6DiagnosticsText
+import io.github.ioannes78.voica.queryPhoneMicrophoneInputCapabilities
 import io.github.ioannes78.voica.toStage15RegressionDiagnosticsText
 import io.github.ioannes78.voica.ble.BleDiagnostics
 import io.github.ioannes78.voica.ble.FileTransferDiagnostics
 import io.github.ioannes78.voica.ble.RangeProbeDiagnostics
 import io.github.ioannes78.voica.ble.RemoteDeleteDiagnostics
+import io.github.ioannes78.voica.playback.PlaybackOutputDiagnostics
+import io.github.ioannes78.voica.playback.toP8DiagnosticsText
 
 private enum class DiagnosticSection {
     CONNECTION,
+    AUDIO_INPUT,
+    AUDIO_OUTPUT,
     RECORDING,
     FILE_LIST,
     TRANSFER,
@@ -63,11 +76,35 @@ fun FullDiagnosticsScreen(
     onBack: () -> Unit,
 ) {
     var expanded by androidx.compose.runtime.remember {
-        mutableStateOf(setOf(DiagnosticSection.CONNECTION))
+        mutableStateOf(
+            setOf(
+                DiagnosticSection.CONNECTION,
+                DiagnosticSection.AUDIO_INPUT,
+                DiagnosticSection.AUDIO_OUTPUT,
+            ),
+        )
     }
     var menuExpanded by rememberSaveable { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
-    val application = LocalContext.current.applicationContext as? VoicaApplication
+    val context = LocalContext.current.applicationContext
+    val application = context as? VoicaApplication
+    LaunchedEffect(context) {
+        PhoneMicrophoneInputSelectionRuntime.ensureInitialized(context)
+    }
+    val inputSelection by PhoneMicrophoneInputSelectionRuntime.state.collectAsState()
+    val inputCapabilities =
+        remember(inputSelection.inventoryGeneration) {
+            queryPhoneMicrophoneInputCapabilities(context)
+        }
+    val captureDiagnostics = PhoneMicrophoneCaptureDiagnostics.snapshot()
+    val p6InputDiagnosticsText =
+        buildPhoneMicrophoneP6DiagnosticsText(
+            selection = inputSelection,
+            capture = captureDiagnostics,
+            capabilities = inputCapabilities,
+        )
+    val p8OutputDiagnosticsText =
+        PlaybackOutputDiagnostics.snapshot().toP8DiagnosticsText()
     val realtimePerformance = Stage16ARealtimePerformanceDiagnostics.snapshot()
     val stage15Realtime = runCatching {
         application?.container?.realtimeAudioRuntime?.snapshot()
@@ -125,6 +162,8 @@ fun FullDiagnosticsScreen(
                                             remoteDelete,
                                             rangeProbe,
                                             stage15RegressionText,
+                                            p6InputDiagnosticsText,
+                                            p8OutputDiagnosticsText,
                                         ),
                                     ),
                                 )
@@ -145,6 +184,54 @@ fun FullDiagnosticsScreen(
                             },
                         )
                     }
+                }
+            }
+        }
+
+        item {
+            DiagnosticExpandableSection(
+                title = "Android 音频输入 / P6",
+                expanded = DiagnosticSection.AUDIO_INPUT in expanded,
+                onToggle = {
+                    expanded = expanded.toggle(DiagnosticSection.AUDIO_INPUT)
+                },
+            ) {
+                Text(
+                    "设备 capability 由 Android AudioDeviceInfo 直接报告；列表没有显式报告 16 kHz 并不等于平台不能转换到 Voica 的 16 kHz canonical PCM。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                SelectionContainer {
+                    Text(
+                        p6InputDiagnosticsText,
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+            }
+        }
+
+        item {
+            DiagnosticExpandableSection(
+                title = "Android 音频输出 / P8",
+                expanded = DiagnosticSection.AUDIO_OUTPUT in expanded,
+                onToggle = {
+                    expanded = expanded.toggle(DiagnosticSection.AUDIO_OUTPUT)
+                },
+            ) {
+                Text(
+                    "实际输出路由以当前 AudioTrack routed device 为准；设备增加或移除只记录环境事件，不等同于 AudioTrack 已完成路由切换。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                SelectionContainer {
+                    Text(
+                        p8OutputDiagnosticsText,
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
                 }
             }
         }
@@ -550,6 +637,8 @@ private fun buildDiagnosticsText(
     remoteDelete: RemoteDeleteDiagnostics,
     rangeProbe: RangeProbeDiagnostics,
     stage15RegressionText: String?,
+    p6InputDiagnosticsText: String,
+    p8OutputDiagnosticsText: String,
 ): String =
     buildString {
         appendLine("Voica BLE diagnostics")
@@ -615,4 +704,8 @@ private fun buildDiagnosticsText(
             appendLine()
             appendLine(it)
         }
+        appendLine()
+        appendLine(p6InputDiagnosticsText)
+        appendLine()
+        appendLine(p8OutputDiagnosticsText)
     }

@@ -38,6 +38,10 @@ jobs:
     name: Fast PR Gate
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    env:
+      # Keep fast validation build identity stable so commit churn does not invalidate
+      # Gradle Configuration Cache. QA/production artifacts receive the real source SHA.
+      VOICA_BUILD_GIT_SHA: ci-fast
 
     steps:
       - name: Checkout
@@ -78,9 +82,15 @@ jobs:
         uses: gradle/actions/setup-gradle@v5.0.2
         with:
           gradle-version: "9.6.0"
-          # The fast gate is the single same-repo writer. Other CI jobs are read-only.
+          # Same-repository jobs may refresh Gradle state; external forks remain read-only.
           cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+
+      - name: Restore pinned Opus 1.6.1 source
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/voica-deps/opus-1.6.1.tar.gz
+          key: voica-opus-${{ runner.os }}-1.6.1-6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1
 
       - name: Prefetch and verify Opus 1.6.1 source
         shell: bash
@@ -120,6 +130,8 @@ jobs:
       }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    env:
+      VOICA_BUILD_GIT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
     steps:
       - name: Checkout
@@ -158,12 +170,18 @@ jobs:
             "ndk;28.2.13676358" \
             "cmake;3.22.1"
 
-      - name: Setup Gradle 9.6 read-only cache
+      - name: Setup Gradle 9.6
         uses: gradle/actions/setup-gradle@v5.0.2
         with:
           gradle-version: "9.6.0"
-          cache-read-only: true
+          cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+
+      - name: Restore pinned Opus 1.6.1 source
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/voica-deps/opus-1.6.1.tar.gz
+          key: voica-opus-${{ runner.os }}-1.6.1-6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1
 
       - name: Prefetch and verify Opus 1.6.1 source
         shell: bash

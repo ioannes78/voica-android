@@ -36,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.protocol.RecordingGain
+import io.github.ioannes78.voica.ui.phone.PhoneMicrophoneInputSelectorRow
 import io.github.ioannes78.voica.ui.realtime.RealtimeAudioActivityWaveform
 import io.github.ioannes78.voica.ui.status.AppActivityAction
 import io.github.ioannes78.voica.ui.status.AppActivityFact
@@ -47,6 +48,11 @@ import io.github.ioannes78.voica.ui.status.productDisplayName
 import java.util.Locale
 
 private enum class HomeModePreference { RECORDING, REALTIME }
+
+internal fun shouldShowPausedPhoneInputSelector(activity: AppActivityFact): Boolean =
+    activity.source == AppActivitySource.PHONE_MICROPHONE &&
+        activity.kind == AppActivityKind.RECORDING &&
+        AppActivityAction.RESUME in activity.availableActions
 
 @Composable
 internal fun HomeActivityPanel(
@@ -134,7 +140,7 @@ private fun IdleHomeQuickActions(
 ) {
     var mode by remember { mutableStateOf(HomeModePreference.RECORDING) }
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionHeading("录音来源", "选择录音来源")
+        SourceSectionHeading(sourcePreference)
         SourceSelector(sourcePreference, recorderAvailable, onSourcePreferenceChanged)
         SectionHeading("模式选择", "选择功能模式")
         ModeSelector(mode) { mode = it }
@@ -150,6 +156,26 @@ private fun IdleHomeQuickActions(
             onSetRecordingGain = onSetRecordingGain,
             onStart = if (mode == HomeModePreference.RECORDING) onStartRecording else onStartRealtime,
         )
+    }
+}
+
+@Composable
+private fun SourceSectionHeading(sourcePreference: HomeActivitySourcePreference) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("录音来源", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        if (sourcePreference == HomeActivitySourcePreference.PHONE_MICROPHONE) {
+            PhoneMicrophoneInputSelectorRow()
+        } else {
+            Text(
+                "选择录音来源",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
@@ -365,6 +391,15 @@ private fun PrimaryHomeActivityCard(
                     )
                 }
                 if (clickable) Icon(Icons.Outlined.ChevronRight, contentDescription = "查看", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+
+            if (shouldShowPausedPhoneInputSelector(activity)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    PhoneMicrophoneInputSelectorRow()
+                }
             }
 
             if (!realtime) {

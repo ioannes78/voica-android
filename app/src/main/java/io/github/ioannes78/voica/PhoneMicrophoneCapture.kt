@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioDeviceInfo
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Build
@@ -12,6 +13,7 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import io.github.ioannes78.voica.audio.CanonicalPcmProfile
 import java.io.Closeable
+import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -45,6 +47,7 @@ internal enum class PhoneMicrophoneAudioSource(
     val platformValue: Int,
     val diagnosticsName: String,
 ) {
+    VOICE_COMMUNICATION(MediaRecorder.AudioSource.VOICE_COMMUNICATION, "VOICE_COMMUNICATION"),
     VOICE_RECOGNITION(MediaRecorder.AudioSource.VOICE_RECOGNITION, "VOICE_RECOGNITION"),
     MIC(MediaRecorder.AudioSource.MIC, "MIC"),
 }
@@ -53,6 +56,7 @@ internal data class PhoneMicrophoneRoute(
     val deviceId: Int,
     val deviceType: Int,
     val productName: String,
+    val address: String? = null,
 )
 
 internal data class PhoneMicrophonePcmFrame(
@@ -97,13 +101,23 @@ internal data class PhoneMicrophoneCaptureSnapshot(
     val sampleRateHz: Int = CanonicalPcmProfile.SAMPLE_RATE_HZ,
     val channelCount: Int = CanonicalPcmProfile.CHANNEL_COUNT,
     val encoding: String = "PCM16",
+    val requestedInput: PhoneMicrophoneInputRequest = PhoneMicrophoneInputRequest.Auto,
     val selectedAudioSource: PhoneMicrophoneAudioSource? = null,
+    val audioSourceAttempts: Int = 0,
+    val sourceFallbackUsed: Boolean = false,
+    val sourceFallbackReason: String? = null,
     val minBufferBytes: Int? = null,
     val effectiveBufferBytes: Int? = null,
     val readChunkSamples: Int = PhoneMicrophoneBufferPolicy.READ_CHUNK_SAMPLES,
     val audioSessionId: Int? = null,
+    val preferredDeviceAccepted: Boolean? = null,
     val route: PhoneMicrophoneRoute? = null,
+    val routeGeneration: Long = 0L,
+    val routeChangeCount: Long = 0L,
+    val lastRouteChangeReason: PhoneMicrophoneRouteChangeReason? = null,
     val clientSilenced: Boolean? = null,
+    val signal: PhoneMicrophoneSignalSnapshot? = null,
+    val signalSummary: PhoneMicrophoneSignalSummary? = null,
     val readCalls: Long = 0L,
     /** Samples accepted as real microphone capture truth and forwarded to the primary consumer. */
     val samplesRead: Long = 0L,
@@ -119,10 +133,15 @@ internal data class PhoneMicrophoneCaptureSnapshot(
     val lastFailure: String? = null,
 ) {
     fun toDiagnosticsText(): String = buildString {
-        appendLine("[Stage 16A.1 phone microphone capture]")
+        appendLine("[Stage 16A.1.6 phone microphone capture]")
         appendLine(
             "phase=$phase source=${selectedAudioSource?.diagnosticsName ?: "n/a"} " +
                 "format=${sampleRateHz}Hz/${channelCount}ch/$encoding",
+        )
+        appendLine(
+            "input=${requestedInput.toDiagnosticsName()} preferredAccepted=${preferredDeviceAccepted ?: "n/a"} " +
+                "sourceAttempts=$audioSourceAttempts fallbackUsed=$sourceFallbackUsed " +
+                "fallbackReason=${sourceFallbackReason ?: "n/a"}",
         )
         appendLine(
             "bufferMin=${minBufferBytes ?: -1} bufferEffective=${effectiveBufferBytes ?: -1} " +
@@ -138,8 +157,34 @@ internal data class PhoneMicrophoneCaptureSnapshot(
                 "terminalReason=${terminalReason?.name ?: "n/a"}",
         )
         appendLine(
-            "route=${route?.productName ?: "n/a"}/${route?.deviceType ?: -1}/${route?.deviceId ?: -1}",
+            "route=${route?.productName ?: "n/a"}/${route?.deviceType ?: -1}/${route?.deviceId ?: -1} " +
+                "routeAddress=${route?.address ?: "n/a"} routeGeneration=$routeGeneration " +
+                "routeChanges=$routeChangeCount routeReason=${lastRouteChangeReason?.name ?: "n/a"}",
         )
+        val signalSnapshot = signal
+        if (signalSnapshot == null) {
+            appendLine("signal=n/a")
+        } else {
+            appendLine(
+                "signal=peak:${signalSnapshot.peakSample}/${formatDbfs(signalSnapshot.peakDbfs)}dBFS " +
+                    "rms:${formatOneDecimal(signalSnapshot.rms)}/${formatDbfs(signalSnapshot.rmsDbfs)}dBFS " +
+                    "clip:${signalSnapshot.clippingSamples}/${formatRatio(signalSnapshot.clippingRatio)} " +
+                    "zero:${signalSnapshot.zeroSamples}/${formatRatio(signalSnapshot.zeroSampleRatio)}",
+            )
+        }
+        val summary = signalSummary
+        if (summary == null) {
+            appendLine("signalSummary=n/a")
+        } else {
+            appendLine(
+                "signalSummary=frames:${summary.frameCount} samples:${summary.sampleCount} " +
+                    "peak:${summary.peakSample}/${formatDbfs(summary.peakDbfs)}dBFS " +
+                    "overallRms:${formatOneDecimal(summary.rms)}/${formatDbfs(summary.rmsDbfs)}dBFS " +
+                    "noiseFloorCandidate:${formatDbfs(summary.noiseFloorCandidateDbfs)}dBFS " +
+                    "clip:${summary.clippingSamples}/${formatRatio(summary.clippingRatio)} " +
+                    "zero:${summary.zeroSamples}/${formatRatio(summary.zeroSampleRatio)}",
+            )
+        }
         append(
             "foreground=$foregroundPhase wakeLockHeld=$wakeLockHeld " +
                 "lastFailure=${lastFailure ?: "n/a"}",
@@ -198,6 +243,7 @@ internal interface PhoneMicrophoneAudioRecordHandle {
     val initialized: Boolean
     val recording: Boolean
     val audioSessionId: Int
+    val preferredDeviceAccepted: Boolean?
     val route: PhoneMicrophoneRoute?
     val clientSilenced: Boolean?
 
@@ -213,6 +259,7 @@ internal interface PhoneMicrophoneAudioRecordFactory {
     fun create(
         audioSource: PhoneMicrophoneAudioSource,
         bufferBytes: Int,
+        inputRequest: PhoneMicrophoneInputRequest,
     ): PhoneMicrophoneAudioRecordHandle
 }
 
@@ -226,7 +273,7 @@ internal interface PhoneMicrophoneAudioRecordFactory {
 internal class PhoneMicrophoneCapture(
     context: Context,
     private val audioRecordFactory: PhoneMicrophoneAudioRecordFactory =
-        AndroidPhoneMicrophoneAudioRecordFactory(),
+        AndroidPhoneMicrophoneAudioRecordFactory(context),
     private val executionLease: PhoneMicrophoneExecutionLease =
         PhoneMicrophoneExecutionLease.android(context),
     private val permissionChecker: (Context) -> Boolean = { value ->
@@ -234,6 +281,8 @@ internal class PhoneMicrophoneCapture(
             PackageManager.PERMISSION_GRANTED
     },
     private val workerScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    private val bluetoothCommunicationController: PhoneMicrophoneBluetoothCommunicationController =
+        AndroidPhoneMicrophoneBluetoothCommunicationController(context),
 ) : Closeable {
     private val appContext = context.applicationContext
     private val lock = Any()
@@ -243,11 +292,13 @@ internal class PhoneMicrophoneCapture(
     private var activeRecord: PhoneMicrophoneAudioRecordHandle? = null
     private var captureJob: Job? = null
     private var stopRequested = false
+    private var keepBluetoothCommunicationSessionOnStop = false
     private var closed = false
 
     fun start(
         consumer: PhoneMicrophonePcmConsumer,
         foregroundLabel: String = "正在使用手机麦克风录音",
+        inputRequest: PhoneMicrophoneInputRequest = PhoneMicrophoneInputSelectionRuntime.currentRequest(),
     ): PhoneMicrophoneStartResult {
         synchronized(lock) {
             if (closed) {
@@ -264,6 +315,7 @@ internal class PhoneMicrophoneCapture(
                 updateStateLocked(
                     PhoneMicrophoneCaptureSnapshot(
                         phase = PhoneMicrophoneCapturePhase.FAILED,
+                        requestedInput = inputRequest,
                         terminalReason = PhoneMicrophoneCaptureTerminalReason.START_REJECTED,
                         lastFailure = "需要麦克风权限才能开始手机录音",
                     ),
@@ -271,8 +323,12 @@ internal class PhoneMicrophoneCapture(
                 return PhoneMicrophoneStartResult.Rejected("需要麦克风权限才能开始手机录音")
             }
             stopRequested = false
+            keepBluetoothCommunicationSessionOnStop = false
             updateStateLocked(
-                PhoneMicrophoneCaptureSnapshot(phase = PhoneMicrophoneCapturePhase.STARTING),
+                PhoneMicrophoneCaptureSnapshot(
+                    phase = PhoneMicrophoneCapturePhase.STARTING,
+                    requestedInput = inputRequest,
+                ),
             )
         }
 
@@ -298,21 +354,65 @@ internal class PhoneMicrophoneCapture(
         }
         val effectiveBufferBytes = PhoneMicrophoneBufferPolicy.effectiveBufferBytes(minBufferBytes)
 
+        val bluetoothPreparation =
+            try {
+                bluetoothCommunicationController.prepare(inputRequest)
+            } catch (failure: Throwable) {
+                executionLease.release()
+                return rejectStart("无法准备蓝牙耳机录音通道", failure)
+            }
+        if (bluetoothPreparation is PhoneMicrophoneBluetoothCommunicationPreparation.Rejected) {
+            executionLease.release()
+            return rejectStart(
+                bluetoothPreparation.message,
+                IllegalStateException(
+                    "${bluetoothPreparation.code}:${bluetoothPreparation.message}",
+                ),
+            )
+        }
+        if (synchronized(lock) { closed || stopRequested }) {
+            bluetoothCommunicationController.release()
+            executionLease.release()
+            return rejectStart("手机录音已取消")
+        }
+
+        val sourceOrder =
+            if (bluetoothPreparation is PhoneMicrophoneBluetoothCommunicationPreparation.Active) {
+                resolvePhoneMicrophoneBluetoothCommunicationSourceOrder(
+                    qaSnapshot = Stage16A16QaAudioSourceOverride.snapshot(),
+                    availableSources = BLUETOOTH_SOURCE_FALLBACK_ORDER,
+                )
+            } else {
+                Stage16A16QaAudioSourceOverride.sourceOrder(SOURCE_FALLBACK_ORDER)
+            }
+
         var selectedSource: PhoneMicrophoneAudioSource? = null
         var selectedRecord: PhoneMicrophoneAudioRecordHandle? = null
         var lastFailure: Throwable? = null
-        for (source in SOURCE_FALLBACK_ORDER) {
+        var sourceAttempts = 0
+        for (source in sourceOrder) {
             if (synchronized(lock) { closed || stopRequested }) break
+            sourceAttempts += 1
 
             val candidate =
                 try {
-                    audioRecordFactory.create(source, effectiveBufferBytes)
+                    audioRecordFactory.create(source, effectiveBufferBytes, inputRequest)
                 } catch (failure: Throwable) {
                     lastFailure = failure
                     null
                 } ?: continue
 
             if (!candidate.initialized) {
+                lastFailure = IllegalStateException("AudioRecord did not initialize for ${source.diagnosticsName}")
+                runCatching { candidate.release() }
+                continue
+            }
+
+            if (
+                inputRequest is PhoneMicrophoneInputRequest.SpecificDevice &&
+                candidate.preferredDeviceAccepted != true
+            ) {
+                lastFailure = IllegalStateException("requested input device was not accepted")
                 runCatching { candidate.release() }
                 continue
             }
@@ -331,6 +431,16 @@ internal class PhoneMicrophoneCapture(
                 continue
             }
 
+            if (
+                inputRequest is PhoneMicrophoneInputRequest.SpecificDevice &&
+                candidate.route?.deviceId != inputRequest.deviceId
+            ) {
+                lastFailure = IllegalStateException("requested input device did not become the actual route")
+                runCatching { candidate.stop() }
+                runCatching { candidate.release() }
+                continue
+            }
+
             selectedSource = source
             selectedRecord = candidate
             break
@@ -339,9 +449,12 @@ internal class PhoneMicrophoneCapture(
         val record = selectedRecord
         val source = selectedSource
         if (record == null || source == null) {
+            bluetoothCommunicationController.release()
             executionLease.release()
             return if (synchronized(lock) { closed || stopRequested }) {
                 rejectStart("手机录音已取消")
+            } else if (inputRequest is PhoneMicrophoneInputRequest.SpecificDevice) {
+                rejectStart("未能使用所选麦克风，请重新连接设备或切换为自动", lastFailure)
             } else {
                 rejectStart("无法打开手机麦克风，请检查是否被其它应用占用", lastFailure)
             }
@@ -354,14 +467,18 @@ internal class PhoneMicrophoneCapture(
         ) {
             runCatching { record.stop() }
             runCatching { record.release() }
+            bluetoothCommunicationController.release()
             executionLease.release()
             return rejectStart("手机录音前台服务未能保持运行，请重试")
         }
 
+        val routeTracker = PhoneMicrophoneRouteTracker()
+        val initialRoute = routeTracker.reset(record.route)
         synchronized(lock) {
             if (closed || stopRequested || activeRecord != null) {
                 runCatching { record.stop() }
                 runCatching { record.release() }
+                bluetoothCommunicationController.release()
                 executionLease.release()
                 val terminalPhase =
                     if (closed) PhoneMicrophoneCapturePhase.CLOSED else PhoneMicrophoneCapturePhase.STOPPED
@@ -373,18 +490,32 @@ internal class PhoneMicrophoneCapture(
             updateStateLocked(
                 PhoneMicrophoneCaptureSnapshot(
                     phase = PhoneMicrophoneCapturePhase.RECORDING,
+                    requestedInput = inputRequest,
                     selectedAudioSource = source,
+                    audioSourceAttempts = sourceAttempts,
+                    sourceFallbackUsed = source != sourceOrder.first(),
+                    sourceFallbackReason =
+                        if (source != sourceOrder.first()) {
+                            lastFailure?.describePhoneMicrophoneCaptureFailure()
+                                ?: "${sourceOrder.first().diagnosticsName} unavailable"
+                        } else {
+                            null
+                        },
                     minBufferBytes = minBufferBytes,
                     effectiveBufferBytes = effectiveBufferBytes,
                     audioSessionId = record.audioSessionId,
-                    route = record.route,
+                    preferredDeviceAccepted = record.preferredDeviceAccepted,
+                    route = initialRoute.route,
+                    routeGeneration = initialRoute.generation,
+                    routeChangeCount = initialRoute.changeCount,
+                    lastRouteChangeReason = initialRoute.lastChangeReason,
                     clientSilenced = record.clientSilenced,
                     foregroundPhase = foregroundPhaseBeforeRun,
                     wakeLockHeld = leaseSnapshot.wakeLockHeld,
                     lastFailure = leaseSnapshot.lastFailure,
                 ),
             )
-            captureJob = workerScope.launch { captureLoop(record, consumer) }
+            captureJob = workerScope.launch { captureLoop(record, consumer, routeTracker) }
         }
 
         return PhoneMicrophoneStartResult.Started(
@@ -394,11 +525,12 @@ internal class PhoneMicrophoneCapture(
         )
     }
 
-    fun requestStop() {
+    fun requestStop(keepBluetoothCommunicationSession: Boolean = false) {
         val record = synchronized(lock) {
             when (currentSnapshotLocked().phase) {
                 PhoneMicrophoneCapturePhase.STARTING -> {
                     stopRequested = true
+                    keepBluetoothCommunicationSessionOnStop = keepBluetoothCommunicationSession
                     updateStateLocked(
                         currentSnapshotLocked().copy(phase = PhoneMicrophoneCapturePhase.STOPPING),
                     )
@@ -407,6 +539,7 @@ internal class PhoneMicrophoneCapture(
 
                 PhoneMicrophoneCapturePhase.RECORDING -> {
                     stopRequested = true
+                    keepBluetoothCommunicationSessionOnStop = keepBluetoothCommunicationSession
                     updateStateLocked(
                         currentSnapshotLocked().copy(phase = PhoneMicrophoneCapturePhase.STOPPING),
                     )
@@ -419,14 +552,22 @@ internal class PhoneMicrophoneCapture(
         runCatching { record?.stop() }
     }
 
-    suspend fun stopAndAwait(timeoutMs: Long = 2_000L): Boolean {
+    suspend fun stopAndAwait(
+        timeoutMs: Long = 2_000L,
+        keepBluetoothCommunicationSession: Boolean = false,
+    ): Boolean {
         require(timeoutMs > 0L)
-        requestStop()
+        requestStop(keepBluetoothCommunicationSession)
         val job = synchronized(lock) { captureJob } ?: return true
         return withTimeoutOrNull(timeoutMs) {
             job.join()
             true
         } ?: false
+    }
+
+    fun releaseRetainedBluetoothCommunicationSession() {
+        synchronized(lock) { keepBluetoothCommunicationSessionOnStop = false }
+        bluetoothCommunicationController.release()
     }
 
     fun snapshot(): PhoneMicrophoneCaptureSnapshot = mutableState.value
@@ -436,10 +577,12 @@ internal class PhoneMicrophoneCapture(
             if (closed) return
             closed = true
             stopRequested = true
+            keepBluetoothCommunicationSessionOnStop = false
             activeRecord
         }
         runCatching { record?.stop() }
         if (record == null) {
+            bluetoothCommunicationController.close()
             executionLease.release()
             synchronized(lock) {
                 updateStateLocked(currentSnapshotLocked().copy(phase = PhoneMicrophoneCapturePhase.CLOSED))
@@ -451,8 +594,10 @@ internal class PhoneMicrophoneCapture(
     private fun captureLoop(
         record: PhoneMicrophoneAudioRecordHandle,
         consumer: PhoneMicrophonePcmConsumer,
+        routeTracker: PhoneMicrophoneRouteTracker,
     ) {
         val buffer = ShortArray(PhoneMicrophoneBufferPolicy.READ_CHUNK_SAMPLES)
+        val signalAccumulator = PhoneMicrophoneSignalAccumulator()
         var terminalFailure: Throwable? = null
         try {
             while (true) {
@@ -474,6 +619,9 @@ internal class PhoneMicrophoneCapture(
                     try {
                         record.read(buffer)
                     } catch (failure: Throwable) {
+                        val stoppedDuringRead =
+                            synchronized(lock) { closed || stopRequested || activeRecord !== record }
+                        if (stoppedDuringRead) break
                         terminalFailure = failure
                         incrementReadError(null, record, failure)
                         break
@@ -488,6 +636,20 @@ internal class PhoneMicrophoneCapture(
                     break
                 }
 
+                val actualRoute = record.route
+                val routeObservation = routeTracker.observe(actualRoute)
+                val requestedInput = synchronized(lock) { currentSnapshotLocked().requestedInput }
+                if (
+                    requestedInput is PhoneMicrophoneInputRequest.SpecificDevice &&
+                    actualRoute?.deviceId != requestedInput.deviceId
+                ) {
+                    val failure =
+                        IllegalStateException("selected microphone route changed or disappeared")
+                    terminalFailure = failure
+                    markRouteMismatch(record, routeObservation, failure)
+                    break
+                }
+
                 val frameStart = synchronized(lock) { currentSnapshotLocked().samplesRead }
                 val frame =
                     PhoneMicrophonePcmFrame(
@@ -495,19 +657,35 @@ internal class PhoneMicrophoneCapture(
                         samples = buffer.copyOf(readCount),
                     )
                 val clientSilenced = record.clientSilenced
+                if (clientSilenced == true) {
+                    val failure = PhoneMicrophoneClientSilencedException()
+                    terminalFailure = failure
+                    markClientSilencedRead(readCount, buffer.size, record, routeObservation, failure)
+                    break
+                }
+                val signal = PhoneMicrophoneSignalMeter.analyze(frame.samples)
+                val signalSummary = signalAccumulator.add(frame.samples)
                 val delivered =
                     try {
                         deliverPhoneMicrophonePcmIfAudible(clientSilenced, frame, consumer)
                     } catch (failure: Throwable) {
                         terminalFailure = failure
-                        incrementConsumerError(readCount, buffer.size, record, failure)
+                        incrementConsumerError(
+                            readCount,
+                            buffer.size,
+                            record,
+                            routeObservation,
+                            signal,
+                            signalSummary,
+                            failure,
+                        )
                         break
                     }
 
                 if (!delivered) {
                     val failure = PhoneMicrophoneClientSilencedException()
                     terminalFailure = failure
-                    markClientSilencedRead(readCount, buffer.size, record, failure)
+                    markClientSilencedRead(readCount, buffer.size, record, routeObservation, failure)
                     break
                 }
 
@@ -519,8 +697,13 @@ internal class PhoneMicrophoneCapture(
                             samplesRead = current.samplesRead + readCount,
                             shortReads = current.shortReads + if (readCount < buffer.size) 1 else 0,
                             lastReadCode = readCount,
-                            route = record.route,
+                            route = routeObservation.route,
+                            routeGeneration = routeObservation.generation,
+                            routeChangeCount = routeObservation.changeCount,
+                            lastRouteChangeReason = routeObservation.lastChangeReason,
                             clientSilenced = clientSilenced,
+                            signal = signal,
+                            signalSummary = signalSummary,
                             foregroundPhase = PhoneMicrophoneForegroundDiagnostics.state.value.phase,
                             wakeLockHeld = executionLease.snapshot().wakeLockHeld,
                         ),
@@ -530,6 +713,18 @@ internal class PhoneMicrophoneCapture(
         } finally {
             runCatching { if (record.recording) record.stop() }
             runCatching { record.release() }
+            val retainBluetoothCommunication =
+                synchronized(lock) {
+                    val retain =
+                        keepBluetoothCommunicationSessionOnStop &&
+                            terminalFailure == null &&
+                            !closed
+                    keepBluetoothCommunicationSessionOnStop = false
+                    retain
+                }
+            if (!retainBluetoothCommunication) {
+                bluetoothCommunicationController.release()
+            }
             executionLease.release()
 
             synchronized(lock) {
@@ -552,6 +747,34 @@ internal class PhoneMicrophoneCapture(
                     ),
                 )
             }
+            if (closed) {
+                bluetoothCommunicationController.close()
+            }
+        }
+    }
+
+    private fun markRouteMismatch(
+        record: PhoneMicrophoneAudioRecordHandle,
+        routeObservation: PhoneMicrophoneRouteObservation,
+        failure: Throwable,
+    ) {
+        Log.w(TAG, "selected phone microphone route changed or disappeared")
+        synchronized(lock) {
+            val current = currentSnapshotLocked()
+            updateStateLocked(
+                current.copy(
+                    phase = PhoneMicrophoneCapturePhase.FAILED,
+                    route = routeObservation.route,
+                    routeGeneration = routeObservation.generation,
+                    routeChangeCount = routeObservation.changeCount,
+                    lastRouteChangeReason = routeObservation.lastChangeReason,
+                    clientSilenced = record.clientSilenced,
+                    terminalReason = PhoneMicrophoneCaptureTerminalReason.READ_ERROR,
+                    foregroundPhase = PhoneMicrophoneForegroundDiagnostics.state.value.phase,
+                    wakeLockHeld = executionLease.snapshot().wakeLockHeld,
+                    lastFailure = failure.describePhoneMicrophoneCaptureFailure(),
+                ),
+            )
         }
     }
 
@@ -559,6 +782,7 @@ internal class PhoneMicrophoneCapture(
         readCount: Int,
         requestedSamples: Int,
         record: PhoneMicrophoneAudioRecordHandle,
+        routeObservation: PhoneMicrophoneRouteObservation,
         failure: Throwable,
     ) {
         Log.w(TAG, "phone microphone client was silenced by the platform; rejecting silent PCM")
@@ -572,7 +796,10 @@ internal class PhoneMicrophoneCapture(
                     silencedReadCalls = current.silencedReadCalls + 1,
                     silencedSamplesRejected = current.silencedSamplesRejected + readCount,
                     lastReadCode = readCount,
-                    route = record.route,
+                    route = routeObservation.route,
+                    routeGeneration = routeObservation.generation,
+                    routeChangeCount = routeObservation.changeCount,
+                    lastRouteChangeReason = routeObservation.lastChangeReason,
                     clientSilenced = true,
                     terminalReason = PhoneMicrophoneCaptureTerminalReason.CLIENT_SILENCED,
                     foregroundPhase = PhoneMicrophoneForegroundDiagnostics.state.value.phase,
@@ -610,6 +837,9 @@ internal class PhoneMicrophoneCapture(
         readCount: Int,
         requestedSamples: Int,
         record: PhoneMicrophoneAudioRecordHandle,
+        routeObservation: PhoneMicrophoneRouteObservation,
+        signal: PhoneMicrophoneSignalSnapshot,
+        signalSummary: PhoneMicrophoneSignalSummary,
         failure: Throwable,
     ) {
         Log.e(TAG, "phone microphone consumer failed", failure)
@@ -621,8 +851,13 @@ internal class PhoneMicrophoneCapture(
                     shortReads = current.shortReads + if (readCount < requestedSamples) 1 else 0,
                     consumerErrors = current.consumerErrors + 1,
                     lastReadCode = readCount,
-                    route = record.route,
+                    route = routeObservation.route,
+                    routeGeneration = routeObservation.generation,
+                    routeChangeCount = routeObservation.changeCount,
+                    lastRouteChangeReason = routeObservation.lastChangeReason,
                     clientSilenced = record.clientSilenced,
+                    signal = signal,
+                    signalSummary = signalSummary,
                     terminalReason = PhoneMicrophoneCaptureTerminalReason.CONSUMER_ERROR,
                     foregroundPhase = PhoneMicrophoneForegroundDiagnostics.state.value.phase,
                     lastFailure = failure.describePhoneMicrophoneCaptureFailure(),
@@ -686,10 +921,20 @@ internal class PhoneMicrophoneCapture(
                 PhoneMicrophoneAudioSource.VOICE_RECOGNITION,
                 PhoneMicrophoneAudioSource.MIC,
             )
+        val BLUETOOTH_SOURCE_FALLBACK_ORDER =
+            listOf(
+                PhoneMicrophoneAudioSource.VOICE_COMMUNICATION,
+                PhoneMicrophoneAudioSource.MIC,
+                PhoneMicrophoneAudioSource.VOICE_RECOGNITION,
+            )
     }
 }
 
-private class AndroidPhoneMicrophoneAudioRecordFactory : PhoneMicrophoneAudioRecordFactory {
+private class AndroidPhoneMicrophoneAudioRecordFactory(
+    context: Context,
+) : PhoneMicrophoneAudioRecordFactory {
+    private val audioManager = context.applicationContext.getSystemService(AudioManager::class.java)
+
     override fun minimumBufferBytes(): Int =
         AudioRecord.getMinBufferSize(
             CanonicalPcmProfile.SAMPLE_RATE_HZ,
@@ -700,6 +945,7 @@ private class AndroidPhoneMicrophoneAudioRecordFactory : PhoneMicrophoneAudioRec
     override fun create(
         audioSource: PhoneMicrophoneAudioSource,
         bufferBytes: Int,
+        inputRequest: PhoneMicrophoneInputRequest,
     ): PhoneMicrophoneAudioRecordHandle {
         val format =
             AudioFormat.Builder()
@@ -713,12 +959,25 @@ private class AndroidPhoneMicrophoneAudioRecordFactory : PhoneMicrophoneAudioRec
                 .setAudioFormat(format)
                 .setBufferSizeInBytes(bufferBytes)
                 .build()
-        return AndroidPhoneMicrophoneAudioRecordHandle(record)
+        val preferredAccepted =
+            when (inputRequest) {
+                PhoneMicrophoneInputRequest.Auto -> null
+                is PhoneMicrophoneInputRequest.SpecificDevice -> {
+                    val requestedDevice =
+                        audioManager
+                            .getDevices(AudioManager.GET_DEVICES_INPUTS)
+                            .firstOrNull { it.isSource && it.id == inputRequest.deviceId }
+                    requestedDevice != null &&
+                        runCatching { record.setPreferredDevice(requestedDevice) }.getOrDefault(false)
+                }
+            }
+        return AndroidPhoneMicrophoneAudioRecordHandle(record, preferredAccepted)
     }
 }
 
 private class AndroidPhoneMicrophoneAudioRecordHandle(
     private val record: AudioRecord,
+    override val preferredDeviceAccepted: Boolean?,
 ) : PhoneMicrophoneAudioRecordHandle {
     override val initialized: Boolean
         get() = record.state == AudioRecord.STATE_INITIALIZED
@@ -761,7 +1020,25 @@ private fun AudioDeviceInfo.toPhoneMicrophoneRoute(): PhoneMicrophoneRoute =
         deviceId = id,
         deviceType = type,
         productName = productName.toString().ifBlank { "未知音频设备" },
+        address =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                address.trim().takeIf { it.isNotEmpty() }
+            } else {
+                null
+            },
     )
+
+private fun PhoneMicrophoneInputRequest.toDiagnosticsName(): String =
+    when (this) {
+        PhoneMicrophoneInputRequest.Auto -> "AUTO"
+        is PhoneMicrophoneInputRequest.SpecificDevice -> "SPECIFIC_DEVICE:$deviceId"
+    }
+
+private fun formatDbfs(value: Double): String = String.format(Locale.US, "%.1f", value)
+
+private fun formatOneDecimal(value: Double): String = String.format(Locale.US, "%.1f", value)
+
+private fun formatRatio(value: Double): String = String.format(Locale.US, "%.4f", value)
 
 private const val PHONE_MICROPHONE_CLIENT_SILENCED_MESSAGE =
     "麦克风被其他应用占用，采集已中断；系统静音数据未写入录音"

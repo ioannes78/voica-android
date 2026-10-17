@@ -45,8 +45,10 @@ import io.github.ioannes78.voica.LocalSpeechSettingsStore
 import io.github.ioannes78.voica.ModelUpdateController
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.Stage159FinalGateActivity
+import io.github.ioannes78.voica.Stage16A16AudioCalibrationActivity
 import io.github.ioannes78.voica.StorageManagementCoordinator
 import io.github.ioannes78.voica.stage159QaEntryVisible
+import io.github.ioannes78.voica.stage16A16AudioCalibrationEntryVisible
 import io.github.ioannes78.voica.model.ModelManager
 import io.github.ioannes78.voica.sherpa.SherpaRuntime
 import io.github.ioannes78.voica.ui.ai.ProviderSettingsCard
@@ -349,6 +351,8 @@ private fun AdvancedSettingsPage(
             debuggable = BuildConfig.DEBUG,
             applicationId = BuildConfig.APPLICATION_ID,
         )
+    val showStage16A16AudioCalibration =
+        stage16A16AudioCalibrationEntryVisible(BuildConfig.APPLICATION_ID)
     var runtimeProbeRunning by remember { mutableStateOf(false) }
     var runtimeProbeResult by remember { mutableStateOf<String?>(null) }
     val runtimeAvailableText = stringResource(R.string.settings_sherpa_runtime_available)
@@ -429,6 +433,34 @@ private fun AdvancedSettingsPage(
                     runtimeProbeResult?.let {
                         Text(it, style = MaterialTheme.typography.bodySmall)
                     }
+                }
+            }
+        }
+        if (showStage16A16AudioCalibration) {
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    ListItem(
+                        headlineContent = { Text("Stage 16A.1.6 音频校准") },
+                        supportingContent = {
+                            Text("QA：VOICE_RECOGNITION / MIC A/B 与录音电平诊断")
+                        },
+                        leadingContent = {
+                            Icon(Icons.Outlined.Build, contentDescription = null)
+                        },
+                        trailingContent = {
+                            Icon(Icons.Outlined.ChevronRight, contentDescription = null)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                context.startActivity(
+                                    Intent(
+                                        context,
+                                        Stage16A16AudioCalibrationActivity::class.java,
+                                    ),
+                                )
+                            },
+                    )
                 }
             }
         }
