@@ -47,6 +47,7 @@ internal enum class PhoneMicrophoneAudioSource(
     val platformValue: Int,
     val diagnosticsName: String,
 ) {
+    VOICE_COMMUNICATION(MediaRecorder.AudioSource.VOICE_COMMUNICATION, "VOICE_COMMUNICATION"),
     VOICE_RECOGNITION(MediaRecorder.AudioSource.VOICE_RECOGNITION, "VOICE_RECOGNITION"),
     MIC(MediaRecorder.AudioSource.MIC, "MIC"),
 }
@@ -280,6 +281,8 @@ internal class PhoneMicrophoneCapture(
             PackageManager.PERMISSION_GRANTED
     },
     private val workerScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    private val bluetoothCommunicationController: PhoneMicrophoneBluetoothCommunicationController =
+        AndroidPhoneMicrophoneBluetoothCommunicationController(context),
 ) : Closeable {
     private val appContext = context.applicationContext
     private val lock = Any()
@@ -289,6 +292,7 @@ internal class PhoneMicrophoneCapture(
     private var activeRecord: PhoneMicrophoneAudioRecordHandle? = null
     private var captureJob: Job? = null
     private var stopRequested = false
+    private var keepBluetoothCommunicationSessionOnStop = false
     private var closed = false
 
     fun start(
@@ -319,6 +323,7 @@ internal class PhoneMicrophoneCapture(
                 return PhoneMicrophoneStartResult.Rejected("需要麦克风权限才能开始手机录音")
             }
             stopRequested = false
+            keepBluetoothCommunicationSessionOnStop = false
             updateStateLocked(
                 PhoneMicrophoneCaptureSnapshot(
                     phase = PhoneMicrophoneCapturePhase.STARTING,
@@ -348,7 +353,38 @@ internal class PhoneMicrophoneCapture(
             return rejectStart("当前设备不支持 16 kHz 单声道 PCM 麦克风录音")
         }
         val effectiveBufferBytes = PhoneMicrophoneBufferPolicy.effectiveBufferBytes(minBufferBytes)
-        val sourceOrder = Stage16A16QaAudioSourceOverride.sourceOrder(SOURCE_FALLBACK_ORDER)
+
+        val bluetoothPreparation =
+            try {
+                bluetoothCommunicationController.prepare(inputRequest)
+            } catch (failure: Throwable) {
+                executionLease.release()
+                return rejectStart("无法准备蓝牙耳机录音通道", failure)
+            }
+        if (bluetoothPreparation is PhoneMicrophoneBluetoothCommunicationPreparation.Rejected) {
+            executionLease.release()
+            return rejectStart(
+                bluetoothPreparation.message,
+                IllegalStateException(
+                    "${bluetoothPreparation.code}:${bluetoothPreparation.message}",
+                ),
+            )
+        }
+        if (synchronized(lock) { closed || stopRequested }) {
+            bluetoothCommunicationController.release()
+            executionLease.release()
+            return rejectStart("手机录音已取消")
+        }
+
+        val sourceOrder =
+            if (bluetoothPreparation is PhoneMicrophoneBluetoothCommunicationPreparation.Active) {
+                resolvePhoneMicrophoneBluetoothCommunicationSourceOrder(
+                    qaSnapshot = Stage16A16QaAudioSourceOverride.snapshot(),
+                    availableSources = BLUETOOTH_SOURCE_FALLBACK_ORDER,
+                )
+            } else {
+                Stage16A16QaAudioSourceOverride.sourceOrder(SOURCE_FALLBACK_ORDER)
+            }
 
         var selectedSource: PhoneMicrophoneAudioSource? = null
         var selectedRecord: PhoneMicrophoneAudioRecordHandle? = null
@@ -413,6 +449,7 @@ internal class PhoneMicrophoneCapture(
         val record = selectedRecord
         val source = selectedSource
         if (record == null || source == null) {
+            bluetoothCommunicationController.release()
             executionLease.release()
             return if (synchronized(lock) { closed || stopRequested }) {
                 rejectStart("手机录音已取消")
@@ -430,6 +467,7 @@ internal class PhoneMicrophoneCapture(
         ) {
             runCatching { record.stop() }
             runCatching { record.release() }
+            bluetoothCommunicationController.release()
             executionLease.release()
             return rejectStart("手机录音前台服务未能保持运行，请重试")
         }
@@ -440,6 +478,7 @@ internal class PhoneMicrophoneCapture(
             if (closed || stopRequested || activeRecord != null) {
                 runCatching { record.stop() }
                 runCatching { record.release() }
+                bluetoothCommunicationController.release()
                 executionLease.release()
                 val terminalPhase =
                     if (closed) PhoneMicrophoneCapturePhase.CLOSED else PhoneMicrophoneCapturePhase.STOPPED
@@ -486,11 +525,12 @@ internal class PhoneMicrophoneCapture(
         )
     }
 
-    fun requestStop() {
+    fun requestStop(keepBluetoothCommunicationSession: Boolean = false) {
         val record = synchronized(lock) {
             when (currentSnapshotLocked().phase) {
                 PhoneMicrophoneCapturePhase.STARTING -> {
                     stopRequested = true
+                    keepBluetoothCommunicationSessionOnStop = keepBluetoothCommunicationSession
                     updateStateLocked(
                         currentSnapshotLocked().copy(phase = PhoneMicrophoneCapturePhase.STOPPING),
                     )
@@ -499,6 +539,7 @@ internal class PhoneMicrophoneCapture(
 
                 PhoneMicrophoneCapturePhase.RECORDING -> {
                     stopRequested = true
+                    keepBluetoothCommunicationSessionOnStop = keepBluetoothCommunicationSession
                     updateStateLocked(
                         currentSnapshotLocked().copy(phase = PhoneMicrophoneCapturePhase.STOPPING),
                     )
@@ -511,14 +552,22 @@ internal class PhoneMicrophoneCapture(
         runCatching { record?.stop() }
     }
 
-    suspend fun stopAndAwait(timeoutMs: Long = 2_000L): Boolean {
+    suspend fun stopAndAwait(
+        timeoutMs: Long = 2_000L,
+        keepBluetoothCommunicationSession: Boolean = false,
+    ): Boolean {
         require(timeoutMs > 0L)
-        requestStop()
+        requestStop(keepBluetoothCommunicationSession)
         val job = synchronized(lock) { captureJob } ?: return true
         return withTimeoutOrNull(timeoutMs) {
             job.join()
             true
         } ?: false
+    }
+
+    fun releaseRetainedBluetoothCommunicationSession() {
+        synchronized(lock) { keepBluetoothCommunicationSessionOnStop = false }
+        bluetoothCommunicationController.release()
     }
 
     fun snapshot(): PhoneMicrophoneCaptureSnapshot = mutableState.value
@@ -528,10 +577,12 @@ internal class PhoneMicrophoneCapture(
             if (closed) return
             closed = true
             stopRequested = true
+            keepBluetoothCommunicationSessionOnStop = false
             activeRecord
         }
         runCatching { record?.stop() }
         if (record == null) {
+            bluetoothCommunicationController.close()
             executionLease.release()
             synchronized(lock) {
                 updateStateLocked(currentSnapshotLocked().copy(phase = PhoneMicrophoneCapturePhase.CLOSED))
@@ -568,6 +619,9 @@ internal class PhoneMicrophoneCapture(
                     try {
                         record.read(buffer)
                     } catch (failure: Throwable) {
+                        val stoppedDuringRead =
+                            synchronized(lock) { closed || stopRequested || activeRecord !== record }
+                        if (stoppedDuringRead) break
                         terminalFailure = failure
                         incrementReadError(null, record, failure)
                         break
@@ -659,6 +713,18 @@ internal class PhoneMicrophoneCapture(
         } finally {
             runCatching { if (record.recording) record.stop() }
             runCatching { record.release() }
+            val retainBluetoothCommunication =
+                synchronized(lock) {
+                    val retain =
+                        keepBluetoothCommunicationSessionOnStop &&
+                            terminalFailure == null &&
+                            !closed
+                    keepBluetoothCommunicationSessionOnStop = false
+                    retain
+                }
+            if (!retainBluetoothCommunication) {
+                bluetoothCommunicationController.release()
+            }
             executionLease.release()
 
             synchronized(lock) {
@@ -680,6 +746,9 @@ internal class PhoneMicrophoneCapture(
                             ?: current.lastFailure,
                     ),
                 )
+            }
+            if (closed) {
+                bluetoothCommunicationController.close()
             }
         }
     }
@@ -851,6 +920,12 @@ internal class PhoneMicrophoneCapture(
             listOf(
                 PhoneMicrophoneAudioSource.VOICE_RECOGNITION,
                 PhoneMicrophoneAudioSource.MIC,
+            )
+        val BLUETOOTH_SOURCE_FALLBACK_ORDER =
+            listOf(
+                PhoneMicrophoneAudioSource.VOICE_COMMUNICATION,
+                PhoneMicrophoneAudioSource.MIC,
+                PhoneMicrophoneAudioSource.VOICE_RECOGNITION,
             )
     }
 }
