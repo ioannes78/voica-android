@@ -1,6 +1,6 @@
 # Stage 16A.1.6 — Android Audio I/O Compatibility Progress
 
-状态：**IN DEVELOPMENT — A1 PASS / MIC-FIRST DECISION IMPLEMENTED**
+状态：**IN DEVELOPMENT — P6-5 IMPLEMENTED / REAL-DEVICE QA PENDING**
 
 日期：2026-10-17
 
@@ -9,32 +9,24 @@
 用户已明确确认：
 
 1. `Stage 16A.1.6 — Android Audio I/O Compatibility 修订需求 V1`；
-2. `Stage 16A.1.6 — Android Audio I/O Compatibility 开发规划 V1`。
+2. `Stage 16A.1.6 — Android Audio I/O Compatibility 开发规划 V1`；
+3. A1 真机结论：普通产品 AudioSource 策略采用 `MIC → VOICE_RECOGNITION fallback`，本阶段不加入 software gain；
+4. P6 开发规划 V1；
+5. 在 Galaxy Buds Live 普通 AudioRecord 路径出现全零 PCM 后，单独确认《P6-5 Bluetooth HFP/SCO Compatibility Analysis》与《P6-5 开发规划 V1》。
 
-A1 真机完成后，用户继续授权按 A1 结论推进：普通 AudioRecord 产品策略改为 `MIC → VOICE_RECOGNITION fallback`，本阶段不加入 software gain；之后继续 P3 输入设备选择。
+P8/P9 播放问题已发现，但用户明确要求先解决蓝牙耳机录音；因此当前不修改 playback / AudioTrack 链路。
 
 ## 2. GitHub 基线 / 当前开发面
-
-开始开发前及 A1 决策落地前均重新核验：
 
 - repository：`ioannes78/voica-android`
 - production branch：`main`
 - base main HEAD：`ee708b30e5f36ad0fd4d94b7861b967e2ed1c1a8`
-- PR #30：已 merge
 - development branch：`stage16a1_6-android-audio-io-compatibility`
-- Draft PR：`#31`
-- A1 决策落地前 branch HEAD：`5b5239478d250eb06d2f09a3d3583bed99e0646c`
-- A1 决策落地前最新 Android PR CI：`#1658`，SUCCESS
+- Draft PR：`#31` — `[APK] Stage 16A.1.6 — Android Audio I/O Compatibility`
+- P6-5 implementation/test HEAD（docs 更新前）：`d8b807d291bddace84cd6036d572267802e067a6`
+- Android PR CI：`#1691` — **SUCCESS**
 
-分支严格从上述 base SHA 创建。
-
-A1 QA binary/source candidate：
-
-- `18c992b1a259494ffa736b0d8d4c3c58e852cf3e`
-
-其中 A1 功能代码在 `094215aa916341a9980799548b0e3aaca38bf71b` 已完成；`18c992b1...` 仅继续记录 A1 candidate 进度，未改变产品代码。
-
-PR title：`[APK] Stage 16A.1.6 — Android Audio I/O Compatibility`，用于触发 production-like QA APK Gate。
+PR #31 继续保持 Draft/Open；Stage 16A.1.6 尚未达到 Final Freeze/Handoff。
 
 ## 3. 上一阶段冻结基线
 
@@ -63,11 +55,16 @@ Stage 16A.1.6 默认不得提升 Room；继续保持完整 1..13 migration/schem
 继续固定：
 
 - PCM16 / 16 kHz / mono；
-- one `AudioRecord` owner；
+- exactly one `AudioRecord` owner；
 - formal WAV truth before optional ASR fan-out；
+- same AudioRecord feeds formal WAV / waveform / optional realtime；
+- `clientSilenced` guard 位于正式 consumer 前；
+- 不写入伪造静音；
+- pause/resume canonical boundary = `CONTROL_BOUNDARY`；
+- route/recovery boundary = `DISCONTINUITY`；
 - one playback controller；
 - one `AudioTrack` sink at a time；
-- QS668 BLE GATT 与 Android Bluetooth Audio route 分离。
+- QS668/CB08 BLE GATT 与 Android Bluetooth Audio route 完全分离。
 
 ## 5. Notification channel freeze
 
@@ -93,179 +90,243 @@ Stage 16A.1.6 不创建 route-specific notification channel。
 
 本阶段任何测试不得改写为 PASS。
 
-## 7. P1 — Audio I/O diagnostics foundation
+## 7. P1 / P2 / A1 — 输入基础与 AudioSource Calibration
 
 已实现：
 
-- Android input device inventory：`AudioManager.GET_DEVICES_INPUTS + AudioDeviceCallback`；
-- runtime-only input descriptor：deviceId / type / productName / address / isSource；
-- `AUTO` / `SPECIFIC_DEVICE(deviceId)` input request model；
-- requested input 与 actual routed input 分离；
-- `setPreferredDevice()` acceptance 与 actual route 分离记录；
-- route generation / route-change counter / reason tracker；
-- manual specific route mismatch 在正式 consumer 前拒绝新 route PCM；
-- `clientSilenced` guard 保持在正式 consumer 前；
-- read-only PCM signal diagnostics：frame RMS/peak dBFS、clipping、zero ratio；
-- 整段聚合 signal summary：overall RMS、全程 peak、clipping/zero ratio、最低 80 ms frame RMS calibration hint；
-- 未加入 software gain。
+- Android input inventory：`GET_DEVICES_INPUTS + AudioDeviceCallback`；
+- runtime-only device descriptor；
+- `AUTO` / `SPECIFIC_DEVICE(deviceId)`；
+- requested input / preferred acceptance / actual route 分离；
+- route generation / change counter / reason；
+- manual route mismatch 在正式 WAV/ASR consumer 前拒绝错误 route PCM；
+- read-only PCM peak / RMS / dBFS / clipping / zero ratio；
+- 整段 signal summary；
+- QA-only `AUTO / FORCE_VOICE_RECOGNITION / FORCE_MIC` calibration。
 
-P1 初始实现 HEAD 的 Android PR CI #1646 中 `Unit tests and debug compile gate` 已 SUCCESS；该 workflow 后续因新提交被 concurrency supersede，因此 job 总状态 cancelled 不能解释为测试失败。
+A1 真机：`RMX3041 / BUILTIN_MIC / id=16 / address=bottom`。
 
-## 8. P2 — A1 Calibration foundation
+### FORCE_VOICE_RECOGNITION
 
-已实现 QA-only calibration control：
-
-- `AUTO`：使用产品默认 AudioSource 策略；
-- `FORCE_VOICE_RECOGNITION`：只尝试 VOICE_RECOGNITION；
-- `FORCE_MIC`：只尝试 MIC。
-
-隔离规则：
-
-- 仅 `io.github.ioannes78.voica.qa` 可使用 override；
-- production build mutation 无效；
-- QA calibration Activity 自身不创建第二个 AudioRecord；
-- 它只控制下一次正常“手机录音 / 手机实时转写”使用的 AudioSource；
-- 正式 WAV 仍走现有 primary recording truth；
-- 校准结果读取同一 capture 的 retained diagnostics；
-- Home IA 未修改；
-- Manifest 未增加 `MODIFY_AUDIO_SETTINGS`；
-- 未启用 communication mode / SCO / communication device。
-
-QA UI 入口：
-
-`设置 → 高级设置 → Stage 16A.1.6 音频校准`
-
-仅 `.qa` 构建显示。
-
-## 9. A1 Real-device Gate — PASS
-
-测试设备实际 route 两侧一致：`RMX3041 / type=15 / id=16 / address=bottom`，两侧 `routeChanges=0`，无 read/consumer error，无 clipping。
-
-### A1-1 — FORCE_VOICE_RECOGNITION
-
-- source：`VOICE_RECOGNITION`
-- samples：497280 @ 16 kHz
 - overall RMS：`-27.9 dBFS`
 - peak：`-6.0 dBFS`
 - noiseFloorCandidate：`-57.0 dBFS`
-- clipping ratio：`0.0000`
-- zero ratio：`0.0019`
+- clipping：0
 
-### A1-2 — FORCE_MIC
+### FORCE_MIC
 
-- source：`MIC`
-- samples：521280 @ 16 kHz
 - overall RMS：`-26.6 dBFS`
 - peak：`-2.2 dBFS`
 - noiseFloorCandidate：`-72.3 dBFS`
-- clipping ratio：`0.0000`
-- zero ratio：`0.0037`
+- clipping：0
 
-### A1 对比 / 用户听感
-
-- MIC overall RMS 约高 `1.3 dB`，不足以解释为显著音量改善；
-- MIC peak 高约 `3.8 dB`；
-- MIC noise-floor candidate 约低 `15.3 dB`；
-- 用户主观音量：**基本一样**；
-- 用户主观底噪：**MIC 更干净**；
-- 用户主观清晰度：**MIC 更清晰**；
-- 双方均无 clipping。
-
-### A1 决策
+用户主观反馈：音量基本一样，MIC 底噪更干净、清晰度更好。
 
 A1：**PASS**。
 
-经用户确认，普通产品 AudioRecord 默认 AudioSource 策略改为：
+产品普通 AudioRecord 策略固定为：
 
 `MIC → VOICE_RECOGNITION fallback`
 
-同时明确：
+MIC-first 只定义 AudioSource，不等于 built-in-mic-only；物理输入继续独立由 AudioDeviceInfo / input request / actual route 决定。
 
-- 本阶段 **不加入 software gain**；MIC 实测 peak 已到 `-2.2 dBFS`，固定增益存在削波风险，且用户听感音量基本相同；
-- MIC-first 只是 AudioSource product policy，**不是物理输入设备绑定**；
-- 有线 / USB / supported Bluetooth 输入仍由 `AudioDeviceInfo`、`PhoneMicrophoneInputRequest`、`setPreferredDevice()` 与 actual-route verification 独立决定；
-- 不因 MIC-first 启用 communication mode、SCO 或 communication device；
-- 传统 HFP/SCO 若未来真机证明普通 AudioRecord 路径不可用，必须作为独立 adapter 证据化评估，并再次取得用户明确批准后才能加入；
-- 不做机型硬编码。
+## 8. P3 — Product input selector
 
-## 10. A1 production policy implementation
+已完成并进入产品 UI：
 
-新增 `PhoneMicrophoneAudioSourcePolicy`：
+- AUTO；
+- 内置麦克风；
+- 有线耳麦；
+- USB input；
+- Android 暴露的 Bluetooth Audio input；
+- 手动选择使用 runtime deviceId，不跨进程持久化；
+- 手动设备消失时保持 MANUAL request，不偷偷切 AUTO。
 
-- 产品首选 `MIC`；
-- `VOICE_RECOGNITION` 保留为 fallback；
-- 只排序 AudioSource candidates，不参与 `AudioDeviceInfo` 物理设备选择；
-- 复用现有 `Stage16A16QaAudioSourceOverride.sourceOrder(...)` seam，因此不新增第二个 AudioRecord owner；
-- QA forced source 模式继续可用于诊断；
-- QA `AUTO` 文案同步为 `MIC → VOICE_RECOGNITION`。
+## 9. P4 — AUTO route transition
 
-新增/更新自动化覆盖：
+真机已通过：
 
-- calibrated product policy 必须输出 MIC-first / VOICE_RECOGNITION fallback；
-- production-disabled QA override 仍使用 calibrated product order；
-- QA AUTO 仍使用 calibrated product order；
-- QA force VOICE_RECOGNITION / MIC 仍为 singleton、无 fallback；
-- 单一可用 source 不得被策略丢弃；
-- signal meter 不修改 canonical PCM；
-- route tracker / route guard / clientSilenced 边界不变。
+- built-in → 录音中插入 wired headset：平台自动 reroute；
+- wired → 录音中拔出：自动返回 built-in；
+- route boundary / discontinuity epoch 与同一 WAV 连续性正常；
+- 无 read / consumer error。
 
-## 11. A1 Candidate CI / Artifact
+AudioRecord true invalidation + AUTO serial rebuild 已有自动化覆盖；当前真机未触发，状态保持 **NOT VERIFIED**。
 
-A1 calibration binary/source candidate：`18c992b1a259494ffa736b0d8d4c3c58e852cf3e`。
+## 10. P5 — Manual selected route loss
+
+真机已通过：
+
+- 手动 wired → 拔出：自动进入 recoverable PAUSED；
+- 不把手机麦克风 PCM 冒充原手动 route 写入；
+- 可重新连接 / 选择其他输入 / 选择 AUTO / stop+save；
+- 手动 wired → 拔出 → PAUSED → 选择 AUTO → resume：同一 WAV 继续，增加 `DISCONTINUITY` epoch；
+- `manualRouteLossPauses=1`，无 capture interruption。
+
+P5 语义继续作为 P6-5 Bluetooth disconnect 的硬边界。
+
+## 11. P6-1 — Android input capability / route diagnostics
+
+已加入设备诊断页 `Android 音频输入 / P6`：
+
+- deviceId / type / typeLabel / productName / address / isSource；
+- sampleRates / channelCounts / encodings；
+- AUTO / MANUAL；
+- requested input / `setPreferredDevice` acceptance / actual route；
+- selectedDeviceMissing；
+- routeGeneration / routeChanges；
+- clientSilenced / readErrors / consumerErrors；
+- peak / RMS / dBFS / zero ratio / clipping / signal summary。
+
+诊断文本可滚动、选择，并进入“复制完整诊断信息”。
+
+## 12. P6-4 — Galaxy Buds Live 普通 AudioRecord 证据
+
+真机 Galaxy Buds Live 被 Android 暴露为标准输入：
+
+- type：`BLUETOOTH_SCO(7)`；
+- sampleRates：`[8000, 16000]`；
+- PCM16；
+- 手动选择成功；
+- `preferredAccepted=true`；
+- `actualRoute=BLUETOOTH_SCO / Galaxy Buds Live`；
+- read 持续成功；
+- `readErrors=0`；
+- `consumerErrors=0`。
+
+但 P6-4.4 信号证据为：
+
+- frames：293；
+- samples：374080；
+- peak：0 / `-120.0 dBFS`；
+- RMS：0 / `-120.0 dBFS`；
+- zero：374080 / **100%**。
+
+结论：`AudioRecord + setPreferredDevice()` 虽报告 SCO actual route，但 HFP/SCO communication audio session 未真正建立；普通路径在该手机/耳机组合上 **FAIL**，触发 P6-5 compatibility gate。
+
+## 13. P6-5 — Bluetooth HFP/SCO compatibility
+
+### 已确认设计
+
+只对手动选择 `TYPE_BLUETOOTH_SCO` 输入启用独立 compatibility adapter；内置 / wired / USB / AUTO 普通路径不进入该 adapter。
+
+API 31+：
+
+1. 保存进入前 audio mode；
+2. `MODE_IN_COMMUNICATION`；
+3. 从 `availableCommunicationDevices` 选择匹配 Bluetooth SCO communication sink；
+4. `setCommunicationDevice(...)`；
+5. bounded wait，确认 actual communication device；
+6. 成功后才创建/启动现有唯一 AudioRecord；
+7. Bluetooth capture source order：`VOICE_COMMUNICATION → MIC → VOICE_RECOGNITION`；
+8. `setPreferredDevice()` 与 actual AudioRecord route verification 仍保留。
+
+API 26–30：
+
+- isolated legacy `startBluetoothSco()` path；
+- 等待 `SCO_AUDIO_STATE_CONNECTED` 后才允许 AudioRecord 启动；
+- 当前只完成实现/自动化编译覆盖，尚无旧 Android 真机验证，状态 **NOT VERIFIED**；
+- legacy HFP 若后续证明系统只提供 8 kHz，而 canonical pipeline 仍要求 16 kHz，则需单独证据化评估，不得悄悄改变 canonical contract。
+
+新增 manifest permission：
+
+`android.permission.MODIFY_AUDIO_SETTINGS`
+
+该权限仅用于 Android communication/SCO route control；不改变 QS668 GATT 权限与生命周期。
+
+### 生命周期
+
+- Start：communication session 成功后才启动 AudioRecord；
+- user Pause：AudioRecord 完整 stop/release，但 communication session 可保留；
+- Resume：同一 Bluetooth communication session 可复用，仍创建单个新的 capture epoch AudioRecord；
+- final Stop：AudioRecord stop/release 后清理 communication device / SCO，并恢复进入前 audio mode；
+- route loss / capture failure：不保留 communication session；继续使用 P5 recoverable pause 语义；
+- close：强制 cleanup。
+
+### 诊断
+
+新增 `[P6 Bluetooth communication]`：
+
+- phase / path；
+- requested Bluetooth input；
+- modeBefore / modeActive / modeRestored；
+- requested / actual communication device；
+- `setCommunicationDeviceAccepted`；
+- legacy SCO state；
+- setup latency；
+- cleanup result；
+- failure code/detail。
+
+最终真机有效性仍以现有 AudioRecord signal evidence 为准；`setCommunicationDevice=true` 本身不能替代非零 PCM 证据。
+
+## 14. P6-5 automated candidate
+
+P6-5 implementation/test HEAD（docs 更新前）：
+
+`d8b807d291bddace84cd6036d572267802e067a6`
 
 Android PR CI：
 
-- run number：`#1657`
-- run id：`38920825453`
+- run number：`#1691`
+- run id：`39020915793`
 - Fast PR Gate：**SUCCESS**
 - `Unit tests and debug compile gate`：**SUCCESS**
 - QA APK Gate：**SUCCESS**
 - `Build production-like QA APK only`：**SUCCESS**
 - `Verify QA APK`：**SUCCESS**
 - `Upload QA APK`：**SUCCESS**
-- Android Production Gate #517：PR policy 下 skipped，不是失败。
 
-A1 artifact：
+自动化覆盖新增：
 
-- artifact id：`12055151881`
-- artifact name：`Voica-1.1.0-stage16a-export-qa-apk`
-- artifact ZIP digest：`sha256:ef980cf1b04a795ea54e605345aa7e3f7eb0e39d56d745a324182d348c2dd6b3`
-- extracted APK：`app-releaseQa.apk`
-- locally rechecked APK SHA-256：`fe26ac054b8cde024e657f632fc2d07f60d1f314199f152cf65699ec7ae23fc8`
+- P6-5 communication diagnostics；
+- Bluetooth compatibility capture source order 为 `VOICE_COMMUNICATION` first；
+- 普通 A1 product source policy 仍为 `MIC → VOICE_RECOGNITION`，未被 Bluetooth path 改写。
 
-A1 artifact 用于 calibration 证据采集；A1 决策后的 MIC-first 产品改动需要新的 CI，不得用 #1657/#1658 代替其验证。
+CI SUCCESS 只表示自动化 Gate 通过；**P6-5 Galaxy Buds Live 真机仍为 NOT VERIFIED**。
 
-## 12. 当前待办
+## 15. 已知但延期的 playback 问题
+
+Galaxy Buds Live 连接时，用户发现一条此前确认正常的旧录音无法启动播放、进度不走；断开 Buds 后，同一旧录音立即恢复播放。
+
+当前记录为 P8/P9 后续输入：
+
+- 不归因于刚才全零 WAV；
+- 当前 P6-5 不修改 AudioTrack / playback controller；
+- 用户明确要求先解决录音，播放 route/recovery 后续单独测试和修复。
+
+## 16. 当前待办
 
 - [x] Requirements V1 用户确认
 - [x] Development Plan V1 用户确认
-- [x] main / PR 状态重新核验
-- [x] 创建 Stage 16A.1.6 branch
-- [x] Requirements / Development Plan / Progress 入库
-- [x] product roadmap 更新为 Stage 16A.1.6 IN DEVELOPMENT
-- [x] P0 Room/model-channel/notification/S15 不变量核验
-- [x] P1 Audio I/O diagnostics foundation
-- [x] P2 A1 calibration foundation
-- [x] A1 calibration QA APK / automated gate
-- [x] A1 真机 VOICE_RECOGNITION vs MIC calibration
-- [x] A1 source/gain decision：MIC-first；software gain rejected for this stage
-- [x] A1 production source-policy implementation
-- [ ] A1 production source-policy CI
-- [ ] P3 product input selector
-- [ ] P4+ route compatibility implementation
-- [ ] playback route/recovery implementation
+- [x] Room v13 / model channel / notification / S15 invariants 核验
+- [x] P1 diagnostics foundation
+- [x] P2 A1 calibration
+- [x] A1 real-device PASS
+- [x] A1 MIC-first product policy
+- [x] P3 product input selector
+- [x] P4 AUTO wired route transitions real-device PASS
+- [x] P5 manual route loss/recoverable pause real-device PASS
+- [x] P6-1 input capability / route diagnostics
+- [x] P6-4 Galaxy Buds ordinary AudioRecord evidence collected
+- [x] P6-5 Analysis 用户确认
+- [x] P6-5 Development Plan V1 用户确认
+- [x] P6-5 implementation + automated CI candidate
+- [ ] P6-5 Galaxy Buds Live real-device non-zero PCM gate
+- [ ] P6 USB hardware QA（无硬件则 NOT RUN / NOT VERIFIED）
+- [ ] P8 playback route diagnostics
+- [ ] P9 AudioTrack bounded recovery（仅在证据需要时）
 - [ ] QS668 coexistence QA
 - [ ] Final Freeze/Handoff
 
-## 13. 文档一致性待办
+## 17. 下一步
 
-`AGENTS.md` 顶部“当前接管状态”仍是 Stage 16A.1 / PR #29 的旧时点；其中历史冻结规则仍有效，但顶部 current-stage metadata 需要更新为 Stage 16A.1.6 / PR #31。
+只进行一项 P6-5 真机测试：
 
-当前 GitHub 写入接口对该长期规则文件需要整文件替换。为避免对大量历史冻结规则做无意义重写或截断，这项继续作为 docs-only consistency follow-up，不改变技术边界或开发授权事实。后续更新时必须完整保留历史规则正文。
+1. 连接 Galaxy Buds Live；
+2. 手动选择 Galaxy Buds Live 输入；
+3. 录音约 5–10 秒并正常说话；
+4. stop/save；
+5. 复制 `[P6 Bluetooth communication]` 与 `[P6 last AudioRecord route]`；
+6. 首要通过条件：`signalSummary` 不再是 `peak=0 / rms=0 / zero=100%`。
 
-## 14. 下一步
-
-1. 先让 A1 production source-policy 改动通过新的 Android PR CI；
-2. CI SUCCESS 只代表自动化 Gate，不替代任何后续真机验证；
-3. 通过后进入 P3：把 P1 已存在的 input inventory / AUTO / SPECIFIC_DEVICE 基础接到产品输入设备选择，同时保持 requested route 与 actual route 分离；
-4. P3 不引入 SCO / communication mode / software gain，不把 MIC-first 解释为 built-in-mic-only。
+在该 gate 通过前不得把 P6-5 标记为 PASS；暂不要求播放验证。
