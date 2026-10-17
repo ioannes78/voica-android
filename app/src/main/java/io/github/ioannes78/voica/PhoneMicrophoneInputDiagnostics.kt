@@ -5,6 +5,7 @@ import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.os.Build
+import java.util.Locale
 
 /**
  * Read-only Android input capability snapshot used by Stage 16A.1.6 P6 diagnostics.
@@ -160,6 +161,24 @@ internal fun buildPhoneMicrophoneP6DiagnosticsText(
                     "samples=${capture.samplesRead} readErrors=${capture.readErrors} " +
                     "consumerErrors=${capture.consumerErrors}",
             )
+            capture.signal?.let { signal ->
+                appendLine(
+                    "signal=peak:${signal.peakSample} peakDbfs:${signal.peakDbfs.toP6Dbfs()} " +
+                        "rms:${signal.rms.toP6Amplitude()} rmsDbfs:${signal.rmsDbfs.toP6Dbfs()} " +
+                        "zero:${signal.zeroSamples}/${signal.zeroSampleRatio.toP6Ratio()} " +
+                        "clip:${signal.clippingSamples}/${signal.clippingRatio.toP6Ratio()}",
+                )
+            } ?: appendLine("signal=n/a")
+            capture.signalSummary?.let { summary ->
+                appendLine(
+                    "signalSummary=frames:${summary.frameCount} samples:${summary.sampleCount} " +
+                        "peak:${summary.peakSample} peakDbfs:${summary.peakDbfs.toP6Dbfs()} " +
+                        "rms:${summary.rms.toP6Amplitude()} rmsDbfs:${summary.rmsDbfs.toP6Dbfs()} " +
+                        "noiseFloorCandidateDbfs:${summary.noiseFloorCandidateDbfs.toP6Dbfs()} " +
+                        "zero:${summary.zeroSamples}/${summary.zeroSampleRatio.toP6Ratio()} " +
+                        "clip:${summary.clippingSamples}/${summary.clippingRatio.toP6Ratio()}",
+                )
+            } ?: appendLine("signalSummary=n/a")
             append(
                 "phase=${capture.phase} source=${capture.selectedAudioSource?.diagnosticsName ?: "n/a"} " +
                     "lastFailure=${capture.lastFailure ?: "n/a"}",
@@ -189,3 +208,9 @@ private fun List<Int>.toEncodingDiagnosticsList(): String =
             }
         }
     }
+
+private fun Double.toP6Dbfs(): String = String.format(Locale.US, "%.1f dBFS", this)
+
+private fun Double.toP6Amplitude(): String = String.format(Locale.US, "%.1f", this)
+
+private fun Double.toP6Ratio(): String = String.format(Locale.US, "%.2f%%", this * 100.0)
