@@ -52,6 +52,32 @@ class PhoneMicrophoneP6DiagnosticsTest {
                 routeChangeCount = 1L,
                 lastRouteChangeReason = PhoneMicrophoneRouteChangeReason.PLATFORM_REROUTE,
                 clientSilenced = false,
+                signal =
+                    PhoneMicrophoneSignalSnapshot(
+                        sampleCount = 1_280,
+                        peakSample = 0,
+                        peakDbfs = -120.0,
+                        rms = 0.0,
+                        rmsDbfs = -120.0,
+                        clippingSamples = 0,
+                        clippingRatio = 0.0,
+                        zeroSamples = 1_280,
+                        zeroSampleRatio = 1.0,
+                    ),
+                signalSummary =
+                    PhoneMicrophoneSignalSummary(
+                        frameCount = 12L,
+                        sampleCount = 15_360L,
+                        peakSample = 0,
+                        peakDbfs = -120.0,
+                        rms = 0.0,
+                        rmsDbfs = -120.0,
+                        noiseFloorCandidateDbfs = -120.0,
+                        clippingSamples = 0L,
+                        clippingRatio = 0.0,
+                        zeroSamples = 15_360L,
+                        zeroSampleRatio = 1.0,
+                    ),
                 readCalls = 12L,
                 samplesRead = 15_360L,
                 readErrors = 0L,
@@ -75,7 +101,40 @@ class PhoneMicrophoneP6DiagnosticsTest {
         assertTrue(text.contains("actualRoute=id:17 type:BLUETOOTH_SCO"))
         assertTrue(text.contains("routeGeneration=2 routeChanges=1"))
         assertTrue(text.contains("clientSilenced=false reads=12 samples=15360 readErrors=0 consumerErrors=0"))
+        assertTrue(
+            text.contains(
+                "signal=peak:0 peakDbfs:-120.0 dBFS rms:0.0 rmsDbfs:-120.0 dBFS " +
+                    "zero:1280/100.00% clip:0/0.00%",
+            ),
+        )
+        assertTrue(
+            text.contains(
+                "signalSummary=frames:12 samples:15360 peak:0 peakDbfs:-120.0 dBFS " +
+                    "rms:0.0 rmsDbfs:-120.0 dBFS noiseFloorCandidateDbfs:-120.0 dBFS " +
+                    "zero:15360/100.00% clip:0/0.00%",
+            ),
+        )
         assertTrue(text.contains("source=MIC"))
+    }
+
+    @Test
+    fun `P6 diagnostics say signal unavailable when capture has no PCM meter yet`() {
+        val selection =
+            PhoneMicrophoneInputSelectionSnapshot(
+                request = PhoneMicrophoneInputRequest.Auto,
+                devices = emptyList(),
+            )
+        val capture = PhoneMicrophoneCaptureSnapshot(phase = PhoneMicrophoneCapturePhase.STOPPED)
+
+        val text =
+            buildPhoneMicrophoneP6DiagnosticsText(
+                selection = selection,
+                capture = capture,
+                capabilities = emptyList(),
+            )
+
+        assertTrue(text.contains("signal=n/a"))
+        assertTrue(text.contains("signalSummary=n/a"))
     }
 
     @Test
