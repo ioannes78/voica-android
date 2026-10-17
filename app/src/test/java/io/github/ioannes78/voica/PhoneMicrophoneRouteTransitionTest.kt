@@ -189,7 +189,7 @@ class PhoneMicrophoneRouteTransitionTest {
     }
 
     @Test
-    fun `manual input does not convert platform reroute into auto discontinuity`() = runBlocking {
+    fun `manual input reroute pauses instead of silently falling back`() = runBlocking {
         val capture = RouteTransitionFakeCaptureDriver(PhoneMicrophoneInputRequest.SpecificDevice(17))
         val registrations = mutableListOf<PhoneMicrophoneRecordingRegistration>()
         val realtimeFrames = mutableListOf<RealtimeCanonicalPcmFrame>()
@@ -205,17 +205,30 @@ class PhoneMicrophoneRouteTransitionTest {
         )
         capture.emit(ShortArray(640) { 11 })
         tracker.observe(routeB)
-        capture.emit(ShortArray(640) { 22 })
-        val stopped = runtime.stop()
 
+        withTimeout(2_000L) {
+            while (runtime.state.value.phase != PhoneMicrophoneRecordingPhase.PAUSED) {
+                delay(5L)
+            }
+        }
+
+        val paused = runtime.state.value
+        assertEquals(1, realtimeFrames.size)
+        assertEquals(640L, paused.writtenSamples)
+        assertEquals(0L, paused.routeBoundaryCount)
+        assertEquals(0L, paused.discontinuityEpochCount)
+        assertEquals(0L, paused.captureRecoveryAttempts)
+        assertEquals(1L, paused.manualRouteLossPauses)
+        assertTrue(paused.manualRouteRecoveryPending)
+        assertEquals(17, paused.lastManualRouteLostDeviceId)
+        assertFalse(paused.hadCaptureInterruption)
+
+        val stopped = runtime.stop()
         assertTrue(stopped is PhoneMicrophoneRecordingStopResult.Saved)
-        assertEquals(2, realtimeFrames.size)
-        assertEquals(1L, realtimeFrames[0].epochId)
-        assertEquals(1L, realtimeFrames[1].epochId)
-        assertEquals(640L, realtimeFrames[1].startSampleIndex)
-        assertEquals(null, realtimeFrames[1].epochStartReason)
-        assertEquals(0L, runtime.state.value.routeBoundaryCount)
-        assertEquals(0L, runtime.state.value.discontinuityEpochCount)
+        stopped as PhoneMicrophoneRecordingStopResult.Saved
+        assertEquals(640L, stopped.sampleCount)
+        assertEquals(PhoneMicrophoneRecordingPhase.COMPLETED, runtime.state.value.phase)
+        assertFalse(runtime.state.value.manualRouteRecoveryPending)
         assertEquals(0L, runtime.state.value.captureRecoveryAttempts)
 
         runtime.close()
