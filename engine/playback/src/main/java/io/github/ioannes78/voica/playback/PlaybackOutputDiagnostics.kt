@@ -1,6 +1,7 @@
 package io.github.ioannes78.voica.playback
 
 import android.media.AudioDeviceInfo
+import android.os.Build
 import android.os.SystemClock
 
 data class PlaybackOutputDeviceDescriptor(
@@ -318,25 +319,32 @@ internal fun AudioDeviceInfo?.toPlaybackOutputDescriptor(): PlaybackOutputDevice
         type = device.type,
         typeLabel = playbackOutputDeviceTypeLabel(device.type),
         productName = device.productName?.toString(),
-        address = device.address.takeIf { it.isNotBlank() },
+        address =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                device.address.takeIf { it.isNotBlank() }
+            } else {
+                null
+            },
         isSink = device.isSink,
     )
 }
 
 internal fun playbackOutputDeviceTypeLabel(type: Int): String =
-    when (type) {
-        AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "BUILTIN_SPEAKER"
-        AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "BUILTIN_EARPIECE"
-        AudioDeviceInfo.TYPE_WIRED_HEADSET -> "WIRED_HEADSET"
-        AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "WIRED_HEADPHONES"
-        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> "BLUETOOTH_A2DP"
-        AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> "BLUETOOTH_SCO"
-        AudioDeviceInfo.TYPE_USB_DEVICE -> "USB_DEVICE"
-        AudioDeviceInfo.TYPE_USB_ACCESSORY -> "USB_ACCESSORY"
-        AudioDeviceInfo.TYPE_USB_HEADSET -> "USB_HEADSET"
-        AudioDeviceInfo.TYPE_HDMI -> "HDMI"
-        AudioDeviceInfo.TYPE_HDMI_ARC -> "HDMI_ARC"
-        AudioDeviceInfo.TYPE_BLE_HEADSET -> "BLE_HEADSET"
-        AudioDeviceInfo.TYPE_BLE_SPEAKER -> "BLE_SPEAKER"
+    when {
+        type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "BUILTIN_SPEAKER"
+        type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "BUILTIN_EARPIECE"
+        type == AudioDeviceInfo.TYPE_WIRED_HEADSET -> "WIRED_HEADSET"
+        type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "WIRED_HEADPHONES"
+        type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> "BLUETOOTH_A2DP"
+        type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> "BLUETOOTH_SCO"
+        type == AudioDeviceInfo.TYPE_USB_DEVICE -> "USB_DEVICE"
+        type == AudioDeviceInfo.TYPE_USB_ACCESSORY -> "USB_ACCESSORY"
+        type == AudioDeviceInfo.TYPE_USB_HEADSET -> "USB_HEADSET"
+        type == AudioDeviceInfo.TYPE_HDMI -> "HDMI"
+        type == AudioDeviceInfo.TYPE_HDMI_ARC -> "HDMI_ARC"
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            type == AudioDeviceInfo.TYPE_BLE_HEADSET -> "BLE_HEADSET"
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            type == AudioDeviceInfo.TYPE_BLE_SPEAKER -> "BLE_SPEAKER"
         else -> "TYPE_$type"
     }
