@@ -47,6 +47,7 @@ class AndroidPlaybackController(
     private val noisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
+                PlaybackOutputDiagnostics.environmentEvent("BECOMING_NOISY")
                 scope.launch { handleNoisyOutput() }
             }
         }
@@ -54,10 +55,22 @@ class AndroidPlaybackController(
 
     private val routeCallback = object : AudioDeviceCallback() {
         override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
+            PlaybackOutputDiagnostics.environmentEvent(
+                buildOutputDeviceEnvironmentEvent(
+                    prefix = "OUTPUT_DEVICE_ADDED",
+                    devices = addedDevices,
+                ),
+            )
             scope.launch { core.rebaseOutputPosition() }
         }
 
         override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
+            PlaybackOutputDiagnostics.environmentEvent(
+                buildOutputDeviceEnvironmentEvent(
+                    prefix = "OUTPUT_DEVICE_REMOVED",
+                    devices = removedDevices,
+                ),
+            )
             scope.launch { core.rebaseOutputPosition() }
         }
     }
@@ -184,6 +197,17 @@ class AndroidPlaybackController(
                 }
             }
         }
+    }
+}
+
+private fun buildOutputDeviceEnvironmentEvent(
+    prefix: String,
+    devices: Array<out AudioDeviceInfo>?,
+): String {
+    val outputs = devices.orEmpty().filter { it.isSink }
+    if (outputs.isEmpty()) return "$prefix:none"
+    return prefix + ":" + outputs.joinToString(",") { device ->
+        "${device.id}/${playbackOutputDeviceTypeLabel(device.type)}"
     }
 }
 
