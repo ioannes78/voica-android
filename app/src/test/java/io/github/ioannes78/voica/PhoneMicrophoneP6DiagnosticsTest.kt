@@ -2,6 +2,7 @@ package io.github.ioannes78.voica
 
 import android.media.AudioDeviceInfo
 import android.media.AudioFormat
+import android.media.AudioManager
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -115,6 +116,97 @@ class PhoneMicrophoneP6DiagnosticsTest {
             ),
         )
         assertTrue(text.contains("source=MIC"))
+    }
+
+    @Test
+    fun `P6 diagnostics expose Bluetooth communication setup and cleanup evidence`() {
+        val selection =
+            PhoneMicrophoneInputSelectionSnapshot(
+                request = PhoneMicrophoneInputRequest.SpecificDevice(17),
+                devices = emptyList(),
+            )
+        val bluetooth =
+            PhoneMicrophoneBluetoothCommunicationSnapshot(
+                phase = PhoneMicrophoneBluetoothCommunicationPhase.RELEASED,
+                path = PhoneMicrophoneBluetoothCompatPath.COMMUNICATION_DEVICE,
+                requestedInputDeviceId = 17,
+                requestedInputType = AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+                requestedInputProductName = "QA Headset",
+                requestedInputAddress = "AA:BB",
+                modeBefore = AudioManager.MODE_NORMAL,
+                modeActive = AudioManager.MODE_IN_COMMUNICATION,
+                modeRestored = AudioManager.MODE_NORMAL,
+                requestedCommunicationDeviceId = 51,
+                requestedCommunicationDeviceType = AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+                requestedCommunicationDeviceProductName = "QA Headset",
+                requestedCommunicationDeviceAddress = "AA:BB",
+                actualCommunicationDeviceId = 51,
+                actualCommunicationDeviceType = AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+                actualCommunicationDeviceProductName = "QA Headset",
+                actualCommunicationDeviceAddress = "AA:BB",
+                setCommunicationDeviceAccepted = true,
+                setupLatencyMs = 137L,
+                cleanupSucceeded = true,
+            )
+
+        val text =
+            buildPhoneMicrophoneP6DiagnosticsText(
+                selection = selection,
+                capture = null,
+                capabilities = emptyList(),
+                bluetoothCommunication = bluetooth,
+            )
+
+        assertTrue(text.contains("[P6 Bluetooth communication]"))
+        assertTrue(text.contains("phase=RELEASED path=COMMUNICATION_DEVICE"))
+        assertTrue(text.contains("requestedInput=id:17 type:BLUETOOTH_SCO"))
+        assertTrue(text.contains("modeBefore=NORMAL(0)"))
+        assertTrue(text.contains("modeActive=IN_COMMUNICATION(${AudioManager.MODE_IN_COMMUNICATION})"))
+        assertTrue(text.contains("modeRestored=NORMAL(0)"))
+        assertTrue(text.contains("requestedComm=id:51 type:BLUETOOTH_SCO"))
+        assertTrue(text.contains("actualComm=id:51 type:BLUETOOTH_SCO"))
+        assertTrue(text.contains("setCommunicationDeviceAccepted=true"))
+        assertTrue(text.contains("setupLatencyMs=137 cleanupSucceeded=true"))
+        assertTrue(text.contains("failure=n/a/n/a"))
+    }
+
+    @Test
+    fun `Bluetooth communication capture prefers VOICE_COMMUNICATION without changing normal A1 policy`() {
+        val bluetoothOrder =
+            resolvePhoneMicrophoneBluetoothCommunicationSourceOrder(
+                qaSnapshot =
+                    Stage16A16QaAudioSourceOverrideSnapshot(
+                        enabled = false,
+                        mode = Stage16A16QaAudioSourceMode.AUTO,
+                    ),
+                availableSources =
+                    listOf(
+                        PhoneMicrophoneAudioSource.MIC,
+                        PhoneMicrophoneAudioSource.VOICE_RECOGNITION,
+                        PhoneMicrophoneAudioSource.VOICE_COMMUNICATION,
+                    ),
+            )
+        assertEquals(
+            listOf(
+                PhoneMicrophoneAudioSource.VOICE_COMMUNICATION,
+                PhoneMicrophoneAudioSource.MIC,
+                PhoneMicrophoneAudioSource.VOICE_RECOGNITION,
+            ),
+            bluetoothOrder,
+        )
+
+        assertEquals(
+            listOf(
+                PhoneMicrophoneAudioSource.MIC,
+                PhoneMicrophoneAudioSource.VOICE_RECOGNITION,
+            ),
+            PhoneMicrophoneAudioSourcePolicy.resolveAvailable(
+                listOf(
+                    PhoneMicrophoneAudioSource.VOICE_RECOGNITION,
+                    PhoneMicrophoneAudioSource.MIC,
+                ),
+            ),
+        )
     }
 
     @Test
