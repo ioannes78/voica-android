@@ -1,0 +1,191 @@
+package io.github.ioannes78.voica
+
+import android.content.Context
+import android.media.AudioDeviceInfo
+import android.media.AudioFormat
+import android.media.AudioManager
+import android.os.Build
+
+/**
+ * Read-only Android input capability snapshot used by Stage 16A.1.6 P6 diagnostics.
+ *
+ * This is deliberately separate from QS668/CB08 BLE GATT state. A Bluetooth GATT connection does
+ * not imply that Android exposes an AudioDeviceInfo capture source.
+ */
+internal data class PhoneMicrophoneInputCapabilitySnapshot(
+    val deviceId: Int,
+    val deviceType: Int,
+    val typeLabel: String,
+    val productName: String,
+    val address: String?,
+    val isSource: Boolean,
+    val sampleRates: List<Int>,
+    val channelCounts: List<Int>,
+    val encodings: List<Int>,
+)
+
+internal fun queryPhoneMicrophoneInputCapabilities(
+    context: Context,
+): List<PhoneMicrophoneInputCapabilitySnapshot> {
+    val audioManager = context.applicationContext.getSystemService(AudioManager::class.java)
+    return audioManager
+        .getDevices(AudioManager.GET_DEVICES_INPUTS)
+        .asSequence()
+        .filter { it.isSource }
+        .map { device ->
+            PhoneMicrophoneInputCapabilitySnapshot(
+                deviceId = device.id,
+                deviceType = device.type,
+                typeLabel = phoneMicrophoneInputTypeLabel(device.type),
+                productName = device.productName.toString().ifBlank { "未知音频设备" },
+                address =
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        device.address.trim().takeIf { it.isNotEmpty() }
+                    } else {
+                        null
+                    },
+                isSource = device.isSource,
+                sampleRates = device.sampleRates.toList().distinct().sorted(),
+                channelCounts = device.channelCounts.toList().distinct().sorted(),
+                encodings = device.encodings.toList().distinct().sorted(),
+            )
+        }
+        .sortedWith(
+            compareBy<PhoneMicrophoneInputCapabilitySnapshot> { it.deviceType }
+                .thenBy { it.productName }
+                .thenBy { it.deviceId },
+        )
+        .toList()
+}
+
+/**
+ * Stable diagnostic label for Android input-device types relevant to P6.
+ *
+ * TYPE_BLE_HEADSET is only evaluated behind its Android 12 / API 31 guard so minSdk 26 remains
+ * supported. Unknown framework types are preserved numerically instead of being misclassified.
+ */
+internal fun phoneMicrophoneInputTypeLabel(deviceType: Int): String =
+    when {
+        deviceType == AudioDeviceInfo.TYPE_BUILTIN_MIC -> "BUILTIN_MIC"
+        deviceType == AudioDeviceInfo.TYPE_WIRED_HEADSET -> "WIRED_HEADSET"
+        deviceType == AudioDeviceInfo.TYPE_USB_DEVICE -> "USB_DEVICE"
+        deviceType == AudioDeviceInfo.TYPE_USB_HEADSET -> "USB_HEADSET"
+        deviceType == AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> "BLUETOOTH_SCO"
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            deviceType == AudioDeviceInfo.TYPE_BLE_HEADSET -> "BLE_HEADSET"
+        else -> "TYPE_$deviceType"
+    }
+
+internal fun phoneMicrophoneInputUserLabel(deviceType: Int): String =
+    when (phoneMicrophoneInputTypeLabel(deviceType)) {
+        "BUILTIN_MIC" -> "手机内置麦克风"
+        "WIRED_HEADSET" -> "有线耳机麦克风"
+        "USB_DEVICE" -> "USB 音频输入"
+        "USB_HEADSET" -> "USB 耳机麦克风"
+        "BLUETOOTH_SCO" -> "蓝牙耳机麦克风"
+        "BLE_HEADSET" -> "BLE Audio 麦克风"
+        else -> "Android 输入设备 · type $deviceType"
+    }
+
+internal fun phoneMicrophoneInputCompactLabel(
+    device: PhoneMicrophoneAudioDeviceDescriptor,
+): String =
+    when (phoneMicrophoneInputTypeLabel(device.deviceType)) {
+        "BUILTIN_MIC" -> "内置麦克风"
+        "WIRED_HEADSET" -> "有线耳麦"
+        "USB_DEVICE",
+        "USB_HEADSET",
+        -> "USB 麦克风"
+        "BLUETOOTH_SCO",
+        "BLE_HEADSET",
+        -> "蓝牙耳机"
+        else -> device.productName.trim().ifBlank { "输入设备" }
+    }
+
+internal fun buildPhoneMicrophoneP6DiagnosticsText(
+    selection: PhoneMicrophoneInputSelectionSnapshot,
+    capture: PhoneMicrophoneCaptureSnapshot?,
+    capabilities: List<PhoneMicrophoneInputCapabilitySnapshot>,
+): String =
+    buildString {
+        appendLine("[P6 Android input inventory]")
+        appendLine("inventoryGeneration=${selection.inventoryGeneration} devices=${capabilities.size}")
+        appendLine(
+            "currentSelection=${selection.request.toP6DiagnosticsName()} " +
+                "selectedDeviceMissing=${selection.selectedDeviceMissing}",
+        )
+        if (capabilities.isEmpty()) {
+            appendLine("device=n/a")
+        } else {
+            capabilities.forEach { device ->
+                appendLine(
+                    "device=id:${device.deviceId} type:${device.typeLabel}(${device.deviceType}) " +
+                        "product:${device.productName} address:${device.address ?: "n/a"} " +
+                        "isSource:${device.isSource}",
+                )
+                appendLine(
+                    "capabilities=id:${device.deviceId} " +
+                        "rates:${device.sampleRates.toDiagnosticsList()} " +
+                        "channels:${device.channelCounts.toDiagnosticsList()} " +
+                        "encodings:${device.encodings.toEncodingDiagnosticsList()}",
+                )
+            }
+        }
+
+        appendLine("[P6 last AudioRecord route]")
+        if (capture == null) {
+            append("capture=n/a")
+        } else {
+            val route = capture.route
+            appendLine(
+                "request=${capture.requestedInput.toP6DiagnosticsName()} " +
+                    "preferredAccepted=${capture.preferredDeviceAccepted ?: "n/a"}",
+            )
+            appendLine(
+                "actualRoute=" +
+                    if (route == null) {
+                        "n/a"
+                    } else {
+                        "id:${route.deviceId} type:${phoneMicrophoneInputTypeLabel(route.deviceType)}" +
+                            "(${route.deviceType}) product:${route.productName} " +
+                            "address:${route.address ?: "n/a"}"
+                    },
+            )
+            appendLine(
+                "routeGeneration=${capture.routeGeneration} routeChanges=${capture.routeChangeCount} " +
+                    "routeReason=${capture.lastRouteChangeReason?.name ?: "n/a"}",
+            )
+            appendLine(
+                "clientSilenced=${capture.clientSilenced ?: "n/a"} reads=${capture.readCalls} " +
+                    "samples=${capture.samplesRead} readErrors=${capture.readErrors} " +
+                    "consumerErrors=${capture.consumerErrors}",
+            )
+            append(
+                "phase=${capture.phase} source=${capture.selectedAudioSource?.diagnosticsName ?: "n/a"} " +
+                    "lastFailure=${capture.lastFailure ?: "n/a"}",
+            )
+        }
+    }
+
+private fun PhoneMicrophoneInputRequest.toP6DiagnosticsName(): String =
+    when (this) {
+        PhoneMicrophoneInputRequest.Auto -> "AUTO"
+        is PhoneMicrophoneInputRequest.SpecificDevice -> "MANUAL(id=$deviceId)"
+    }
+
+private fun List<Int>.toDiagnosticsList(): String =
+    if (isEmpty()) "unreported" else joinToString(prefix = "[", postfix = "]")
+
+private fun List<Int>.toEncodingDiagnosticsList(): String =
+    if (isEmpty()) {
+        "unreported"
+    } else {
+        joinToString(prefix = "[", postfix = "]") { encoding ->
+            when (encoding) {
+                AudioFormat.ENCODING_PCM_16BIT -> "PCM16($encoding)"
+                AudioFormat.ENCODING_PCM_8BIT -> "PCM8($encoding)"
+                AudioFormat.ENCODING_PCM_FLOAT -> "PCM_FLOAT($encoding)"
+                else -> encoding.toString()
+            }
+        }
+    }
