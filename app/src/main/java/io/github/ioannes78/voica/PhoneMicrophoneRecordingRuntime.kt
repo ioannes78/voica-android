@@ -115,6 +115,12 @@ internal interface PhoneMicrophoneCaptureDriver : Closeable {
     ): PhoneMicrophoneStartResult
 
     suspend fun stopAndAwait(timeoutMs: Long): Boolean
+
+    /** Product pause seam: capture stops, but an active Bluetooth communication session may remain. */
+    suspend fun pauseAndAwait(timeoutMs: Long): Boolean = stopAndAwait(timeoutMs)
+
+    /** Final stop/close seam for any input-session resource intentionally retained across pause. */
+    fun releaseRetainedInputSession() = Unit
 }
 
 internal class AndroidPhoneMicrophoneCaptureDriver(
@@ -131,6 +137,16 @@ internal class AndroidPhoneMicrophoneCaptureDriver(
     ): PhoneMicrophoneStartResult = capture.start(consumer, foregroundLabel)
 
     override suspend fun stopAndAwait(timeoutMs: Long): Boolean = capture.stopAndAwait(timeoutMs)
+
+    override suspend fun pauseAndAwait(timeoutMs: Long): Boolean =
+        capture.stopAndAwait(
+            timeoutMs = timeoutMs,
+            keepBluetoothCommunicationSession = true,
+        )
+
+    override fun releaseRetainedInputSession() {
+        capture.releaseRetainedBluetoothCommunicationSession()
+    }
 
     override fun close() = capture.close()
 }
@@ -161,10 +177,12 @@ internal object PhoneMicrophoneManualRouteLossPolicy {
  * The synchronous writer is the primary consumer of microphone PCM. No bounded ASR queue sits in
  * front of the formal recording path. Pause ends the current capture epoch without finalizing the
  * WAV; resume opens a new CONTROL_BOUNDARY epoch, so paused wall-clock time is never synthesized as
- * silence. AUTO input reroutes open a DISCONTINUITY epoch before the first PCM frame from the new
- * route is committed. If AUTO capture itself becomes invalid, one bounded sequential recreation is
- * allowed after the old capture fully stops; the same formal WAV continues with a DISCONTINUITY
- * epoch. A manually selected device that disappears is different: the wrong-route PCM is rejected by
+ * silence. An established P6-5 Bluetooth communication session may remain across a user pause while
+ * the AudioRecord itself is still fully stopped/released; final stop always releases that session.
+ * AUTO input reroutes open a DISCONTINUITY epoch before the first PCM frame from the new route is
+ * committed. If AUTO capture itself becomes invalid, one bounded sequential recreation is allowed
+ * after the old capture fully stops; the same formal WAV continues with a DISCONTINUITY epoch. A
+ * manually selected device that disappears is different: the wrong-route PCM is rejected by
  * PhoneMicrophoneCapture, this runtime enters a recoverable PAUSED state, and no replacement input is
  * used until the user reconnects/selects a device or explicitly selects AUTO. A successful resume
  * after that pause opens a DISCONTINUITY epoch in the same WAV. Optional realtime fan-out is invoked
@@ -320,7 +338,7 @@ internal class PhoneMicrophoneRecordingRuntime(
             current
         }
 
-        if (!capture.stopAndAwait(CAPTURE_STOP_TIMEOUT_MS)) {
+        if (!capture.pauseAndAwait(CAPTURE_STOP_TIMEOUT_MS)) {
             return failAction(context, "暂停手机录音超时，录音文件尚未结束")
         }
 
@@ -456,6 +474,7 @@ internal class PhoneMicrophoneRecordingRuntime(
         if (wasRecording && !capture.stopAndAwait(CAPTURE_STOP_TIMEOUT_MS)) {
             return@withContext failStop(context, "停止手机录音超时，已保留临时录音数据")
         }
+        capture.releaseRetainedInputSession()
 
         val sampleCount = synchronized(lock) { context.writtenSamples }
         if (sampleCount == 0L) {
