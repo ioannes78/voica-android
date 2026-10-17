@@ -49,6 +49,11 @@ import java.util.Locale
 
 private enum class HomeModePreference { RECORDING, REALTIME }
 
+internal fun shouldShowPausedPhoneInputSelector(activity: AppActivityFact): Boolean =
+    activity.source == AppActivitySource.PHONE_MICROPHONE &&
+        activity.kind == AppActivityKind.RECORDING &&
+        AppActivityAction.RESUME in activity.availableActions
+
 @Composable
 internal fun HomeActivityPanel(
     projection: AppActivityProjection,
@@ -386,6 +391,15 @@ private fun PrimaryHomeActivityCard(
                     )
                 }
                 if (clickable) Icon(Icons.Outlined.ChevronRight, contentDescription = "查看", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+
+            if (shouldShowPausedPhoneInputSelector(activity)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    PhoneMicrophoneInputSelectorRow()
+                }
             }
 
             if (!realtime) {
