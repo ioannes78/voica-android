@@ -46,7 +46,7 @@ internal fun VoicaBrandHeader(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Image(
-                painter = painterResource(R.drawable.voica_brand_symbol_original),
+                painter = painterResource(R.drawable.voica_brand_symbol),
                 contentDescription = "Voica",
                 modifier = Modifier.size(44.dp),
             )
