@@ -6,7 +6,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val buildGitSha = providers.environmentVariable("GITHUB_SHA").getOrElse("unknown")
+val buildGitSha = providers.environmentVariable("VOICA_BUILD_GIT_SHA").getOrElse("unknown")
 
 fun releaseSecret(environmentName: String, propertyName: String): String? =
     providers.environmentVariable(environmentName)
