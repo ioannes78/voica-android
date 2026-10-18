@@ -19,9 +19,9 @@ import java.security.MessageDigest
 import java.util.UUID
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 data class TimelineAnnotationCameraCaptureTarget(
     val annotationId: String,
@@ -94,9 +94,7 @@ class TimelineAnnotationAttachmentStore(
     suspend fun discardCameraCaptureTarget(target: TimelineAnnotationCameraCaptureTarget) =
         serial.withLock {
             withContext(ioDispatcher) {
-                if (isInside(target.file, cameraStagingRoot)) {
-                    target.file.delete()
-                }
+                if (isInside(target.file, cameraStagingRoot)) target.file.delete()
             }
         }
 
@@ -117,7 +115,6 @@ class TimelineAnnotationAttachmentStore(
                         sourceFile = target.file,
                         source = TimelineAnnotationAttachmentSourceValue.CAMERA,
                         providerMimeType = "image/jpeg",
-                        moveSource = true,
                     )
                 } finally {
                     target.file.delete()
@@ -152,7 +149,6 @@ class TimelineAnnotationAttachmentStore(
                         sourceFile = staged,
                         source = TimelineAnnotationAttachmentSourceValue.GALLERY,
                         providerMimeType = resolver.getType(uri),
-                        moveSource = true,
                     )
                 } finally {
                     staged.delete()
@@ -172,14 +168,18 @@ class TimelineAnnotationAttachmentStore(
     suspend fun deleteAttachmentsForAnnotation(annotationId: String): List<String> =
         serial.withLock {
             withContext(ioDispatcher) {
-                dao.getAttachments(annotationId).flatMap(::deleteAttachmentLocked)
+                val failures = mutableListOf<String>()
+                dao.getAttachments(annotationId).forEach { failures += deleteAttachmentLocked(it) }
+                failures.distinct()
             }
         }
 
     suspend fun deleteAttachmentsForRecording(recordingId: String): List<String> =
         serial.withLock {
             withContext(ioDispatcher) {
-                dao.getAttachmentsForRecording(recordingId).flatMap(::deleteAttachmentLocked)
+                val failures = mutableListOf<String>()
+                dao.getAttachmentsForRecording(recordingId).forEach { failures += deleteAttachmentLocked(it) }
+                failures.distinct()
             }
         }
 
@@ -194,10 +194,10 @@ class TimelineAnnotationAttachmentStore(
                 database.recordingDao()
                     .findByState(RecordingState.DELETING)
                     .forEach { row ->
-                        val failed =
-                            dao.getAttachmentsForRecording(row.recording.id)
-                                .flatMap(::deleteAttachmentLocked)
-                        if (failed.isNotEmpty()) failures[row.recording.id] = failed
+                        val failed = mutableListOf<String>()
+                        dao.getAttachmentsForRecording(row.recording.id)
+                            .forEach { failed += deleteAttachmentLocked(it) }
+                        if (failed.isNotEmpty()) failures[row.recording.id] = failed.distinct()
                     }
                 TimelineAnnotationDeletingRecordingCleanup(failures)
             }
@@ -217,27 +217,29 @@ class TimelineAnnotationAttachmentStore(
                     if (failed.isEmpty()) recoveredDeleting += 1 else failedPaths += failed
                 }
 
-                val readyRows = dao.getAllAttachments()
-                val knownPaths = readyRows.mapTo(hashSetOf()) { normalizeRelativePath(it.relativePath) }
-                readyRows
+                val rows = dao.getAllAttachments()
+                val knownPaths = rows.mapTo(hashSetOf()) { normalizeRelativePath(it.relativePath) }
+                rows
                     .filter { it.lifecycleState == TimelineAnnotationAttachmentLifecycleStateValue.READY }
                     .forEach { attachment ->
-                        val file = resolveRelativePath(attachment.relativePath)
-                        if (!file.isFile) {
+                        val file = runCatching { resolveRelativePath(attachment.relativePath) }.getOrNull()
+                        if (file == null || !file.isFile) {
                             dao.deleteAttachment(attachment.id)
                             removedMissing += 1
                         }
                     }
 
+                val stagingDir = File(root, STAGING_DIR_NAME)
                 root.walkBottomUp()
                     .filter { it.isFile }
-                    .filterNot { it.parentFile == File(root, STAGING_DIR_NAME) }
+                    .filterNot { isInsideOrSame(it, stagingDir) }
                     .forEach { file ->
                         val relative = file.relativeTo(appContext.filesDir).invariantSeparatorsPath
                         if (normalizeRelativePath(relative) !in knownPaths) {
                             if (file.delete()) removedOrphans += 1 else failedPaths += relative
                         }
                     }
+                stagingDir.deleteRecursively()
                 root.walkBottomUp().filter { it.isDirectory && it != root }.forEach(::cleanupEmptyDirectory)
                 cleanupStaleCameraTargets()
 
@@ -256,7 +258,6 @@ class TimelineAnnotationAttachmentStore(
         sourceFile: File,
         source: String,
         providerMimeType: String?,
-        moveSource: Boolean,
     ): TimelineAnnotationAttachmentEntity {
         val bounds = decodeImageBounds(sourceFile)
         require(bounds.width > 0 && bounds.height > 0) { "无法识别图片内容" }
@@ -270,13 +271,9 @@ class TimelineAnnotationAttachmentStore(
         require(isInside(finalFile, root)) { "invalid annotation attachment path" }
         check(!finalFile.exists()) { "annotation attachment already exists" }
 
-        if (moveSource) {
-            if (!sourceFile.renameTo(finalFile)) {
-                copyFileDurably(sourceFile, finalFile)
-                check(sourceFile.delete() || !sourceFile.exists()) { "unable to remove attachment staging file" }
-            }
-        } else {
+        if (!sourceFile.renameTo(finalFile)) {
             copyFileDurably(sourceFile, finalFile)
+            check(sourceFile.delete() || !sourceFile.exists()) { "unable to remove attachment staging file" }
         }
 
         val size = finalFile.length()
@@ -310,7 +307,9 @@ class TimelineAnnotationAttachmentStore(
         return entity
     }
 
-    private fun deleteAttachmentLocked(attachment: TimelineAnnotationAttachmentEntity): List<String> {
+    private suspend fun deleteAttachmentLocked(
+        attachment: TimelineAnnotationAttachmentEntity,
+    ): List<String> {
         val deleting =
             if (attachment.lifecycleState == TimelineAnnotationAttachmentLifecycleStateValue.DELETING) {
                 attachment
@@ -318,13 +317,13 @@ class TimelineAnnotationAttachmentStore(
                 attachment.copy(
                     lifecycleState = TimelineAnnotationAttachmentLifecycleStateValue.DELETING,
                     updatedAtMs = nowMs(),
-                ).also { dao.updateAttachmentBlockingSafe(it) }
+                ).also { dao.updateAttachment(it) }
             }
         val file = runCatching { resolveRelativePath(deleting.relativePath) }.getOrElse {
             return listOf(deleting.relativePath)
         }
         if (file.exists() && !file.delete()) return listOf(deleting.relativePath)
-        dao.deleteAttachmentBlockingSafe(deleting.id)
+        dao.deleteAttachment(deleting.id)
         cleanupEmptyDirectory(file.parentFile)
         return emptyList()
     }
@@ -379,6 +378,12 @@ class TimelineAnnotationAttachmentStore(
         return file.canonicalFile.path.startsWith(parentPath)
     }
 
+    private fun isInsideOrSame(file: File, parent: File): Boolean {
+        val candidate = file.canonicalFile
+        val rootCandidate = parent.canonicalFile
+        return candidate == rootCandidate || candidate.path.startsWith(rootCandidate.path + File.separator)
+    }
+
     private fun validateId(value: String, label: String) {
         require(SAFE_ID.matches(value)) { "$label contains unsafe path characters" }
     }
@@ -409,17 +414,6 @@ class TimelineAnnotationAttachmentStore(
         val height: Int,
         val mimeType: String?,
     )
-
-    private fun TimelineAnnotationDao.updateAttachmentBlockingSafe(
-        attachment: TimelineAnnotationAttachmentEntity,
-    ) {
-        // Room suspend DAO calls are bridged only from the store's serialized IO section below.
-        kotlinx.coroutines.runBlocking { updateAttachment(attachment) }
-    }
-
-    private fun TimelineAnnotationDao.deleteAttachmentBlockingSafe(attachmentId: String) {
-        kotlinx.coroutines.runBlocking { deleteAttachment(attachmentId) }
-    }
 
     private companion object {
         const val ATTACHMENT_ROOT_NAME = "timeline_annotations"
