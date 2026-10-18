@@ -7,20 +7,22 @@ import org.junit.Test
 
 class Stage16A2AnnotationUiContractTest {
     @Test
-    fun recordingDetailKeepsExistingReadingModeAndAddsFourthAnnotationTab() {
-        val source = appProductionSource("ui/library/RecordingDetailProductScreen.kt")
+    fun recordingDetailKeepsReadingCopySemanticsAndAddsFourthAnnotationTab() {
+        val detail = appProductionSource("ui/library/RecordingDetailProductScreen.kt")
+        val projection = appProductionSource("ui/transcript/TranscriptAnnotationProjection.kt")
 
-        assertTrue(source.contains("ProductDetailTab.ANNOTATIONS"))
-        assertTrue(source.contains("ProductDetailTab.ANNOTATIONS -> \"标注\""))
-        assertTrue(source.contains("TimelineAnnotationPanel("))
-        assertTrue(source.contains("RecordingDetailDestination.ANNOTATIONS"))
+        assertTrue(detail.contains("ProductDetailTab.ANNOTATIONS"))
+        assertTrue(detail.contains("ProductDetailTab.ANNOTATIONS -> \"标注\""))
+        assertTrue(detail.contains("TimelineAnnotationPanel("))
+        assertTrue(detail.contains("RecordingDetailDestination.ANNOTATIONS"))
         assertTrue(
-            "Stage 16A.2 must not remove the continuous reading/copy surface",
-            source.contains("TranscriptContinuousReading("),
+            "Stage 16A.2 must preserve the transcript reading-mode branch",
+            detail.contains("transcriptViewMode == TranscriptViewMode.READING"),
         )
+        assertTrue(detail.contains("TranscriptAnnotatedReading("))
         assertTrue(
-            "Stage 16A.2 must preserve the existing transcript reading-mode branch",
-            source.contains("transcriptViewMode == TranscriptViewMode.READING"),
+            "Reading text stays selectable while annotation UI stays outside text selection",
+            projection.contains("SelectionContainer") && projection.contains("DisableSelection"),
         )
     }
 
@@ -42,20 +44,21 @@ class Stage16A2AnnotationUiContractTest {
     }
 
     @Test
-    fun waveformAddsCanonicalPointMarkersWithoutReplacingSeekGestures() {
+    fun waveformAddsCanonicalPointMarkersAndFineLongPressWithoutReplacingSeekGestures() {
         val playback = appProductionSource("ui/playback/PlaybackCard.kt")
         val detail = appProductionSource("ui/library/RecordingDetailProductScreen.kt")
 
         assertTrue(playback.contains("annotationSampleIndices: List<Long>"))
         assertTrue(playback.contains("markerProgress.forEach"))
-        assertTrue(playback.contains("onLongPress = { offset ->"))
+        assertTrue(playback.contains("detectDragGesturesAfterLongPress("))
+        assertTrue(playback.contains("fineAnnotationAdjustedRatio("))
         assertTrue(
             "waveform drag-to-seek must remain available",
             playback.contains("detectDragGestures("),
         )
         assertTrue(
-            "the separate round progress tap surface must remain available",
-            playback.contains("detectTapGestures { offset ->"),
+            "tap-to-seek must remain available",
+            playback.contains("detectTapGestures("),
         )
         assertTrue(
             "only canonical recording anchors may be projected onto the finalized waveform",
