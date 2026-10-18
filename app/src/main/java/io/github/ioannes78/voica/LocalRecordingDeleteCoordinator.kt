@@ -63,6 +63,7 @@ class DefaultRecordingDeletionHooks(
 class LocalRecordingDeleteCoordinator(
     private val repository: RecordingLibraryRepository,
     private val hooks: RecordingDeletionHooks,
+    private val annotationAttachmentCleanup: suspend (String) -> List<String> = { emptyList() },
 ) {
     suspend fun delete(recordingId: String): LocalRecordingDeleteItemResult {
         require(recordingId.isNotBlank())
@@ -95,6 +96,26 @@ class LocalRecordingDeleteCoordinator(
                 lifecycleError =
                     lifecycleFailure.message
                         ?: lifecycleFailure::class.java.simpleName,
+            )
+        }
+
+        val attachmentCleanup = runCatching { annotationAttachmentCleanup(recordingId) }
+        val attachmentFailure = attachmentCleanup.exceptionOrNull()
+        if (attachmentFailure != null) {
+            return LocalRecordingDeleteItemResult(
+                recordingId = recordingId,
+                deleted = false,
+                lifecycleError =
+                    attachmentFailure.message
+                        ?: attachmentFailure::class.java.simpleName,
+            )
+        }
+        val failedAttachmentPaths = attachmentCleanup.getOrDefault(emptyList())
+        if (failedAttachmentPaths.isNotEmpty()) {
+            return LocalRecordingDeleteItemResult(
+                recordingId = recordingId,
+                deleted = false,
+                failedPaths = failedAttachmentPaths,
             )
         }
 
