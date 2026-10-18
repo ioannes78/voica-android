@@ -42,12 +42,12 @@ class TimelineAnnotationAnchorCaptureTest {
     }
 
     @Test
-    fun unverifiedOrInvalidCanonicalAssetIsRejected() {
-        val unverified =
+    fun corruptedOrInvalidCanonicalAssetIsRejected() {
+        val corrupted =
             recording(
                 asset =
                     canonicalAsset().copy(
-                        integrityState = AudioIntegrityState.UNVERIFIED,
+                        integrityState = AudioIntegrityState.CORRUPTED,
                     ),
             )
         val invalid =
@@ -58,7 +58,7 @@ class TimelineAnnotationAnchorCaptureTest {
                     ),
             )
 
-        assertNull(captureCanonicalAnnotationAnchor(unverified, playback(), 4_000L))
+        assertNull(captureCanonicalAnnotationAnchor(corrupted, playback(), 4_000L))
         assertNull(captureCanonicalAnnotationAnchor(invalid, playback(), 4_000L))
     }
 
