@@ -32,16 +32,17 @@ class ActiveTimelineAnnotationCaptureTest {
     fun ordinaryRecorderUsesOnlyFreshDeviceMediaProgressAndExactFilenameIdentity() {
         val target =
             recorderRecordingAnnotationTarget(
-                RecordingDeviceState(
+                recording = RecordingDeviceState(
                     status = RecordingStatus.Recording,
                     durationSeconds = 12,
                     filename = "note20261018-120000.wav",
                     freshness = RecordingFreshness.FRESH,
                 ),
+                deviceAddress = "AA:BB:CC:DD:EE:FF",
             )
         requireNotNull(target)
         assertEquals(TimelineAnnotationPendingOwnerKindValue.RECORDER_CAPTURE, target.owner.kind)
-        assertEquals("note20261018-120000.wav", target.owner.ownerId)
+        assertEquals("AA:BB:CC:DD:EE:FF\u001fnote20261018-120000.wav", target.owner.ownerId)
         assertEquals(TimelineAnnotationAnchorDomainValue.CANONICAL_RECORDING, target.anchor.domain)
         assertEquals(192_000L, target.anchor.sampleIndex)
     }
@@ -50,22 +51,35 @@ class ActiveTimelineAnnotationCaptureTest {
     fun ordinaryRecorderRejectsStaleOrIdentityLessStateInsteadOfUsingUiElapsedTime() {
         assertNull(
             recorderRecordingAnnotationTarget(
-                RecordingDeviceState(
+                recording = RecordingDeviceState(
                     status = RecordingStatus.Recording,
                     durationSeconds = 12,
                     filename = "note.wav",
                     freshness = RecordingFreshness.STALE,
                 ),
+                deviceAddress = "AA:BB:CC:DD:EE:FF",
             ),
         )
         assertNull(
             recorderRecordingAnnotationTarget(
-                RecordingDeviceState(
+                recording = RecordingDeviceState(
                     status = RecordingStatus.Recording,
                     durationSeconds = 12,
                     filename = null,
                     freshness = RecordingFreshness.FRESH,
                 ),
+                deviceAddress = "AA:BB:CC:DD:EE:FF",
+            ),
+        )
+        assertNull(
+            recorderRecordingAnnotationTarget(
+                recording = RecordingDeviceState(
+                    status = RecordingStatus.Recording,
+                    durationSeconds = 12,
+                    filename = "note.wav",
+                    freshness = RecordingFreshness.FRESH,
+                ),
+                deviceAddress = null,
             ),
         )
     }

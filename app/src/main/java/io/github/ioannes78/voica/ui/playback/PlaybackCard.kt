@@ -5,6 +5,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,7 +45,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -75,6 +78,10 @@ fun PlaybackCard(
     val totalSamples = snapshot.durationSampleCount.coerceAtLeast(0L)
     var dragging by remember(snapshot.recordingId) { mutableStateOf(false) }
     var previewRatio by remember(snapshot.recordingId) { mutableFloatStateOf(0f) }
+    var annotationFineAdjusting by remember(snapshot.recordingId) { mutableStateOf(false) }
+    var annotationFineCenterRatio by remember(snapshot.recordingId) { mutableFloatStateOf(0f) }
+    var annotationFineRatio by remember(snapshot.recordingId) { mutableFloatStateOf(0f) }
+    val haptics = LocalHapticFeedback.current
     val actualRatio =
         if (totalSamples > 0L) {
             (snapshot.positionSampleIndex.toDouble() / totalSamples.toDouble())
@@ -83,10 +90,23 @@ fun PlaybackCard(
         } else {
             0f
         }
-    LaunchedEffect(actualRatio, dragging) {
-        if (!dragging) previewRatio = actualRatio
+    LaunchedEffect(actualRatio, dragging, annotationFineAdjusting) {
+        if (!dragging && !annotationFineAdjusting) previewRatio = actualRatio
     }
-    val visibleRatio = if (dragging) previewRatio else actualRatio
+    val visibleRatio =
+        when {
+            annotationFineAdjusting -> annotationFineRatio
+            dragging -> previewRatio
+            else -> actualRatio
+        }
+    val annotationFineHalfSpanRatio =
+        if (totalSamples > 0L) {
+            (fineAnnotationHalfSpanSamples(totalSamples).toDouble() / totalSamples.toDouble())
+                .coerceIn(0.0, 0.5)
+                .toFloat()
+        } else {
+            0f
+        }
     val displaySample =
         if (totalSamples > 0L) {
             (visibleRatio.toDouble() * totalSamples.toDouble())
@@ -133,6 +153,39 @@ fun PlaybackCard(
                 .coerceIn(0L, totalSamples)
         dragging = false
         onSeek(target)
+    }
+
+    fun startFineAnnotation(ratio: Double) {
+        if (onWaveformLongPress == null || totalSamples <= 0L) return
+        annotationFineCenterRatio = ratio.toFloat().coerceIn(0f, 1f)
+        annotationFineRatio = annotationFineCenterRatio
+        annotationFineAdjusting = true
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+    }
+
+    fun adjustFineAnnotation(normalizedHorizontalDelta: Double) {
+        if (!annotationFineAdjusting) return
+        annotationFineRatio =
+            fineAnnotationAdjustedRatio(
+                currentRatio = annotationFineRatio,
+                centerRatio = annotationFineCenterRatio,
+                normalizedHorizontalDelta = normalizedHorizontalDelta.toFloat(),
+                halfSpanRatio = annotationFineHalfSpanRatio,
+            )
+    }
+
+    fun commitFineAnnotation() {
+        if (!annotationFineAdjusting || totalSamples <= 0L) return
+        val target =
+            (annotationFineRatio.toDouble() * totalSamples.toDouble())
+                .roundToLong()
+                .coerceIn(0L, totalSamples)
+        annotationFineAdjusting = false
+        onWaveformLongPress?.invoke(target)
+    }
+
+    fun cancelFineAnnotation() {
+        annotationFineAdjusting = false
     }
 
     Card(
@@ -182,7 +235,7 @@ fun PlaybackCard(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     Text(
-                        formatPlaybackTime(displaySample),
+                        if (annotationFineAdjusting) formatFineAnnotationTime(displaySample) else formatPlaybackTime(displaySample),
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
@@ -211,17 +264,20 @@ fun PlaybackCard(
                         )
                     },
                     markerProgress = annotationMarkerProgress,
-                    onLongPress =
-                        onWaveformLongPress?.let { callback ->
-                            { ratio ->
-                                callback(
-                                    (ratio * totalSamples.toDouble())
-                                        .roundToLong()
-                                        .coerceIn(0L, totalSamples),
-                                )
-                            }
-                        },
+                    fineMarkerProgress = annotationFineRatio.takeIf { annotationFineAdjusting },
+                    onFineLongPressStart = if (onWaveformLongPress != null) ::startFineAnnotation else null,
+                    onFineLongPressDrag = if (onWaveformLongPress != null) ::adjustFineAnnotation else null,
+                    onFineLongPressEnd = if (onWaveformLongPress != null) ::commitFineAnnotation else null,
+                    onFineLongPressCancel = if (onWaveformLongPress != null) ::cancelFineAnnotation else null,
+                    annotationFineAdjusting = annotationFineAdjusting,
                 )
+                if (annotationFineAdjusting) {
+                    Text(
+                        "精确标注 · 左右移动微调，松手创建",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
             } else {
                 Box(
                     modifier =
@@ -410,7 +466,12 @@ private fun WaveformSeekOverview(
     onCommit: () -> Unit,
     onTapSeek: (Double) -> Unit,
     markerProgress: List<Float> = emptyList(),
-    onLongPress: ((Double) -> Unit)? = null,
+    fineMarkerProgress: Float? = null,
+    onFineLongPressStart: ((Double) -> Unit)? = null,
+    onFineLongPressDrag: ((Double) -> Unit)? = null,
+    onFineLongPressEnd: (() -> Unit)? = null,
+    onFineLongPressCancel: (() -> Unit)? = null,
+    annotationFineAdjusting: Boolean = false,
 ) {
     val playedColor = MaterialTheme.colorScheme.primary
     val remainingColor = MaterialTheme.colorScheme.outlineVariant
@@ -428,17 +489,31 @@ private fun WaveformSeekOverview(
                                 onTapSeek((offset.x / size.width.toFloat()).coerceIn(0f, 1f).toDouble())
                             }
                         },
-                        onLongPress = { offset ->
+                    )
+                }
+                .pointerInput(enabled, onFineLongPressStart != null) {
+                    if (!enabled || onFineLongPressStart == null) return@pointerInput
+                    detectDragGesturesAfterLongPress(
+                        onDragStart = { offset ->
                             if (size.width > 0) {
-                                onLongPress?.invoke(
+                                onFineLongPressStart(
                                     (offset.x / size.width.toFloat()).coerceIn(0f, 1f).toDouble(),
                                 )
                             }
                         },
-                    )
+                        onDragEnd = { onFineLongPressEnd?.invoke() },
+                        onDragCancel = { onFineLongPressCancel?.invoke() },
+                    ) { change, dragAmount ->
+                        change.consume()
+                        if (size.width > 0) {
+                            onFineLongPressDrag?.invoke(
+                                (dragAmount.x / size.width.toFloat()).toDouble(),
+                            )
+                        }
+                    }
                 }
-                .pointerInput(enabled) {
-                    if (!enabled) return@pointerInput
+                .pointerInput(enabled, annotationFineAdjusting) {
+                    if (!enabled || annotationFineAdjusting) return@pointerInput
                     detectDragGestures(
                         onDragStart = { offset ->
                             onPreview((offset.x / size.width.toFloat()).coerceIn(0f, 1f))
@@ -479,6 +554,21 @@ private fun WaveformSeekOverview(
                 color = markerColor,
                 radius = 4f,
                 center = Offset(x, 6f),
+            )
+        }
+        fineMarkerProgress?.let { ratio ->
+            val x = ratio.coerceIn(0f, 1f) * size.width
+            drawLine(
+                color = playedColor,
+                start = Offset(x, 0f),
+                end = Offset(x, size.height),
+                strokeWidth = 3f,
+                cap = StrokeCap.Round,
+            )
+            drawCircle(
+                color = playedColor,
+                radius = 5f,
+                center = Offset(x, size.height / 2f),
             )
         }
     }
@@ -611,6 +701,38 @@ private fun playbackErrorText(code: PlaybackErrorCode): String =
         PlaybackErrorCode.SOURCE_REMOVED -> stringResource(R.string.playback_error_removed)
         PlaybackErrorCode.INTERNAL_STATE_ERROR -> stringResource(R.string.playback_error_internal)
     }
+
+internal fun fineAnnotationHalfSpanSamples(totalSamples: Long): Long {
+    val safe = totalSamples.coerceAtLeast(0L)
+    val minute = CanonicalPcmProfile.SAMPLE_RATE_HZ.toLong() * 60L
+    val requested =
+        when {
+            safe <= minute -> CanonicalPcmProfile.SAMPLE_RATE_HZ.toLong() * 5L
+            safe <= minute * 10L -> CanonicalPcmProfile.SAMPLE_RATE_HZ.toLong() * 15L
+            else -> CanonicalPcmProfile.SAMPLE_RATE_HZ.toLong() * 30L
+        }
+    return requested.coerceAtMost((safe / 2L).coerceAtLeast(1L))
+}
+
+internal fun fineAnnotationAdjustedRatio(
+    currentRatio: Float,
+    centerRatio: Float,
+    normalizedHorizontalDelta: Float,
+    halfSpanRatio: Float,
+): Float {
+    val half = halfSpanRatio.coerceIn(0f, 0.5f)
+    val minimum = (centerRatio - half).coerceAtLeast(0f)
+    val maximum = (centerRatio + half).coerceAtMost(1f)
+    val delta = normalizedHorizontalDelta * half * 2f
+    return (currentRatio + delta).coerceIn(minimum, maximum)
+}
+
+internal fun formatFineAnnotationTime(sampleIndex: Long): String {
+    val totalSeconds = sampleIndex.coerceAtLeast(0L).toDouble() / CanonicalPcmProfile.SAMPLE_RATE_HZ.toDouble()
+    val minutes = (totalSeconds / 60.0).toLong()
+    val seconds = totalSeconds - minutes * 60.0
+    return String.format(Locale.US, "%02d:%04.1f", minutes, seconds)
+}
 
 internal fun formatPlaybackTime(sampleIndex: Long): String {
     val seconds =

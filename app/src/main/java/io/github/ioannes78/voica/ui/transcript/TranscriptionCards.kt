@@ -346,6 +346,7 @@ fun TranscriptSegmentCard(
     syncEnabled: Boolean,
     onSeek: (Long) -> Unit,
     onAddAnnotation: ((Long) -> Unit)? = null,
+    annotationAction: (@Composable () -> Unit)? = null,
 ) {
     val activeCue =
         remember(segment.stableId, activeCueId) {
@@ -433,16 +434,20 @@ fun TranscriptSegmentCard(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                onAddAnnotation?.let { addAnnotation ->
-                    Text(
-                        "＋标注",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier =
-                            Modifier.clickable(enabled = syncEnabled) {
-                                addAnnotation(segment.startSampleIndex)
-                            },
-                    )
+                if (annotationAction != null) {
+                    annotationAction()
+                } else {
+                    onAddAnnotation?.let { addAnnotation ->
+                        Text(
+                            "＋标注",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier =
+                                Modifier.clickable(enabled = syncEnabled) {
+                                    addAnnotation(segment.startSampleIndex)
+                                },
+                        )
+                    }
                 }
             }
         }

@@ -183,9 +183,16 @@ class TimelineAnnotationRepository(
                     }
 
                 TimelineAnnotationPendingOwnerKindValue.RECORDER_CAPTURE -> {
-                    val recording = recordingDao.findByRemoteIdentity(ownerId)
-                    require(recording?.id == recordingId) {
-                        "recorder capture pending owner must promote to its exact remote recording identity"
+                    val identity =
+                        RecorderCapturePendingOwnerId.decode(ownerId)
+                            ?: error("invalid recorder capture pending owner identity")
+                    val matches =
+                        recordingDao.findActiveByDeviceAndOriginalFilename(
+                            deviceAddress = identity.deviceAddress,
+                            filename = identity.filename,
+                        )
+                    require(matches.singleOrNull()?.id == recordingId) {
+                        "recorder capture pending owner must promote to one exact device recording"
                     }
                 }
 
@@ -216,10 +223,17 @@ class TimelineAnnotationRepository(
                         kind == null || ownerId.isNullOrBlank() -> null
                         kind == TimelineAnnotationPendingOwnerKindValue.PHONE_CAPTURE &&
                             recordingDao.isRecordingActive(ownerId) -> ownerId
-                        kind == TimelineAnnotationPendingOwnerKindValue.RECORDER_CAPTURE ->
-                            recordingDao.findByRemoteIdentity(ownerId)?.id?.takeIf {
-                                recordingDao.isRecordingActive(it)
+                        kind == TimelineAnnotationPendingOwnerKindValue.RECORDER_CAPTURE -> {
+                            val identity = RecorderCapturePendingOwnerId.decode(ownerId)
+                            if (identity == null) {
+                                null
+                            } else {
+                                recordingDao.findActiveByDeviceAndOriginalFilename(
+                                    deviceAddress = identity.deviceAddress,
+                                    filename = identity.filename,
+                                ).singleOrNull()?.id
                             }
+                        }
                         kind == TimelineAnnotationPendingOwnerKindValue.REALTIME_RUN ->
                             realtimeDao.getRun(ownerId)?.recordingId?.takeIf {
                                 recordingDao.isRecordingActive(it)

@@ -28,6 +28,11 @@ class TimelineAnnotationPlaybackCoordinator(
         resolveAnchor = resolver::resolve,
     )
 
+    suspend fun resolve(
+        annotation: TimelineAnnotationEntity,
+        media: TimelinePlaybackMediaIdentity,
+    ): TimelineAnnotationSeekResolution = resolveAnchor(annotation, media)
+
     suspend fun seek(annotation: TimelineAnnotationEntity): TimelineAnnotationSeekResolution {
         val recordingId =
             annotation.recordingId

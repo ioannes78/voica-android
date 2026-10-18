@@ -24,6 +24,7 @@ import io.github.ioannes78.voica.database.TimelineAnnotationProvenance
 import io.github.ioannes78.voica.database.TimelineAnnotationRepository
 import io.github.ioannes78.voica.database.TimelineAnnotationSeekResolution
 import io.github.ioannes78.voica.database.TimelineAnnotationSeekUnavailableReason
+import io.github.ioannes78.voica.database.TimelinePlaybackMediaIdentity
 import io.github.ioannes78.voica.ui.playback.TimelineAnnotationPlaybackCoordinator
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -166,6 +167,8 @@ class TimelineAnnotationViewModel(
         totalSampleCount: Long?,
         sampleIndex: Long,
         provenance: TimelineAnnotationProvenance,
+        noteText: String? = null,
+        onCreated: (TimelineAnnotationEntity) -> Unit = {},
     ) {
         launchOperation {
             val sourceAssetId =
@@ -181,12 +184,15 @@ class TimelineAnnotationViewModel(
                     durationSampleCount = durationSampleCount,
                     sampleIndex = sampleIndex,
                 ) ?: error("当前转写位置无法建立精确标注")
-            repository.create(
-                owner = TimelineAnnotationOwner.Recording(recording.id),
-                anchor = anchor,
-                provenance = provenance,
-            )
+            val created =
+                repository.create(
+                    owner = TimelineAnnotationOwner.Recording(recording.id),
+                    anchor = anchor,
+                    noteText = noteText,
+                    provenance = provenance,
+                )
             mutableState.update { it.copy(notice = "已从转写添加标注") }
+            onCreated(created)
         }
     }
 
@@ -261,6 +267,31 @@ class TimelineAnnotationViewModel(
         }
     }
 
+    suspend fun resolveProjectionSample(
+        annotation: TimelineAnnotationEntity,
+        recordingId: String,
+        sourceAssetId: String?,
+        durationSampleCount: Long?,
+    ): Long? {
+        val assetId = sourceAssetId?.takeIf { it.isNotBlank() } ?: return null
+        val duration = durationSampleCount?.takeIf { it > 0L } ?: return null
+        return when (
+            val resolved =
+                playbackCoordinator.resolve(
+                    annotation = annotation,
+                    media =
+                        TimelinePlaybackMediaIdentity(
+                            recordingId = recordingId,
+                            sourceAssetId = assetId,
+                            durationSampleCount = duration,
+                        ),
+                )
+        ) {
+            is TimelineAnnotationSeekResolution.Exact -> resolved.sampleIndex
+            is TimelineAnnotationSeekResolution.Unavailable -> null
+        }
+    }
+
     fun seek(annotation: TimelineAnnotationEntity) {
         viewModelScope.launch {
             when (val result = playbackCoordinator.seek(annotation)) {
@@ -285,7 +316,12 @@ class TimelineAnnotationViewModel(
                     },
                 )
             }
-            if (!silent) mutableState.update { it.copy(notice = "标注已删除") }
+            mutableState.update { current ->
+                current.copy(
+                    items = current.items.filterNot { it.annotation.id == annotationId },
+                    notice = if (silent) current.notice else "标注已删除",
+                )
+            }
         }
     }
 
@@ -321,6 +357,9 @@ class TimelineAnnotationViewModel(
                 attachmentStore.discardCameraCaptureTarget(target)
                 if (deleteAnnotationIfCancelled) {
                     contentCoordinator.delete(target.annotationId)
+                    mutableState.update { current ->
+                        current.copy(items = current.items.filterNot { it.annotation.id == target.annotationId })
+                    }
                 }
             }
         }

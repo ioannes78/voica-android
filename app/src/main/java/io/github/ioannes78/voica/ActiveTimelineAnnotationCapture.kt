@@ -6,6 +6,7 @@ import io.github.ioannes78.voica.ble.RecordingFreshness
 import io.github.ioannes78.voica.database.TimelineAnnotationAnchor
 import io.github.ioannes78.voica.database.TimelineAnnotationAnchorDomainValue
 import io.github.ioannes78.voica.database.TimelineAnnotationOwner
+import io.github.ioannes78.voica.database.RecorderCapturePendingOwnerId
 import io.github.ioannes78.voica.database.TimelineAnnotationPendingOwnerKindValue
 import io.github.ioannes78.voica.protocol.RecordingStatus
 
@@ -42,6 +43,7 @@ internal fun phoneRecordingAnnotationTarget(
  */
 internal fun recorderRecordingAnnotationTarget(
     recording: RecordingDeviceState,
+    deviceAddress: String?,
 ): RealtimeAnnotationCaptureTarget? {
     if (recording.freshness != RecordingFreshness.FRESH) return null
     if (
@@ -50,7 +52,8 @@ internal fun recorderRecordingAnnotationTarget(
     ) {
         return null
     }
-    val remoteIdentity = recording.filename?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    val filename = recording.filename?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    val resolvedDeviceAddress = deviceAddress?.trim()?.takeIf { it.isNotEmpty() } ?: return null
     val durationSeconds = recording.durationSeconds?.takeIf { it >= 0 } ?: return null
     val sampleIndex =
         runCatching {
@@ -63,7 +66,7 @@ internal fun recorderRecordingAnnotationTarget(
         owner =
             TimelineAnnotationOwner.Pending(
                 kind = TimelineAnnotationPendingOwnerKindValue.RECORDER_CAPTURE,
-                ownerId = remoteIdentity,
+                ownerId = RecorderCapturePendingOwnerId.encode(resolvedDeviceAddress, filename),
             ),
         anchor =
             TimelineAnnotationAnchor(

@@ -52,6 +52,9 @@ fun TranscriptProductActionBar(
     onModeChange: (TranscriptViewMode) -> Unit,
     onSpeakerModeClick: () -> Unit,
     onRetranscribe: () -> Unit,
+    annotationCount: Int = 0,
+    showAnnotations: Boolean = true,
+    onToggleAnnotations: () -> Unit = {},
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     var editorOpen by remember { mutableStateOf(false) }
@@ -247,6 +250,16 @@ fun TranscriptProductActionBar(
                             onModeChange(TranscriptViewMode.READING)
                         },
                     )
+                }
+            }
+        }
+        if (annotationCount > 0) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                TextButton(onClick = onToggleAnnotations) {
+                    Text("标注 $annotationCount · " + if (showAnnotations) "隐藏" else "显示")
                 }
             }
         }

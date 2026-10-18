@@ -16,6 +16,31 @@ object TimelineAnnotationPendingOwnerKindValue {
     const val REALTIME_RUN = "REALTIME_RUN"
 }
 
+data class RecorderCapturePendingIdentity(
+    val deviceAddress: String,
+    val filename: String,
+)
+
+object RecorderCapturePendingOwnerId {
+    private const val SEPARATOR = "\u001f"
+
+    fun encode(deviceAddress: String, filename: String): String {
+        require(deviceAddress.isNotBlank())
+        require(filename.isNotBlank())
+        require(SEPARATOR !in deviceAddress && SEPARATOR !in filename)
+        return deviceAddress.trim() + SEPARATOR + filename.trim()
+    }
+
+    fun decode(value: String): RecorderCapturePendingIdentity? {
+        val index = value.indexOf(SEPARATOR)
+        if (index <= 0 || index >= value.lastIndex) return null
+        val address = value.substring(0, index).trim()
+        val filename = value.substring(index + SEPARATOR.length).trim()
+        if (address.isBlank() || filename.isBlank()) return null
+        return RecorderCapturePendingIdentity(address, filename)
+    }
+}
+
 object TimelineAnnotationAnchorDomainValue {
     const val CANONICAL_RECORDING = "CANONICAL_RECORDING"
     const val REALTIME_MEDIA_SEGMENT = "REALTIME_MEDIA_SEGMENT"

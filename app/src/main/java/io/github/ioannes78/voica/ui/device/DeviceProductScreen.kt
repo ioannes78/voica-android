@@ -221,7 +221,11 @@ fun DeviceProductScreen(
                 phoneRecordingAnnotationTarget(phoneRecordingRuntime.state.value)
             activity.kind == AppActivityKind.RECORDING &&
                 activity.source == AppActivitySource.RECORDER_CARD ->
-                recorderRecordingAnnotationTarget(viewModel.recordingState.value)
+                recorderRecordingAnnotationTarget(
+                    recording = viewModel.recordingState.value,
+                    deviceAddress =
+                        (viewModel.connectionState.value as? DeviceConnectionState.Ready)?.address,
+                )
             activity.kind == AppActivityKind.REALTIME_TRANSCRIPTION &&
                 activity.source == AppActivitySource.PHONE_MICROPHONE ->
                 application.container.realtimeTimelineAnnotationCaptureResolver.resolve(

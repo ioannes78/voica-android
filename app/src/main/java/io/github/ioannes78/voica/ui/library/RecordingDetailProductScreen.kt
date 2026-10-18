@@ -75,6 +75,7 @@ import io.github.ioannes78.voica.ui.ai.AiSummaryContentViewModel
 import io.github.ioannes78.voica.ui.ai.AiSummaryProductCard
 import io.github.ioannes78.voica.ui.ai.AiSummaryTransientHeader
 import io.github.ioannes78.voica.ui.ai.AiSummaryViewModel
+import io.github.ioannes78.voica.ui.annotation.TimelineAnnotationComposerButton
 import io.github.ioannes78.voica.ui.annotation.TimelineAnnotationPanel
 import io.github.ioannes78.voica.ui.annotation.TimelineAnnotationViewModel
 import io.github.ioannes78.voica.ui.diarization.DiarizationAttentionBanner
@@ -83,7 +84,10 @@ import io.github.ioannes78.voica.ui.diarization.DiarizationViewModel
 import io.github.ioannes78.voica.ui.playback.PlaybackViewModel
 import io.github.ioannes78.voica.ui.playback.TimelineAnnotationPlaybackCoordinator
 import io.github.ioannes78.voica.ui.playback.RecordingPlaybackCard
-import io.github.ioannes78.voica.ui.transcript.TranscriptContinuousReading
+import io.github.ioannes78.voica.ui.transcript.TranscriptAnnotatedReading
+import io.github.ioannes78.voica.ui.transcript.TranscriptAnnotationProjection
+import io.github.ioannes78.voica.ui.transcript.TranscriptAnnotationRange
+import io.github.ioannes78.voica.ui.transcript.TranscriptAnnotationStrip
 import io.github.ioannes78.voica.ui.transcript.TranscriptContentViewModel
 import io.github.ioannes78.voica.ui.transcript.TranscriptDisplaySegment
 import io.github.ioannes78.voica.ui.transcript.TranscriptDocumentHeader
@@ -92,9 +96,11 @@ import io.github.ioannes78.voica.ui.transcript.TranscriptPlaybackSyncViewModel
 import io.github.ioannes78.voica.ui.transcript.TranscriptProductActionBar
 import io.github.ioannes78.voica.ui.transcript.TranscriptReadingParagraph
 import io.github.ioannes78.voica.ui.transcript.TranscriptSegmentCard
+import io.github.ioannes78.voica.ui.transcript.TranscriptUnprojectedAnnotationPanel
 import io.github.ioannes78.voica.ui.transcript.TranscriptViewMode
 import io.github.ioannes78.voica.ui.transcript.TranscriptionStatusCard
 import io.github.ioannes78.voica.ui.transcript.TranscriptionViewModel
+import io.github.ioannes78.voica.ui.transcript.assignTranscriptAnnotations
 import java.util.Locale
 import kotlinx.coroutines.delay
 
@@ -199,6 +205,10 @@ internal fun RecordingDetailProductScreen(
     var transcriptViewMode by rememberSaveable(recording.id) {
         mutableStateOf(TranscriptViewMode.TIMELINE)
     }
+    var showTranscriptAnnotations by rememberSaveable(recording.id) { mutableStateOf(true) }
+    var annotationProjectionSamples by remember(recording.id) {
+        mutableStateOf<Map<String, Long>>(emptyMap())
+    }
     var renameOpen by rememberSaveable(recording.id) { mutableStateOf(false) }
     var renameValue by rememberSaveable(recording.displayName) {
         mutableStateOf(recording.displayName)
@@ -250,6 +260,37 @@ internal fun RecordingDetailProductScreen(
     val visibleAiSummaryCandidateId =
         aiSummaryCandidateId?.takeUnless { it == candidateAttention?.dismissedAiSummaryCandidateId }
     val recordingDocument = document?.takeIf { it.recordingId == recording.id }
+    LaunchedEffect(
+        annotationUiState.items,
+        recordingDocument?.compatiblePlaybackAssetId,
+        recordingDocument?.timeline?.totalSampleCount,
+    ) {
+        val assetId = recordingDocument?.compatiblePlaybackAssetId
+        val totalSamples = recordingDocument?.timeline?.totalSampleCount
+        annotationProjectionSamples =
+            if (assetId == null || totalSamples == null || totalSamples <= 0L) {
+                emptyMap()
+            } else {
+                buildMap {
+                    annotationUiState.items.forEach { item ->
+                        annotationViewModel.resolveProjectionSample(
+                            annotation = item.annotation,
+                            recordingId = recording.id,
+                            sourceAssetId = assetId,
+                            durationSampleCount = totalSamples,
+                        )?.let { sample -> put(item.annotation.id, sample) }
+                    }
+                }
+            }
+    }
+    val projectedAnnotations =
+        annotationUiState.items.mapNotNull { item ->
+            annotationProjectionSamples[item.annotation.id]?.let { sample ->
+                TranscriptAnnotationProjection(item = item, sampleIndex = sample)
+            }
+        }.sortedBy { it.sampleIndex }
+    val unresolvedAnnotations =
+        annotationUiState.items.filterNot { annotationProjectionSamples.containsKey(it.annotation.id) }
     val candidatePreview =
         visibleTranscriptionCandidateId != null &&
             recordingDocument?.transcriptionId == visibleTranscriptionCandidateId
@@ -667,6 +708,11 @@ internal fun RecordingDetailProductScreen(
                                             speakerSheetOpen = true
                                         },
                                         onRetranscribe = startRetranscription,
+                                        annotationCount = annotationUiState.items.size,
+                                        showAnnotations = showTranscriptAnnotations,
+                                        onToggleAnnotations = {
+                                            showTranscriptAnnotations = !showTranscriptAnnotations
+                                        },
                                     )
                                 }
                             } else {
@@ -687,9 +733,58 @@ internal fun RecordingDetailProductScreen(
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
                                     } else {
-                                        TranscriptContinuousReading(
-                                            paragraphs = transcriptContentState.paragraphs,
-                                        )
+                                        val ranges =
+                                            transcriptContentState.paragraphs.mapNotNull { paragraph ->
+                                                val start = paragraph.anchorStartSampleIndex
+                                                val end = paragraph.anchorEndSampleIndexExclusive
+                                                if (start != null && end != null && end > start) {
+                                                    TranscriptAnnotationRange(paragraph.stableId, start, end)
+                                                } else {
+                                                    null
+                                                }
+                                            }
+                                        val assignment = assignTranscriptAnnotations(projectedAnnotations, ranges)
+                                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.End,
+                                            ) {
+                                                TimelineAnnotationComposerButton(
+                                                    enabled =
+                                                        playbackSnapshot.recordingId == recording.id &&
+                                                            playbackSnapshot.durationSampleCount > 0L,
+                                                    label = "＋标注",
+                                                    compact = true,
+                                                    viewModel = annotationViewModel,
+                                                    onCreate = { noteText, onCreated ->
+                                                        annotationViewModel.createAtPlayback(
+                                                            recording = recording,
+                                                            playback = playbackSnapshot,
+                                                            noteText = noteText,
+                                                            provenance =
+                                                                TimelineAnnotationProvenance(
+                                                                    sourceTranscriptionIdSnapshot = recordingDocument.transcriptionId,
+                                                                    sourceRevisionIdSnapshot = transcriptContentState.currentRevisionId,
+                                                                    sourceTimingQualitySnapshot = "PLAYBACK_FALLBACK",
+                                                                ),
+                                                            onCreated = onCreated,
+                                                        )
+                                                    },
+                                                )
+                                            }
+                                            TranscriptAnnotatedReading(
+                                                paragraphs = transcriptContentState.paragraphs,
+                                                assignment = assignment,
+                                                unresolved = unresolvedAnnotations,
+                                                showAnnotations = showTranscriptAnnotations,
+                                                onAnnotationClick = { projection ->
+                                                    annotationViewModel.seek(projection.item.annotation)
+                                                },
+                                                onUnresolvedClick = { item ->
+                                                    annotationViewModel.seek(item.annotation)
+                                                },
+                                            )
+                                        }
                                     }
                                 }
                             } else {
@@ -723,6 +818,18 @@ internal fun RecordingDetailProductScreen(
                                 }
 
                                 if (transcriptContentState.currentRevisionId != null) {
+                                    val revisionRanges =
+                                        transcriptContentState.paragraphs.mapNotNull { paragraph ->
+                                            val start = paragraph.anchorStartSampleIndex
+                                            val end = paragraph.anchorEndSampleIndexExclusive
+                                            if (start != null && end != null && end > start) {
+                                                TranscriptAnnotationRange(paragraph.stableId, start, end)
+                                            } else {
+                                                null
+                                            }
+                                        }
+                                    val revisionAssignment =
+                                        assignTranscriptAnnotations(projectedAnnotations, revisionRanges)
                                     items(
                                         items = transcriptContentState.paragraphs,
                                         key = { "revision-timeline:" + it.stableId },
@@ -763,9 +870,80 @@ internal fun RecordingDetailProductScreen(
                                                     )
                                                 }
                                             },
+                                            annotationAction = {
+                                                val provenance =
+                                                    revisionAnnotationProvenance(
+                                                        transcriptionId = recordingDocument.transcriptionId,
+                                                        revisionId = transcriptContentState.currentRevisionId,
+                                                        paragraph = paragraph,
+                                                    )
+                                                TimelineAnnotationComposerButton(
+                                                    enabled =
+                                                        paragraph.anchorStartSampleIndex != null ||
+                                                            playbackSnapshot.recordingId == recording.id,
+                                                    label = "＋标注",
+                                                    compact = true,
+                                                    viewModel = annotationViewModel,
+                                                    onCreate = { noteText, onCreated ->
+                                                        val sample = paragraph.anchorStartSampleIndex
+                                                        if (sample != null) {
+                                                            annotationViewModel.createAtTranscriptSample(
+                                                                recording = recording,
+                                                                canonicalAssetId = recordingDocument.compatiblePlaybackAssetId,
+                                                                totalSampleCount = recordingDocument.timeline?.totalSampleCount,
+                                                                sampleIndex = sample,
+                                                                provenance = provenance,
+                                                                noteText = noteText,
+                                                                onCreated = onCreated,
+                                                            )
+                                                        } else {
+                                                            annotationViewModel.createAtPlayback(
+                                                                recording = recording,
+                                                                playback = playbackSnapshot,
+                                                                noteText = noteText,
+                                                                provenance = provenance,
+                                                                onCreated = onCreated,
+                                                            )
+                                                        }
+                                                    },
+                                                )
+                                            },
                                         )
+                                        if (showTranscriptAnnotations) {
+                                            TranscriptAnnotationStrip(
+                                                projections = revisionAssignment.byRangeId[paragraph.stableId].orEmpty(),
+                                                onClick = { projection ->
+                                                    annotationViewModel.seek(projection.item.annotation)
+                                                },
+                                                modifier = Modifier.padding(horizontal = 8.dp),
+                                            )
+                                        }
+                                    }
+                                    if (showTranscriptAnnotations &&
+                                        (revisionAssignment.unassigned.isNotEmpty() || unresolvedAnnotations.isNotEmpty())
+                                    ) {
+                                        item(key = "revision-other-annotations") {
+                                            TranscriptUnprojectedAnnotationPanel(
+                                                projectedOutsideText = revisionAssignment.unassigned,
+                                                unresolved = unresolvedAnnotations,
+                                                onProjectedClick = { projection ->
+                                                    annotationViewModel.seek(projection.item.annotation)
+                                                },
+                                                onUnresolvedClick = { item -> annotationViewModel.seek(item.annotation) },
+                                            )
+                                        }
                                     }
                                 } else {
+                                    val segmentRanges =
+                                        recordingDocument.segments.map { segment ->
+                                            TranscriptAnnotationRange(
+                                                id = segment.stableId,
+                                                startSampleIndex = segment.startSampleIndex,
+                                                endSampleIndexExclusive = segment.endSampleIndexExclusive,
+                                            )
+                                        }
+                                    val segmentAssignment =
+                                        assignTranscriptAnnotations(projectedAnnotations, segmentRanges)
                                     items(
                                         items = recordingDocument.segments,
                                         key = { recordingDocument.transcriptionId + ":" + it.stableId },
@@ -816,7 +994,53 @@ internal fun RecordingDetailProductScreen(
                                                 } else {
                                                     null
                                                 },
+                                            annotationAction = {
+                                                TimelineAnnotationComposerButton(
+                                                    enabled = syncEnabled,
+                                                    label = "＋标注",
+                                                    compact = true,
+                                                    viewModel = annotationViewModel,
+                                                    onCreate = { noteText, onCreated ->
+                                                        annotationViewModel.createAtTranscriptSample(
+                                                            recording = recording,
+                                                            canonicalAssetId = recordingDocument.compatiblePlaybackAssetId,
+                                                            totalSampleCount = recordingDocument.timeline?.totalSampleCount,
+                                                            sampleIndex = segment.startSampleIndex,
+                                                            provenance =
+                                                                segmentAnnotationProvenance(
+                                                                    transcriptionId = recordingDocument.transcriptionId,
+                                                                    segment = segment,
+                                                                ),
+                                                            noteText = noteText,
+                                                            onCreated = onCreated,
+                                                        )
+                                                    },
+                                                )
+                                            },
                                         )
+                                        if (showTranscriptAnnotations) {
+                                            TranscriptAnnotationStrip(
+                                                projections = segmentAssignment.byRangeId[segment.stableId].orEmpty(),
+                                                onClick = { projection ->
+                                                    annotationViewModel.seek(projection.item.annotation)
+                                                },
+                                                modifier = Modifier.padding(horizontal = 8.dp),
+                                            )
+                                        }
+                                    }
+                                    if (showTranscriptAnnotations &&
+                                        (segmentAssignment.unassigned.isNotEmpty() || unresolvedAnnotations.isNotEmpty())
+                                    ) {
+                                        item(key = "segment-other-annotations") {
+                                            TranscriptUnprojectedAnnotationPanel(
+                                                projectedOutsideText = segmentAssignment.unassigned,
+                                                unresolved = unresolvedAnnotations,
+                                                onProjectedClick = { projection ->
+                                                    annotationViewModel.seek(projection.item.annotation)
+                                                },
+                                                onUnresolvedClick = { item -> annotationViewModel.seek(item.annotation) },
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -1204,6 +1428,7 @@ private fun RevisionTimelineRow(
     searchHighlighted: Boolean = false,
     onSeek: (Long) -> Unit,
     onAddAnnotation: (Long?) -> Unit,
+    annotationAction: (@Composable () -> Unit)? = null,
 ) {
     val start = paragraph.anchorStartSampleIndex
     val end = paragraph.anchorEndSampleIndexExclusive
@@ -1252,12 +1477,16 @@ private fun RevisionTimelineRow(
                         )
                     }
                 }
-                Text(
-                    "＋标注",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.clickable { onAddAnnotation(start) },
-                )
+                if (annotationAction != null) {
+                    annotationAction()
+                } else {
+                    Text(
+                        "＋标注",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.clickable { onAddAnnotation(start) },
+                    )
+                }
             }
             Text(paragraph.text, style = MaterialTheme.typography.bodyLarge)
             if (!anchored) {
