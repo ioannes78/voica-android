@@ -264,6 +264,7 @@ class TimelineAnnotationAttachmentStore(
         val mimeType =
             bounds.mimeType?.takeIf { it.startsWith("image/") }
                 ?: providerMimeType?.takeIf { it.startsWith("image/") }
+                ?: detectImageMime(sourceFile)
                 ?: error("不支持的图片格式")
         val extension = extensionForMime(mimeType)
         val annotationDir = File(root, annotationId).apply { mkdirs() }
@@ -387,6 +388,50 @@ class TimelineAnnotationAttachmentStore(
     private fun validateId(value: String, label: String) {
         require(SAFE_ID.matches(value)) { "$label contains unsafe path characters" }
     }
+
+    private fun detectImageMime(file: File): String? {
+    val header = ByteArray(32)
+    val read =
+        FileInputStream(file).use { input ->
+            input.read(header).coerceAtLeast(0)
+        }
+    if (
+        read >= 8 &&
+        header[0] == 0x89.toByte() &&
+        header[1] == 0x50.toByte() &&
+        header[2] == 0x4E.toByte() &&
+        header[3] == 0x47.toByte() &&
+        header[4] == 0x0D.toByte() &&
+        header[5] == 0x0A.toByte() &&
+        header[6] == 0x1A.toByte() &&
+        header[7] == 0x0A.toByte()
+    ) {
+        return "image/png"
+    }
+    if (
+        read >= 3 &&
+        header[0] == 0xFF.toByte() &&
+        header[1] == 0xD8.toByte() &&
+        header[2] == 0xFF.toByte()
+    ) {
+        return "image/jpeg"
+    }
+    if (
+        read >= 12 &&
+        String(header, 0, 4, Charsets.US_ASCII) == "RIFF" &&
+        String(header, 8, 4, Charsets.US_ASCII) == "WEBP"
+    ) {
+        return "image/webp"
+    }
+    if (read >= 12 && String(header, 4, 4, Charsets.US_ASCII) == "ftyp") {
+        return when (String(header, 8, 4, Charsets.US_ASCII).lowercase()) {
+            "heic", "heix", "hevc", "hevx", "heim", "heis" -> "image/heic"
+            "heif", "mif1", "msf1" -> "image/heif"
+            else -> null
+        }
+    }
+    return null
+}
 
     private fun extensionForMime(mimeType: String): String =
         when (mimeType.lowercase()) {
