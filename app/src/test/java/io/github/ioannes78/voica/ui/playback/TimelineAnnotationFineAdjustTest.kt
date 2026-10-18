@@ -26,4 +26,16 @@ class TimelineAnnotationFineAdjustTest {
         assertEquals(0.55f, adjusted, 0.0001f)
         assertTrue(adjusted < 0.75f)
     }
+
+    @Test
+    fun fineAdjustmentClampsToLocalWindowNearRecordingEdges() {
+        val adjusted =
+            fineAnnotationAdjustedRatio(
+                currentRatio = 0.03f,
+                centerRatio = 0.03f,
+                normalizedHorizontalDelta = -1.0f,
+                halfSpanRatio = 0.10f,
+            )
+        assertEquals(0.0f, adjusted, 0.0001f)
+    }
 }
