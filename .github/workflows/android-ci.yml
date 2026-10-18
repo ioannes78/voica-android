@@ -30,10 +30,6 @@ permissions:
   contents: read
   actions: write
 
-concurrency:
-  group: android-ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
 jobs:
   fast-gate:
     name: Fast PR Gate
@@ -42,6 +38,9 @@ jobs:
         (github.event_name == 'pull_request' && github.event.action != 'edited') ||
         (github.event_name == 'workflow_dispatch' && inputs.mode == 'fast')
       }}
+    concurrency:
+      group: android-ci-fast-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -140,6 +139,9 @@ jobs:
           startsWith(github.event.pull_request.title, '[APK]')) ||
         (github.event_name == 'workflow_dispatch' && inputs.mode == 'qa')
       }}
+    concurrency:
+      group: android-ci-qa-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
