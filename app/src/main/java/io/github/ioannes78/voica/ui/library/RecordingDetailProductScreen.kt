@@ -68,6 +68,7 @@ import io.github.ioannes78.voica.database.RecordingLibraryItem
 import io.github.ioannes78.voica.database.SearchDocumentEntity
 import io.github.ioannes78.voica.database.SearchDocumentTypeValue
 import io.github.ioannes78.voica.database.TimelineAnnotationAnchorDomainValue
+import io.github.ioannes78.voica.database.TimelineAnnotationProvenance
 import io.github.ioannes78.voica.database.TranscriptionEntity
 import io.github.ioannes78.voica.database.TranscriptionStateValue
 import io.github.ioannes78.voica.ui.ai.AiSummaryContentViewModel
@@ -84,6 +85,7 @@ import io.github.ioannes78.voica.ui.playback.TimelineAnnotationPlaybackCoordinat
 import io.github.ioannes78.voica.ui.playback.RecordingPlaybackCard
 import io.github.ioannes78.voica.ui.transcript.TranscriptContinuousReading
 import io.github.ioannes78.voica.ui.transcript.TranscriptContentViewModel
+import io.github.ioannes78.voica.ui.transcript.TranscriptDisplaySegment
 import io.github.ioannes78.voica.ui.transcript.TranscriptDocumentHeader
 import io.github.ioannes78.voica.ui.transcript.TranscriptFollowMode
 import io.github.ioannes78.voica.ui.transcript.TranscriptPlaybackSyncViewModel
@@ -738,6 +740,29 @@ internal fun RecordingDetailProductScreen(
                                             onSeek = { sample ->
                                                 playbackViewModel.seekAndPlay(recording.id, sample)
                                             },
+                                            onAddAnnotation = { sample ->
+                                                val provenance =
+                                                    revisionAnnotationProvenance(
+                                                        transcriptionId = recordingDocument.transcriptionId,
+                                                        revisionId = transcriptContentState.currentRevisionId,
+                                                        paragraph = paragraph,
+                                                    )
+                                                if (sample != null) {
+                                                    annotationViewModel.createAtTranscriptSample(
+                                                        recording = recording,
+                                                        canonicalAssetId = recordingDocument.compatiblePlaybackAssetId,
+                                                        totalSampleCount = recordingDocument.timeline?.totalSampleCount,
+                                                        sampleIndex = sample,
+                                                        provenance = provenance,
+                                                    )
+                                                } else {
+                                                    annotationViewModel.createAtPlayback(
+                                                        recording = recording,
+                                                        playback = playbackSnapshot,
+                                                        provenance = provenance,
+                                                    )
+                                                }
+                                            },
                                         )
                                     }
                                 } else {
@@ -773,6 +798,24 @@ internal fun RecordingDetailProductScreen(
                                                     )
                                                 }
                                             },
+                                            onAddAnnotation =
+                                                if (syncEnabled) {
+                                                    { sampleIndex ->
+                                                        annotationViewModel.createAtTranscriptSample(
+                                                            recording = recording,
+                                                            canonicalAssetId = recordingDocument.compatiblePlaybackAssetId,
+                                                            totalSampleCount = recordingDocument.timeline?.totalSampleCount,
+                                                            sampleIndex = sampleIndex,
+                                                            provenance =
+                                                                segmentAnnotationProvenance(
+                                                                    transcriptionId = recordingDocument.transcriptionId,
+                                                                    segment = segment,
+                                                                ),
+                                                        )
+                                                    }
+                                                } else {
+                                                    null
+                                                },
                                         )
                                     }
                                 }
@@ -1160,6 +1203,7 @@ private fun RevisionTimelineRow(
     playbackCompatible: Boolean,
     searchHighlighted: Boolean = false,
     onSeek: (Long) -> Unit,
+    onAddAnnotation: (Long?) -> Unit,
 ) {
     val start = paragraph.anchorStartSampleIndex
     val end = paragraph.anchorEndSampleIndexExclusive
@@ -1189,20 +1233,31 @@ private fun RevisionTimelineRow(
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text(
-                    start?.let(::formatSampleTime) ?: "无音频定位",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                paragraph.speakerDisplayName?.let { speaker ->
+                Row(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     Text(
-                        speaker,
+                        start?.let(::formatSampleTime) ?: "无音频定位",
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    paragraph.speakerDisplayName?.let { speaker ->
+                        Text(
+                            speaker,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                 }
+                Text(
+                    "＋标注",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clickable { onAddAnnotation(start) },
+                )
             }
             Text(paragraph.text, style = MaterialTheme.typography.bodyLarge)
             if (!anchored) {
@@ -1214,6 +1269,43 @@ private fun RevisionTimelineRow(
             }
         }
     }
+}
+
+private fun segmentAnnotationProvenance(
+    transcriptionId: String,
+    segment: TranscriptDisplaySegment,
+): TimelineAnnotationProvenance =
+    TimelineAnnotationProvenance(
+        sourceTextSnapshot = segment.text,
+        sourceTranscriptionIdSnapshot = transcriptionId,
+        sourceTranscriptSegmentIdSnapshot = segment.sourceSegmentId,
+        sourceTimingQualitySnapshot = "EXACT",
+        speakerLabelSnapshot =
+            segment.speakerDisplayName
+                ?: segment.speakerOrdinal?.let { ordinal -> "说话人 " + (ordinal + 1) },
+    )
+
+private fun revisionAnnotationProvenance(
+    transcriptionId: String,
+    revisionId: String?,
+    paragraph: TranscriptReadingParagraph,
+): TimelineAnnotationProvenance {
+    val segmentIds =
+        paragraph.sourceAnchorRefs
+            .mapNotNull { ref ->
+                ref.takeIf { it.startsWith("SEGMENT:") }
+                    ?.removePrefix("SEGMENT:")
+                    ?.takeIf { it.isNotBlank() }
+            }
+            .distinct()
+    return TimelineAnnotationProvenance(
+        sourceTextSnapshot = paragraph.text,
+        sourceTranscriptionIdSnapshot = transcriptionId,
+        sourceRevisionIdSnapshot = revisionId,
+        sourceTranscriptSegmentIdSnapshot = segmentIds.singleOrNull(),
+        sourceTimingQualitySnapshot = paragraph.timingQuality.name,
+        speakerLabelSnapshot = paragraph.speakerDisplayName,
+    )
 }
 
 private fun RecordingDetailDestination.toProductTab(): ProductDetailTab =

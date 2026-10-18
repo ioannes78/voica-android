@@ -345,6 +345,7 @@ fun TranscriptSegmentCard(
     searchHighlighted: Boolean = false,
     syncEnabled: Boolean,
     onSeek: (Long) -> Unit,
+    onAddAnnotation: ((Long) -> Unit)? = null,
 ) {
     val activeCue =
         remember(segment.stableId, activeCueId) {
@@ -423,14 +424,27 @@ fun TranscriptSegmentCard(
                     modifier = Modifier.weight(1f),
                 )
             }
-            Text(
-                formatSampleRange(
-                    segment.startSampleIndex,
-                    segment.endSampleIndexExclusive,
-                ),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    formatSampleRange(
+                        segment.startSampleIndex,
+                        segment.endSampleIndexExclusive,
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                onAddAnnotation?.let { addAnnotation ->
+                    Text(
+                        "＋标注",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier =
+                            Modifier.clickable(enabled = syncEnabled) {
+                                addAnnotation(segment.startSampleIndex)
+                            },
+                    )
+                }
+            }
         }
         Text(
             text = annotatedText,
@@ -441,18 +455,38 @@ fun TranscriptSegmentCard(
                     segment.stableId,
                     activeCueId,
                     syncEnabled,
+                    onAddAnnotation,
                 ) {
-                    detectTapGestures { position ->
-                        if (!syncEnabled) return@detectTapGestures
-                        val offset = textLayout?.getOffsetForPosition(position) ?: return@detectTapGestures
-                        val cue =
-                            segment.cues.firstOrNull { candidate ->
-                                candidate.projectionQuality == TextProjectionQuality.EXACT &&
-                                    offset >= candidate.textStartOffset &&
-                                    offset < candidate.textEndOffsetExclusive
+                    detectTapGestures(
+                        onTap = { position ->
+                            if (syncEnabled) {
+                                val offset = textLayout?.getOffsetForPosition(position)
+                                val cue =
+                                    offset?.let { textOffset ->
+                                        segment.cues.firstOrNull { candidate ->
+                                            candidate.projectionQuality == TextProjectionQuality.EXACT &&
+                                                textOffset >= candidate.textStartOffset &&
+                                                textOffset < candidate.textEndOffsetExclusive
+                                        }
+                                    }
+                                onSeek(cue?.startSampleIndex ?: segment.startSampleIndex)
                             }
-                        onSeek(cue?.startSampleIndex ?: segment.startSampleIndex)
-                    }
+                        },
+                        onLongPress = { position ->
+                            if (syncEnabled && onAddAnnotation != null) {
+                                val offset = textLayout?.getOffsetForPosition(position)
+                                val cue =
+                                    offset?.let { textOffset ->
+                                        segment.cues.firstOrNull { candidate ->
+                                            candidate.projectionQuality == TextProjectionQuality.EXACT &&
+                                                textOffset >= candidate.textStartOffset &&
+                                                textOffset < candidate.textEndOffsetExclusive
+                                        }
+                                    }
+                                onAddAnnotation(cue?.startSampleIndex ?: segment.startSampleIndex)
+                            }
+                        },
+                    )
                 },
         )
     }

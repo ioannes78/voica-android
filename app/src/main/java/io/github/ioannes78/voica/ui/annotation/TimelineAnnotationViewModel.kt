@@ -159,6 +159,36 @@ class TimelineAnnotationViewModel(
         }
     }
 
+    fun createAtTranscriptSample(
+        recording: RecordingLibraryItem,
+        canonicalAssetId: String?,
+        totalSampleCount: Long?,
+        sampleIndex: Long,
+        provenance: TimelineAnnotationProvenance,
+    ) {
+        launchOperation {
+            val sourceAssetId =
+                canonicalAssetId?.takeIf { it.isNotBlank() }
+                    ?: error("当前转写时间轴与标准音频不兼容")
+            val durationSampleCount =
+                totalSampleCount?.takeIf { it > 0L }
+                    ?: error("当前转写缺少可验证时间轴")
+            val anchor =
+                captureCanonicalAnnotationAnchor(
+                    recording = recording,
+                    sourceAssetId = sourceAssetId,
+                    durationSampleCount = durationSampleCount,
+                    sampleIndex = sampleIndex,
+                ) ?: error("当前转写位置无法建立精确标注")
+            repository.create(
+                owner = TimelineAnnotationOwner.Recording(recording.id),
+                anchor = anchor,
+                provenance = provenance,
+            )
+            mutableState.update { it.copy(notice = "已从转写添加标注") }
+        }
+    }
+
     fun updateNote(annotationId: String, noteText: String?) {
         launchOperation { repository.updateNote(annotationId, noteText) }
     }
@@ -326,13 +356,27 @@ internal fun captureCanonicalAnnotationAnchor(
     sampleIndex: Long,
 ): TimelineAnnotationAnchor? {
     if (playback.recordingId != recording.id) return null
-    val sourceAssetId = playback.sourceAssetId?.takeIf { it.isNotBlank() } ?: return null
-    if (playback.durationSampleCount <= 0L) return null
-    if (sampleIndex !in 0L..playback.durationSampleCount) return null
+    return captureCanonicalAnnotationAnchor(
+        recording = recording,
+        sourceAssetId = playback.sourceAssetId,
+        durationSampleCount = playback.durationSampleCount,
+        sampleIndex = sampleIndex,
+    )
+}
+
+internal fun captureCanonicalAnnotationAnchor(
+    recording: RecordingLibraryItem,
+    sourceAssetId: String?,
+    durationSampleCount: Long,
+    sampleIndex: Long,
+): TimelineAnnotationAnchor? {
+    val resolvedAssetId = sourceAssetId?.takeIf { it.isNotBlank() } ?: return null
+    if (durationSampleCount <= 0L) return null
+    if (sampleIndex !in 0L..durationSampleCount) return null
 
     val canonical =
         recording.assets.firstOrNull { asset ->
-            asset.assetId == sourceAssetId &&
+            asset.assetId == resolvedAssetId &&
                 asset.role == AudioAssetRole.CANONICAL_WAV &&
                 asset.integrityState == AudioIntegrityState.VERIFIED &&
                 asset.formatValidationState == AudioValidationState.VALID
