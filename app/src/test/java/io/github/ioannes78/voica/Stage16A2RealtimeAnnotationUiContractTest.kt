@@ -7,21 +7,22 @@ import org.junit.Test
 
 class Stage16A2RealtimeAnnotationUiContractTest {
     @Test
-    fun realtimeControlsExposeCompactPlusMenuOnlyThroughSafeResolver() {
+    fun realtimeControlsExposeSharedComposerOnlyThroughSafeResolver() {
         val screen = appProductionSource("ui/realtime/RealtimeTranscriptionScreen.kt")
         val menu = appProductionSource("ui/realtime/RealtimeTimelineAnnotationMenuButton.kt")
+        val composer = appProductionSource("ui/annotation/TimelineAnnotationComposerButton.kt")
         val viewModel = appProductionSource("ui/annotation/TimelineAnnotationViewModel.kt")
 
         assertTrue(screen.contains("RealtimeTimelineAnnotationMenuButton("))
         assertTrue(screen.contains("Stage16ARealtimeUiPhase.ACTIVE"))
         assertTrue(screen.contains("Stage16ARealtimeUiPhase.PAUSED"))
         assertTrue(screen.contains("key = \"realtime-annotation-${'$'}{activitySource.name}\""))
-        assertTrue(menu.contains("Text(\"＋\")"))
-        assertTrue(menu.contains("Text(\"快速标记\")"))
-        assertTrue(menu.contains("Text(\"文字笔记\")"))
-        assertTrue(menu.contains("Text(\"拍照\")"))
-        assertTrue(menu.contains("Text(\"从相册添加\")"))
-        assertTrue(menu.contains("suspend fun resolveTarget() = resolver.resolve(source)"))
+        assertTrue(menu.contains("TimelineAnnotationComposerButton("))
+        assertTrue(menu.contains("targetProvider = { resolver.resolve(source) }"))
+        assertTrue(composer.contains("Text(\"快速标记\")"))
+        assertTrue(composer.contains("Text(\"文字笔记\")"))
+        assertTrue(composer.contains("Text(\"拍照\")"))
+        assertTrue(composer.contains("Text(\"从相册添加\")"))
         assertTrue(viewModel.contains("fun createAtRealtime("))
         assertTrue(viewModel.contains("当前暂无可安全标注的音频位置"))
         assertFalse(
@@ -31,27 +32,28 @@ class Stage16A2RealtimeAnnotationUiContractTest {
     }
 
     @Test
-    fun realtimePhotoInputsReuseDurableAttachmentLifecycleAndCleanCancelledPlaceholder() {
-        val menu = appProductionSource("ui/realtime/RealtimeTimelineAnnotationMenuButton.kt")
+    fun sharedPhotoComposerReusesDurableAttachmentLifecycleAndCleansCancelledPlaceholder() {
+        val composer = appProductionSource("ui/annotation/TimelineAnnotationComposerButton.kt")
         val viewModel = appProductionSource("ui/annotation/TimelineAnnotationViewModel.kt")
 
-        assertTrue(menu.contains("ActivityResultContracts.TakePicture()"))
-        assertTrue(menu.contains("ActivityResultContracts.GetContent()"))
-        assertTrue(menu.contains("viewModel.prepareCamera("))
-        assertTrue(menu.contains("viewModel.finishCamera("))
-        assertTrue(menu.contains("viewModel.importGallery("))
-        assertTrue(menu.contains("deleteAnnotationIfCancelled = true"))
-        assertTrue(menu.contains("viewModel.deleteAnnotation(pending.annotationId, silent = true)"))
+        assertTrue(composer.contains("ActivityResultContracts.TakePicture()"))
+        assertTrue(composer.contains("ActivityResultContracts.GetContent()"))
+        assertTrue(composer.contains("viewModel.prepareCamera("))
+        assertTrue(composer.contains("viewModel.finishCamera("))
+        assertTrue(composer.contains("viewModel.importGallery("))
+        assertTrue(composer.contains("deleteAnnotationIfCancelled = true"))
+        assertTrue(composer.contains("viewModel.deleteAnnotation(pending.annotationId, silent = true)"))
         assertTrue(viewModel.contains("attachmentStore.commitCameraCapture(target)"))
         assertTrue(viewModel.contains("attachmentStore.importGallery(annotationId, uri)"))
     }
 
     @Test
-    fun realtimeReaderRemainsTextFirstWithoutAnnotationCards() {
+    fun realtimeReaderRemainsTextFirstWithOnlyCompactAnnotationFeedback() {
         val screen = appProductionSource("ui/realtime/RealtimeTranscriptionScreen.kt")
 
         assertTrue(screen.contains("SelectionContainer { Text(item.text"))
         assertTrue(screen.contains("state.mutablePartialTail"))
+        assertTrue(screen.contains("RealtimeAnnotationFeedback(annotationState.items)"))
         assertFalse(screen.contains("TimelineAnnotationRow("))
         assertFalse(screen.contains("TimelineAnnotationPanel("))
     }
