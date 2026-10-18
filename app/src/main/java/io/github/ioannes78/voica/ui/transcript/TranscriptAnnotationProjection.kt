@@ -1,6 +1,8 @@
 package io.github.ioannes78.voica.ui.transcript
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -71,37 +73,23 @@ internal fun TranscriptAnnotationStrip(
     modifier: Modifier = Modifier,
 ) {
     if (projections.isEmpty()) return
-    Column(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+    Row(
+        modifier = modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         projections.forEach { projection ->
             Surface(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable { onClick(projection) },
+                modifier = Modifier.clickable { onClick(projection) },
                 shape = MaterialTheme.shapes.small,
                 color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.42f),
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        formatProjectionTime(projection.sampleIndex),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        annotationProjectionSummary(projection.item),
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                Text(
+                    text = formatProjectionTime(projection.sampleIndex) + " " + annotationProjectionSummary(projection.item),
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
@@ -184,7 +172,7 @@ internal fun TranscriptAnnotatedReading(
         SelectionContainer {
             Column(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp),
             ) {
                 paragraphs.forEach { paragraph ->
                     Text(

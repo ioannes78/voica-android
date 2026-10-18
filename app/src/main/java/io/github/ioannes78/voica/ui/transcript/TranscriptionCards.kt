@@ -230,6 +230,7 @@ fun TranscriptVersionListCard(
 fun TranscriptDocumentHeader(
     document: TranscriptDocument,
     recordingName: String?,
+    edited: Boolean = false,
     onRenameSpeaker: (speakerId: String, requestedName: String?) -> Unit,
 ) {
     var speakerListOpen by remember(document.alignmentId) { mutableStateOf(false) }
@@ -239,35 +240,39 @@ fun TranscriptDocumentHeader(
 
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         Text(
-            buildString {
-                append(sourceText)
-                append(" · ")
-                append(document.segments.size)
-                append(" 段")
-                if (document.speakers.isNotEmpty()) {
-                    append(" · ")
-                    append(document.speakers.size)
-                    append(" 位说话人")
-                }
-            },
+            "$sourceText · ${document.segments.size} 段",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f),
         )
         if (document.speakers.isNotEmpty()) {
-            TextButton(onClick = { speakerListOpen = true }) {
-                Text("说话人")
-            }
+            Text(
+                " · ",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                "${document.speakers.size}位说话人",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.clickable { speakerListOpen = true },
+            )
+        }
+        if (edited) {
+            Text(
+                " · 已编辑",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 
     if (speakerListOpen) {
         AlertDialog(
             onDismissRequest = { speakerListOpen = false },
-            title = { Text("说话人") },
+            title = { Text("编辑说话人") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     document.speakers.forEach { speaker ->

@@ -60,6 +60,8 @@ class Stage16A2TranscriptAnnotationContractTest {
         val composer = appProductionSource("ui/annotation/TimelineAnnotationComposerButton.kt")
         val projection = appProductionSource("ui/transcript/TranscriptAnnotationProjection.kt")
         val viewModel = appProductionSource("ui/annotation/TimelineAnnotationViewModel.kt")
+        val productContent = appProductionSource("ui/transcript/TranscriptProductContent.kt")
+        val detailDialog = appProductionSource("ui/annotation/TimelineAnnotationDetailDialog.kt")
 
         assertTrue(cards.contains("annotationAction"))
         assertTrue(cards.contains("onLongPress = { position ->"))
@@ -90,6 +92,22 @@ class Stage16A2TranscriptAnnotationContractTest {
             "Current transcript projection is sample-based and never inferred from text length",
             projection.contains("projection.sampleIndex >= candidate.startSampleIndex") &&
                 projection.contains("projection.sampleIndex < candidate.endSampleIndexExclusive"),
+        )
+        assertTrue(
+            "Projected annotations stay in one compact horizontal strip",
+            projection.contains("horizontalScroll(rememberScrollState())"),
+        )
+        assertTrue(
+            "Annotation visibility is controlled by the compact count chip",
+            productContent.contains("label = \"标注 $annotationCount\"") &&
+                !productContent.contains("标注 $annotationCount · "),
+        )
+        assertTrue(
+            "Transcript annotation details expose photo viewing, edit, delete, and seek",
+            detailDialog.contains("DetailAnnotationPhotoDialog(") &&
+                detailDialog.contains("Text(\"编辑\")") &&
+                detailDialog.contains("Text(\"删除\")") &&
+                detailDialog.contains("Text(\"跳转播放\")"),
         )
     }
 

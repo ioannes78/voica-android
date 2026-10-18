@@ -76,6 +76,7 @@ import io.github.ioannes78.voica.ui.ai.AiSummaryProductCard
 import io.github.ioannes78.voica.ui.ai.AiSummaryTransientHeader
 import io.github.ioannes78.voica.ui.ai.AiSummaryViewModel
 import io.github.ioannes78.voica.ui.annotation.TimelineAnnotationComposerButton
+import io.github.ioannes78.voica.ui.annotation.TimelineAnnotationDetailDialog
 import io.github.ioannes78.voica.ui.annotation.TimelineAnnotationPanel
 import io.github.ioannes78.voica.ui.annotation.TimelineAnnotationViewModel
 import io.github.ioannes78.voica.ui.diarization.DiarizationAttentionBanner
@@ -206,6 +207,7 @@ internal fun RecordingDetailProductScreen(
         mutableStateOf(TranscriptViewMode.TIMELINE)
     }
     var showTranscriptAnnotations by rememberSaveable(recording.id) { mutableStateOf(true) }
+    var selectedTranscriptAnnotationId by rememberSaveable(recording.id) { mutableStateOf<String?>(null) }
     var annotationProjectionSamples by remember(recording.id) {
         mutableStateOf<Map<String, Long>>(emptyMap())
     }
@@ -242,6 +244,10 @@ internal fun RecordingDetailProductScreen(
     val syncState by transcriptPlaybackSyncViewModel.state.collectAsState()
     val playbackSnapshot by playbackViewModel.snapshot.collectAsState()
     val annotationUiState by annotationViewModel.state.collectAsState()
+    val selectedTranscriptAnnotation =
+        selectedTranscriptAnnotationId?.let { selectedId ->
+            annotationUiState.items.firstOrNull { it.annotation.id == selectedId }
+        }
     val waveformAnnotationSamples =
         annotationUiState.items
             .asSequence()
@@ -744,47 +750,18 @@ internal fun RecordingDetailProductScreen(
                                                 }
                                             }
                                         val assignment = assignTranscriptAnnotations(projectedAnnotations, ranges)
-                                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.End,
-                                            ) {
-                                                TimelineAnnotationComposerButton(
-                                                    enabled =
-                                                        playbackSnapshot.recordingId == recording.id &&
-                                                            playbackSnapshot.durationSampleCount > 0L,
-                                                    label = "＋标注",
-                                                    compact = true,
-                                                    viewModel = annotationViewModel,
-                                                    onCreate = { noteText, onCreated ->
-                                                        annotationViewModel.createAtPlayback(
-                                                            recording = recording,
-                                                            playback = playbackSnapshot,
-                                                            noteText = noteText,
-                                                            provenance =
-                                                                TimelineAnnotationProvenance(
-                                                                    sourceTranscriptionIdSnapshot = recordingDocument.transcriptionId,
-                                                                    sourceRevisionIdSnapshot = transcriptContentState.currentRevisionId,
-                                                                    sourceTimingQualitySnapshot = "PLAYBACK_FALLBACK",
-                                                                ),
-                                                            onCreated = onCreated,
-                                                        )
-                                                    },
-                                                )
-                                            }
-                                            TranscriptAnnotatedReading(
-                                                paragraphs = transcriptContentState.paragraphs,
-                                                assignment = assignment,
-                                                unresolved = unresolvedAnnotations,
-                                                showAnnotations = showTranscriptAnnotations,
-                                                onAnnotationClick = { projection ->
-                                                    annotationViewModel.seek(projection.item.annotation)
-                                                },
-                                                onUnresolvedClick = { item ->
-                                                    annotationViewModel.seek(item.annotation)
-                                                },
-                                            )
-                                        }
+                                        TranscriptAnnotatedReading(
+                                            paragraphs = transcriptContentState.paragraphs,
+                                            assignment = assignment,
+                                            unresolved = unresolvedAnnotations,
+                                            showAnnotations = showTranscriptAnnotations,
+                                            onAnnotationClick = { projection ->
+                                                selectedTranscriptAnnotationId = projection.item.annotation.id
+                                            },
+                                            onUnresolvedClick = { item ->
+                                                selectedTranscriptAnnotationId = item.annotation.id
+                                            },
+                                        )
                                     }
                                 }
                             } else {
@@ -792,6 +769,7 @@ internal fun RecordingDetailProductScreen(
                                     TranscriptDocumentHeader(
                                         document = recordingDocument,
                                         recordingName = recording.displayName,
+                                        edited = transcriptContentState.currentRevisionId != null,
                                         onRenameSpeaker = transcriptionViewModel::renameSpeaker,
                                     )
                                 }
@@ -913,7 +891,7 @@ internal fun RecordingDetailProductScreen(
                                             TranscriptAnnotationStrip(
                                                 projections = revisionAssignment.byRangeId[paragraph.stableId].orEmpty(),
                                                 onClick = { projection ->
-                                                    annotationViewModel.seek(projection.item.annotation)
+                                                    selectedTranscriptAnnotationId = projection.item.annotation.id
                                                 },
                                                 modifier = Modifier.padding(horizontal = 8.dp),
                                             )
@@ -927,9 +905,9 @@ internal fun RecordingDetailProductScreen(
                                                 projectedOutsideText = revisionAssignment.unassigned,
                                                 unresolved = unresolvedAnnotations,
                                                 onProjectedClick = { projection ->
-                                                    annotationViewModel.seek(projection.item.annotation)
+                                                    selectedTranscriptAnnotationId = projection.item.annotation.id
                                                 },
-                                                onUnresolvedClick = { item -> annotationViewModel.seek(item.annotation) },
+                                                onUnresolvedClick = { item -> selectedTranscriptAnnotationId = item.annotation.id },
                                             )
                                         }
                                     }
@@ -1022,7 +1000,7 @@ internal fun RecordingDetailProductScreen(
                                             TranscriptAnnotationStrip(
                                                 projections = segmentAssignment.byRangeId[segment.stableId].orEmpty(),
                                                 onClick = { projection ->
-                                                    annotationViewModel.seek(projection.item.annotation)
+                                                    selectedTranscriptAnnotationId = projection.item.annotation.id
                                                 },
                                                 modifier = Modifier.padding(horizontal = 8.dp),
                                             )
@@ -1036,9 +1014,9 @@ internal fun RecordingDetailProductScreen(
                                                 projectedOutsideText = segmentAssignment.unassigned,
                                                 unresolved = unresolvedAnnotations,
                                                 onProjectedClick = { projection ->
-                                                    annotationViewModel.seek(projection.item.annotation)
+                                                    selectedTranscriptAnnotationId = projection.item.annotation.id
                                                 },
-                                                onUnresolvedClick = { item -> annotationViewModel.seek(item.annotation) },
+                                                onUnresolvedClick = { item -> selectedTranscriptAnnotationId = item.annotation.id },
                                             )
                                         }
                                     }
@@ -1100,6 +1078,14 @@ internal fun RecordingDetailProductScreen(
                     )
             }
         }
+    }
+
+    selectedTranscriptAnnotation?.let { item ->
+        TimelineAnnotationDetailDialog(
+            item = item,
+            viewModel = annotationViewModel,
+            onDismiss = { selectedTranscriptAnnotationId = null },
+        )
     }
 
     if (speakerSheetOpen) {
