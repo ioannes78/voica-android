@@ -92,6 +92,21 @@ interface TimelineAnnotationDao {
     )
     suspend fun getAttachments(annotationId: String): List<TimelineAnnotationAttachmentEntity>
 
+    @Query("SELECT * FROM timeline_annotation_attachments ORDER BY createdAtMs ASC")
+    suspend fun getAllAttachments(): List<TimelineAnnotationAttachmentEntity>
+
+    @Query(
+        """
+        SELECT attachment.*
+        FROM timeline_annotation_attachments AS attachment
+        INNER JOIN timeline_annotations AS annotation
+          ON annotation.id = attachment.annotationId
+        WHERE annotation.recordingId = :recordingId
+        ORDER BY attachment.createdAtMs ASC
+        """,
+    )
+    suspend fun getAttachmentsForRecording(recordingId: String): List<TimelineAnnotationAttachmentEntity>
+
     @Query(
         """
         SELECT * FROM timeline_annotation_attachments
