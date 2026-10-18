@@ -339,7 +339,7 @@ internal object ModelInstallNotifications {
             }
         val builder =
             NotificationCompat.Builder(context, VoicaNotificationChannels.MODEL_INSTALL)
-                .setSmallIcon(R.drawable.ic_voica_notification)
+                .setSmallIcon(R.drawable.ic_stat_voica)
                 .setContentTitle(record.snapshot.descriptor.displayName)
                 .setContentText(contentText)
                 .setContentIntent(openIntent)

@@ -97,7 +97,7 @@ class Stage13B5Qa4CandidateNotificationController(
         destination: RecordingDetailDestination,
     ): Notification =
         Notification.Builder(context, VoicaNotificationChannels.TASK_RESULT)
-            .setSmallIcon(R.drawable.ic_voica_notification)
+            .setSmallIcon(R.drawable.ic_stat_voica)
             .setContentTitle(title)
             .setContentText(text)
             .setSubText(recordingName)

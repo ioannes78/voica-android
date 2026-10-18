@@ -327,7 +327,7 @@ class PlaybackForegroundService : Service() {
             }
 
         return Notification.Builder(this, VoicaNotificationChannels.PLAYBACK)
-            .setSmallIcon(R.drawable.ic_voica_notification)
+            .setSmallIcon(R.drawable.ic_stat_voica)
             .setContentTitle(currentRecordingName)
             .setContentText(text)
             .setContentIntent(contentIntent)

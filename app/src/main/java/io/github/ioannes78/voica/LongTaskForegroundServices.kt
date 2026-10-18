@@ -179,7 +179,7 @@ class DeviceSessionForegroundService : Service() {
 
     private fun buildNotification(deviceName: String, label: String): Notification =
         Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_voica_notification)
+            .setSmallIcon(R.drawable.ic_stat_voica)
             .setContentTitle(deviceName)
             .setContentText(label)
             .setContentIntent(mainActivityPendingIntent(this, REQUEST_CONTENT))
@@ -362,7 +362,7 @@ class MediaProcessingForegroundService : Service() {
             }
         val builder =
             Notification.Builder(this, CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_voica_notification)
+                .setSmallIcon(R.drawable.ic_stat_voica)
                 .setContentTitle(task.title)
                 .setContentText(text)
                 .setContentIntent(contentIntent)

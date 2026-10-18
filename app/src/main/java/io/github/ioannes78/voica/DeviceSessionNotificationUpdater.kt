@@ -102,7 +102,7 @@ internal object DeviceSessionNotificationUpdater {
         val safeLabel = label.trim().ifEmpty { "保持连接" }
         val notification =
             Notification.Builder(context, CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_voica_notification)
+                .setSmallIcon(R.drawable.ic_stat_voica)
                 .setContentTitle(safeName)
                 .setContentText(safeLabel)
                 .setContentIntent(
