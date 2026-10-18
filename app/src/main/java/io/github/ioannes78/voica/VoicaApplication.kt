@@ -418,6 +418,14 @@ class AppContainer(
             integrationRepository = phoneMicrophoneIntegrationRepository,
             recordingsRoot = recordingsRoot,
             localSpeechSettings = { localSpeechSettingsStore.settings.value },
+            timelineAnnotationRepository = timelineAnnotationRepository,
+        )
+
+    internal val realtimeTimelineAnnotationCaptureResolver =
+        RealtimeTimelineAnnotationCaptureResolver(
+            persistenceRepository = stage16ARealtimePersistenceRepository,
+            recorderBoundary = stage16ARealtimeRuntime::annotationBoundarySnapshot,
+            phoneBoundary = phoneMicrophoneRealtimeRuntime::annotationBoundarySnapshot,
         )
 
     val deviceRepository: DeviceRepository =
@@ -437,6 +445,7 @@ class AppContainer(
             recordingsRoot = recordingsRoot,
             searchIndexRebuilder = searchIndexRebuilder,
             transportGeneration = { realtimeAudioRuntime.snapshot().transportGeneration },
+            timelineAnnotationRepository = timelineAnnotationRepository,
         )
 
     val stage16AReconnectRecoveryCoordinator =

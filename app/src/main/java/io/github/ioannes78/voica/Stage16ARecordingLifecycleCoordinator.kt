@@ -23,6 +23,8 @@ import io.github.ioannes78.voica.database.RealtimeMediaSegmentStateValue
 import io.github.ioannes78.voica.database.RealtimeRecordingIntegrationRepository
 import io.github.ioannes78.voica.database.RealtimeTranscriptPersistenceRepository
 import io.github.ioannes78.voica.database.SearchIndexRebuilder
+import io.github.ioannes78.voica.database.TimelineAnnotationPendingOwnerKindValue
+import io.github.ioannes78.voica.database.TimelineAnnotationRepository
 import io.github.ioannes78.voica.database.VoicaDatabase
 import io.github.ioannes78.voica.protocol.RecordingStatus
 import io.github.ioannes78.voica.ui.library.RecordingDetailDestination
@@ -116,6 +118,7 @@ class Stage16ARecordingLifecycleCoordinator(
     private val recordingsRoot: File,
     private val searchIndexRebuilder: SearchIndexRebuilder,
     private val transportGeneration: () -> Long?,
+    private val timelineAnnotationRepository: TimelineAnnotationRepository? = null,
     private val clockMs: () -> Long = { System.currentTimeMillis() },
     startCollectors: Boolean = true,
 ) {
@@ -351,6 +354,19 @@ class Stage16ARecordingLifecycleCoordinator(
             val recordingId = ensureRecording(remote)
             check(realtimeRepository.attachRecording(runId, recordingId, clockMs())) {
                 "failed to attach realtime run to recording"
+            }
+            runCatching {
+                timelineAnnotationRepository?.attachPendingOwner(
+                    ownerKind = TimelineAnnotationPendingOwnerKindValue.REALTIME_RUN,
+                    ownerId = runId,
+                    recordingId = recordingId,
+                )
+            }.onFailure { failure ->
+                latestSnapshot =
+                    latestSnapshot.copy(
+                        lastError = "annotation promotion pending: " +
+                            (failure.message ?: failure.javaClass.simpleName),
+                    )
             }
             val remoteFilename = remote.resolvedFilename ?: remote.displayFilename
             val segments = realtimeRepository.getSegments(runId)
