@@ -73,10 +73,13 @@ import io.github.ioannes78.voica.ui.ai.AiSummaryContentViewModel
 import io.github.ioannes78.voica.ui.ai.AiSummaryProductCard
 import io.github.ioannes78.voica.ui.ai.AiSummaryTransientHeader
 import io.github.ioannes78.voica.ui.ai.AiSummaryViewModel
+import io.github.ioannes78.voica.ui.annotation.TimelineAnnotationPanel
+import io.github.ioannes78.voica.ui.annotation.TimelineAnnotationViewModel
 import io.github.ioannes78.voica.ui.diarization.DiarizationAttentionBanner
 import io.github.ioannes78.voica.ui.diarization.DiarizationStatusCard
 import io.github.ioannes78.voica.ui.diarization.DiarizationViewModel
 import io.github.ioannes78.voica.ui.playback.PlaybackViewModel
+import io.github.ioannes78.voica.ui.playback.TimelineAnnotationPlaybackCoordinator
 import io.github.ioannes78.voica.ui.playback.RecordingPlaybackCard
 import io.github.ioannes78.voica.ui.transcript.TranscriptContinuousReading
 import io.github.ioannes78.voica.ui.transcript.TranscriptContentViewModel
@@ -96,6 +99,7 @@ private enum class ProductDetailTab {
     RECORDING,
     TRANSCRIPT,
     SUMMARY,
+    ANNOTATIONS,
 }
 
 @Composable
@@ -131,6 +135,33 @@ internal fun RecordingDetailProductScreen(
     @Suppress("UNUSED_VARIABLE") val ignoredDiarizationBenchmarkRunner = diarizationBenchmarkRunner
 
     val application = LocalContext.current.applicationContext as VoicaApplication
+    val annotationPlaybackCoordinator =
+        remember(
+            application.container.playbackController,
+            application.container.timelineAnnotationAnchorResolver,
+        ) {
+            TimelineAnnotationPlaybackCoordinator(
+                controller = application.container.playbackController,
+                resolver = application.container.timelineAnnotationAnchorResolver,
+            )
+        }
+    val annotationViewModel: TimelineAnnotationViewModel =
+        viewModel(
+            factory =
+                remember(
+                    application.container.timelineAnnotationRepository,
+                    annotationPlaybackCoordinator,
+                    application.container.timelineAnnotationAttachmentStore,
+                    application.container.timelineAnnotationContentCoordinator,
+                ) {
+                    TimelineAnnotationViewModel.Factory(
+                        repository = application.container.timelineAnnotationRepository,
+                        playbackCoordinator = annotationPlaybackCoordinator,
+                        attachmentStore = application.container.timelineAnnotationAttachmentStore,
+                        contentCoordinator = application.container.timelineAnnotationContentCoordinator,
+                    )
+                },
+        )
     val speakerModeStore = remember(application) { RecordingSpeakerModeStore(application) }
     val globalSpeechSettings by application.container.localSpeechSettingsStore.settings.collectAsState()
     val canonicalProgressByRecording by
@@ -296,6 +327,7 @@ internal fun RecordingDetailProductScreen(
     LaunchedEffect(recording.id) {
         transcriptionViewModel.viewVersions(recording.id)
         qa4LifecycleViewModel.bind(recording.id)
+        annotationViewModel.bind(recording.id)
     }
     LaunchedEffect(recording.id, navigationRequestToken) {
         if (navigationRequestToken > 0) {
@@ -407,6 +439,7 @@ internal fun RecordingDetailProductScreen(
                                 ProductDetailTab.RECORDING -> "录音"
                                 ProductDetailTab.TRANSCRIPT -> "转写"
                                 ProductDetailTab.SUMMARY -> "总结"
+                                ProductDetailTab.ANNOTATIONS -> "标注"
                             },
                         )
                     },
@@ -525,6 +558,7 @@ internal fun RecordingDetailProductScreen(
                 }
             }
 
+            ProductDetailTab.ANNOTATIONS -> Unit
             ProductDetailTab.RECORDING -> Unit
         }
 
@@ -768,6 +802,13 @@ internal fun RecordingDetailProductScreen(
                             }
                         }
                     }
+
+                ProductDetailTab.ANNOTATIONS ->
+                    TimelineAnnotationPanel(
+                        recording = recording,
+                        playback = playbackSnapshot,
+                        viewModel = annotationViewModel,
+                    )
             }
         }
     }
@@ -837,7 +878,7 @@ internal fun RecordingDetailProductScreen(
             onDismissRequest = { deleteOpen = false },
             title = { Text("删除本地录音？") },
             text = {
-                Text("将删除手机中的录音、标准音频、转写、说话人结果和总结；不会删除录音卡中的文件。")
+                Text("将删除手机中的录音、标准音频、转写、说话人结果、标注和总结；不会删除录音卡中的文件。")
             },
             confirmButton = {
                 Button(
@@ -1158,6 +1199,7 @@ private fun RecordingDetailDestination.toProductTab(): ProductDetailTab =
         RecordingDetailDestination.PLAYBACK -> ProductDetailTab.RECORDING
         RecordingDetailDestination.TRANSCRIPT -> ProductDetailTab.TRANSCRIPT
         RecordingDetailDestination.SUMMARY -> ProductDetailTab.SUMMARY
+        RecordingDetailDestination.ANNOTATIONS -> ProductDetailTab.ANNOTATIONS
     }
 
 private fun ProductDetailTab.toDestination(): RecordingDetailDestination =
@@ -1165,6 +1207,7 @@ private fun ProductDetailTab.toDestination(): RecordingDetailDestination =
         ProductDetailTab.RECORDING -> RecordingDetailDestination.PLAYBACK
         ProductDetailTab.TRANSCRIPT -> RecordingDetailDestination.TRANSCRIPT
         ProductDetailTab.SUMMARY -> RecordingDetailDestination.SUMMARY
+        ProductDetailTab.ANNOTATIONS -> RecordingDetailDestination.ANNOTATIONS
     }
 
 private fun formatDetailDuration(durationMs: Long): String {
