@@ -41,6 +41,30 @@ class Stage16A2AnnotationUiContractTest {
         )
     }
 
+    @Test
+    fun waveformAddsCanonicalPointMarkersWithoutReplacingSeekGestures() {
+        val playback = appProductionSource("ui/playback/PlaybackCard.kt")
+        val detail = appProductionSource("ui/library/RecordingDetailProductScreen.kt")
+
+        assertTrue(playback.contains("annotationSampleIndices: List<Long>"))
+        assertTrue(playback.contains("markerProgress.forEach"))
+        assertTrue(playback.contains("onLongPress = { offset ->"))
+        assertTrue(
+            "waveform drag-to-seek must remain available",
+            playback.contains("detectDragGestures("),
+        )
+        assertTrue(
+            "the separate round progress tap surface must remain available",
+            playback.contains("detectTapGestures { offset ->"),
+        )
+        assertTrue(
+            "only canonical recording anchors may be projected onto the finalized waveform",
+            detail.contains("annotation.anchorDomain == TimelineAnnotationAnchorDomainValue.CANONICAL_RECORDING"),
+        )
+        assertTrue(detail.contains("annotationViewModel.createAtSample("))
+        assertTrue(detail.contains("annotationSampleIndices = waveformAnnotationSamples"))
+    }
+
     private fun appProductionSource(relative: String): String {
         val candidates =
             listOf(
