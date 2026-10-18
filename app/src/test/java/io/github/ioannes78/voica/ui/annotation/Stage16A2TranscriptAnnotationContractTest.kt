@@ -99,8 +99,12 @@ class Stage16A2TranscriptAnnotationContractTest {
         )
         assertTrue(
             "Annotation visibility is controlled by the compact count chip",
-            productContent.contains("label = \"标注 $annotationCount\"") &&
-                !productContent.contains("标注 $annotationCount · "),
+            productContent.contains("label = \"标注 \$annotationCount\"") &&
+                !productContent.contains("标注 \$annotationCount · "),
+        )
+        assertTrue(
+            "Speaker count itself opens speaker editing",
+            cards.contains("位说话人") && cards.contains("speakerListOpen = true"),
         )
         assertTrue(
             "Transcript annotation details expose photo viewing, edit, delete, and seek",
