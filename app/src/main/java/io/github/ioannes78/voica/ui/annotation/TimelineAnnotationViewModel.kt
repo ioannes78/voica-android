@@ -190,9 +190,10 @@ class TimelineAnnotationViewModel(
         }
     }
 
-    internal fun createAtRealtime(
+    internal fun createAtCapture(
         targetProvider: suspend () -> RealtimeAnnotationCaptureTarget?,
         noteText: String? = null,
+        successNotice: String = "已添加标注",
         onCreated: (TimelineAnnotationEntity) -> Unit = {},
     ) {
         launchOperation {
@@ -205,8 +206,37 @@ class TimelineAnnotationViewModel(
                     anchor = target.anchor,
                     noteText = noteText,
                 )
-            mutableState.update { it.copy(notice = "已添加实时标注") }
+            mutableState.update { current ->
+                val item = TimelineAnnotationUiItem(created, emptyList())
+                current.copy(
+                    items = current.items.filterNot { it.annotation.id == created.id } + item,
+                    notice = successNotice,
+                )
+            }
             onCreated(created)
+        }
+    }
+
+    internal fun createAtRealtime(
+        targetProvider: suspend () -> RealtimeAnnotationCaptureTarget?,
+        noteText: String? = null,
+        onCreated: (TimelineAnnotationEntity) -> Unit = {},
+    ) {
+        createAtCapture(
+            targetProvider = targetProvider,
+            noteText = noteText,
+            successNotice = "已添加实时标注",
+            onCreated = onCreated,
+        )
+    }
+
+    internal fun resetTransientItems() {
+        mutableState.update { current ->
+            if (current.recordingId == null) {
+                current.copy(items = emptyList(), notice = null)
+            } else {
+                current
+            }
         }
     }
 

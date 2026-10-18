@@ -331,7 +331,12 @@ class AppContainer(
             repository = recordingLibraryRepository,
             recordingsRoot = recordingsRoot,
             assetValidator = deviceAudioAssetValidator,
-            onRegistered = canonicalAudioCoordinator::requestAutomatic,
+            onRegistered = { recordingId ->
+                canonicalAudioCoordinator.requestAutomatic(recordingId)
+                applicationScope.launch {
+                    runCatching { timelineAnnotationRepository.reconcilePending() }
+                }
+            },
         )
 
     private val defaultDeviceRepository =
@@ -405,6 +410,7 @@ class AppContainer(
             capture = AndroidPhoneMicrophoneCaptureDriver(application),
             recordingsRoot = recordingsRoot,
             registerRecording = phoneMicrophoneRecordingRegistrar::register,
+            timelineAnnotationRepository = timelineAnnotationRepository,
         )
 
     internal val phoneMicrophoneRealtimeRuntime =

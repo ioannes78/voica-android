@@ -50,14 +50,14 @@ internal fun phoneRealtimeAnnotationBoundary(
     val recordingId = recording.recordingId?.takeIf { it.isNotBlank() } ?: return null
     val sessionId = recording.canonicalSessionId ?: return null
     val epochId = recording.activeEpochId ?: return null
-    if (recording.writtenSamples <= 0L) return null
+    if (recording.activeEpochSamples <= 0L) return null
     return RealtimeAnnotationRuntimeBoundary(
         source = RealtimeAnnotationCaptureSource.PHONE_MICROPHONE,
         runId = runId,
         pendingRecordingId = recordingId,
         canonicalSessionId = sessionId,
         canonicalEpochId = epochId,
-        sampleIndex = recording.writtenSamples,
+        sampleIndex = recording.activeEpochSamples,
     )
 }
 

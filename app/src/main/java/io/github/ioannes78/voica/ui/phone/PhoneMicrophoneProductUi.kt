@@ -32,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -50,6 +51,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.ioannes78.voica.PhoneMicrophoneCanonicalPostWriteSink
+import io.github.ioannes78.voica.RealtimeAnnotationCaptureTarget
 import io.github.ioannes78.voica.PhoneMicrophoneCapturePhase
 import io.github.ioannes78.voica.PhoneMicrophoneCaptureSnapshot
 import io.github.ioannes78.voica.PhoneMicrophonePermissionAction
@@ -64,6 +66,8 @@ import io.github.ioannes78.voica.PhoneMicrophoneRecordingStartResult
 import io.github.ioannes78.voica.PhoneMicrophoneRecordingStopResult
 import io.github.ioannes78.voica.Stage16ARealtimeUiPhase
 import io.github.ioannes78.voica.audio.RealtimeCanonicalPcmFrame
+import io.github.ioannes78.voica.ui.annotation.TimelineAnnotationComposerButton
+import io.github.ioannes78.voica.ui.annotation.TimelineAnnotationViewModel
 import io.github.ioannes78.voica.ui.realtime.RealtimeAudioActivityWaveform
 import io.github.ioannes78.voica.ui.realtime.RealtimeTranscriptionEntryCard
 import io.github.ioannes78.voica.ui.realtime.RealtimeTranscriptionScreen
@@ -231,12 +235,18 @@ internal fun PhoneMicrophoneRealtimeEntryCard(
 internal fun PhoneMicrophoneRecordingScreen(
     padding: PaddingValues,
     controller: PhoneMicrophoneRecordingUiController,
+    annotationViewModel: TimelineAnnotationViewModel,
+    annotationTargetProvider: suspend () -> RealtimeAnnotationCaptureTarget?,
     onBack: () -> Unit,
 ) {
     val uiState by controller.state.collectAsState()
     val recording = uiState.recording
     val capture = uiState.capture
     val captureInterruption = phoneMicrophoneCaptureInterruptionMessage(recording, capture)
+    val annotationState by annotationViewModel.state.collectAsState()
+    LaunchedEffect(recording.recordingId) {
+        if (recording.recordingId != null) annotationViewModel.resetTransientItems()
+    }
     val scope = rememberCoroutineScope()
     var actionInFlight by remember { mutableStateOf(false) }
     var actionMessage by remember { mutableStateOf<String?>(null) }
@@ -280,7 +290,8 @@ internal fun PhoneMicrophoneRecordingScreen(
                 captureInterruption != null -> captureInterruption
                 !recording.lastFailure.isNullOrBlank() -> recording.lastFailure
                 !permissionMessage.isNullOrBlank() -> permissionMessage
-                else -> actionMessage
+                !actionMessage.isNullOrBlank() -> actionMessage
+                else -> annotationState.notice
             }
             if (!message.isNullOrBlank()) {
                 Text(
@@ -297,6 +308,8 @@ internal fun PhoneMicrophoneRecordingScreen(
                 onPause = { launch(controller::pause) },
                 onResume = { launch(controller::resume) },
                 onStop = { launch(controller::stop) },
+                annotationViewModel = annotationViewModel,
+                annotationTargetProvider = annotationTargetProvider,
             )
             Spacer(modifier = Modifier.height(12.dp))
         }
@@ -429,6 +442,8 @@ private fun PhoneMicrophoneRecordingControls(
     onPause: () -> Unit,
     onResume: () -> Unit,
     onStop: () -> Unit,
+    annotationViewModel: TimelineAnnotationViewModel,
+    annotationTargetProvider: suspend () -> RealtimeAnnotationCaptureTarget?,
 ) {
     when (phase) {
         PhoneMicrophoneRecordingPhase.IDLE,
@@ -458,6 +473,18 @@ private fun PhoneMicrophoneRecordingControls(
                     contentColor = MaterialTheme.colorScheme.onError,
                 ),
             ) { Text("停止") }
+            TimelineAnnotationComposerButton(
+                modifier = Modifier.weight(0.58f),
+                enabled = enabled,
+                viewModel = annotationViewModel,
+                onCreate = { noteText, onCreated ->
+                    annotationViewModel.createAtCapture(
+                        targetProvider = annotationTargetProvider,
+                        noteText = noteText,
+                        onCreated = onCreated,
+                    )
+                },
+            )
         }
 
         PhoneMicrophoneRecordingPhase.STARTING,

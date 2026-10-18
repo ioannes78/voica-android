@@ -182,6 +182,13 @@ class TimelineAnnotationRepository(
                         "phone capture pending owner must promote to its future recordingId"
                     }
 
+                TimelineAnnotationPendingOwnerKindValue.RECORDER_CAPTURE -> {
+                    val recording = recordingDao.findByRemoteIdentity(ownerId)
+                    require(recording?.id == recordingId) {
+                        "recorder capture pending owner must promote to its exact remote recording identity"
+                    }
+                }
+
                 TimelineAnnotationPendingOwnerKindValue.REALTIME_RUN -> {
                     val run = realtimeDao.getRun(ownerId)
                         ?: throw IllegalArgumentException("realtime pending owner does not exist")
@@ -209,6 +216,10 @@ class TimelineAnnotationRepository(
                         kind == null || ownerId.isNullOrBlank() -> null
                         kind == TimelineAnnotationPendingOwnerKindValue.PHONE_CAPTURE &&
                             recordingDao.isRecordingActive(ownerId) -> ownerId
+                        kind == TimelineAnnotationPendingOwnerKindValue.RECORDER_CAPTURE ->
+                            recordingDao.findByRemoteIdentity(ownerId)?.id?.takeIf {
+                                recordingDao.isRecordingActive(it)
+                            }
                         kind == TimelineAnnotationPendingOwnerKindValue.REALTIME_RUN ->
                             realtimeDao.getRun(ownerId)?.recordingId?.takeIf {
                                 recordingDao.isRecordingActive(it)
@@ -265,6 +276,7 @@ class TimelineAnnotationRepository(
         require(ownerId.isNotBlank()) { "pending owner id must not be blank" }
         require(
             kind == TimelineAnnotationPendingOwnerKindValue.PHONE_CAPTURE ||
+                kind == TimelineAnnotationPendingOwnerKindValue.RECORDER_CAPTURE ||
                 kind == TimelineAnnotationPendingOwnerKindValue.REALTIME_RUN,
         ) { "unsupported pending owner kind" }
     }

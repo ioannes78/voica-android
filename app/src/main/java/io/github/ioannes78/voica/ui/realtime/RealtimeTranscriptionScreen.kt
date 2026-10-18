@@ -52,6 +52,7 @@ import io.github.ioannes78.voica.RealtimeAnnotationCaptureSource
 import io.github.ioannes78.voica.Stage16ARealtimeUiPhase
 import io.github.ioannes78.voica.Stage16ARealtimeUiState
 import io.github.ioannes78.voica.VoicaApplication
+import io.github.ioannes78.voica.ui.annotation.TimelineAnnotationUiItem
 import io.github.ioannes78.voica.ui.annotation.TimelineAnnotationViewModel
 import io.github.ioannes78.voica.ui.phone.LocalPhoneMicrophoneRecordingRuntime
 import io.github.ioannes78.voica.ui.playback.TimelineAnnotationPlaybackCoordinator
@@ -200,6 +201,7 @@ internal fun RealtimeTranscriptionScreen(
 
     LaunchedEffect(state.runId) {
         readerFollowMode = RealtimeReaderFollowMode.FOLLOW_LIVE
+        annotationViewModel.resetTransientItems()
     }
     LaunchedEffect(readerDragged, readerAtBottom) {
         readerFollowMode = RealtimeReaderFollowPolicy.reduce(readerFollowMode, readerDragged, readerAtBottom)
@@ -302,6 +304,11 @@ internal fun RealtimeTranscriptionScreen(
                     },
                 ) { Text("↓ 回到实时") }
             }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+
+        if (annotationState.items.isNotEmpty()) {
+            RealtimeAnnotationFeedback(annotationState.items)
             Spacer(modifier = Modifier.height(8.dp))
         }
 
@@ -421,13 +428,6 @@ private fun RealtimeControls(
         Stage16ARealtimeUiPhase.ACTIVE,
         Stage16ARealtimeUiPhase.PAUSED,
         -> Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            RealtimeTimelineAnnotationMenuButton(
-                modifier = Modifier.weight(0.58f),
-                enabled = !actionInFlight && !annotationBusy,
-                source = annotationSource,
-                resolver = annotationResolver,
-                viewModel = annotationViewModel,
-            )
             Button(
                 onClick = if (state.phase == Stage16ARealtimeUiPhase.ACTIVE) onPause else onResume,
                 enabled = !actionInFlight,
@@ -446,6 +446,13 @@ private fun RealtimeControls(
                     contentColor = MaterialTheme.colorScheme.onError,
                 ),
             ) { Text("停止") }
+            RealtimeTimelineAnnotationMenuButton(
+                modifier = Modifier.weight(0.58f),
+                enabled = !actionInFlight && !annotationBusy,
+                source = annotationSource,
+                resolver = annotationResolver,
+                viewModel = annotationViewModel,
+            )
         }
 
         Stage16ARealtimeUiPhase.PREPARING,
@@ -467,6 +474,39 @@ private fun RealtimeControls(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+@Composable
+private fun RealtimeAnnotationFeedback(items: List<TimelineAnnotationUiItem>) {
+    val recent = items.takeLast(3)
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            Text(
+                "本次标注 · ${items.size}",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Medium,
+            )
+            recent.forEach { item ->
+                val seconds = item.annotation.anchorSampleIndex.coerceAtLeast(0L) / 16_000L
+                val time = String.format(Locale.US, "%02d:%02d", seconds / 60L, seconds % 60L)
+                val content =
+                    when {
+                        !item.annotation.noteText.isNullOrBlank() -> item.annotation.noteText.orEmpty()
+                        item.photoCount > 0 -> "图片 ${item.photoCount} 张"
+                        else -> "快速标记"
+                    }
+                Text(
+                    "$time · $content",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+        }
     }
 }
 

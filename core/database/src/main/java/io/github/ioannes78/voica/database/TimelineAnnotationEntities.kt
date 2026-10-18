@@ -12,6 +12,7 @@ object TimelineAnnotationOwnershipStateValue {
 
 object TimelineAnnotationPendingOwnerKindValue {
     const val PHONE_CAPTURE = "PHONE_CAPTURE"
+    const val RECORDER_CAPTURE = "RECORDER_CAPTURE"
     const val REALTIME_RUN = "REALTIME_RUN"
 }
 

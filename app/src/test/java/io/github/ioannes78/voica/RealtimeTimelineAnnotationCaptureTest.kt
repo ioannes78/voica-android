@@ -64,7 +64,7 @@ class RealtimeTimelineAnnotationCaptureTest {
     }
 
     @Test
-    fun phoneUsesFormalWavWrittenSamplesAndPhoneCapturePendingOwner() {
+    fun phoneRealtimeUsesCurrentEpochLocalSamplesAndPhoneCapturePendingOwner() {
         val boundary =
             phoneRealtimeAnnotationBoundary(
                 runId = RUN_ID,
@@ -75,10 +75,11 @@ class RealtimeTimelineAnnotationCaptureTest {
                         canonicalSessionId = 33L,
                         activeEpochId = 4L,
                         writtenSamples = 48_000L,
+                        activeEpochSamples = 16_000L,
                     ),
             )
         requireNotNull(boundary)
-        assertEquals(48_000L, boundary.sampleIndex)
+        assertEquals(16_000L, boundary.sampleIndex)
 
         val target =
             buildRealtimeAnnotationCaptureTarget(
@@ -89,7 +90,7 @@ class RealtimeTimelineAnnotationCaptureTest {
         requireNotNull(target)
         assertEquals(TimelineAnnotationPendingOwnerKindValue.PHONE_CAPTURE, target.owner.kind)
         assertEquals(RECORDING_ID, target.owner.ownerId)
-        assertEquals(48_000L, target.anchor.sampleIndex)
+        assertEquals(16_000L, target.anchor.sampleIndex)
         assertEquals("phone-segment", target.anchor.realtimeSegmentIdSnapshot)
         assertEquals(33L, target.anchor.canonicalSessionIdSnapshot)
         assertEquals(4L, target.anchor.canonicalEpochIdSnapshot)
