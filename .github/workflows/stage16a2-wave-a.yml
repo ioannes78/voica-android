@@ -22,7 +22,11 @@ jobs:
           fetch-depth: 0
 
       - name: Apply revision wave A
-        run: python tools/stage16a2_wave_a_patch.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed -i 's/RealtimeTranscriptionUiController/RealtimeTranscriptionScreen/g' tools/stage16a2_wave_a_patch.py
+          python tools/stage16a2_wave_a_patch.py
 
       - name: Commit product changes and remove helper
         shell: bash
