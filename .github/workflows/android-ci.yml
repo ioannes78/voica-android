@@ -3,6 +3,7 @@ name: Android PR CI
 on:
   pull_request:
     branches: [ main ]
+    types: [opened, synchronize, reopened, edited]
     paths:
       - "app/**"
       - "core/**"
@@ -36,6 +37,11 @@ concurrency:
 jobs:
   fast-gate:
     name: Fast PR Gate
+    if: >-
+      ${{
+        (github.event_name == 'pull_request' && github.event.action != 'edited') ||
+        (github.event_name == 'workflow_dispatch' && inputs.mode == 'fast')
+      }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -123,9 +129,15 @@ jobs:
 
   qa-apk:
     name: QA APK Gate
+    # QA APK generation is edge-triggered: add the [APK] prefix to the PR title
+    # when the stage enters a real-device QA handoff. Keeping [APK] in the title
+    # does not rebuild an APK on later synchronize/push events.
     if: >-
       ${{
-        (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[APK]')) ||
+        (github.event_name == 'pull_request' &&
+          github.event.action == 'edited' &&
+          github.event.changes.title.from != null &&
+          startsWith(github.event.pull_request.title, '[APK]')) ||
         (github.event_name == 'workflow_dispatch' && inputs.mode == 'qa')
       }}
     runs-on: ubuntu-24.04
@@ -217,5 +229,5 @@ jobs:
           name: Voica-${{ env.VOICA_RELEASEQA_VERSION }}-apk
           path: app/build/outputs/apk/releaseQa/app-releaseQa.apk
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 1
           compression-level: 0
