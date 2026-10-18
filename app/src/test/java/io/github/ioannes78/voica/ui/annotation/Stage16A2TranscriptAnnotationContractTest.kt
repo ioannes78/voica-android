@@ -54,15 +54,22 @@ class Stage16A2TranscriptAnnotationContractTest {
     }
 
     @Test
-    fun transcriptTimelineEntryKeepsExactCueAndRevisionProvenanceRules() {
+    fun transcriptTimelineEntryKeepsExactCueRevisionAndUnifiedComposerRules() {
         val cards = appProductionSource("ui/transcript/TranscriptionCards.kt")
         val screen = appProductionSource("ui/library/RecordingDetailProductScreen.kt")
+        val composer = appProductionSource("ui/annotation/TimelineAnnotationComposerButton.kt")
+        val projection = appProductionSource("ui/transcript/TranscriptAnnotationProjection.kt")
         val viewModel = appProductionSource("ui/annotation/TimelineAnnotationViewModel.kt")
 
-        assertTrue(cards.contains("＋标注"))
+        assertTrue(cards.contains("annotationAction"))
         assertTrue(cards.contains("onLongPress = { position ->"))
         assertTrue(cards.contains("candidate.projectionQuality == TextProjectionQuality.EXACT"))
         assertTrue(cards.contains("onAddAnnotation(cue?.startSampleIndex ?: segment.startSampleIndex)"))
+        assertTrue(screen.contains("TimelineAnnotationComposerButton("))
+        assertTrue(composer.contains("Text(\"快速标记\")"))
+        assertTrue(composer.contains("Text(\"文字笔记\")"))
+        assertTrue(composer.contains("Text(\"拍照\")"))
+        assertTrue(composer.contains("Text(\"从相册添加\")"))
         assertTrue(viewModel.contains("fun createAtTranscriptSample("))
         assertTrue(viewModel.contains("sourceAssetId = sourceAssetId"))
         assertTrue(screen.contains("sourceTranscriptionIdSnapshot = transcriptionId"))
@@ -75,8 +82,14 @@ class Stage16A2TranscriptAnnotationContractTest {
                 screen.contains("annotationViewModel.createAtPlayback("),
         )
         assertTrue(
-            "Continuous reading remains separate from timeline annotation gestures",
-            screen.contains("TranscriptContinuousReading("),
+            "Reading mode projects annotations without polluting text selection",
+            screen.contains("TranscriptAnnotatedReading(") &&
+                projection.contains("DisableSelection"),
+        )
+        assertTrue(
+            "Current transcript projection is sample-based and never inferred from text length",
+            projection.contains("projection.sampleIndex >= candidate.startSampleIndex") &&
+                projection.contains("projection.sampleIndex < candidate.endSampleIndexExclusive"),
         )
     }
 
