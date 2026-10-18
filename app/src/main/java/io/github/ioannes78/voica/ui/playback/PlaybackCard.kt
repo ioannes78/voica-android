@@ -68,6 +68,8 @@ fun PlaybackCard(
     onSpeed: (Float) -> Unit,
     onRetry: () -> Unit,
     waveform: WaveformOverviewResult = WaveformOverviewResult.Unavailable,
+    annotationSampleIndices: List<Long> = emptyList(),
+    onWaveformLongPress: ((Long) -> Unit)? = null,
 ) {
     @Suppress("UNUSED_VARIABLE") val ignoredRecordingName = recordingName
     val totalSamples = snapshot.durationSampleCount.coerceAtLeast(0L)
@@ -92,6 +94,21 @@ fun PlaybackCard(
                 .coerceIn(0L, totalSamples)
         } else {
             0L
+        }
+    val annotationMarkerProgress =
+        if (totalSamples > 0L) {
+            annotationSampleIndices
+                .asSequence()
+                .filter { it in 0L..totalSamples }
+                .distinct()
+                .map { sample ->
+                    (sample.toDouble() / totalSamples.toDouble())
+                        .coerceIn(0.0, 1.0)
+                        .toFloat()
+                }
+                .toList()
+        } else {
+            emptyList()
         }
     val controlsEnabled =
         snapshot.state !in
@@ -193,6 +210,17 @@ fun PlaybackCard(
                                 .coerceIn(0L, totalSamples),
                         )
                     },
+                    markerProgress = annotationMarkerProgress,
+                    onLongPress =
+                        onWaveformLongPress?.let { callback ->
+                            { ratio ->
+                                callback(
+                                    (ratio * totalSamples.toDouble())
+                                        .roundToLong()
+                                        .coerceIn(0L, totalSamples),
+                                )
+                            }
+                        },
                 )
             } else {
                 Box(
@@ -381,9 +409,12 @@ private fun WaveformSeekOverview(
     onPreview: (Float) -> Unit,
     onCommit: () -> Unit,
     onTapSeek: (Double) -> Unit,
+    markerProgress: List<Float> = emptyList(),
+    onLongPress: ((Double) -> Unit)? = null,
 ) {
     val playedColor = MaterialTheme.colorScheme.primary
     val remainingColor = MaterialTheme.colorScheme.outlineVariant
+    val markerColor = MaterialTheme.colorScheme.tertiary
     Canvas(
         modifier =
             Modifier
@@ -391,9 +422,20 @@ private fun WaveformSeekOverview(
                 .height(72.dp)
                 .pointerInput(enabled) {
                     if (!enabled) return@pointerInput
-                    detectTapGestures { offset ->
-                        onTapSeek((offset.x / size.width.toFloat()).coerceIn(0f, 1f).toDouble())
-                    }
+                    detectTapGestures(
+                        onTap = { offset ->
+                            if (size.width > 0) {
+                                onTapSeek((offset.x / size.width.toFloat()).coerceIn(0f, 1f).toDouble())
+                            }
+                        },
+                        onLongPress = { offset ->
+                            if (size.width > 0) {
+                                onLongPress?.invoke(
+                                    (offset.x / size.width.toFloat()).coerceIn(0f, 1f).toDouble(),
+                                )
+                            }
+                        },
+                    )
                 }
                 .pointerInput(enabled) {
                     if (!enabled) return@pointerInput
@@ -422,6 +464,21 @@ private fun WaveformSeekOverview(
                 end = Offset(x, centerY + halfHeight),
                 strokeWidth = (step * 0.48f).coerceIn(2f, 7f),
                 cap = StrokeCap.Round,
+            )
+        }
+        markerProgress.forEach { ratio ->
+            val x = ratio.coerceIn(0f, 1f) * size.width
+            drawLine(
+                color = markerColor.copy(alpha = 0.78f),
+                start = Offset(x, 5f),
+                end = Offset(x, size.height - 5f),
+                strokeWidth = 2f,
+                cap = StrokeCap.Round,
+            )
+            drawCircle(
+                color = markerColor,
+                radius = 4f,
+                center = Offset(x, 6f),
             )
         }
     }

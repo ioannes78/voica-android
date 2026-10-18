@@ -67,6 +67,8 @@ fun RecordingPlaybackCard(
     canonicalProgress: CanonicalGenerationProgress?,
     deviceRecordingActive: Boolean,
     playbackViewModel: PlaybackViewModel,
+    annotationSampleIndices: List<Long> = emptyList(),
+    onWaveformLongPress: ((Long) -> Unit)? = null,
     onGenerateCanonical: () -> Unit,
     onCancelCanonical: () -> Unit,
 ) {
@@ -148,6 +150,8 @@ fun RecordingPlaybackCard(
                 onSpeed = playbackViewModel::setSpeed,
                 onRetry = playbackViewModel::retryCurrent,
                 waveform = waveform,
+                annotationSampleIndices = annotationSampleIndices,
+                onWaveformLongPress = onWaveformLongPress,
             )
 
         else ->

@@ -67,6 +67,7 @@ import io.github.ioannes78.voica.database.AudioValidationState
 import io.github.ioannes78.voica.database.RecordingLibraryItem
 import io.github.ioannes78.voica.database.SearchDocumentEntity
 import io.github.ioannes78.voica.database.SearchDocumentTypeValue
+import io.github.ioannes78.voica.database.TimelineAnnotationAnchorDomainValue
 import io.github.ioannes78.voica.database.TranscriptionEntity
 import io.github.ioannes78.voica.database.TranscriptionStateValue
 import io.github.ioannes78.voica.ui.ai.AiSummaryContentViewModel
@@ -228,6 +229,19 @@ internal fun RecordingDetailProductScreen(
     val currentAiSummaryId by qa4LifecycleViewModel.currentAiSummaryId.collectAsState()
     val syncState by transcriptPlaybackSyncViewModel.state.collectAsState()
     val playbackSnapshot by playbackViewModel.snapshot.collectAsState()
+    val annotationUiState by annotationViewModel.state.collectAsState()
+    val waveformAnnotationSamples =
+        annotationUiState.items
+            .asSequence()
+            .map { it.annotation }
+            .filter { annotation ->
+                annotation.recordingId == recording.id &&
+                    annotation.anchorDomain == TimelineAnnotationAnchorDomainValue.CANONICAL_RECORDING
+            }
+            .map { it.anchorSampleIndex }
+            .distinct()
+            .sorted()
+            .toList()
 
     val visibleTranscriptionCandidateId =
         candidateId?.takeUnless { it == candidateAttention?.dismissedTranscriptionCandidateId }
@@ -584,6 +598,14 @@ internal fun RecordingDetailProductScreen(
                                 canonicalProgress = canonicalProgress,
                                 deviceRecordingActive = deviceRecordingActive,
                                 playbackViewModel = playbackViewModel,
+                                annotationSampleIndices = waveformAnnotationSamples,
+                                onWaveformLongPress = { sampleIndex ->
+                                    annotationViewModel.createAtSample(
+                                        recording = recording,
+                                        playback = playbackSnapshot,
+                                        sampleIndex = sampleIndex,
+                                    )
+                                },
                                 onGenerateCanonical = { onGenerateCanonical(recording.id) },
                                 onCancelCanonical = { onCancelCanonical(recording.id) },
                             )
