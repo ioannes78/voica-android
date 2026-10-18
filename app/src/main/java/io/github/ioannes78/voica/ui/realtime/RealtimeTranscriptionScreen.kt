@@ -41,14 +41,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import io.github.ioannes78.voica.RealtimeAnnotationCaptureSource
 import io.github.ioannes78.voica.Stage16ARealtimeUiPhase
 import io.github.ioannes78.voica.Stage16ARealtimeUiState
+import io.github.ioannes78.voica.VoicaApplication
+import io.github.ioannes78.voica.ui.annotation.TimelineAnnotationViewModel
 import io.github.ioannes78.voica.ui.phone.LocalPhoneMicrophoneRecordingRuntime
+import io.github.ioannes78.voica.ui.playback.TimelineAnnotationPlaybackCoordinator
 import io.github.ioannes78.voica.ui.status.AppActivitySource
 import io.github.ioannes78.voica.ui.status.AppLiveActivityVisibility
 import io.github.ioannes78.voica.ui.status.LocalRecorderRecordingState
@@ -122,6 +128,42 @@ internal fun RealtimeTranscriptionScreen(
         } else {
             AppActivitySource.RECORDER_CARD
         }
+    val annotationSource =
+        if (activitySource == AppActivitySource.PHONE_MICROPHONE) {
+            RealtimeAnnotationCaptureSource.PHONE_MICROPHONE
+        } else {
+            RealtimeAnnotationCaptureSource.RECORDER_CARD
+        }
+    val application = LocalContext.current.applicationContext as VoicaApplication
+    val annotationPlaybackCoordinator =
+        remember(
+            application.container.playbackController,
+            application.container.timelineAnnotationAnchorResolver,
+        ) {
+            TimelineAnnotationPlaybackCoordinator(
+                controller = application.container.playbackController,
+                resolver = application.container.timelineAnnotationAnchorResolver,
+            )
+        }
+    val annotationViewModel: TimelineAnnotationViewModel =
+        viewModel(
+            key = "realtime-annotation-${activitySource.name}",
+            factory =
+                remember(
+                    application.container.timelineAnnotationRepository,
+                    annotationPlaybackCoordinator,
+                    application.container.timelineAnnotationAttachmentStore,
+                    application.container.timelineAnnotationContentCoordinator,
+                ) {
+                    TimelineAnnotationViewModel.Factory(
+                        repository = application.container.timelineAnnotationRepository,
+                        playbackCoordinator = annotationPlaybackCoordinator,
+                        attachmentStore = application.container.timelineAnnotationAttachmentStore,
+                        contentCoordinator = application.container.timelineAnnotationContentCoordinator,
+                    )
+                },
+        )
+    val annotationState by annotationViewModel.state.collectAsState()
     val detailSourceLabel =
         if (activitySource == AppActivitySource.PHONE_MICROPHONE) "手机" else "QS668 / CB08"
     val displayTitle =
@@ -267,12 +309,28 @@ internal fun RealtimeTranscriptionScreen(
         if (!visibleMessage.isNullOrBlank()) {
             Text(visibleMessage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(bottom = 8.dp))
         }
+        annotationState.notice?.let { notice ->
+            Text(
+                notice,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp)
+                        .clickable { annotationViewModel.dismissNotice() },
+            )
+        }
 
         RealtimeControls(
             state = state,
             canStart = canStart,
             actionInFlight = actionInFlight,
             startButtonLabel = startButtonLabel,
+            annotationBusy = annotationState.busy,
+            annotationSource = annotationSource,
+            annotationResolver = application.container.realtimeTimelineAnnotationCaptureResolver,
+            annotationViewModel = annotationViewModel,
             onStart = { launchAction(controller::start) },
             onPause = { launchAction(controller::pause) },
             onResume = { launchAction(controller::resume) },
@@ -343,6 +401,10 @@ private fun RealtimeControls(
     canStart: Boolean,
     actionInFlight: Boolean,
     startButtonLabel: String,
+    annotationBusy: Boolean,
+    annotationSource: RealtimeAnnotationCaptureSource,
+    annotationResolver: io.github.ioannes78.voica.RealtimeTimelineAnnotationCaptureResolver,
+    annotationViewModel: TimelineAnnotationViewModel,
     onStart: () -> Unit,
     onPause: () -> Unit,
     onResume: () -> Unit,
@@ -359,6 +421,13 @@ private fun RealtimeControls(
         Stage16ARealtimeUiPhase.ACTIVE,
         Stage16ARealtimeUiPhase.PAUSED,
         -> Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            RealtimeTimelineAnnotationMenuButton(
+                modifier = Modifier.weight(0.58f),
+                enabled = !actionInFlight && !annotationBusy,
+                source = annotationSource,
+                resolver = annotationResolver,
+                viewModel = annotationViewModel,
+            )
             Button(
                 onClick = if (state.phase == Stage16ARealtimeUiPhase.ACTIVE) onPause else onResume,
                 enabled = !actionInFlight,

@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import io.github.ioannes78.voica.TimelineAnnotationAttachmentStore
 import io.github.ioannes78.voica.TimelineAnnotationCameraCaptureTarget
+import io.github.ioannes78.voica.RealtimeAnnotationCaptureTarget
 import io.github.ioannes78.voica.TimelineAnnotationContentCoordinator
 import io.github.ioannes78.voica.audio.PlaybackSnapshot
 import io.github.ioannes78.voica.database.AudioAssetRole
@@ -186,6 +187,26 @@ class TimelineAnnotationViewModel(
                 provenance = provenance,
             )
             mutableState.update { it.copy(notice = "已从转写添加标注") }
+        }
+    }
+
+    fun createAtRealtime(
+        targetProvider: suspend () -> RealtimeAnnotationCaptureTarget?,
+        noteText: String? = null,
+        onCreated: (TimelineAnnotationEntity) -> Unit = {},
+    ) {
+        launchOperation {
+            val target =
+                targetProvider()
+                    ?: error("当前暂无可安全标注的音频位置")
+            val created =
+                repository.create(
+                    owner = target.owner,
+                    anchor = target.anchor,
+                    noteText = noteText,
+                )
+            mutableState.update { it.copy(notice = "已添加实时标注") }
+            onCreated(created)
         }
     }
 
