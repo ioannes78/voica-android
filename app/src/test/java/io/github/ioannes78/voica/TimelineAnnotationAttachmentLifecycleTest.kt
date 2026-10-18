@@ -223,10 +223,13 @@ class TimelineAnnotationAttachmentLifecycleTest {
 
     private fun createPng(name: String): File {
         val file = File(context.cacheDir, name)
-        Bitmap.createBitmap(3, 2, Bitmap.Config.ARGB_8888).use { bitmap ->
+        val bitmap = Bitmap.createBitmap(3, 2, Bitmap.Config.ARGB_8888)
+        try {
             FileOutputStream(file).use { output ->
                 check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output))
             }
+        } finally {
+            bitmap.recycle()
         }
         return file
     }
