@@ -1,0 +1,34 @@
+name: Stage 16A.2 Realtime Annotation UI
+
+on:
+  push:
+    branches: [stage16a2-timeline-annotation]
+    paths:
+      - '.github/workflows/stage16a2-realtime-annotation-ui.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Stage branch
+        uses: actions/checkout@v5
+        with:
+          ref: stage16a2-timeline-annotation
+          fetch-depth: 0
+      - name: Apply realtime annotation UI patch
+        run: python tools/stage16a2_patch_realtime_annotation_ui.py
+      - name: Commit patch and remove helpers
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/stage16a2-realtime-annotation-ui.yml
+          git rm tools/stage16a2_patch_realtime_annotation_ui.py
+          git add app/src/main/java/io/github/ioannes78/voica/ui/annotation/TimelineAnnotationViewModel.kt
+          git add app/src/main/java/io/github/ioannes78/voica/ui/realtime/RealtimeTimelineAnnotationMenuButton.kt
+          git add app/src/main/java/io/github/ioannes78/voica/ui/realtime/RealtimeTranscriptionScreen.kt
+          git commit -m 'feat(annotation): add realtime annotation menu'
+          git push origin HEAD:stage16a2-timeline-annotation
