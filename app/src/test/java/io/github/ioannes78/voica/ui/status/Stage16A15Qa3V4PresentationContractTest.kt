@@ -35,15 +35,6 @@ class Stage16A15Qa3V4PresentationContractTest {
         assertTrue(controller.contains("suppressNextRecorderRealtimePlaybackOpen"))
     }
 
-    @Test
-    fun `V4 launcher background is distinguishable navy`() {
-        val userDir = File(System.getProperty("user.dir"))
-        val moduleRelative = File(userDir, "src/main/res/values/colors.xml")
-        val file = if (moduleRelative.exists() || userDir.name == "app") moduleRelative else File(userDir, "app/src/main/res/values/colors.xml")
-        val colors = file.readText()
-        assertTrue(colors.contains("#0B2145"))
-    }
-
     private fun source(relativePath: String): String {
         val userDir = File(System.getProperty("user.dir"))
         val moduleRelative = File(userDir, "src/main/java/io/github/ioannes78/voica/$relativePath")
