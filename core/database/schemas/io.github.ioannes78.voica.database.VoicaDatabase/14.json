@@ -1,8 +1,8 @@
 {
   "formatVersion": 1,
   "database": {
-    "version": 13,
-    "identityHash": "a802016d5b6c4222c15eb054d0fccff3",
+    "version": 14,
+    "identityHash": "c60995f7ba406f15a3e786add6e70197",
     "entities": [
       {
         "tableName": "recordings",
@@ -4120,11 +4120,345 @@
             ]
           }
         ]
+      },
+      {
+        "tableName": "timeline_annotations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `recordingId` TEXT, `ownershipState` TEXT NOT NULL, `pendingOwnerKind` TEXT, `pendingOwnerId` TEXT, `anchorDomain` TEXT NOT NULL, `anchorSampleIndex` INTEGER NOT NULL, `anchorCanonicalAssetIdSnapshot` TEXT, `anchorCanonicalSha256Snapshot` TEXT, `anchorCanonicalProfileIdSnapshot` TEXT, `anchorRealtimeRunIdSnapshot` TEXT, `anchorRealtimeSegmentIdSnapshot` TEXT, `anchorRealtimeSegmentIndexSnapshot` INTEGER, `anchorCanonicalSessionIdSnapshot` INTEGER, `anchorCanonicalEpochIdSnapshot` INTEGER, `noteText` TEXT, `sourceTextSnapshot` TEXT, `sourceTranscriptionIdSnapshot` TEXT, `sourceRevisionIdSnapshot` TEXT, `sourceTranscriptSegmentIdSnapshot` TEXT, `sourceTimingQualitySnapshot` TEXT, `speakerLabelSnapshot` TEXT, `createdAtMs` INTEGER NOT NULL, `updatedAtMs` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`recordingId`) REFERENCES `recordings`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recordingId",
+            "columnName": "recordingId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "ownershipState",
+            "columnName": "ownershipState",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pendingOwnerKind",
+            "columnName": "pendingOwnerKind",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "pendingOwnerId",
+            "columnName": "pendingOwnerId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "anchorDomain",
+            "columnName": "anchorDomain",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "anchorSampleIndex",
+            "columnName": "anchorSampleIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "anchorCanonicalAssetIdSnapshot",
+            "columnName": "anchorCanonicalAssetIdSnapshot",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "anchorCanonicalSha256Snapshot",
+            "columnName": "anchorCanonicalSha256Snapshot",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "anchorCanonicalProfileIdSnapshot",
+            "columnName": "anchorCanonicalProfileIdSnapshot",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "anchorRealtimeRunIdSnapshot",
+            "columnName": "anchorRealtimeRunIdSnapshot",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "anchorRealtimeSegmentIdSnapshot",
+            "columnName": "anchorRealtimeSegmentIdSnapshot",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "anchorRealtimeSegmentIndexSnapshot",
+            "columnName": "anchorRealtimeSegmentIndexSnapshot",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "anchorCanonicalSessionIdSnapshot",
+            "columnName": "anchorCanonicalSessionIdSnapshot",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "anchorCanonicalEpochIdSnapshot",
+            "columnName": "anchorCanonicalEpochIdSnapshot",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "noteText",
+            "columnName": "noteText",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceTextSnapshot",
+            "columnName": "sourceTextSnapshot",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceTranscriptionIdSnapshot",
+            "columnName": "sourceTranscriptionIdSnapshot",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceRevisionIdSnapshot",
+            "columnName": "sourceRevisionIdSnapshot",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceTranscriptSegmentIdSnapshot",
+            "columnName": "sourceTranscriptSegmentIdSnapshot",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceTimingQualitySnapshot",
+            "columnName": "sourceTimingQualitySnapshot",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "speakerLabelSnapshot",
+            "columnName": "speakerLabelSnapshot",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAtMs",
+            "columnName": "createdAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtMs",
+            "columnName": "updatedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_timeline_annotations_recordingId",
+            "unique": false,
+            "columnNames": [
+              "recordingId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_timeline_annotations_recordingId` ON `${TABLE_NAME}` (`recordingId`)"
+          },
+          {
+            "name": "index_timeline_annotations_recordingId_anchorDomain_anchorSampleIndex",
+            "unique": false,
+            "columnNames": [
+              "recordingId",
+              "anchorDomain",
+              "anchorSampleIndex"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_timeline_annotations_recordingId_anchorDomain_anchorSampleIndex` ON `${TABLE_NAME}` (`recordingId`, `anchorDomain`, `anchorSampleIndex`)"
+          },
+          {
+            "name": "index_timeline_annotations_ownershipState",
+            "unique": false,
+            "columnNames": [
+              "ownershipState"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_timeline_annotations_ownershipState` ON `${TABLE_NAME}` (`ownershipState`)"
+          },
+          {
+            "name": "index_timeline_annotations_pendingOwnerKind_pendingOwnerId",
+            "unique": false,
+            "columnNames": [
+              "pendingOwnerKind",
+              "pendingOwnerId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_timeline_annotations_pendingOwnerKind_pendingOwnerId` ON `${TABLE_NAME}` (`pendingOwnerKind`, `pendingOwnerId`)"
+          },
+          {
+            "name": "index_timeline_annotations_recordingId_createdAtMs",
+            "unique": false,
+            "columnNames": [
+              "recordingId",
+              "createdAtMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_timeline_annotations_recordingId_createdAtMs` ON `${TABLE_NAME}` (`recordingId`, `createdAtMs`)"
+          },
+          {
+            "name": "index_timeline_annotations_recordingId_anchorRealtimeSegmentIdSnapshot_anchorSampleIndex",
+            "unique": false,
+            "columnNames": [
+              "recordingId",
+              "anchorRealtimeSegmentIdSnapshot",
+              "anchorSampleIndex"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_timeline_annotations_recordingId_anchorRealtimeSegmentIdSnapshot_anchorSampleIndex` ON `${TABLE_NAME}` (`recordingId`, `anchorRealtimeSegmentIdSnapshot`, `anchorSampleIndex`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "recordings",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "recordingId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "timeline_annotation_attachments",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `annotationId` TEXT NOT NULL, `kind` TEXT NOT NULL, `source` TEXT NOT NULL, `relativePath` TEXT NOT NULL, `mimeType` TEXT NOT NULL, `sizeBytes` INTEGER NOT NULL, `sha256` TEXT NOT NULL, `widthPx` INTEGER, `heightPx` INTEGER, `lifecycleState` TEXT NOT NULL, `createdAtMs` INTEGER NOT NULL, `updatedAtMs` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`annotationId`) REFERENCES `timeline_annotations`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "annotationId",
+            "columnName": "annotationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "relativePath",
+            "columnName": "relativePath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mimeType",
+            "columnName": "mimeType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sizeBytes",
+            "columnName": "sizeBytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sha256",
+            "columnName": "sha256",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "widthPx",
+            "columnName": "widthPx",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "heightPx",
+            "columnName": "heightPx",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lifecycleState",
+            "columnName": "lifecycleState",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtMs",
+            "columnName": "createdAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtMs",
+            "columnName": "updatedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_timeline_annotation_attachments_annotationId",
+            "unique": false,
+            "columnNames": [
+              "annotationId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_timeline_annotation_attachments_annotationId` ON `${TABLE_NAME}` (`annotationId`)"
+          },
+          {
+            "name": "index_timeline_annotation_attachments_lifecycleState",
+            "unique": false,
+            "columnNames": [
+              "lifecycleState"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_timeline_annotation_attachments_lifecycleState` ON `${TABLE_NAME}` (`lifecycleState`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "timeline_annotations",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "annotationId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'a802016d5b6c4222c15eb054d0fccff3')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'c60995f7ba406f15a3e786add6e70197')"
     ]
   }
 }
