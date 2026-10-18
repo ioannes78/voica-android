@@ -1,0 +1,39 @@
+name: Stage 16A.2 Fix Panel Weight
+
+on:
+  push:
+    branches: [stage16a2-timeline-annotation]
+    paths:
+      - '.github/workflows/stage16a2-fix-panel-weight.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Stage branch
+        uses: actions/checkout@v5
+        with:
+          ref: stage16a2-timeline-annotation
+          fetch-depth: 0
+      - name: Remove invalid explicit weight import
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('app/src/main/java/io/github/ioannes78/voica/ui/annotation/TimelineAnnotationPanel.kt')
+          source = path.read_text()
+          needle = 'import androidx.compose.foundation.layout.weight\n'
+          if source.count(needle) != 1:
+              raise SystemExit(f'expected one weight import, found {source.count(needle)}')
+          path.write_text(source.replace(needle, '', 1))
+      - name: Commit patch and remove helper
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/stage16a2-fix-panel-weight.yml
+          git add app/src/main/java/io/github/ioannes78/voica/ui/annotation/TimelineAnnotationPanel.kt
+          git commit -m 'fix(annotation): use scoped layout weight extension'
+          git push origin HEAD:stage16a2-timeline-annotation
