@@ -66,7 +66,7 @@ internal fun RealtimeTimelineAnnotationMenuButton(
             }
         }
 
-    fun resolveTarget() = resolver.resolve(source)
+    suspend fun resolveTarget() = resolver.resolve(source)
 
     fun openCamera(annotationId: String) {
         viewModel.prepareCamera(annotationId) { target ->
