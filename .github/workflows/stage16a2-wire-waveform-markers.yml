@@ -29,6 +29,12 @@ jobs:
                   raise SystemExit(f'{label}: expected one match, found {count}')
               return source.replace(old, new, 1)
 
+          def first(source, old, new, label):
+              count = source.count(old)
+              if count < 1:
+                  raise SystemExit(f'{label}: expected at least one match, found {count}')
+              return source.replace(old, new, 1)
+
           playback = Path('app/src/main/java/io/github/ioannes78/voica/ui/playback/PlaybackCard.kt')
           s = playback.read_text()
           s = one(s,
@@ -47,7 +53,7 @@ jobs:
               '    onCommit: () -> Unit,\n    onTapSeek: (Double) -> Unit,\n) {\n    val playedColor = MaterialTheme.colorScheme.primary\n    val remainingColor = MaterialTheme.colorScheme.outlineVariant',
               '    onCommit: () -> Unit,\n    onTapSeek: (Double) -> Unit,\n    markerProgress: List<Float> = emptyList(),\n    onLongPress: ((Double) -> Unit)? = null,\n) {\n    val playedColor = MaterialTheme.colorScheme.primary\n    val remainingColor = MaterialTheme.colorScheme.outlineVariant\n    val markerColor = MaterialTheme.colorScheme.tertiary',
               'WaveformSeekOverview signature')
-          s = one(s,
+          s = first(s,
               '                    detectTapGestures { offset ->\n                        onTapSeek((offset.x / size.width.toFloat()).coerceIn(0f, 1f).toDouble())\n                    }',
               '                    detectTapGestures(\n                        onTap = { offset ->\n                            if (size.width > 0) {\n                                onTapSeek((offset.x / size.width.toFloat()).coerceIn(0f, 1f).toDouble())\n                            }\n                        },\n                        onLongPress = { offset ->\n                            if (size.width > 0) {\n                                onLongPress?.invoke(\n                                    (offset.x / size.width.toFloat()).coerceIn(0f, 1f).toDouble(),\n                                )\n                            }\n                        },\n                    )',
               'waveform gestures')
