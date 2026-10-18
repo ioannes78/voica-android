@@ -190,7 +190,7 @@ class TimelineAnnotationViewModel(
         }
     }
 
-    fun createAtRealtime(
+    internal fun createAtRealtime(
         targetProvider: suspend () -> RealtimeAnnotationCaptureTarget?,
         noteText: String? = null,
         onCreated: (TimelineAnnotationEntity) -> Unit = {},
