@@ -76,6 +76,7 @@ fun RecordingDetailScreen(
     }
 
     var vadBenchmarkOpen by rememberSaveable(recording.id) { mutableStateOf(false) }
+    var longFileBenchmarkOpen by rememberSaveable(recording.id) { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         RecordingDetailProductScreen(
@@ -112,6 +113,15 @@ fun RecordingDetailScreen(
 
         if (speechBenchmarkRunner != null) {
             TextButton(
+                onClick = { longFileBenchmarkOpen = true },
+                modifier =
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 12.dp, bottom = 52.dp),
+            ) {
+                Text("A4 QA")
+            }
+            TextButton(
                 onClick = { vadBenchmarkOpen = true },
                 modifier =
                     Modifier
@@ -139,6 +149,23 @@ fun RecordingDetailScreen(
                     runner = speechBenchmarkRunner,
                     recordingId = recording.id,
                 )
+            }
+        }
+    }
+
+    if (longFileBenchmarkOpen && speechBenchmarkRunner != null) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { longFileBenchmarkOpen = false },
+            sheetState = sheetState,
+        ) {
+            Column(
+                modifier =
+                    Modifier
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .verticalScroll(rememberScrollState()),
+            ) {
+                Stage16BLongFileBenchmarkSheet(recordingId = recording.id)
             }
         }
     }
