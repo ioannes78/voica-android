@@ -39,8 +39,14 @@ object VoicaModelChannel {
     fun isDebuggable(application: Application): Boolean =
         application.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
 
+    private fun isCandidateModelChannelAllowed(application: Application): Boolean =
+        candidateModelChannelAllowed(
+            isDebuggable = isDebuggable(application),
+            buildAllowsCandidateChannel = BuildConfig.ALLOW_CANDIDATE_MODEL_CHANNEL,
+        )
+
     fun configuredDebugManifestUrl(application: Application): String? {
-        if (!isDebuggable(application)) return null
+        if (!isCandidateModelChannelAllowed(application)) return null
         val preferences =
             application.getSharedPreferences(PREFERENCES_NAME, Application.MODE_PRIVATE)
         val configured =
@@ -63,8 +69,8 @@ object VoicaModelChannel {
         application: Application,
         manifestUrl: String?,
     ) {
-        check(isDebuggable(application)) {
-            "candidate model channel override is debug-only"
+        check(isCandidateModelChannelAllowed(application)) {
+            "candidate model channel override is restricted to debug/QA builds"
         }
         val preferences =
             application.getSharedPreferences(
@@ -106,6 +112,11 @@ object VoicaModelChannel {
                 url.path.endsWith("/production.json")
         }.getOrDefault(false)
 }
+
+internal fun candidateModelChannelAllowed(
+    isDebuggable: Boolean,
+    buildAllowsCandidateChannel: Boolean,
+): Boolean = isDebuggable || buildAllowsCandidateChannel
 
 internal fun isPromotedStage13aDebugManifestUrl(value: String): Boolean =
     runCatching {
