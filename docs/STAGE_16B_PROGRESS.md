@@ -1,6 +1,6 @@
 # Stage 16B — Local File ASR V2 Progress
 
-Status: **IN PROGRESS — 16B.1 CANDIDATE RUNTIME INTEGRATION**
+Status: **IN PROGRESS — 16B.1 CANDIDATE RUNTIME INTEGRATION / GATE A EXPANDED TO THREE VADS**
 
 Repository: `ioannes78/voica-android`
 
@@ -8,9 +8,9 @@ Development branch: `stage16b-local-file-asr-v2`
 
 Base `main`: `988931ebed72a70ba799d909cd36a416a673eef5`
 
-Requirements baseline: **Stage 16B revised requirements V5 — confirmed by user**
+Requirements baseline: **Stage 16B revised requirements V5 — confirmed by user, with subsequent explicit TEN-VAD Gate A amendment**
 
-Development-plan baseline: **Stage 16B development plan V1 — confirmed by user**
+Development-plan baseline: **Stage 16B development plan V1 — confirmed by user, with subsequent explicit TEN-VAD Gate A amendment**
 
 ## Frozen starting identity
 
@@ -28,28 +28,48 @@ Development-plan baseline: **Stage 16B development plan V1 — confirmed by user
 - Stage 16B does not modify QS668/CB08 BLE protocol, Android Audio I/O ownership, playback ownership, or Stage 16A.2 annotation ownership.
 - Production model-channel changes require a separate explicit promotion gate and user authorization.
 - CI success never substitutes for real-device QA.
-- Status must remain explicit: `AUTOMATED PASS`, `REAL-DEVICE PASS`, `NOT RUN`, `NOT VERIFIED`, or `WAIVED` as applicable.
+- Status remains explicit: `AUTOMATED PASS`, `REAL-DEVICE PASS`, `NOT RUN`, `NOT VERIFIED`, or `WAIVED` as applicable.
 
 ## Mandatory Stage 16B gates
 
 ### Gate A — VAD Matrix Gate
 
-Candidates:
+Candidates are now explicitly three-way:
 
-- Silero VAD — current production baseline
-- FSMN-VAD — Stage 16B challenger
+- **Silero VAD** — current production baseline
+- **FSMN-VAD** — Stage 16B challenger
+- **TEN-VAD** — Stage 16B challenger added by explicit user amendment
 
 Required before final local-file VAD selection:
 
-- boundary-quality benchmark
-- downstream ASR impact
-- diarization impact
-- resource/performance comparison
-- representative long-file validation
+- same canonical PCM inputs;
+- frozen and recorded per-VAD configuration;
+- speech recall / precision where labelled references exist;
+- start/end boundary error and sentence-start/sentence-end loss;
+- missed-speech and false-speech duration;
+- segment count, short-fragment count and forced-split count;
+- VAD RTF / wall time / memory impact;
+- downstream ASR impact using the same ASR, with SenseVoice as the first low-confound reference path;
+- representative diarization impact;
+- representative long-file validation after the initial shortlist.
 
-If results are materially equivalent, retain Silero. FSMN replaces Silero only with clear full-pipeline evidence.
+Decision principle:
 
-For Gate A, VAD post-processing policy is part of the benchmark configuration and must be frozen explicitly. The first reproducible FSMN comparison will use the pinned model/config end-silence semantics rather than silently varying the silence threshold with accumulated speech duration.
+- if results are materially equivalent, retain Silero to avoid unnecessary migration;
+- FSMN or TEN replaces Silero only with clear full-pipeline evidence;
+- do not bind a different VAD to each ASR unless later evidence shows a large, stable, explicitly approved model-specific benefit.
+
+For Gate A, VAD post-processing policy is part of the benchmark configuration and must be frozen explicitly.
+
+FSMN first reproducible baseline must use the pinned ONNX semantics:
+
+- `max_end_silence_time = 800 ms`
+- `speech_to_silence = 150 ms`
+- `lookahead_end = 100 ms`
+
+The current dynamic FSMN silence schedule may later be benchmarked only as a separate tuning variant; it must not be silently mixed into the baseline.
+
+TEN-VAD baseline parameters will be frozen from the exact sherpa-onnx `v1.13.8` candidate model/runtime path before Gate A rather than copied from another release or project.
 
 ### Gate B — ASR Model Matrix Gate
 
@@ -67,11 +87,11 @@ The gate must decide the long-term product matrix; model count is not predetermi
 
 Stage 16B includes a model-independent `AsrContextLexicon` product capability.
 
-The design must keep separate:
+The design keeps separate:
 
-- model-level context bias / hotwords
-- deterministic or derived text correction
-- immutable raw machine ASR evidence
+- model-level context bias / hotwords;
+- deterministic or derived text correction;
+- immutable raw machine ASR evidence.
 
 Each transcription run must retain an immutable effective-context snapshot or equivalent reproducible lineage.
 
@@ -109,6 +129,8 @@ Status: **IN PROGRESS**
 
 ### Fun-ASR-Nano candidate
 
+Status: **AUTOMATED PASS / REAL-DEVICE NOT VERIFIED**
+
 Implemented in the existing sherpa large-offline-ASR adapter:
 
 - runtime model type `funasr-nano`;
@@ -123,12 +145,12 @@ Implemented in the existing sherpa large-offline-ASR adapter:
 - token timing is **not** pre-declared as production-supported; Stage 16B requires actual candidate/runtime verification;
 - layout validation tests reject missing/empty tokenizer state before native load.
 
-Runtime compatibility was checked against sherpa-onnx `v1.13.8`, the runtime currently pinned by Voica. In that runtime, Fun-ASR-Nano and Qwen3-ASR intentionally use tokenizer directories and do not require a `tokens.txt` path.
+Runtime compatibility was checked against sherpa-onnx `v1.13.8`, the runtime currently pinned by Voica.
 
 Candidate model-channel path:
 
 - candidate branch: `ioannes78/voica-model-channel:stage16b-funasr-nano-candidate`
-- prerelease tag/release: `candidate-funasr-nano-r1`
+- prerelease: `candidate-funasr-nano-r1`
 - candidate manifest URL: `https://github.com/ioannes78/voica-model-channel/releases/download/candidate-funasr-nano-r1/production.json`
 - candidate manifestVersion: `8`
 - candidate manifestDigest: `a05fab6a9f6464762a38e1a023c8f96f83db2fbe24585a766a14e2279aa12063`
@@ -137,33 +159,13 @@ Candidate model-channel path:
 - required installed files total: `1010070962` bytes
 - candidate package/inner-file verification workflow `39228400994`: **SUCCESS**
 
-The production model-channel `main` remains unchanged at `be74c7065ce22a5f9b207a7cf1c88d3be0e872ec` / manifestVersion `7`.
-
-QA-only candidate tooling boundary:
-
-- pinned production model IDs continue to exclude `funasr-nano-int8`;
-- Debug and `releaseQa` may use candidate release manifests;
-- formal `release` keeps candidate-channel tooling disabled;
-- the normal product offline-ASR matrix remains unchanged.
-
-Automation evidence:
-
-- Fun-ASR adapter Android PR CI `#1803` / run `39227036295`: **SUCCESS**
-- candidate-channel / QA tooling Android PR CI `#1810` / run `39229577661`: **SUCCESS**
-- Fast PR Gate: **SUCCESS**
-- Android Production Gate `#660`: **SKIPPED by policy**
-
-Production-like candidate QA APK:
+Production-like candidate QA APK evidence:
 
 - Android PR CI `#1811` / run `39229974350`: **SUCCESS**
 - QA APK Gate: **SUCCESS**
-- Build / R8 verification / release-artifact verification / security-model-channel verification / sherpa native-package verification: **SUCCESS**
 - artifact ID: `12176594114`
-- artifact ZIP digest: `sha256:797955d78507e17567f18fa1450e1dd14fc2afe85773d692007d722a8bbe358b`
-- artifact retention: `1 day`
 - verified package: `io.github.ioannes78.voica.qa`
 - verified version: `1.1.0-stage16a2-export-qa (92)`
-- signing identity: `qa`
 
 Current Fun-ASR status:
 
@@ -174,76 +176,145 @@ Current Fun-ASR status:
 - candidate model download/resume/integrity on real device: **NOT VERIFIED**
 - isolated native runtime validation on real device: **NOT VERIFIED**
 - atomic candidate activation on real device: **NOT VERIFIED**
-- real-device transcription quality/punctuation/hotword/timestamp behavior: **NOT RUN / NOT VERIFIED**
+- transcription quality/punctuation/hotword/timestamp behavior: **NOT RUN / NOT VERIFIED**
 
 ### FSMN-VAD candidate
 
-Status: **CANDIDATE ENGINE IMPLEMENTED — AUTOMATED PASS / REAL-DEVICE NOT VERIFIED**
+Status: **AUTOMATED PASS / CANDIDATE RUNTIME BRING-UP REAL-DEVICE PASS / QUALITY GATE NOT RUN**
 
 Implemented:
 
 - dedicated `engine:fsmn` Android module;
-- existing `VadEngine` contract reused; no second VAD state machine was added to the transcription domain;
-- canonical PCM contract remains 16 kHz / mono / PCM16;
+- existing `VadEngine` contract reused;
+- canonical PCM remains 16 kHz / mono / PCM16;
 - bounded sequential PCM reads with sample-index `SpeechSegment` output;
 - incremental FBank / LFR / CMVN frontend;
-- four FSMN cache tensors (`128 x 19`) maintained across incremental inference;
-- native ONNX inputs `speech + in_cache0..3` and outputs `logits + out_cache0..3` validated against the candidate model contract;
-- existing APK `libonnxruntime.so` is resolved dynamically via `dlopen` / `OrtGetApiBase`;
-- no second ONNX Runtime library is packaged or linked by the FSMN candidate JNI;
-- FSMN runtime identity is candidate-only: `voica-fsmn-ort / 1.0.0`;
-- candidate model ID is `fsmn-vad-int8` and remains excluded from the pinned production model catalog;
-- Debug / `qa` / `releaseQa` may package the FSMN candidate runtime; formal `release` does not depend on `engine:fsmn`;
-- isolated `:model_validator` routes FSMN descriptors to `FsmnModelCandidateValidator` without creating a compile-time App dependency on the candidate runtime;
-- validator smoke test covers native library load, shared ONNX Runtime resolution, model/CMVN initialization and one bounded inference pass;
-- R8/JNI keep rules protect the reflection and native ABI used only by candidate builds.
+- four FSMN cache tensors (`128 x 19`) across incremental inference;
+- native ONNX I/O `speech + in_cache0..3` and `logits + out_cache0..3`;
+- existing APK `libonnxruntime.so` resolved dynamically via `dlopen` / `OrtGetApiBase`;
+- no second ONNX Runtime packaged or linked;
+- candidate runtime identity `voica-fsmn-ort / 1.0.0`;
+- candidate model ID `fsmn-vad-int8` excluded from pinned production catalog;
+- Debug / `qa` / `releaseQa` may package the candidate runtime; formal `release` does not depend on `engine:fsmn`;
+- isolated `:model_validator` routes FSMN descriptors through the candidate validator;
+- validator smoke covers native load, shared ORT resolution, model/CMVN initialization and bounded inference;
+- R8/JNI rules preserve the reflection/native ABI used by candidate builds.
 
-Pinned upstream candidate assets prepared for model-channel packaging:
+Pinned upstream candidate assets:
 
-- upstream repository: `funasr/fsmn-vad-onnx`;
-- fixed upstream revision: `eeb66f413b94a33458f7edbe7f501b10f20fcc85`;
-- `model_quant.onnx`: `508876` bytes, SHA-256 `9b28837838fce9685503c63139fadbad35d6c8ed485485dafdbb32e725969660`;
-- `vad.mvn`: `8040` bytes, SHA-256 `6820fef9687708c4fc3fab2530179c8fcea6262daa25514380056cd8f6eb1754`;
-- upstream license: Apache-2.0.
+- upstream repository: `funasr/fsmn-vad-onnx`
+- fixed revision: `eeb66f413b94a33458f7edbe7f501b10f20fcc85`
+- `model_quant.onnx`: `508876` bytes / SHA-256 `9b28837838fce9685503c63139fadbad35d6c8ed485485dafdbb32e725969660`
+- `vad.mvn`: `8040` bytes / SHA-256 `6820fef9687708c4fc3fab2530179c8fcea6262daa25514380056cd8f6eb1754`
+- license: Apache-2.0
 
-Automated runtime-boundary verification checks:
+FSMN candidate model channel:
 
-- arm64-v8a candidate JNI is produced;
-- no FSMN-owned `libonnxruntime.so` is packaged;
-- no additional ABI is introduced;
-- FSMN JNI has no `DT_NEEDED` dependency on `libonnxruntime.so`;
-- candidate JNI remains under the configured size bound.
+- branch: `stage16b-fsmn-vad-candidate`
+- prerelease: `candidate-fsmn-vad-r1`
+- manifest URL: `https://github.com/ioannes78/voica-model-channel/releases/download/candidate-fsmn-vad-r1/production.json`
+- candidate manifestDigest: `74789e3befd2e85eba5a1f2d61e5635b7e132817acd4307a39500b561faf9300`
+- package: `478102` bytes / SHA-256 `719be2c2243b11069f6701fb6c478ffd1dc4f342d93753c438a0f13c7e4769e8`
+- installed size: `516916` bytes
+- candidate workflow `39241804263`: **SUCCESS**
 
-Automation evidence:
+Android automation at candidate head `5c6bd529a07cd52effc9ddccf1c96b7b240e9b65`:
 
-- Android PR CI `#1844` / run `39241110395`: **SUCCESS**
+- Android PR CI `#1849` / run `39242383824`: **SUCCESS**
 - Unit tests and debug compile gate: **SUCCESS**
 - Verify FSMN candidate runtime boundary: **SUCCESS**
-- QA APK Gate: **SKIPPED by policy**
-- Android Production Gate `#691` / run `39241110498`: **SKIPPED by policy**
-- verified candidate head: `58d7098c1b37e5c1e67d1ed67ad9da7372b324d3`
+- Production Gate `#695`: **SKIPPED by policy**
 
-Current FSMN status:
+Production-like FSMN QA APK:
 
-- candidate engine implementation: **AUTOMATED PASS**
-- single-ORT packaging/runtime boundary: **AUTOMATED PASS**
-- QA-only isolated validator routing: **AUTOMATED PASS**
-- candidate model-channel prerelease/package: **NOT RUN / NOT VERIFIED**
-- model download/resume/integrity on real device: **NOT VERIFIED**
-- isolated FSMN model init/inference on real device: **NOT VERIFIED**
-- VAD segmentation quality / boundary accuracy: **NOT RUN / NOT VERIFIED**
-- Gate A Silero-vs-FSMN comparison: **NOT RUN**
+- Android PR CI `#1850` / run `39256583378`: **SUCCESS**
+- QA APK Build / Verify / Upload: **SUCCESS**
+- artifact ID: `12188580296`
+- artifact ZIP digest: `sha256:64797f56a93b17cf037147bab1447dcc3248199631f9a8d195437736c30d59e5`
+- APK size: `32015616` bytes
+- APK SHA-256: `89f7f844ba172d69a745b0bf389579e1aa827ad3cc9c336215b47d1b664031c6`
+- package: `io.github.ioannes78.voica.qa`
+- version: `1.1.0-stage16a2-export-qa (92)`
 
-Post-processing note before Gate A:
+Real-device bring-up evidence:
 
-The current candidate endpoint implementation follows FunASR's current dynamic silence schedule. For the first reproducible VAD matrix comparison, Stage 16B will explicitly freeze the FSMN end-silence policy to the pinned model/config semantics (`max_end_silence_time=800 ms`, `speech_to_silence=150 ms`, `lookahead_end=100 ms`) rather than allowing accumulated-speech duration to change the threshold. Dynamic silence can be benchmarked later as a separate tuning variant if FSMN survives Gate A.
+- candidate manifest selected successfully;
+- `FSMN VAD INT8` revision `eeb66f4` downloaded, validated and activated;
+- model UI showed available revision `eeb66f4` and current revision `eeb66f4`;
+- candidate download → file integrity → isolated runtime validation → activation main chain: **REAL-DEVICE PASS**;
+- interrupted-download resume behavior: **NOT VERIFIED**;
+- segmentation quality / boundary accuracy: **NOT RUN**;
+- Gate A quality comparison: **NOT RUN**.
+
+### TEN-VAD candidate
+
+Status: **RUNTIME API VERIFIED / CANDIDATE MODEL PACKAGE NOT YET INTEGRATED / REAL-DEVICE NOT VERIFIED**
+
+Scope amendment:
+
+TEN-VAD is now a formal Gate A challenger alongside Silero and FSMN.
+
+Runtime facts verified against the exact Voica-pinned sherpa-onnx `v1.13.8` Kotlin API:
+
+- `TenVadModelConfig` is natively available;
+- TEN-VAD uses the same sherpa `Vad` API family as Silero;
+- `VadConfig` can carry either `SileroVadModelConfig` or `TenVadModelConfig`;
+- sample-rate baseline is 16 kHz;
+- `TenVadModelConfig` exposes threshold, minimum silence duration, minimum speech duration, maximum speech duration, window size, thread count, debug and provider settings;
+- v1.13.8 defaults include threshold `0.5`, min silence `0.25 s`, min speech `0.25 s`, max speech `20 s`, window size `256`, one thread and CPU provider.
+
+Integration consequence:
+
+- no new inference runtime is required;
+- no FSMN-style second JNI/runtime bridge is required;
+- implementation should remain inside the existing sherpa VAD adapter family;
+- TEN-VAD remains candidate-only until Gate A and explicit later product decision;
+- exact model asset, immutable source/revision, package/file hashes and redistribution license must be pinned before candidate-channel publication;
+- production model channel and current Silero product baseline remain unchanged.
+
+Current TEN-VAD status:
+
+- exact sherpa-onnx v1.13.8 Android/Kotlin API support: **VERIFIED**
+- model asset/license/digest pin: **NOT RUN / NOT VERIFIED**
+- Android adapter integration: **NOT RUN**
+- candidate model-channel package/prerelease: **NOT RUN**
+- real-device download/validation/activation: **NOT VERIFIED**
+- VAD quality benchmark: **NOT RUN**
+
+## Gate A benchmark execution policy after TEN amendment
+
+The first comparison will avoid a wasteful full Cartesian long-recording matrix.
+
+Phase A1 — same-input three-VAD core benchmark:
+
+`Canonical PCM → Silero / FSMN / TEN → independent VAD metrics`
+
+Phase A2 — downstream reference-ASR benchmark:
+
+`Silero / FSMN / TEN → same SenseVoice path → CER/WER + sentence-boundary loss + total time`
+
+Phase A3 — representative diarization impact:
+
+- VAD segment count;
+- downstream speaker-segmentation / CAM++ embedding workload;
+- clustering time;
+- speaker fragmentation/confusion on representative multi-speaker samples.
+
+Phase A4 — long-file validation only after initial shortlist:
+
+- 10–15 min: all three candidates;
+- 30 min: candidates still competitive after A1/A2;
+- 60/120 min: final Gate A finalists as applicable.
+
+Only if a VAD appears strongly coupled to a specific ASR will a representative `3 VAD × 3 ASR` interaction subset be run. It is not the default first benchmark.
 
 ## Product-state non-changes
 
-At the current 16B.1 point:
+At the current Stage 16B point:
 
 - Fun-ASR-Nano is **not** in the normal product offline-ASR matrix;
 - FSMN-VAD is **not** the product VAD;
+- TEN-VAD is **not** the product VAD;
 - Silero remains the current production file-ASR VAD baseline;
 - SenseVoice / Qwen3 product selection remains unchanged;
 - Room remains `v14`;
@@ -252,11 +323,14 @@ At the current 16B.1 point:
 
 ## Next planned work
 
-1. Package and publish the pinned FSMN files through a candidate-only model-channel prerelease; production manifest remains unchanged.
-2. Build a production-like `releaseQa` APK containing the candidate runtime only in the QA variant.
-3. Real-device FSMN bring-up: candidate manifest selection → download/resume/integrity → isolated runtime validation → atomic activation → short VAD smoke.
-4. Freeze the reproducible FSMN end-silence policy before quality benchmarking.
-5. Complete the equivalent pending Fun-ASR candidate-channel real-device bring-up.
-6. Only after Silero and FSMN are both technically testable may Stage 16B run the full VAD benchmark and Gate A.
+1. Pin TEN-VAD's exact sherpa-compatible model asset, immutable source/revision, hashes and redistribution license.
+2. Integrate TEN-VAD through the existing sherpa VAD adapter family and candidate-only model catalog; do not add a new runtime.
+3. Freeze FSMN's first Gate A baseline to the pinned ONNX endpoint semantics (`800/150/100 ms`).
+4. Build one Gate A QA path capable of running the same canonical recording through Silero, FSMN and TEN with frozen per-candidate configs.
+5. Complete automated tests and Fast PR Gate.
+6. Complete TEN candidate real-device download/validation/activation smoke.
+7. Run the three-way VAD Matrix Gate A benchmark and produce `Stage 16B VAD Benchmark Report`.
+8. Stop for explicit user VAD selection before the final three-ASR benchmark.
+9. Complete the pending Fun-ASR real-device candidate bring-up before ASR Model Matrix Gate B.
 
 This progress document records development state only. It is not a Freeze or Handoff document.
