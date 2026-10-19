@@ -123,6 +123,8 @@ private val PROMOTED_STAGE13A_CANDIDATE_PATHS =
         "/ioannes78/voica-model-channel/releases/download/candidate-stage13a-streaming-asr-r1/production.json",
     )
 
+internal const val STAGE16B_FUNASR_NANO_CANDIDATE_ID = "funasr-nano-int8"
+
 private val PRODUCT_MODEL_IDS =
     setOf(
         Stage8ModelIds.VAD,
@@ -134,6 +136,16 @@ private val PRODUCT_MODEL_IDS =
         Stage9ModelIds.SEGMENTATION,
         Stage13ASpeakerEmbeddingModelIds.CAMP_PLUS,
     )
+
+private val DEBUG_CANDIDATE_MODEL_IDS =
+    setOf(STAGE16B_FUNASR_NANO_CANDIDATE_ID)
+
+internal fun allowedModelIdsForManifest(productionManifestPinned: Boolean): Set<String> =
+    if (productionManifestPinned) {
+        PRODUCT_MODEL_IDS
+    } else {
+        PRODUCT_MODEL_IDS + DEBUG_CANDIDATE_MODEL_IDS
+    }
 
 fun createVoicaModelManager(
     application: Application,
@@ -156,6 +168,7 @@ fun createVoicaModelManager(
     val resolvedManifestUrl = VoicaModelChannel.resolveManifestUrl(application)
     val productionManifestPinned =
         resolvedManifestUrl == VoicaModelChannel.PRODUCTION_MANIFEST_URL
+    val allowedModelIds = allowedModelIdsForManifest(productionManifestPinned)
     val decodedRemoteCatalogProvider =
         DecodingModelCatalogProvider(
             HttpsModelCatalogTextSource(resolvedManifestUrl),
@@ -172,7 +185,7 @@ fun createVoicaModelManager(
             catalog.copy(
                 models =
                     catalog.models.filter { descriptor ->
-                        descriptor.modelId in PRODUCT_MODEL_IDS
+                        descriptor.modelId in allowedModelIds
                     },
             )
         }
