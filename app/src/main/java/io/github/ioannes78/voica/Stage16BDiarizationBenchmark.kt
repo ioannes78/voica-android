@@ -336,7 +336,8 @@ class Stage16BDiarizationBenchmarkRunner(
                     }
                 val shortTurnCount =
                     stitched.turns.count { turn ->
-                        turn.endSampleIndexExclusive - turn.startSampleIndex < CANONICAL_SAMPLE_RATE_HZ
+                        turn.endSampleIndexExclusive - turn.startSampleIndex <
+                            CANONICAL_SAMPLE_RATE_HZ.toLong()
                     }
                 val speechSamples = speechSegments.sumOf(SpeechSegment::sampleCount)
                 val workloadSamples = ranges.sumOf { it.sampleCount }
@@ -574,6 +575,6 @@ class Stage16BDiarizationBenchmarkRunner(
 
     companion object {
         private const val PSS_SAMPLE_INTERVAL_MS = 50L
-        private const val CANONICAL_SAMPLE_RATE_HZ = 16_000L
+        private const val CANONICAL_SAMPLE_RATE_HZ = 16_000
     }
 }
