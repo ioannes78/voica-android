@@ -1,8 +1,23 @@
 package io.github.ioannes78.voica.ui.library
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.DiarizationBenchmarkRunner
 import io.github.ioannes78.voica.DiarizationRunState
 import io.github.ioannes78.voica.SpeechBenchmarkRunner
@@ -58,37 +73,68 @@ fun RecordingDetailScreen(
         onDispose { Stage13B5Qa4PageVisibility.clear(recording.id) }
     }
 
-    RecordingDetailProductScreen(
-        padding = padding,
-        recording = recording,
-        playbackViewModel = playbackViewModel,
-        transcriptionViewModel = transcriptionViewModel,
-        transcriptContentViewModel = transcriptContentViewModel,
-        diarizationViewModel = diarizationViewModel,
-        transcriptPlaybackSyncViewModel = transcriptPlaybackSyncViewModel,
-        aiSummaryViewModel = aiSummaryViewModel,
-        aiSummaryContentViewModel = aiSummaryContentViewModel,
-        speechBenchmarkRunner = speechBenchmarkRunner,
-        diarizationBenchmarkRunner = diarizationBenchmarkRunner,
-        initialSearchTarget = initialSearchTarget,
-        onBack = onBack,
-        onOpenSettings = onOpenSettings,
-        onRename = onRename,
-        onDelete = onDelete,
-        onExportCanonical = onExportCanonical,
-        onExportOriginal = onExportOriginal,
-        onShareCanonical = onShareCanonical,
-        onShareOriginal = onShareOriginal,
-        onGenerateCanonical = onGenerateCanonical,
-        onCancelCanonical = onCancelCanonical,
-        deviceRecordingActive = deviceRecordingActive,
-        initialDestination = initialDestination,
-        navigationRequestToken = navigationRequestToken,
-        onDestinationChanged = { destination ->
-            Stage13B5Qa4PageVisibility.update(recording.id, destination)
-            onDestinationChanged(destination)
-        },
-    )
+    var vadBenchmarkOpen by rememberSaveable(recording.id) { mutableStateOf(false) }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        RecordingDetailProductScreen(
+            padding = padding,
+            recording = recording,
+            playbackViewModel = playbackViewModel,
+            transcriptionViewModel = transcriptionViewModel,
+            transcriptContentViewModel = transcriptContentViewModel,
+            diarizationViewModel = diarizationViewModel,
+            transcriptPlaybackSyncViewModel = transcriptPlaybackSyncViewModel,
+            aiSummaryViewModel = aiSummaryViewModel,
+            aiSummaryContentViewModel = aiSummaryContentViewModel,
+            speechBenchmarkRunner = speechBenchmarkRunner,
+            diarizationBenchmarkRunner = diarizationBenchmarkRunner,
+            initialSearchTarget = initialSearchTarget,
+            onBack = onBack,
+            onOpenSettings = onOpenSettings,
+            onRename = onRename,
+            onDelete = onDelete,
+            onExportCanonical = onExportCanonical,
+            onExportOriginal = onExportOriginal,
+            onShareCanonical = onShareCanonical,
+            onShareOriginal = onShareOriginal,
+            onGenerateCanonical = onGenerateCanonical,
+            onCancelCanonical = onCancelCanonical,
+            deviceRecordingActive = deviceRecordingActive,
+            initialDestination = initialDestination,
+            navigationRequestToken = navigationRequestToken,
+            onDestinationChanged = { destination ->
+                Stage13B5Qa4PageVisibility.update(recording.id, destination)
+                onDestinationChanged(destination)
+            },
+        )
+
+        if (speechBenchmarkRunner != null) {
+            TextButton(
+                onClick = { vadBenchmarkOpen = true },
+                modifier =
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 12.dp, bottom = 12.dp),
+            ) {
+                Text("VAD QA")
+            }
+        }
+    }
+
+    if (vadBenchmarkOpen && speechBenchmarkRunner != null) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { vadBenchmarkOpen = false },
+            sheetState = sheetState,
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Stage16BVadBenchmarkCard(
+                    runner = speechBenchmarkRunner,
+                    recordingId = recording.id,
+                )
+            }
+        }
+    }
 }
 
 internal fun shouldShowTranscriptionStatus(
