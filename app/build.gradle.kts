@@ -57,6 +57,7 @@ android {
         versionCode = 92
         versionName = "1.1.0-stage16a2"
         buildConfigField("String", "GIT_SHA", "\"$buildGitSha\"")
+        buildConfigField("boolean", "ALLOW_CANDIDATE_MODEL_CHANNEL", "false")
         ndk {
             abiFilters += "arm64-v8a"
         }
@@ -115,10 +116,12 @@ android {
         create("releaseQa") {
             // Production-like, minified/shrunk candidate signed only with the public QA identity.
             // Same QA application ID allows an in-place upgrade from earlier Stage 14 QA builds.
+            // Candidate model-channel override is permitted only for this non-production QA variant.
             initWith(getByName("release"))
             applicationIdSuffix = ".qa"
             versionNameSuffix = "-export-qa"
             signingConfig = signingConfigs.getByName("qa")
+            buildConfigField("boolean", "ALLOW_CANDIDATE_MODEL_CHANNEL", "true")
             matchingFallbacks += listOf("release")
         }
     }
