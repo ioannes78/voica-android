@@ -13,16 +13,22 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.github.ioannes78.voica.DiarizationVadBenchmarkObservation
+import io.github.ioannes78.voica.DiarizationVadBenchmarkState
 import io.github.ioannes78.voica.SenseVoiceBenchmarkState
 import io.github.ioannes78.voica.SenseVoiceVadBenchmarkObservation
 import io.github.ioannes78.voica.SpeechBenchmarkRunner
 import io.github.ioannes78.voica.SpeechBenchmarkState
+import io.github.ioannes78.voica.Stage16BDiarizationBenchmarkRunner
+import io.github.ioannes78.voica.VoicaApplication
 import io.github.ioannes78.voica.transcript.VadBenchmarkObservation
 import java.util.Locale
 
@@ -35,6 +41,26 @@ internal fun Stage16BVadBenchmarkCard(
     val a1State by runner.state.collectAsState()
     val a2State by runner.a2State.collectAsState()
     val context = LocalContext.current
+    val application = context.applicationContext as VoicaApplication
+    val a3Runner =
+        remember(application) {
+            Stage16BDiarizationBenchmarkRunner(
+                application = application,
+                pcmSourceResolver = application.container.pcmSourceResolver,
+                modelManager = application.container.modelManager,
+                modelUseRegistry = application.container.modelUseRegistry,
+                localSpeechSettings = { application.container.localSpeechSettingsStore.settings.value },
+            )
+        }
+    val a3State by a3Runner.state.collectAsState()
+    val a3Busy = a3State is DiarizationVadBenchmarkState.Running
+    val speechBenchmarkBusy =
+        a1State is SpeechBenchmarkState.Running ||
+            a2State is SenseVoiceBenchmarkState.Running
+
+    DisposableEffect(a3Runner) {
+        onDispose { a3Runner.cancel() }
+    }
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -43,14 +69,17 @@ internal fun Stage16BVadBenchmarkCard(
         ) {
             Text("Stage 16B · VAD Gate A", style = MaterialTheme.typography.titleSmall)
             Text(
-                "QA 专用。A1 比较三方 VAD；A2 固定同一 SenseVoice 比较下游转写。不会修改正常转写默认 VAD。",
+                "QA 专用。A1 比较三方 VAD；A2 固定同一 SenseVoice；A3 固定同一说话人分离栈。不会修改正常转写或说话人识别默认配置。",
                 style = MaterialTheme.typography.bodySmall,
             )
 
             Text("A1 · VAD 核心比较", style = MaterialTheme.typography.labelLarge)
             when (val current = a1State) {
                 SpeechBenchmarkState.Idle ->
-                    Button(onClick = { runner.startVadGateA(recordingId) }) {
+                    Button(
+                        onClick = { runner.startVadGateA(recordingId) },
+                        enabled = !a3Busy,
+                    ) {
                         Text("运行 A1 · 三方 VAD")
                     }
 
@@ -70,7 +99,10 @@ internal fun Stage16BVadBenchmarkCard(
                         BenchmarkObservationText(observation)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Button(onClick = { runner.startVadGateA(recordingId) }) {
+                        Button(
+                            onClick = { runner.startVadGateA(recordingId) },
+                            enabled = !a3Busy,
+                        ) {
                             Text("重新运行 A1")
                         }
                         OutlinedButton(onClick = runner::reset) {
@@ -92,7 +124,10 @@ internal fun Stage16BVadBenchmarkCard(
                         )
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Button(onClick = { runner.startVadGateA(recordingId) }) {
+                        Button(
+                            onClick = { runner.startVadGateA(recordingId) },
+                            enabled = !a3Busy,
+                        ) {
                             Text("重试 A1")
                         }
                         OutlinedButton(onClick = runner::reset) {
@@ -103,7 +138,10 @@ internal fun Stage16BVadBenchmarkCard(
 
                 is SpeechBenchmarkState.Cancelled -> {
                     Text("A1 已取消", style = MaterialTheme.typography.bodySmall)
-                    Button(onClick = { runner.startVadGateA(recordingId) }) {
+                    Button(
+                        onClick = { runner.startVadGateA(recordingId) },
+                        enabled = !a3Busy,
+                    ) {
                         Text("重新运行 A1")
                     }
                 }
@@ -116,7 +154,10 @@ internal fun Stage16BVadBenchmarkCard(
             )
             when (val current = a2State) {
                 SenseVoiceBenchmarkState.Idle ->
-                    Button(onClick = { runner.startSenseVoiceGateA2(recordingId) }) {
+                    Button(
+                        onClick = { runner.startSenseVoiceGateA2(recordingId) },
+                        enabled = !a3Busy,
+                    ) {
                         Text("运行 A2 · 同 SenseVoice")
                     }
 
@@ -152,7 +193,10 @@ internal fun Stage16BVadBenchmarkCard(
                             Text("清除 A2")
                         }
                     }
-                    OutlinedButton(onClick = { runner.startSenseVoiceGateA2(recordingId) }) {
+                    OutlinedButton(
+                        onClick = { runner.startSenseVoiceGateA2(recordingId) },
+                        enabled = !a3Busy,
+                    ) {
                         Text("重新运行 A2")
                     }
                 }
@@ -170,7 +214,10 @@ internal fun Stage16BVadBenchmarkCard(
                         )
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Button(onClick = { runner.startSenseVoiceGateA2(recordingId) }) {
+                        Button(
+                            onClick = { runner.startSenseVoiceGateA2(recordingId) },
+                            enabled = !a3Busy,
+                        ) {
                             Text("重试 A2")
                         }
                         OutlinedButton(onClick = runner::resetA2) {
@@ -181,8 +228,99 @@ internal fun Stage16BVadBenchmarkCard(
 
                 is SenseVoiceBenchmarkState.Cancelled -> {
                     Text("A2 已取消", style = MaterialTheme.typography.bodySmall)
-                    Button(onClick = { runner.startSenseVoiceGateA2(recordingId) }) {
+                    Button(
+                        onClick = { runner.startSenseVoiceGateA2(recordingId) },
+                        enabled = !a3Busy,
+                    ) {
                         Text("重新运行 A2")
+                    }
+                }
+            }
+
+            Text("A3 · 同说话人分离下游比较", style = MaterialTheme.typography.labelLarge)
+            Text(
+                "冻结 pyannote segmentation + CAM++ embedding + AUTO 说话人数；60s 窗口/10s overlap，聚类 0.5、跨窗拼接 0.75。仅替换三方 VAD。",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            when (val current = a3State) {
+                DiarizationVadBenchmarkState.Idle ->
+                    Button(
+                        onClick = { a3Runner.start(recordingId) },
+                        enabled = !speechBenchmarkBusy,
+                    ) {
+                        Text("运行 A3 · 同说话人分离")
+                    }
+
+                is DiarizationVadBenchmarkState.Running -> {
+                    Text(
+                        "${current.completedProfiles + 1}/${current.totalProfiles} · ${current.currentProfile.displayName}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Text("正在执行 VAD → diarization → 跨窗 speaker stitching", style = MaterialTheme.typography.bodySmall)
+                    OutlinedButton(onClick = a3Runner::cancel) {
+                        Text("取消")
+                    }
+                }
+
+                is DiarizationVadBenchmarkState.Completed -> {
+                    current.observations.forEach(::DiarizationObservationText)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Button(
+                            onClick = {
+                                copyA3Report(
+                                    context = context,
+                                    recordingId = current.recordingId,
+                                    observations = current.observations,
+                                )
+                            },
+                        ) {
+                            Text("复制 A3 完整结果")
+                        }
+                        OutlinedButton(onClick = a3Runner::reset) {
+                            Text("清除 A3")
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = { a3Runner.start(recordingId) },
+                        enabled = !speechBenchmarkBusy,
+                    ) {
+                        Text("重新运行 A3")
+                    }
+                }
+
+                is DiarizationVadBenchmarkState.Failed -> {
+                    Text(
+                        current.message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    if (current.missingModelIds.isNotEmpty()) {
+                        Text(
+                            "缺少：${current.missingModelIds.joinToString()}",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Button(
+                            onClick = { a3Runner.start(recordingId) },
+                            enabled = !speechBenchmarkBusy,
+                        ) {
+                            Text("重试 A3")
+                        }
+                        OutlinedButton(onClick = a3Runner::reset) {
+                            Text("清除")
+                        }
+                    }
+                }
+
+                is DiarizationVadBenchmarkState.Cancelled -> {
+                    Text("A3 已取消", style = MaterialTheme.typography.bodySmall)
+                    Button(
+                        onClick = { a3Runner.start(recordingId) },
+                        enabled = !speechBenchmarkBusy,
+                    ) {
+                        Text("重新运行 A3")
                     }
                 }
             }
@@ -244,6 +382,32 @@ private fun SenseVoiceObservationText(observation: SenseVoiceVadBenchmarkObserva
     }
 }
 
+@Composable
+private fun DiarizationObservationText(observation: DiarizationVadBenchmarkObservation) {
+    val speechSeconds = observation.speechDurationMillis / 1000.0
+    val workloadSeconds = observation.windowWorkloadMillis / 1000.0
+    val pssMb = observation.peakPssKb?.let { format1(it / 1024.0) } ?: "—"
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(observation.profile.displayName, style = MaterialTheme.typography.labelLarge)
+        Text(
+            "VAD段 ${observation.speechSegmentCount} · speech ${format1(speechSeconds)}s · 窗口 ${observation.windowCount} / workload ${format1(workloadSeconds)}s",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "speaker ${observation.speakerCount} · turns ${observation.turnCount} · 切换 ${observation.speakerSwitchCount} · <1s turn ${observation.shortTurnCount} · overlap ${observation.overlapTurnCount}",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "每人 turns ${observation.speakerTurnCounts.joinToString(prefix = "[", postfix = "]")} · 时长ms ${observation.speakerDurationsMillis.joinToString(prefix = "[", postfix = "]")}",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "VAD ${observation.vadWallTimeMillis}ms · diar ${observation.diarizationWallTimeMillis}ms · stitch ${observation.stitchingWallTimeMillis}ms · 总 ${observation.totalWallTimeMillis}ms · PSS ${pssMb}MB",
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+}
+
 private fun copyA2Report(
     context: Context,
     recordingId: String,
@@ -252,6 +416,16 @@ private fun copyA2Report(
     val report = buildA2Report(recordingId, observations)
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     clipboard.setPrimaryClip(ClipData.newPlainText("Stage 16B A2", report))
+}
+
+private fun copyA3Report(
+    context: Context,
+    recordingId: String,
+    observations: List<DiarizationVadBenchmarkObservation>,
+) {
+    val report = buildA3Report(recordingId, observations)
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText("Stage 16B A3", report))
 }
 
 internal fun buildA2Report(
@@ -279,5 +453,47 @@ internal fun buildA2Report(
     }
 }
 
+internal fun buildA3Report(
+    recordingId: String,
+    observations: List<DiarizationVadBenchmarkObservation>,
+): String = buildString {
+    appendLine("Stage 16B · Gate A3 · Same Diarization")
+    appendLine("recordingId=$recordingId")
+    appendLine("config=speakerCount:AUTO chunk:60s overlap:10s clustering:0.5 stitching:0.75 embedding:CAM++")
+    observations.forEach { observation ->
+        appendLine()
+        appendLine("[${observation.profile.displayName}]")
+        appendLine(
+            "vadSegments=${observation.speechSegmentCount} speechMs=${observation.speechDurationMillis} " +
+                "windows=${observation.windowCount} windowWorkloadMs=${observation.windowWorkloadMillis}",
+        )
+        appendLine(
+            "speakers=${observation.speakerCount} turns=${observation.turnCount} " +
+                "switches=${observation.speakerSwitchCount} shortTurns=${observation.shortTurnCount} " +
+                "overlapTurns=${observation.overlapTurnCount}",
+        )
+        appendLine("speakerTurnCounts=${observation.speakerTurnCounts.joinToString(",")}")
+        appendLine("speakerDurationsMs=${observation.speakerDurationsMillis.joinToString(",")}")
+        appendLine(
+            "vadMs=${observation.vadWallTimeMillis} diarizationMs=${observation.diarizationWallTimeMillis} " +
+                "stitchingMs=${observation.stitchingWallTimeMillis} totalMs=${observation.totalWallTimeMillis} " +
+                "peakPssKb=${observation.peakPssKb ?: -1}",
+        )
+        appendLine(
+            "embeddingModel=${observation.embeddingModelId} effectiveThreads=${observation.effectiveThreads}",
+        )
+        appendLine("TURNS_BEGIN")
+        appendLine("speaker,startMs,endMs,durationMs,confidence,overlap")
+        observation.turns.forEach { turn ->
+            appendLine(
+                "S${turn.speakerIndex + 1},${turn.startMillis},${turn.endMillis},${turn.durationMillis}," +
+                    "${turn.confidence?.let(::format4) ?: ""},${turn.overlap}",
+            )
+        }
+        appendLine("TURNS_END")
+    }
+}
+
 private fun format1(value: Double): String = String.format(Locale.US, "%.1f", value)
 private fun format3(value: Double): String = String.format(Locale.US, "%.3f", value)
+private fun format4(value: Float): String = String.format(Locale.US, "%.4f", value)
