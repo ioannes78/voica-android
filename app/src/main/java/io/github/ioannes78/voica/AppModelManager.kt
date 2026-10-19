@@ -36,14 +36,19 @@ object VoicaModelChannel {
     private const val CANDIDATE_RELEASE_PREFIX =
         "/ioannes78/voica-model-channel/releases/download/"
 
+    /**
+     * Legacy developer-tooling gate. It is true for normal debuggable builds and for the
+     * explicitly non-production releaseQa variant, whose BuildConfig flag is false in release.
+     */
     fun isDebuggable(application: Application): Boolean =
-        application.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
-
-    private fun isCandidateModelChannelAllowed(application: Application): Boolean =
         candidateModelChannelAllowed(
-            isDebuggable = isDebuggable(application),
+            isDebuggable =
+                application.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0,
             buildAllowsCandidateChannel = BuildConfig.ALLOW_CANDIDATE_MODEL_CHANNEL,
         )
+
+    private fun isCandidateModelChannelAllowed(application: Application): Boolean =
+        isDebuggable(application)
 
     fun configuredDebugManifestUrl(application: Application): String? {
         if (!isCandidateModelChannelAllowed(application)) return null
