@@ -27,9 +27,11 @@ if grep -Eq '(^|/)libonnxruntime\.so$' "${listing}"; then
   exit 1
 fi
 
-if grep '^jni/' "${listing}" | grep -Ev '^jni/arm64-v8a/' >/dev/null; then
+# Only native library files define packaged ABIs. Directory entries such as `jni/`
+# are metadata and must not be interpreted as an extra ABI.
+if grep -E '^jni/.+\.so$' "${listing}" | grep -Ev '^jni/arm64-v8a/' >/dev/null; then
   echo "::error::FSMN candidate AAR contains a non-arm64 native ABI"
-  grep '^jni/' "${listing}" >&2
+  grep -E '^jni/.+\.so$' "${listing}" >&2
   exit 1
 fi
 
