@@ -92,22 +92,15 @@ class BootstrapModelCatalogTest {
     }
 
     @Test
-    fun stage16bFunAsrCandidateIsAllowedOnlyForCandidateCatalogs() {
-        assertFalse(
-            STAGE16B_FUNASR_NANO_CANDIDATE_ID in
-                allowedModelIdsForManifest(productionManifestPinned = true),
-        )
-        assertTrue(
-            STAGE16B_FUNASR_NANO_CANDIDATE_ID in
-                allowedModelIdsForManifest(productionManifestPinned = false),
-        )
-        assertTrue(
-            Stage13AOfflineModelIds.SENSEVOICE in
-                allowedModelIdsForManifest(productionManifestPinned = true),
-        )
-        assertTrue(
-            Stage13AOfflineModelIds.SENSEVOICE in
-                allowedModelIdsForManifest(productionManifestPinned = false),
-        )
+    fun stage16bCandidatesAreAllowedOnlyForCandidateCatalogs() {
+        val productionIds = allowedModelIdsForManifest(productionManifestPinned = true)
+        val candidateIds = allowedModelIdsForManifest(productionManifestPinned = false)
+
+        assertFalse(STAGE16B_FUNASR_NANO_CANDIDATE_ID in productionIds)
+        assertFalse(STAGE16B_FSMN_VAD_CANDIDATE_ID in productionIds)
+        assertTrue(STAGE16B_FUNASR_NANO_CANDIDATE_ID in candidateIds)
+        assertTrue(STAGE16B_FSMN_VAD_CANDIDATE_ID in candidateIds)
+        assertTrue(Stage13AOfflineModelIds.SENSEVOICE in productionIds)
+        assertTrue(Stage13AOfflineModelIds.SENSEVOICE in candidateIds)
     }
 }
