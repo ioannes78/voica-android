@@ -24,8 +24,8 @@ class FsmnVadEngineTest {
                 acceptBatches =
                     ArrayDeque(
                         listOf(
-                            listOf(NativeFsmnVadSegment(1_600L, 4_800L)),
                             emptyList(),
+                            listOf(NativeFsmnVadSegment(1_600L, 4_800L)),
                             emptyList(),
                             emptyList(),
                         ),
