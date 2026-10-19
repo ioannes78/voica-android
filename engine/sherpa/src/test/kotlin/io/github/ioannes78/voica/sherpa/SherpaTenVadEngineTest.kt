@@ -6,6 +6,7 @@ import io.github.ioannes78.voica.model.ModelCapabilities
 import io.github.ioannes78.voica.model.ModelDescriptor
 import io.github.ioannes78.voica.model.ModelFileDescriptor
 import io.github.ioannes78.voica.model.ModelKind
+import io.github.ioannes78.voica.model.ModelPackageFormat
 import io.github.ioannes78.voica.model.ModelSourceType
 import io.github.ioannes78.voica.model.RedistributionPolicy
 import java.util.ArrayDeque
@@ -67,8 +68,11 @@ class SherpaTenVadEngineTest {
         assertTrue(fakeVad.closed)
     }
 
-    private fun vadDescriptor() =
-        ModelDescriptor(
+    private fun vadDescriptor(): ModelDescriptor {
+        val digest = "718cb7eef47e3cf5ddbe7e967a7503f46b8b469c0706872f494dfa921b486206"
+        val url =
+            "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/ten-vad.onnx"
+        return ModelDescriptor(
             modelId = SHERPA_TEN_VAD_CANDIDATE_MODEL_ID,
             kind = ModelKind.VAD,
             displayName = "TEN VAD FP32",
@@ -81,32 +85,34 @@ class SherpaTenVadEngineTest {
             capabilities = ModelCapabilities(),
             sourceType = ModelSourceType.MANAGED_DOWNLOAD,
             builtinAssetPath = null,
-            packageFormat = null,
-            downloadUrl = null,
-            downloadSizeBytes = null,
+            packageFormat = ModelPackageFormat.SINGLE_FILE,
+            downloadUrl = url,
+            downloadSizeBytes = 332_211L,
             installedSizeBytes = 332_211L,
-            packageSha256 = null,
+            packageSha256 = digest,
             files =
                 listOf(
                     ModelFileDescriptor(
                         relativePath = "ten-vad.onnx",
                         sizeBytes = 332_211L,
-                        sha256 = "718cb7eef47e3cf5ddbe7e967a7503f46b8b469c0706872f494dfa921b486206",
+                        sha256 = digest,
+                        packagePath = "ten-vad.onnx",
                     ),
                 ),
             abis = setOf("arm64-v8a"),
             minSdk = 26,
             appVersionMin = 92,
             appVersionMax = null,
-            licenseId = "Apache-2.0-WITH-TEN-VAD-ADDITIONAL-TERMS",
-            licenseUrl = null,
-            sourceUrl = "https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models",
-            homepage = null,
-            attribution = "TEN VAD via sherpa-onnx",
-            redistributionPolicy = RedistributionPolicy.DOWNLOAD_FROM_ORIGIN_ONLY,
+            licenseId = "TEN-VAD-Open-Source-License",
+            licenseUrl = "https://github.com/TEN-framework/ten-vad/blob/main/LICENSE",
+            sourceUrl = url,
+            homepage = "https://github.com/TEN-framework/ten-vad",
+            attribution = "TEN VAD via sherpa-onnx release asset",
+            redistributionPolicy = RedistributionPolicy.UPSTREAM_ONLY,
             releaseChannel = "candidate",
             autoUpdateEligible = false,
         )
+    }
 
     private class FakePcmSource(
         override val totalSampleCount: Long,
