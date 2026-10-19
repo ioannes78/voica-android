@@ -2,11 +2,13 @@ package io.github.ioannes78.voica.ui.annotation
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -85,13 +87,20 @@ internal fun TimelineAnnotationComposerButton(
 
     Box(modifier = modifier) {
         if (compact) {
-            TextButton(
-                onClick = { menuOpen = true },
-                enabled = enabled,
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-            ) {
-                Text(label)
-            }
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color =
+                    if (enabled) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    },
+                modifier =
+                    Modifier
+                        .clickable(enabled = enabled) { menuOpen = true }
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+            )
         } else {
             OutlinedButton(
                 onClick = { menuOpen = true },
