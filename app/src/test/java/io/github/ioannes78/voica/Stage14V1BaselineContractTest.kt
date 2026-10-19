@@ -21,11 +21,11 @@ class Stage14V1BaselineContractTest {
     }
 
     @Test
-    fun postV1RoomRuntimeRegistersOnlySupported12To13Migration() {
+    fun postV1RoomRuntimeRegistersSupported12To14MigrationChain() {
         val source = databaseProductionSource("VoicaDatabase.kt")
 
-        assertTrue(source.contains("version = 13"))
-        assertTrue(source.contains(".addMigrations(MIGRATION_12_13)"))
+        assertTrue(source.contains("version = 14"))
+        assertTrue(source.contains(".addMigrations(MIGRATION_12_13, MIGRATION_13_14)"))
         for (legacyMigration in listOf(
             "MIGRATION_1_2",
             "MIGRATION_2_3",

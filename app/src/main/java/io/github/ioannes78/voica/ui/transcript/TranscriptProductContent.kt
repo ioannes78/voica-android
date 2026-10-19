@@ -26,6 +26,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,6 +53,9 @@ fun TranscriptProductActionBar(
     onModeChange: (TranscriptViewMode) -> Unit,
     onSpeakerModeClick: () -> Unit,
     onRetranscribe: () -> Unit,
+    annotationCount: Int = 0,
+    showAnnotations: Boolean = true,
+    onToggleAnnotations: () -> Unit = {},
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     var editorOpen by remember { mutableStateOf(false) }
@@ -130,14 +134,17 @@ fun TranscriptProductActionBar(
                 selected = false,
                 onClick = onSpeakerModeClick,
             )
-            Button(
-                modifier = Modifier.heightIn(min = 40.dp),
+            CompactTranscriptChip(
+                label = "标注 $annotationCount",
+                selected = showAnnotations,
+                onClick = onToggleAnnotations,
+            )
+            CompactTranscriptChip(
+                label = "编辑",
+                selected = false,
                 enabled = state.paragraphs.isNotEmpty(),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                 onClick = { editorOpen = true },
-            ) {
-                Text("编辑", maxLines = 1)
-            }
+            )
             Box {
                 IconButton(
                     modifier = Modifier.size(40.dp),
@@ -250,13 +257,6 @@ fun TranscriptProductActionBar(
                 }
             }
         }
-        if (state.currentRevisionId != null) {
-            Text(
-                "已编辑",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
         state.notice?.let { notice ->
             Text(
                 notice,
@@ -283,6 +283,7 @@ fun TranscriptProductActionBar(
 private fun CompactTranscriptChip(
     label: String,
     selected: Boolean,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     val borderColor =
@@ -290,8 +291,8 @@ private fun CompactTranscriptChip(
     Surface(
         modifier =
             Modifier
-                .heightIn(min = 40.dp)
-                .clickable(onClick = onClick),
+                .heightIn(min = 36.dp)
+                .clickable(enabled = enabled, onClick = onClick),
         shape = MaterialTheme.shapes.medium,
         color =
             if (selected) {
@@ -302,12 +303,12 @@ private fun CompactTranscriptChip(
         border = BorderStroke(1.dp, borderColor),
     ) {
         Box(
-            modifier = Modifier.padding(horizontal = 9.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
             contentAlignment = Alignment.Center,
         ) {
             Text(
                 text = label,
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.labelMedium,
                 maxLines = 1,
             )
         }

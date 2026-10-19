@@ -43,6 +43,21 @@ interface RecordingDao {
     @Query("SELECT * FROM recordings WHERE sourceRemoteIdentity = :remoteIdentity LIMIT 1")
     suspend fun findByRemoteIdentity(remoteIdentity: String): RecordingEntity?
 
+    @Query(
+        """
+        SELECT * FROM recordings
+        WHERE state = 'ACTIVE'
+          AND sourceDeviceAddress = :deviceAddress
+          AND originalFilename = :filename
+        ORDER BY updatedAtMs DESC
+        LIMIT 2
+        """,
+    )
+    suspend fun findActiveByDeviceAndOriginalFilename(
+        deviceAddress: String,
+        filename: String,
+    ): List<RecordingEntity>
+
     @Query("SELECT * FROM recordings")
     suspend fun allRecordings(): List<RecordingEntity>
 

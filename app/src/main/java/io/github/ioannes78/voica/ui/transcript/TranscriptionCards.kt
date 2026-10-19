@@ -230,6 +230,7 @@ fun TranscriptVersionListCard(
 fun TranscriptDocumentHeader(
     document: TranscriptDocument,
     recordingName: String?,
+    edited: Boolean = false,
     onRenameSpeaker: (speakerId: String, requestedName: String?) -> Unit,
 ) {
     var speakerListOpen by remember(document.alignmentId) { mutableStateOf(false) }
@@ -239,35 +240,39 @@ fun TranscriptDocumentHeader(
 
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         Text(
-            buildString {
-                append(sourceText)
-                append(" · ")
-                append(document.segments.size)
-                append(" 段")
-                if (document.speakers.isNotEmpty()) {
-                    append(" · ")
-                    append(document.speakers.size)
-                    append(" 位说话人")
-                }
-            },
+            "$sourceText · ${document.segments.size} 段",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f),
         )
         if (document.speakers.isNotEmpty()) {
-            TextButton(onClick = { speakerListOpen = true }) {
-                Text("说话人")
-            }
+            Text(
+                " · ",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                "${document.speakers.size}位说话人",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.clickable { speakerListOpen = true },
+            )
+        }
+        if (edited) {
+            Text(
+                " · 已编辑",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 
     if (speakerListOpen) {
         AlertDialog(
             onDismissRequest = { speakerListOpen = false },
-            title = { Text("说话人") },
+            title = { Text("编辑说话人") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     document.speakers.forEach { speaker ->
@@ -345,6 +350,8 @@ fun TranscriptSegmentCard(
     searchHighlighted: Boolean = false,
     syncEnabled: Boolean,
     onSeek: (Long) -> Unit,
+    onAddAnnotation: ((Long) -> Unit)? = null,
+    annotationAction: (@Composable () -> Unit)? = null,
 ) {
     val activeCue =
         remember(segment.stableId, activeCueId) {
@@ -423,14 +430,31 @@ fun TranscriptSegmentCard(
                     modifier = Modifier.weight(1f),
                 )
             }
-            Text(
-                formatSampleRange(
-                    segment.startSampleIndex,
-                    segment.endSampleIndexExclusive,
-                ),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    formatSampleRange(
+                        segment.startSampleIndex,
+                        segment.endSampleIndexExclusive,
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (annotationAction != null) {
+                    annotationAction()
+                } else {
+                    onAddAnnotation?.let { addAnnotation ->
+                        Text(
+                            "＋标注",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier =
+                                Modifier.clickable(enabled = syncEnabled) {
+                                    addAnnotation(segment.startSampleIndex)
+                                },
+                        )
+                    }
+                }
+            }
         }
         Text(
             text = annotatedText,
@@ -441,18 +465,38 @@ fun TranscriptSegmentCard(
                     segment.stableId,
                     activeCueId,
                     syncEnabled,
+                    onAddAnnotation,
                 ) {
-                    detectTapGestures { position ->
-                        if (!syncEnabled) return@detectTapGestures
-                        val offset = textLayout?.getOffsetForPosition(position) ?: return@detectTapGestures
-                        val cue =
-                            segment.cues.firstOrNull { candidate ->
-                                candidate.projectionQuality == TextProjectionQuality.EXACT &&
-                                    offset >= candidate.textStartOffset &&
-                                    offset < candidate.textEndOffsetExclusive
+                    detectTapGestures(
+                        onTap = { position ->
+                            if (syncEnabled) {
+                                val offset = textLayout?.getOffsetForPosition(position)
+                                val cue =
+                                    offset?.let { textOffset ->
+                                        segment.cues.firstOrNull { candidate ->
+                                            candidate.projectionQuality == TextProjectionQuality.EXACT &&
+                                                textOffset >= candidate.textStartOffset &&
+                                                textOffset < candidate.textEndOffsetExclusive
+                                        }
+                                    }
+                                onSeek(cue?.startSampleIndex ?: segment.startSampleIndex)
                             }
-                        onSeek(cue?.startSampleIndex ?: segment.startSampleIndex)
-                    }
+                        },
+                        onLongPress = { position ->
+                            if (syncEnabled && onAddAnnotation != null) {
+                                val offset = textLayout?.getOffsetForPosition(position)
+                                val cue =
+                                    offset?.let { textOffset ->
+                                        segment.cues.firstOrNull { candidate ->
+                                            candidate.projectionQuality == TextProjectionQuality.EXACT &&
+                                                textOffset >= candidate.textStartOffset &&
+                                                textOffset < candidate.textEndOffsetExclusive
+                                        }
+                                    }
+                                onAddAnnotation(cue?.startSampleIndex ?: segment.startSampleIndex)
+                            }
+                        },
+                    )
                 },
         )
     }

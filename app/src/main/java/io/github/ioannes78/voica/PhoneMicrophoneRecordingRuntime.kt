@@ -6,6 +6,8 @@ import io.github.ioannes78.voica.audio.RealtimeCanonicalEpochStartReason
 import io.github.ioannes78.voica.audio.RealtimeCanonicalPcmFrame
 import io.github.ioannes78.voica.audio.RealtimePcmWavSegmentWriter
 import io.github.ioannes78.voica.database.PhoneMicrophoneRecordingRegistration
+import io.github.ioannes78.voica.database.TimelineAnnotationPendingOwnerKindValue
+import io.github.ioannes78.voica.database.TimelineAnnotationRepository
 import java.io.Closeable
 import java.io.File
 import java.time.Instant
@@ -52,6 +54,7 @@ internal data class PhoneMicrophoneRecordingSnapshot(
     val activeEpochId: Long? = null,
     val completedEpochs: Int = 0,
     val writtenSamples: Long = 0L,
+    val activeEpochSamples: Long = 0L,
     val postWriteOffers: Long = 0L,
     val postWriteOfferFailures: Long = 0L,
     val routeBoundaryCount: Long = 0L,
@@ -192,6 +195,7 @@ internal class PhoneMicrophoneRecordingRuntime(
     private val capture: PhoneMicrophoneCaptureDriver,
     private val recordingsRoot: File,
     private val registerRecording: suspend (PhoneMicrophoneRecordingRegistration) -> String,
+    private val timelineAnnotationRepository: TimelineAnnotationRepository? = null,
     private val nowInstant: () -> Instant = Instant::now,
     private val zoneId: () -> ZoneId = ZoneId::systemDefault,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
@@ -517,13 +521,23 @@ internal class PhoneMicrophoneRecordingRuntime(
                 channelCount = CanonicalPcmProfile.CHANNEL_COUNT,
             )
 
-        try {
-            registerRecording(registration)
-        } catch (failure: Throwable) {
-            return@withContext failStop(
-                context,
-                "录音文件已保存，但写入录音库失败：${failure.message.orEmpty()}",
-                finalized.file,
+        val registeredRecordingId =
+            try {
+                registerRecording(registration)
+            } catch (failure: Throwable) {
+                return@withContext failStop(
+                    context,
+                    "录音文件已保存，但写入录音库失败：${failure.message.orEmpty()}",
+                    finalized.file,
+                )
+            }
+        // Annotation promotion is best-effort here: a failure preserves PENDING_SESSION so the
+        // startup reconciler can retry without damaging the successfully finalized recording.
+        runCatching {
+            timelineAnnotationRepository?.attachPendingOwner(
+                ownerKind = TimelineAnnotationPendingOwnerKindValue.PHONE_CAPTURE,
+                ownerId = context.recordingId,
+                recordingId = registeredRecordingId,
             )
         }
 
@@ -548,6 +562,7 @@ internal class PhoneMicrophoneRecordingRuntime(
                     activeEpochId = context.epochId,
                     completedEpochs = totalCompletedEpochs,
                     writtenSamples = finalized.sampleCount,
+                    activeEpochSamples = context.activeEpochSamples,
                     postWriteOffers = context.postWriteOffers,
                     postWriteOfferFailures = context.postWriteOfferFailures,
                     routeBoundaryCount = context.routeBoundaryCount,
@@ -925,6 +940,7 @@ internal class PhoneMicrophoneRecordingRuntime(
                 activeEpochId = context.epochId,
                 completedEpochs = context.completedEpochs,
                 writtenSamples = context.writtenSamples,
+                activeEpochSamples = context.activeEpochSamples,
                 postWriteOffers = context.postWriteOffers,
                 postWriteOfferFailures = context.postWriteOfferFailures,
                 routeBoundaryCount = context.routeBoundaryCount,
@@ -957,6 +973,7 @@ internal class PhoneMicrophoneRecordingRuntime(
                 activeEpochId = context.epochId,
                 completedEpochs = context.completedEpochs,
                 writtenSamples = context.writtenSamples,
+                activeEpochSamples = context.activeEpochSamples,
                 postWriteOffers = context.postWriteOffers,
                 postWriteOfferFailures = context.postWriteOfferFailures,
                 routeBoundaryCount = context.routeBoundaryCount,

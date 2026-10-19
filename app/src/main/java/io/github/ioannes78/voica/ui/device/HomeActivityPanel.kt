@@ -24,6 +24,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,7 +36,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.github.ioannes78.voica.RealtimeAnnotationCaptureTarget
 import io.github.ioannes78.voica.protocol.RecordingGain
+import io.github.ioannes78.voica.ui.annotation.TimelineAnnotationComposerButton
+import io.github.ioannes78.voica.ui.annotation.TimelineAnnotationViewModel
 import io.github.ioannes78.voica.ui.phone.PhoneMicrophoneInputSelectorRow
 import io.github.ioannes78.voica.ui.realtime.RealtimeAudioActivityWaveform
 import io.github.ioannes78.voica.ui.status.AppActivityAction
@@ -73,13 +77,19 @@ internal fun HomeActivityPanel(
     onAction: (AppActivityFact, AppActivityAction) -> Unit,
     onOpenActivity: (AppActivityFact) -> Unit,
     onSelectSecondaryActivity: (AppActivityFact) -> Unit,
+    annotationViewModel: TimelineAnnotationViewModel,
+    annotationTargetProvider: suspend (AppActivityFact) -> RealtimeAnnotationCaptureTarget?,
     modifier: Modifier = Modifier,
 ) {
+    val annotationState by annotationViewModel.state.collectAsState()
+    val primary = projection.primaryActivity
+    LaunchedEffect(primary?.source, primary?.kind, primary?.mediaDisplayName) {
+        annotationViewModel.resetTransientItems()
+    }
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        val primary = projection.primaryActivity
         if (primary == null) {
             IdleHomeQuickActions(
                 sourcePreference = sourcePreference,
@@ -106,6 +116,9 @@ internal fun HomeActivityPanel(
                 onSetRecordingGain = onSetRecordingGain,
                 onAction = onAction,
                 onOpen = { onOpenActivity(primary) },
+                annotationViewModel = annotationViewModel,
+                annotationTargetProvider = annotationTargetProvider,
+                annotationNotice = annotationState.notice,
             )
         }
 
@@ -350,6 +363,9 @@ private fun PrimaryHomeActivityCard(
     onSetRecordingGain: (RecordingGain) -> Unit,
     onAction: (AppActivityFact, AppActivityAction) -> Unit,
     onOpen: () -> Unit,
+    annotationViewModel: TimelineAnnotationViewModel,
+    annotationTargetProvider: suspend (AppActivityFact) -> RealtimeAnnotationCaptureTarget?,
+    annotationNotice: String?,
 ) {
     val clickable = activity.destination != null
     val recorder = activity.source == AppActivitySource.RECORDER_CARD
@@ -429,7 +445,20 @@ private fun PrimaryHomeActivityCard(
                 RealtimeAudioActivityWaveform(levels = activity.audioActivityLevels, active = activity.waveformActive)
             }
 
-            TransportActions(activity, onAction)
+            TransportActions(
+                activity = activity,
+                onAction = onAction,
+                annotationViewModel = annotationViewModel,
+                annotationTargetProvider = annotationTargetProvider,
+            )
+            if (!annotationNotice.isNullOrBlank()) {
+                Text(
+                    annotationNotice,
+                    modifier = Modifier.fillMaxWidth(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
 
             if (AppActivityAction.OPEN in activity.availableActions && clickable) {
                 TextButton(onClick = onOpen) {
@@ -444,6 +473,8 @@ private fun PrimaryHomeActivityCard(
 private fun TransportActions(
     activity: AppActivityFact,
     onAction: (AppActivityFact, AppActivityAction) -> Unit,
+    annotationViewModel: TimelineAnnotationViewModel,
+    annotationTargetProvider: suspend (AppActivityFact) -> RealtimeAnnotationCaptureTarget?,
 ) {
     val actions = listOf(AppActivityAction.PAUSE, AppActivityAction.RESUME, AppActivityAction.STOP)
         .filter(activity.availableActions::contains)
@@ -472,6 +503,23 @@ private fun TransportActions(
                 modifier = Modifier.weight(1f),
                 colors = colors,
             ) { Text(label) }
+        }
+        val supportsAnnotation =
+            activity.kind == AppActivityKind.RECORDING ||
+                activity.kind == AppActivityKind.REALTIME_TRANSCRIPTION
+        if (supportsAnnotation) {
+            TimelineAnnotationComposerButton(
+                modifier = Modifier.weight(0.58f),
+                enabled = true,
+                viewModel = annotationViewModel,
+                onCreate = { noteText, onCreated ->
+                    annotationViewModel.createAtCapture(
+                        targetProvider = { annotationTargetProvider(activity) },
+                        noteText = noteText,
+                        onCreated = onCreated,
+                    )
+                },
+            )
         }
     }
 }

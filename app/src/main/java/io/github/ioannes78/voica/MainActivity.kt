@@ -16,14 +16,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.ioannes78.voica.ble.DeviceRepository
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.ui.VoicaApp
+import io.github.ioannes78.voica.ui.annotation.TimelineAnnotationViewModel
 import io.github.ioannes78.voica.ui.phone.LocalPhoneMicrophoneRealtimeRuntime
 import io.github.ioannes78.voica.ui.phone.LocalPhoneMicrophoneRecordingRuntime
 import io.github.ioannes78.voica.ui.phone.PhoneMicrophoneRecordingScreen
 import io.github.ioannes78.voica.ui.phone.PhoneMicrophoneRecordingUiController
 import io.github.ioannes78.voica.ui.phone.PhoneMicrophoneRealtimeScreen
+import io.github.ioannes78.voica.ui.playback.TimelineAnnotationPlaybackCoordinator
 import io.github.ioannes78.voica.ui.realtime.LocalStage16ARealtimeRuntime
 import io.github.ioannes78.voica.ui.realtime.PhoneMicrophoneRealtimeUiController
 import io.github.ioannes78.voica.ui.realtime.RealtimeTranscriptionScreen
@@ -83,6 +86,34 @@ class MainActivity : ComponentActivity() {
                         scope = phoneUiScope,
                     )
                 }
+            val annotationPlaybackCoordinator =
+                remember(
+                    appContainer.playbackController,
+                    appContainer.timelineAnnotationAnchorResolver,
+                ) {
+                    TimelineAnnotationPlaybackCoordinator(
+                        controller = appContainer.playbackController,
+                        resolver = appContainer.timelineAnnotationAnchorResolver,
+                    )
+                }
+            val phoneOverlayAnnotationViewModel: TimelineAnnotationViewModel =
+                viewModel(
+                    key = "phone-overlay-annotation",
+                    factory =
+                        remember(
+                            appContainer.timelineAnnotationRepository,
+                            annotationPlaybackCoordinator,
+                            appContainer.timelineAnnotationAttachmentStore,
+                            appContainer.timelineAnnotationContentCoordinator,
+                        ) {
+                            TimelineAnnotationViewModel.Factory(
+                                repository = appContainer.timelineAnnotationRepository,
+                                playbackCoordinator = annotationPlaybackCoordinator,
+                                attachmentStore = appContainer.timelineAnnotationAttachmentStore,
+                                contentCoordinator = appContainer.timelineAnnotationContentCoordinator,
+                            )
+                        },
+                )
 
             LaunchedEffect(
                 realtimeOpenRequest?.token,
@@ -168,6 +199,12 @@ class MainActivity : ComponentActivity() {
                                         PhoneMicrophoneRecordingScreen(
                                             padding = PaddingValues(0.dp),
                                             controller = phoneRecordingController,
+                                            annotationViewModel = phoneOverlayAnnotationViewModel,
+                                            annotationTargetProvider = {
+                                                phoneRecordingAnnotationTarget(
+                                                    appContainer.phoneMicrophoneRecordingRuntime.state.value,
+                                                )
+                                            },
                                             onBack = AppPhoneMicrophoneNavigation::dismiss,
                                         )
 

@@ -44,8 +44,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         RealtimeMediaSegmentEntity::class,
         RealtimeUtteranceEntity::class,
         RealtimeTimelineMarkerEntity::class,
+        TimelineAnnotationEntity::class,
+        TimelineAnnotationAttachmentEntity::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = true,
 )
 abstract class VoicaDatabase : RoomDatabase() {
@@ -67,6 +69,8 @@ abstract class VoicaDatabase : RoomDatabase() {
 
     abstract fun realtimeTranscriptionDao(): RealtimeTranscriptionDao
 
+    abstract fun timelineAnnotationDao(): TimelineAnnotationDao
+
     companion object {
         const val DATABASE_NAME = "voica-recordings.db"
 
@@ -75,7 +79,7 @@ abstract class VoicaDatabase : RoomDatabase() {
                 context.applicationContext,
                 VoicaDatabase::class.java,
                 DATABASE_NAME,
-            ).addMigrations(MIGRATION_12_13)
+            ).addMigrations(MIGRATION_12_13, MIGRATION_13_14)
                 .addCallback(
                     object : Callback() {
                         override fun onOpen(db: SupportSQLiteDatabase) {

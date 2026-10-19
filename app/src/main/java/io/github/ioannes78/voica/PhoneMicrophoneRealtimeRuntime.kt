@@ -11,6 +11,8 @@ import io.github.ioannes78.voica.database.RealtimeTranscriptPersistenceRepositor
 import io.github.ioannes78.voica.database.RealtimeTranscriptionRunEntity
 import io.github.ioannes78.voica.database.RealtimeTranscriptionStateValue
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
+import io.github.ioannes78.voica.database.TimelineAnnotationPendingOwnerKindValue
+import io.github.ioannes78.voica.database.TimelineAnnotationRepository
 import io.github.ioannes78.voica.sherpa.SherpaRuntime
 import io.github.ioannes78.voica.transcript.RealtimeDurableOutputFailure
 import io.github.ioannes78.voica.transcript.RealtimeLocalAudioResult
@@ -63,6 +65,7 @@ internal class PhoneMicrophoneRealtimeRuntime(
     private val integrationRepository: RealtimeRecordingIntegrationRepository,
     private val recordingsRoot: File,
     private val localSpeechSettings: () -> LocalSpeechSettings,
+    private val timelineAnnotationRepository: TimelineAnnotationRepository? = null,
     private val clockMs: () -> Long = System::currentTimeMillis,
     private val runIdFactory: () -> String = { UUID.randomUUID().toString() },
 ) {
@@ -201,6 +204,14 @@ internal class PhoneMicrophoneRealtimeRuntime(
                 )
             }
         }
+    }
+
+    internal fun annotationBoundarySnapshot(): RealtimeAnnotationRuntimeBoundary? {
+        val run = activeRun ?: return null
+        return phoneRealtimeAnnotationBoundary(
+            runId = run.runId,
+            recording = recordingRuntime.state.value,
+        )
     }
 
     suspend fun pause(): PhoneMicrophoneRealtimeActionOutcome = commandMutex.withLock {
@@ -395,6 +406,15 @@ internal class PhoneMicrophoneRealtimeRuntime(
                 }
         if (!attached && run.persistenceFailure == null) {
             run.persistenceFailure = "ATTACH_RECORDING:realtime run attach returned false"
+        }
+        if (attached) {
+            runCatching {
+                timelineAnnotationRepository?.attachPendingOwner(
+                    ownerKind = TimelineAnnotationPendingOwnerKindValue.PHONE_CAPTURE,
+                    ownerId = saved.recordingId,
+                    recordingId = saved.recordingId,
+                )
+            }
         }
 
         val timeoutFailure = run.runnerFailure?.startsWith("STOP_FINALIZATION_TIMEOUT") == true

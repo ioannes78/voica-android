@@ -72,6 +72,22 @@ class AppContainer(
 
     private val recordingDatabase = VoicaDatabase.create(application)
 
+    val timelineAnnotationRepository =
+        io.github.ioannes78.voica.database.TimelineAnnotationRepository(recordingDatabase)
+    val timelineAnnotationAnchorResolver =
+        io.github.ioannes78.voica.database.TimelineAnnotationAnchorResolver(recordingDatabase)
+    val timelineAnnotationAttachmentStore =
+        TimelineAnnotationAttachmentStore(
+            context = application,
+            database = recordingDatabase,
+            annotationRepository = timelineAnnotationRepository,
+        )
+    val timelineAnnotationContentCoordinator =
+        TimelineAnnotationContentCoordinator(
+            repository = timelineAnnotationRepository,
+            attachmentStore = timelineAnnotationAttachmentStore,
+        )
+
     val recordingLibraryRepository =
         RecordingLibraryRepository(
             database = recordingDatabase,
@@ -289,6 +305,8 @@ class AppContainer(
                     diarizationCoordinator = diarizationCoordinator,
                     aiSummaryCoordinator = aiSummaryCoordinator,
                 ),
+            annotationAttachmentCleanup =
+                timelineAnnotationAttachmentStore::deleteAttachmentsForRecording,
         )
 
     val storageManagementCoordinator =
@@ -313,7 +331,12 @@ class AppContainer(
             repository = recordingLibraryRepository,
             recordingsRoot = recordingsRoot,
             assetValidator = deviceAudioAssetValidator,
-            onRegistered = canonicalAudioCoordinator::requestAutomatic,
+            onRegistered = { recordingId ->
+                canonicalAudioCoordinator.requestAutomatic(recordingId)
+                applicationScope.launch {
+                    runCatching { timelineAnnotationRepository.reconcilePending() }
+                }
+            },
         )
 
     private val defaultDeviceRepository =
@@ -387,6 +410,7 @@ class AppContainer(
             capture = AndroidPhoneMicrophoneCaptureDriver(application),
             recordingsRoot = recordingsRoot,
             registerRecording = phoneMicrophoneRecordingRegistrar::register,
+            timelineAnnotationRepository = timelineAnnotationRepository,
         )
 
     internal val phoneMicrophoneRealtimeRuntime =
@@ -400,6 +424,14 @@ class AppContainer(
             integrationRepository = phoneMicrophoneIntegrationRepository,
             recordingsRoot = recordingsRoot,
             localSpeechSettings = { localSpeechSettingsStore.settings.value },
+            timelineAnnotationRepository = timelineAnnotationRepository,
+        )
+
+    internal val realtimeTimelineAnnotationCaptureResolver =
+        RealtimeTimelineAnnotationCaptureResolver(
+            persistenceRepository = stage16ARealtimePersistenceRepository,
+            recorderBoundary = stage16ARealtimeRuntime::annotationBoundarySnapshot,
+            phoneBoundary = phoneMicrophoneRealtimeRuntime::annotationBoundarySnapshot,
         )
 
     val deviceRepository: DeviceRepository =
@@ -419,6 +451,7 @@ class AppContainer(
             recordingsRoot = recordingsRoot,
             searchIndexRebuilder = searchIndexRebuilder,
             transportGeneration = { realtimeAudioRuntime.snapshot().transportGeneration },
+            timelineAnnotationRepository = timelineAnnotationRepository,
         )
 
     val stage16AReconnectRecoveryCoordinator =
@@ -477,7 +510,14 @@ class AppContainer(
         }
 
         applicationScope.launch(Dispatchers.IO) {
-            recordingLibraryRepository.reconcilePendingDeletes()
+            val annotationDeleteCleanup =
+                runCatching { timelineAnnotationAttachmentStore.cleanupDeletingRecordings() }
+            if (
+                annotationDeleteCleanup.isSuccess &&
+                annotationDeleteCleanup.getOrThrow().blockedRecordingIds.isEmpty()
+            ) {
+                recordingLibraryRepository.reconcilePendingDeletes()
+            }
             runCatching {
                 stage16ARealtimePersistenceRepository.interruptNonTerminalRunsForSource(
                     audioSourceType =
@@ -489,6 +529,8 @@ class AppContainer(
                 )
             }
             runCatching { phoneMicrophoneRecoveryCoordinator.reconcileOnStartup() }
+            runCatching { timelineAnnotationRepository.reconcilePending() }
+            runCatching { timelineAnnotationAttachmentStore.reconcileOnStartup() }
             localAudioImportCoordinator.cleanupStaleStaging()
             localAudioExportCoordinator.cleanupStaleShareCache()
             canonicalAudioCoordinator.reconcileOnStartup()

@@ -3,4 +3,7 @@
     <cache-path
         name="shared_audio"
         path="share/" />
+    <cache-path
+        name="timeline_annotation_camera"
+        path="timeline-annotation-camera/" />
 </paths>

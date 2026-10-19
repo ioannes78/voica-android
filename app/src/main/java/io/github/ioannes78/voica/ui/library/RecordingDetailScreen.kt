@@ -22,6 +22,7 @@ enum class RecordingDetailDestination {
     PLAYBACK,
     TRANSCRIPT,
     SUMMARY,
+    ANNOTATIONS,
 }
 
 @Composable

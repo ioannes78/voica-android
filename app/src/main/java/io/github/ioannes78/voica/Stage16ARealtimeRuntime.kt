@@ -193,6 +193,14 @@ class Stage16ARealtimeRuntime(
         Stage16ARealtimeActionOutcome(success = true)
     }
 
+    internal fun annotationBoundarySnapshot(): RealtimeAnnotationRuntimeBoundary? {
+        val run = activeRun ?: return null
+        return recorderRealtimeAnnotationBoundary(
+            runId = run.runId,
+            boundary = run.bundle.runner.snapshot().lastProcessedBoundary,
+        )
+    }
+
     suspend fun pause(): Stage16ARealtimeActionOutcome = commandMutex.withLock {
         val run = activeRun
             ?: return@withLock failure("NOT_ACTIVE", "当前没有实时转写任务")
