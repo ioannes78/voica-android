@@ -195,7 +195,7 @@ A4 结论：**30-minute real-device stability PASS for FSMN；未发现需要继
 
 ## 8. Decision boundary / STOP
 
-Gate A benchmark 到此正式收口。
+Gate A benchmark 到此正式收口。用户已明确要求停止 60/120 分钟追加 A4，并立即收口；因此当前 benchmark evidence set 被视为 Gate A 最终 evidence set。
 
 在用户明确确认以下决定前：
 
