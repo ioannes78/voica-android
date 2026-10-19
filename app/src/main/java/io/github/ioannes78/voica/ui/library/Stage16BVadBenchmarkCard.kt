@@ -264,7 +264,9 @@ internal fun Stage16BVadBenchmarkCard(
                 }
 
                 is DiarizationVadBenchmarkState.Completed -> {
-                    current.observations.forEach(::DiarizationObservationText)
+                    current.observations.forEach { observation ->
+                        DiarizationObservationText(observation)
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Button(
                             onClick = {
