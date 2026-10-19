@@ -98,8 +98,10 @@ class BootstrapModelCatalogTest {
 
         assertFalse(STAGE16B_FUNASR_NANO_CANDIDATE_ID in productionIds)
         assertFalse(STAGE16B_FSMN_VAD_CANDIDATE_ID in productionIds)
+        assertFalse(STAGE16B_TEN_VAD_CANDIDATE_ID in productionIds)
         assertTrue(STAGE16B_FUNASR_NANO_CANDIDATE_ID in candidateIds)
         assertTrue(STAGE16B_FSMN_VAD_CANDIDATE_ID in candidateIds)
+        assertTrue(STAGE16B_TEN_VAD_CANDIDATE_ID in candidateIds)
         assertTrue(Stage13AOfflineModelIds.SENSEVOICE in productionIds)
         assertTrue(Stage13AOfflineModelIds.SENSEVOICE in candidateIds)
     }
