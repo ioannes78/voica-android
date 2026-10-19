@@ -123,34 +123,71 @@ Implemented in the existing sherpa large-offline-ASR adapter:
 
 Runtime compatibility was checked against sherpa-onnx `v1.13.8`, the runtime currently pinned by Voica. In that runtime, Fun-ASR-Nano and Qwen3-ASR intentionally use tokenizer directories and do not require a `tokens.txt` path.
 
+Candidate model-channel path:
+
+- candidate branch: `ioannes78/voica-model-channel:stage16b-funasr-nano-candidate`
+- prerelease tag/release: `candidate-funasr-nano-r1`
+- candidate manifest URL: `https://github.com/ioannes78/voica-model-channel/releases/download/candidate-funasr-nano-r1/production.json`
+- candidate manifestVersion: `8`
+- candidate manifestDigest: `a05fab6a9f6464762a38e1a023c8f96f83db2fbe24585a766a14e2279aa12063`
+- official upstream package size: `841730611` bytes
+- official package SHA-256: `eb43d7ccc2e86b243f6a03b7df361033dda66db9523d1a92bf6aca2b50c9476b`
+- required installed files total: `1010070962` bytes
+- candidate package/inner-file verification workflow `39228400994`: **SUCCESS**
+
+The production model-channel `main` remains unchanged at `be74c7065ce22a5f9b207a7cf1c88d3be0e872ec` / manifestVersion `7`.
+
+QA-only candidate tooling boundary:
+
+- pinned production model IDs continue to exclude `funasr-nano-int8`;
+- Debug and `releaseQa` may use candidate release manifests;
+- formal `release` keeps candidate-channel tooling disabled;
+- the normal product offline-ASR matrix remains unchanged.
+
 Automation evidence:
 
-- Fun-ASR candidate code head: `2fb25d344fb689c1b704efef1b282e798ccc54a4`
-- Android PR CI `#1803` / run `39227036295`: **SUCCESS**
+- Fun-ASR adapter Android PR CI `#1803` / run `39227036295`: **SUCCESS**
+- candidate-channel / QA tooling Android PR CI `#1810` / run `39229577661`: **SUCCESS**
 - Fast PR Gate: **SUCCESS**
-- Android Production Gate `#653` / run `39227036363`: **SKIPPED by policy**
+- Android Production Gate `#660`: **SKIPPED by policy**
 
-Still required before Fun-ASR candidate can be exercised on-device:
+Production-like candidate QA APK:
 
-- exact official package metadata and hashes;
-- candidate descriptor / manifest outside the immutable production manifest;
-- isolated runtime validation;
-- candidate download/install/activation QA;
-- real-device transcription QA including punctuation, hotwords and timestamp inspection.
+- Android PR CI `#1811` / run `39229974350`: **SUCCESS**
+- QA APK Gate: **SUCCESS**
+- Build / R8 verification / release-artifact verification / security-model-channel verification / sherpa native-package verification: **SUCCESS**
+- artifact ID: `12176594114`
+- artifact ZIP digest: `sha256:797955d78507e17567f18fa1450e1dd14fc2afe85773d692007d722a8bbe358b`
+- artifact retention: `1 day`
+- verified package: `io.github.ioannes78.voica.qa`
+- verified version: `1.1.0-stage16a2-export-qa (92)`
+- signing identity: `qa`
+
+Current Fun-ASR status:
+
+- adapter compile/tests: **AUTOMATED PASS**
+- candidate package integrity generation: **AUTOMATED PASS**
+- production-like QA APK build/security/native packaging: **AUTOMATED PASS**
+- candidate manifest selection on real device: **NOT VERIFIED**
+- candidate model download/resume/integrity on real device: **NOT VERIFIED**
+- isolated native runtime validation on real device: **NOT VERIFIED**
+- atomic candidate activation on real device: **NOT VERIFIED**
+- real-device transcription quality/punctuation/hotword/timestamp behavior: **NOT RUN / NOT VERIFIED**
 
 ### FSMN-VAD candidate
 
-Status: **BLOCKED ON CLEAN ANDROID RUNTIME PATH — NOT IMPLEMENTED / NOT VERIFIED**
+Status: **RUNTIME FEASIBILITY IN PROGRESS — NOT IMPLEMENTED / NOT VERIFIED**
 
-Current finding:
+Current findings:
 
 - Voica's pinned sherpa-onnx Android/Kotlin VAD surface does not expose FSMN-VAD;
-- existing Voica has no separate ONNX Runtime dependency;
-- directly adding a second ORT runtime only for FSMN could add native-library/APK-size/ABI/conflict risk and is not authorized as an implicit shortcut.
+- current/latest sherpa Android VAD path does not provide FSMN simply by upgrading the runtime;
+- existing Voica does not intentionally expose a second ONNX Runtime dependency;
+- adding Microsoft `onnxruntime-android` only for FSMN would create native-library/version/package coupling with the sherpa runtime and is not accepted as an implicit shortcut.
 
-Therefore Stage 16B does **not** pretend FSMN is integrated. The next FSMN step is to establish a clean Android runtime path and evaluate its binary/runtime cost before candidate implementation.
+A cleaner feasibility direction has been identified upstream: FunASR's edge/llama.cpp path now includes an FSMN-VAD GGUF implementation. This is a candidate architecture direction only; it has **not** been integrated into Voica and is **NOT VERIFIED** on Android.
 
-This blocker does not authorize silently dropping FSMN from Gate A; if a valid Android runtime cannot be established, the VAD Benchmark Report must state the affected FSMN items as `NOT RUN / NOT VERIFIED` with the exact reason.
+Stage 16B therefore does **not** pretend FSMN is integrated, but it also does not silently drop FSMN from Gate A. The next FSMN step is a minimal Android-native feasibility assessment focused on ABI size, JNI boundary, memory, startup cost, and whether the GGUF/ggml subset can coexist cleanly with the existing sherpa runtime.
 
 ## Product-state non-changes
 
@@ -166,9 +203,9 @@ At the current 16B.1 point:
 
 ## Next planned work
 
-1. Obtain exact official Fun-ASR-Nano package metadata/hashes and prepare a candidate-only manifest/descriptor path.
-2. Run isolated candidate runtime validation before normal app activation.
-3. Establish or reject a clean FSMN Android runtime approach without silently introducing a duplicate inference runtime.
-4. Only after both VAD candidates are technically testable may Stage 16B proceed to the full 16B.2 VAD benchmark and Gate A.
+1. Real-device candidate-channel QA for Fun-ASR: manifest selection → download/resume/integrity → isolated runtime validation → atomic activation.
+2. If activation passes, run a minimal Fun-ASR transcription smoke test before any quality claim.
+3. In parallel, finish FSMN Android runtime feasibility and either produce a clean testable candidate or explicitly document why Gate A cannot run FSMN on the current architecture.
+4. Only after both VAD candidates are technically testable may Stage 16B proceed to the full VAD benchmark and Gate A.
 
 This progress document records development state only. It is not a Freeze or Handoff document.
