@@ -142,6 +142,7 @@ private val PROMOTED_STAGE13A_CANDIDATE_PATHS =
 
 internal const val STAGE16B_FUNASR_NANO_CANDIDATE_ID = "funasr-nano-int8"
 internal const val STAGE16B_FSMN_VAD_CANDIDATE_ID = "fsmn-vad-int8"
+internal const val STAGE16B_TEN_VAD_CANDIDATE_ID = "ten-vad-fp32"
 
 private val PRODUCT_MODEL_IDS =
     setOf(
@@ -159,6 +160,7 @@ private val DEBUG_CANDIDATE_MODEL_IDS =
     setOf(
         STAGE16B_FUNASR_NANO_CANDIDATE_ID,
         STAGE16B_FSMN_VAD_CANDIDATE_ID,
+        STAGE16B_TEN_VAD_CANDIDATE_ID,
     )
 
 internal fun allowedModelIdsForManifest(productionManifestPinned: Boolean): Set<String> =
