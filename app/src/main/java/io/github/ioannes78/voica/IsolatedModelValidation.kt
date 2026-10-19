@@ -6,13 +6,13 @@ import android.app.Service
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.ServiceConnection
 import android.os.Binder
 import android.os.IBinder
 import android.os.SystemClock
 import io.github.ioannes78.voica.model.ModelCandidateValidator
 import io.github.ioannes78.voica.model.ModelDescriptor
 import io.github.ioannes78.voica.model.ModelStorage
+import io.github.ioannes78.voica.model.Stage16BCandidateRuntimes
 import io.github.ioannes78.voica.sherpa.SherpaModelCandidateValidator
 import io.github.ioannes78.voica.sherpa.SherpaModelValidationException
 import io.github.ioannes78.voica.sherpa.SherpaModelValidationStage
@@ -204,7 +204,7 @@ class IsolatedModelValidationService : Service() {
                     storage.installedVersion(snapshot.descriptor)
                         ?: error("模型文件静态完整性校验失败")
 
-                SherpaModelCandidateValidator().validate(
+                modelCandidateValidatorFor(snapshot.descriptor).validate(
                     descriptor = snapshot.descriptor,
                     installedDirectory = installed.directory,
                 )
@@ -240,6 +240,29 @@ class IsolatedModelValidationService : Service() {
             result = result,
         )
     }
+}
+
+private fun modelCandidateValidatorFor(descriptor: ModelDescriptor): ModelCandidateValidator =
+    if (descriptor.runtimeId == Stage16BCandidateRuntimes.FSMN_VAD_ID) {
+        createFsmnCandidateValidator()
+    } else {
+        SherpaModelCandidateValidator()
+    }
+
+private fun createFsmnCandidateValidator(): ModelCandidateValidator {
+    val className = "io.github.ioannes78.voica.fsmn.FsmnModelCandidateValidator"
+    val candidateClass =
+        try {
+            Class.forName(className)
+        } catch (error: ClassNotFoundException) {
+            error(
+                "FSMN candidate runtime is unavailable in this build; " +
+                    "formal production releases intentionally do not package it",
+            )
+        }
+    val instance = candidateClass.getDeclaredConstructor().newInstance()
+    return instance as? ModelCandidateValidator
+        ?: error("FSMN candidate validator does not implement ModelCandidateValidator")
 }
 
 private data class ValidationRequest(
