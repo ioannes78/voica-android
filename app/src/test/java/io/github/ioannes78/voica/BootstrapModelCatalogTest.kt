@@ -70,7 +70,29 @@ class BootstrapModelCatalogTest {
     }
 
     @Test
-    fun stage16bFunAsrCandidateIsAllowedOnlyForDebugCandidateCatalogs() {
+    fun candidateChannelRequiresDebuggableOrExplicitQaBuildFlag() {
+        assertFalse(
+            candidateModelChannelAllowed(
+                isDebuggable = false,
+                buildAllowsCandidateChannel = false,
+            ),
+        )
+        assertTrue(
+            candidateModelChannelAllowed(
+                isDebuggable = true,
+                buildAllowsCandidateChannel = false,
+            ),
+        )
+        assertTrue(
+            candidateModelChannelAllowed(
+                isDebuggable = false,
+                buildAllowsCandidateChannel = true,
+            ),
+        )
+    }
+
+    @Test
+    fun stage16bFunAsrCandidateIsAllowedOnlyForCandidateCatalogs() {
         assertFalse(
             STAGE16B_FUNASR_NANO_CANDIDATE_ID in
                 allowedModelIdsForManifest(productionManifestPinned = true),
