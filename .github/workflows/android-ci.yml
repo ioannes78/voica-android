@@ -120,6 +120,8 @@ jobs:
             :engine:playback:assembleDebug \
             :engine:sherpa:testDebugUnitTest \
             :engine:sherpa:assembleDebug \
+            :engine:fsmn:testDebugUnitTest \
+            :engine:fsmn:assembleDebug \
             :engine:llm:testDebugUnitTest \
             :engine:llm:assembleDebug \
             :app:testDebugUnitTest \
