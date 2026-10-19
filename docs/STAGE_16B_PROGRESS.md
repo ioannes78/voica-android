@@ -49,6 +49,8 @@ Required before final local-file VAD selection:
 
 If results are materially equivalent, retain Silero. FSMN replaces Silero only with clear full-pipeline evidence.
 
+For Gate A, VAD post-processing policy is part of the benchmark configuration and must be frozen explicitly. The first reproducible FSMN comparison will use the pinned model/config end-silence semantics rather than silently varying the silence threshold with accumulated speech duration.
+
 ### Gate B — ASR Model Matrix Gate
 
 Candidates:
@@ -176,18 +178,65 @@ Current Fun-ASR status:
 
 ### FSMN-VAD candidate
 
-Status: **RUNTIME FEASIBILITY IN PROGRESS — NOT IMPLEMENTED / NOT VERIFIED**
+Status: **CANDIDATE ENGINE IMPLEMENTED — AUTOMATED PASS / REAL-DEVICE NOT VERIFIED**
 
-Current findings:
+Implemented:
 
-- Voica's pinned sherpa-onnx Android/Kotlin VAD surface does not expose FSMN-VAD;
-- current/latest sherpa Android VAD path does not provide FSMN simply by upgrading the runtime;
-- existing Voica does not intentionally expose a second ONNX Runtime dependency;
-- adding Microsoft `onnxruntime-android` only for FSMN would create native-library/version/package coupling with the sherpa runtime and is not accepted as an implicit shortcut.
+- dedicated `engine:fsmn` Android module;
+- existing `VadEngine` contract reused; no second VAD state machine was added to the transcription domain;
+- canonical PCM contract remains 16 kHz / mono / PCM16;
+- bounded sequential PCM reads with sample-index `SpeechSegment` output;
+- incremental FBank / LFR / CMVN frontend;
+- four FSMN cache tensors (`128 x 19`) maintained across incremental inference;
+- native ONNX inputs `speech + in_cache0..3` and outputs `logits + out_cache0..3` validated against the candidate model contract;
+- existing APK `libonnxruntime.so` is resolved dynamically via `dlopen` / `OrtGetApiBase`;
+- no second ONNX Runtime library is packaged or linked by the FSMN candidate JNI;
+- FSMN runtime identity is candidate-only: `voica-fsmn-ort / 1.0.0`;
+- candidate model ID is `fsmn-vad-int8` and remains excluded from the pinned production model catalog;
+- Debug / `qa` / `releaseQa` may package the FSMN candidate runtime; formal `release` does not depend on `engine:fsmn`;
+- isolated `:model_validator` routes FSMN descriptors to `FsmnModelCandidateValidator` without creating a compile-time App dependency on the candidate runtime;
+- validator smoke test covers native library load, shared ONNX Runtime resolution, model/CMVN initialization and one bounded inference pass;
+- R8/JNI keep rules protect the reflection and native ABI used only by candidate builds.
 
-A cleaner feasibility direction has been identified upstream: FunASR's edge/llama.cpp path now includes an FSMN-VAD GGUF implementation. This is a candidate architecture direction only; it has **not** been integrated into Voica and is **NOT VERIFIED** on Android.
+Pinned upstream candidate assets prepared for model-channel packaging:
 
-Stage 16B therefore does **not** pretend FSMN is integrated, but it also does not silently drop FSMN from Gate A. The next FSMN step is a minimal Android-native feasibility assessment focused on ABI size, JNI boundary, memory, startup cost, and whether the GGUF/ggml subset can coexist cleanly with the existing sherpa runtime.
+- upstream repository: `funasr/fsmn-vad-onnx`;
+- fixed upstream revision: `eeb66f413b94a33458f7edbe7f501b10f20fcc85`;
+- `model_quant.onnx`: `508876` bytes, SHA-256 `9b28837838fce9685503c63139fadbad35d6c8ed485485dafdbb32e725969660`;
+- `vad.mvn`: `8040` bytes, SHA-256 `6820fef9687708c4fc3fab2530179c8fcea6262daa25514380056cd8f6eb1754`;
+- upstream license: Apache-2.0.
+
+Automated runtime-boundary verification checks:
+
+- arm64-v8a candidate JNI is produced;
+- no FSMN-owned `libonnxruntime.so` is packaged;
+- no additional ABI is introduced;
+- FSMN JNI has no `DT_NEEDED` dependency on `libonnxruntime.so`;
+- candidate JNI remains under the configured size bound.
+
+Automation evidence:
+
+- Android PR CI `#1844` / run `39241110395`: **SUCCESS**
+- Unit tests and debug compile gate: **SUCCESS**
+- Verify FSMN candidate runtime boundary: **SUCCESS**
+- QA APK Gate: **SKIPPED by policy**
+- Android Production Gate `#691` / run `39241110498`: **SKIPPED by policy**
+- verified candidate head: `58d7098c1b37e5c1e67d1ed67ad9da7372b324d3`
+
+Current FSMN status:
+
+- candidate engine implementation: **AUTOMATED PASS**
+- single-ORT packaging/runtime boundary: **AUTOMATED PASS**
+- QA-only isolated validator routing: **AUTOMATED PASS**
+- candidate model-channel prerelease/package: **NOT RUN / NOT VERIFIED**
+- model download/resume/integrity on real device: **NOT VERIFIED**
+- isolated FSMN model init/inference on real device: **NOT VERIFIED**
+- VAD segmentation quality / boundary accuracy: **NOT RUN / NOT VERIFIED**
+- Gate A Silero-vs-FSMN comparison: **NOT RUN**
+
+Post-processing note before Gate A:
+
+The current candidate endpoint implementation follows FunASR's current dynamic silence schedule. For the first reproducible VAD matrix comparison, Stage 16B will explicitly freeze the FSMN end-silence policy to the pinned model/config semantics (`max_end_silence_time=800 ms`, `speech_to_silence=150 ms`, `lookahead_end=100 ms`) rather than allowing accumulated-speech duration to change the threshold. Dynamic silence can be benchmarked later as a separate tuning variant if FSMN survives Gate A.
 
 ## Product-state non-changes
 
@@ -203,9 +252,11 @@ At the current 16B.1 point:
 
 ## Next planned work
 
-1. Real-device candidate-channel QA for Fun-ASR: manifest selection → download/resume/integrity → isolated runtime validation → atomic activation.
-2. If activation passes, run a minimal Fun-ASR transcription smoke test before any quality claim.
-3. In parallel, finish FSMN Android runtime feasibility and either produce a clean testable candidate or explicitly document why Gate A cannot run FSMN on the current architecture.
-4. Only after both VAD candidates are technically testable may Stage 16B proceed to the full VAD benchmark and Gate A.
+1. Package and publish the pinned FSMN files through a candidate-only model-channel prerelease; production manifest remains unchanged.
+2. Build a production-like `releaseQa` APK containing the candidate runtime only in the QA variant.
+3. Real-device FSMN bring-up: candidate manifest selection → download/resume/integrity → isolated runtime validation → atomic activation → short VAD smoke.
+4. Freeze the reproducible FSMN end-silence policy before quality benchmarking.
+5. Complete the equivalent pending Fun-ASR candidate-channel real-device bring-up.
+6. Only after Silero and FSMN are both technically testable may Stage 16B run the full VAD benchmark and Gate A.
 
 This progress document records development state only. It is not a Freeze or Handoff document.
