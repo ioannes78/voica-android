@@ -1,6 +1,6 @@
 # Stage 16B — Local File ASR V2 Progress
 
-Status: **IN PROGRESS — 16B.0 BASELINE / BENCHMARK HARNESS**
+Status: **IN PROGRESS — 16B.1 CANDIDATE RUNTIME INTEGRATION**
 
 Repository: `ioannes78/voica-android`
 
@@ -73,35 +73,102 @@ The design must keep separate:
 
 Each transcription run must retain an immutable effective-context snapshot or equivalent reproducible lineage.
 
-## 16B.0 — current work
+## 16B.0 — Baseline / Benchmark Harness
 
-Current scope is intentionally limited to baseline audit and benchmark infrastructure.
+Status: **AUTOMATED PASS**
 
-Goals:
+Implemented:
 
-1. Reuse the existing bounded local-file pipeline rather than create a second transcription pipeline.
-2. Establish deterministic CER/WER edit-distance scoring helpers.
-3. Establish a model/VAD-neutral benchmark observation contract for later VAD and ASR candidate runs.
-4. Keep Room v14 and existing product defaults unchanged.
-5. Add automated tests for benchmark scoring before integrating FSMN-VAD or Fun-ASR-Nano.
+- model/VAD-neutral local-file benchmark observation contract;
+- deterministic CER/WER edit-distance scoring;
+- substitution / insertion / deletion accounting;
+- deterministic CER normalization;
+- explicit-token WER scoring without inventing Chinese word segmentation;
+- RTF calculation;
+- automated unit coverage.
 
-### Current audit conclusion
+Audit conclusion:
 
-The existing high-quality local-file transcription path already performs bounded sequential PCM reads, VAD segmentation, bounded offline-ASR chunks, optional timing-reference alignment, capability-aware punctuation finalization, and deterministic engine/source closing. Stage 16B should extend this architecture rather than replace it.
+The existing high-quality local-file transcription path already performs bounded sequential PCM reads, VAD segmentation, bounded offline-ASR chunks, optional timing-reference alignment, capability-aware punctuation finalization, and deterministic engine/source closing. Stage 16B extends this architecture rather than replacing it.
 
-## 16B.0 completion gate
+Automation evidence:
 
-Before moving to 16B.1 candidate runtime integration:
+- branch candidate: `837d2d44e544e073179cf57be75fa4f850bde80a`
+- Android PR CI `#1801` / run `39223677715`: **SUCCESS**
+- Fast PR Gate: **SUCCESS**
+- QA APK Gate: **SKIPPED by policy**
+- Android Production Gate `#651` / run `39223677810`: **SKIPPED by policy**
 
-- benchmark scoring helpers compile and unit-test successfully;
-- benchmark observation contract is model/VAD neutral;
-- no production ASR/VAD selection changes are present;
-- Room remains v14;
+No real-device benchmark was required for 16B.0 infrastructure itself.
+
+## 16B.1 — Candidate Runtime Integration
+
+Status: **IN PROGRESS**
+
+### Fun-ASR-Nano candidate
+
+Implemented in the existing sherpa large-offline-ASR adapter:
+
+- runtime model type `funasr-nano`;
+- sherpa-onnx `OfflineFunAsrNanoModelConfig` wiring;
+- expected INT8 layout:
+  - `encoder_adaptor.int8.onnx`
+  - `llm.int8.onnx`
+  - `embedding.int8.onnx`
+  - non-empty `Qwen3-0.6B/` tokenizer directory;
+- candidate settings for system/user prompt, generation parameters, language, ITN and hotwords;
+- native punctuation path remains capability-driven;
+- token timing is **not** pre-declared as production-supported; Stage 16B requires actual candidate/runtime verification;
+- layout validation tests reject missing/empty tokenizer state before native load.
+
+Runtime compatibility was checked against sherpa-onnx `v1.13.8`, the runtime currently pinned by Voica. In that runtime, Fun-ASR-Nano and Qwen3-ASR intentionally use tokenizer directories and do not require a `tokens.txt` path.
+
+Automation evidence:
+
+- Fun-ASR candidate code head: `2fb25d344fb689c1b704efef1b282e798ccc54a4`
+- Android PR CI `#1803` / run `39227036295`: **SUCCESS**
+- Fast PR Gate: **SUCCESS**
+- Android Production Gate `#653` / run `39227036363`: **SKIPPED by policy**
+
+Still required before Fun-ASR candidate can be exercised on-device:
+
+- exact official package metadata and hashes;
+- candidate descriptor / manifest outside the immutable production manifest;
+- isolated runtime validation;
+- candidate download/install/activation QA;
+- real-device transcription QA including punctuation, hotwords and timestamp inspection.
+
+### FSMN-VAD candidate
+
+Status: **BLOCKED ON CLEAN ANDROID RUNTIME PATH — NOT IMPLEMENTED / NOT VERIFIED**
+
+Current finding:
+
+- Voica's pinned sherpa-onnx Android/Kotlin VAD surface does not expose FSMN-VAD;
+- existing Voica has no separate ONNX Runtime dependency;
+- directly adding a second ORT runtime only for FSMN could add native-library/APK-size/ABI/conflict risk and is not authorized as an implicit shortcut.
+
+Therefore Stage 16B does **not** pretend FSMN is integrated. The next FSMN step is to establish a clean Android runtime path and evaluate its binary/runtime cost before candidate implementation.
+
+This blocker does not authorize silently dropping FSMN from Gate A; if a valid Android runtime cannot be established, the VAD Benchmark Report must state the affected FSMN items as `NOT RUN / NOT VERIFIED` with the exact reason.
+
+## Product-state non-changes
+
+At the current 16B.1 point:
+
+- Fun-ASR-Nano is **not** in the normal product offline-ASR matrix;
+- FSMN-VAD is **not** the product VAD;
+- Silero remains the current production file-ASR VAD baseline;
+- SenseVoice / Qwen3 product selection remains unchanged;
+- Room remains `v14`;
 - production model channel remains unchanged;
-- Fast PR CI is green on the 16B.0 branch/PR.
+- no production model promotion has been authorized.
 
-## Next planned step after 16B.0
+## Next planned work
 
-`16B.1 — FSMN-VAD candidate + Fun-ASR-Nano candidate runtime integration`
+1. Obtain exact official Fun-ASR-Nano package metadata/hashes and prepare a candidate-only manifest/descriptor path.
+2. Run isolated candidate runtime validation before normal app activation.
+3. Establish or reject a clean FSMN Android runtime approach without silently introducing a duplicate inference runtime.
+4. Only after both VAD candidates are technically testable may Stage 16B proceed to the full 16B.2 VAD benchmark and Gate A.
 
 This progress document records development state only. It is not a Freeze or Handoff document.
