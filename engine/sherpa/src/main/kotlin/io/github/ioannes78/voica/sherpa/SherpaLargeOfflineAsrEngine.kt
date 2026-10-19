@@ -2,6 +2,7 @@ package io.github.ioannes78.voica.sherpa
 
 import com.k2fsa.sherpa.onnx.FeatureConfig
 import com.k2fsa.sherpa.onnx.OfflineFireRedAsrCtcModelConfig
+import com.k2fsa.sherpa.onnx.OfflineFunAsrNanoModelConfig
 import com.k2fsa.sherpa.onnx.OfflineModelConfig
 import com.k2fsa.sherpa.onnx.OfflineQwen3AsrModelConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
@@ -19,11 +20,21 @@ import java.io.File
 
 object SherpaOfflineAsrModelType {
     const val FIRE_RED_ASR2_CTC = "fire-red-asr2-ctc"
+    const val FUNASR_NANO = "funasr-nano"
     const val QWEN3_ASR = "qwen3-asr"
 }
 
 data class LargeOfflineAsrSettings(
     val numThreads: Int = SherpaRuntime.DEFAULT_NUM_THREADS,
+    val funAsrSystemPrompt: String = "You are a helpful assistant.",
+    val funAsrUserPrompt: String = "语音转写：",
+    val funAsrMaxNewTokens: Int = 512,
+    val funAsrTemperature: Float = 1.0e-6F,
+    val funAsrTopP: Float = 0.8F,
+    val funAsrSeed: Int = 42,
+    val funAsrLanguage: String = "",
+    val funAsrUseInverseTextNormalization: Boolean = true,
+    val funAsrHotwords: String = "",
     val qwenMaxTotalLen: Int = 512,
     val qwenMaxNewTokens: Int = 128,
     val qwenTemperature: Float = 1.0e-6F,
@@ -34,6 +45,11 @@ data class LargeOfflineAsrSettings(
 ) {
     init {
         require(numThreads > 0)
+        require(funAsrSystemPrompt.isNotBlank())
+        require(funAsrUserPrompt.isNotBlank())
+        require(funAsrMaxNewTokens > 0)
+        require(funAsrTemperature.isFinite() && funAsrTemperature >= 0F)
+        require(funAsrTopP.isFinite() && funAsrTopP > 0F && funAsrTopP <= 1F)
         require(qwenMaxTotalLen > 0)
         require(qwenMaxNewTokens > 0)
         require(qwenTemperature.isFinite() && qwenTemperature >= 0F)
@@ -44,6 +60,9 @@ data class LargeOfflineAsrSettings(
 private data class LargeOfflineAsrFiles(
     val model: File? = null,
     val tokens: File? = null,
+    val encoderAdaptor: File? = null,
+    val llm: File? = null,
+    val embedding: File? = null,
     val convFrontend: File? = null,
     val encoder: File? = null,
     val decoder: File? = null,
@@ -55,6 +74,20 @@ private data class LargeOfflineAsrFiles(
             return LargeOfflineAsrFiles(
                 model = requiredFile(root, "model.int8.onnx"),
                 tokens = requiredFile(root, "tokens.txt"),
+            )
+        }
+
+        fun funAsrNano(directory: File): LargeOfflineAsrFiles {
+            val root = canonicalRoot(directory)
+            val tokenizer = requiredDirectory(root, "Qwen3-0.6B")
+            check(tokenizer.walkTopDown().any { it.isFile }) {
+                "FunASR-Nano tokenizer directory is empty"
+            }
+            return LargeOfflineAsrFiles(
+                encoderAdaptor = requiredFile(root, "encoder_adaptor.int8.onnx"),
+                llm = requiredFile(root, "llm.int8.onnx"),
+                embedding = requiredFile(root, "embedding.int8.onnx"),
+                tokenizer = tokenizer,
             )
         }
 
@@ -288,6 +321,32 @@ private fun offlineRecognizerConfig(
                             model = checkNotNull(files.model).absolutePath,
                         ),
                     tokens = checkNotNull(files.tokens).absolutePath,
+                    numThreads = settings.numThreads,
+                    debug = settings.debug,
+                    provider = SherpaRuntime.PROVIDER_CPU,
+                )
+            }
+
+            SherpaOfflineAsrModelType.FUNASR_NANO -> {
+                val files = LargeOfflineAsrFiles.funAsrNano(directory)
+                OfflineModelConfig(
+                    funasrNano =
+                        OfflineFunAsrNanoModelConfig(
+                            encoderAdaptor = checkNotNull(files.encoderAdaptor).absolutePath,
+                            llm = checkNotNull(files.llm).absolutePath,
+                            embedding = checkNotNull(files.embedding).absolutePath,
+                            tokenizer = checkNotNull(files.tokenizer).absolutePath,
+                            systemPrompt = settings.funAsrSystemPrompt,
+                            userPrompt = settings.funAsrUserPrompt,
+                            maxNewTokens = settings.funAsrMaxNewTokens,
+                            temperature = settings.funAsrTemperature,
+                            topP = settings.funAsrTopP,
+                            seed = settings.funAsrSeed,
+                            language = settings.funAsrLanguage,
+                            itn = settings.funAsrUseInverseTextNormalization,
+                            hotwords = settings.funAsrHotwords,
+                        ),
+                    tokens = "",
                     numThreads = settings.numThreads,
                     debug = settings.debug,
                     provider = SherpaRuntime.PROVIDER_CPU,
