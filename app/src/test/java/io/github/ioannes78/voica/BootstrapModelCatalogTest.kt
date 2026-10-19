@@ -68,4 +68,24 @@ class BootstrapModelCatalogTest {
             ),
         )
     }
+
+    @Test
+    fun stage16bFunAsrCandidateIsAllowedOnlyForDebugCandidateCatalogs() {
+        assertFalse(
+            STAGE16B_FUNASR_NANO_CANDIDATE_ID in
+                allowedModelIdsForManifest(productionManifestPinned = true),
+        )
+        assertTrue(
+            STAGE16B_FUNASR_NANO_CANDIDATE_ID in
+                allowedModelIdsForManifest(productionManifestPinned = false),
+        )
+        assertTrue(
+            Stage13AOfflineModelIds.SENSEVOICE in
+                allowedModelIdsForManifest(productionManifestPinned = true),
+        )
+        assertTrue(
+            Stage13AOfflineModelIds.SENSEVOICE in
+                allowedModelIdsForManifest(productionManifestPinned = false),
+        )
+    }
 }
