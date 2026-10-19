@@ -36,6 +36,51 @@ class SherpaLargeOfflineAsrEngineTest {
     }
 
     @Test
+    fun funAsrNanoLayoutRejectsMissingTokenizerBeforeNativeLoad() {
+        val directory = Files.createTempDirectory("funasr-nano-layout").toFile()
+        try {
+            directory.resolve("encoder_adaptor.int8.onnx").writeBytes(byteArrayOf(1))
+            directory.resolve("llm.int8.onnx").writeBytes(byteArrayOf(1))
+            directory.resolve("embedding.int8.onnx").writeBytes(byteArrayOf(1))
+            val failure =
+                runCatching {
+                    createSherpaLargeOfflineAsrEngine(
+                        model = descriptor(SherpaOfflineAsrModelType.FUNASR_NANO),
+                        modelDirectory = directory,
+                    )
+                }.exceptionOrNull()
+
+            assertTrue(failure is IllegalArgumentException)
+            assertTrue(failure?.message.orEmpty().contains("Qwen3-0.6B"))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun funAsrNanoLayoutRejectsEmptyTokenizerBeforeNativeLoad() {
+        val directory = Files.createTempDirectory("funasr-nano-empty-tokenizer").toFile()
+        try {
+            directory.resolve("encoder_adaptor.int8.onnx").writeBytes(byteArrayOf(1))
+            directory.resolve("llm.int8.onnx").writeBytes(byteArrayOf(1))
+            directory.resolve("embedding.int8.onnx").writeBytes(byteArrayOf(1))
+            directory.resolve("Qwen3-0.6B").mkdirs()
+            val failure =
+                runCatching {
+                    createSherpaLargeOfflineAsrEngine(
+                        model = descriptor(SherpaOfflineAsrModelType.FUNASR_NANO),
+                        modelDirectory = directory,
+                    )
+                }.exceptionOrNull()
+
+            assertTrue(failure is IllegalStateException)
+            assertTrue(failure?.message.orEmpty().contains("tokenizer directory is empty"))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun qwenLayoutRejectsMissingTokenizerBeforeNativeLoad() {
         val directory = Files.createTempDirectory("qwen3-layout").toFile()
         try {
