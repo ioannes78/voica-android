@@ -187,8 +187,8 @@ dependencies {
 
     // Stage 16B FSMN is a candidate-only runtime. It is deliberately absent from formal release.
     debugRuntimeOnly(project(":engine:fsmn"))
-    qaRuntimeOnly(project(":engine:fsmn"))
-    releaseQaRuntimeOnly(project(":engine:fsmn"))
+    add("qaRuntimeOnly", project(":engine:fsmn"))
+    add("releaseQaRuntimeOnly", project(":engine:fsmn"))
 
     implementation("androidx.core:core-ktx:1.19.1")
     implementation("androidx.activity:activity-compose:1.13.0")
