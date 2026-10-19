@@ -75,7 +75,7 @@ class FsmnModelCandidateValidator : ModelCandidateValidator {
     private companion object {
         const val MODEL_FILE = "model_quant.onnx"
         const val CMVN_FILE = "vad.mvn"
-        const val VALIDATION_SAMPLE_COUNT = CanonicalPcmProfile.SAMPLE_RATE_HZ
+        const val VALIDATION_SAMPLE_COUNT = 16_000L
     }
 }
 
