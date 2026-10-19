@@ -32,9 +32,10 @@ constexpr int kOutputDim = 248;
 constexpr int kFrameMs = 10;
 constexpr int kEndpointWindowFrames = 20;
 constexpr int kSpeechTransitionFrames = 15;
-constexpr int kLookaheadEndFrames = 10;
+constexpr int kGateAMaxEndSilenceMs = 800;
+constexpr int kGateASpeechToSilenceMs = 150;
+constexpr int kGateALookaheadEndMs = 100;
 constexpr int kStartLookbackFrames = 40;
-constexpr int kScheduleChunkFrames = 6000;
 constexpr float kPreEmphasis = 0.97F;
 constexpr float kLowFrequencyHz = 20.0F;
 constexpr float kHighFrequencyHz = 8000.0F;
@@ -293,7 +294,13 @@ class EndpointState {
   public:
     EndpointState(float speech_noise_threshold, int max_speech_duration_ms)
         : speech_noise_threshold_(speech_noise_threshold),
-          max_segment_frames_(std::max(1, max_speech_duration_ms / kFrameMs)) {
+          max_segment_frames_(std::max(1, max_speech_duration_ms / kFrameMs)),
+          max_end_silence_frames_(
+              std::max(1, (kGateAMaxEndSilenceMs - kGateASpeechToSilenceMs) / kFrameMs)),
+          end_lookback_frames_(
+              std::max(
+                  0,
+                  max_end_silence_frames_ - (kGateALookaheadEndMs / kFrameMs) - 1)) {
         ResetDetection();
     }
 
@@ -323,28 +330,6 @@ class EndpointState {
     }
 
   private:
-    void RecomputeEndSilence() {
-        int scheduled_ms;
-        if (accumulated_ms_ <= 10000) {
-            scheduled_ms = 2000;
-        } else if (accumulated_ms_ <= 20000) {
-            scheduled_ms = 1000;
-        } else if (accumulated_ms_ <= 30000) {
-            scheduled_ms = 800;
-        } else if (accumulated_ms_ <= 40000) {
-            scheduled_ms = 600;
-        } else if (accumulated_ms_ <= 50000) {
-            scheduled_ms = 400;
-        } else if (accumulated_ms_ <= 60000) {
-            scheduled_ms = 200;
-        } else {
-            scheduled_ms = 100;
-        }
-        max_end_silence_frames_ = std::max(0, (scheduled_ms - 150) / kFrameMs);
-        end_lookback_frames_ =
-            std::max(0, max_end_silence_frames_ - kLookaheadEndFrames - 1);
-    }
-
     void ResetDetection() {
         window_.fill(0);
         window_position_ = 0;
@@ -353,9 +338,6 @@ class EndpointState {
         consecutive_silence_frames_ = 0;
         in_segment_ = false;
         current_start_frame_ = -1;
-        accumulated_ms_ = 0;
-        in_speech_latched_ = false;
-        RecomputeEndSilence();
     }
 
     static int64_t FrameToSample(int64_t frame) {
@@ -379,13 +361,6 @@ class EndpointState {
         float silence_probability,
         std::vector<std::pair<int64_t, int64_t>>* emitted) {
         const int64_t frame = processed_frames_;
-        if (frame > 0 && frame % kScheduleChunkFrames == 0) {
-            if (in_segment_ || in_speech_latched_) {
-                accumulated_ms_ += kScheduleChunkFrames * kFrameMs;
-                in_speech_latched_ = true;
-            }
-            RecomputeEndSilence();
-        }
 
         const int speech =
             (1.0F - silence_probability) >=
@@ -452,10 +427,8 @@ class EndpointState {
     bool in_segment_ = false;
     int64_t current_start_frame_ = -1;
     int64_t previous_end_frame_ = 0;
-    int accumulated_ms_ = 0;
-    bool in_speech_latched_ = false;
-    int max_end_silence_frames_ = 0;
-    int end_lookback_frames_ = 0;
+    int max_end_silence_frames_;
+    int end_lookback_frames_;
     int64_t processed_frames_ = 0;
 };
 
