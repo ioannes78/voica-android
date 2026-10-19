@@ -1,5 +1,9 @@
-# Stage 16B candidate runtime is instantiated reflectively by the isolated model validator.
+# Stage 16B candidate runtime is instantiated reflectively by isolated validation / QA routing.
 -keep,allowoptimization class io.github.ioannes78.voica.fsmn.FsmnModelCandidateValidator {
+    public <init>();
+}
+
+-keep,allowoptimization class io.github.ioannes78.voica.fsmn.FsmnVadEngineProvider {
     public <init>();
 }
 
