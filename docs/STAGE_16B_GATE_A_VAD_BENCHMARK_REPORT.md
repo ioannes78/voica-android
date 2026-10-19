@@ -102,7 +102,7 @@ A2 结论：**FSMN quality/completeness leader。**
 
 ## 4. A3 — Representative diarization impact
 
-用户提供的代表性真实双人录音截图用于 Silero vs FSMN 观察。已知真实 speaker 数为 2。
+用户提供的代表性真实录音截图用于 Silero vs FSMN 的产品级对比；该样本没有严格 speaker ground-truth，因此不计算 DER，也不把“检测到的 speaker 数”直接等同于准确率。
 
 | 指标 | Silero | FSMN |
 |---|---:|---:|
@@ -117,9 +117,9 @@ A2 结论：**FSMN quality/completeness leader。**
 | diarization time | 159.708 s | **84.596 s** |
 | total time | 164.702 s | **87.704 s** |
 
-FSMN 的第三 speaker 仅约 1.822 s，表现为“两个主要 speaker + 一个短暂误分”；Silero 则出现 5 个 speaker，其中额外 speaker 含约 0.388 s / 0.286 s 的明显碎片。
+从 workload / fragmentation 指标看，FSMN 明显减少 VAD 碎片、短 turn 与 speaker switch，同时将 diarization 总耗时近乎减半。由于没有严格 speaker ground-truth，本项只作为代表性产品证据，不作为正式 DER benchmark。
 
-A3 结论：**FSMN 明显降低 speaker fragmentation，并大幅减少 diarization workload。**
+A3 结论：**FSMN 明显降低 diarization fragmentation 与 workload。**
 
 用户在此后明确：**不再继续比较 TEN。**
 
@@ -176,13 +176,13 @@ A4 结论：**30-minute real-device stability PASS for FSMN；未发现需要继
 - A1 envelope consistency 与 VAD RTF 最优。
 - A2 五组合成样本 CER 明显领先。
 - A2 两组真实人声内容完整性领先。
-- A3 speaker fragmentation 与 diarization workload 明显改善。
+- A3 fragmentation 与 diarization workload 明显改善。
 - A4 30 分钟 real-device 总 RTF 与 VAD 成本显著优于 Silero，且无热稳定性异常。
 
 已知限制：
 
 - FSMN interrupted-download resume 仍未单独验证。
-- A3 使用代表性真实双人录音而非带严格 diarization ground-truth 的正式 DER 数据集，因此 A3 结论是产品级代表性证据，不是学术 DER benchmark。
+- A3 使用代表性真实录音而非带严格 diarization ground-truth 的正式 DER 数据集，因此 A3 结论是产品级代表性证据，不是学术 DER benchmark。
 - A4 60/120 分钟未执行；这是用户明确要求的收口范围。
 
 ## 7. Recommendation
