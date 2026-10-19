@@ -24,7 +24,6 @@ import java.util.Locale
 internal fun Stage16BVadBenchmarkCard(
     runner: SpeechBenchmarkRunner,
     recordingId: String,
-    canonicalReady: Boolean,
 ) {
     val state by runner.state.collectAsState()
 
@@ -39,20 +38,9 @@ internal fun Stage16BVadBenchmarkCard(
                 style = MaterialTheme.typography.bodySmall,
             )
 
-            if (!canonicalReady) {
-                Text(
-                    "需要先生成并验证 canonical PCM。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-
             when (val current = state) {
                 SpeechBenchmarkState.Idle ->
-                    Button(
-                        enabled = canonicalReady,
-                        onClick = { runner.startVadGateA(recordingId) },
-                    ) {
+                    Button(onClick = { runner.startVadGateA(recordingId) }) {
                         Text("运行三方 VAD 基准")
                     }
 
@@ -72,10 +60,7 @@ internal fun Stage16BVadBenchmarkCard(
                         BenchmarkObservationText(observation)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Button(
-                            enabled = canonicalReady,
-                            onClick = { runner.startVadGateA(recordingId) },
-                        ) {
+                        Button(onClick = { runner.startVadGateA(recordingId) }) {
                             Text("重新运行")
                         }
                         OutlinedButton(onClick = runner::reset) {
@@ -101,10 +86,7 @@ internal fun Stage16BVadBenchmarkCard(
                         )
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Button(
-                            enabled = canonicalReady,
-                            onClick = { runner.startVadGateA(recordingId) },
-                        ) {
+                        Button(onClick = { runner.startVadGateA(recordingId) }) {
                             Text("重试")
                         }
                         OutlinedButton(onClick = runner::reset) {
@@ -115,10 +97,7 @@ internal fun Stage16BVadBenchmarkCard(
 
                 is SpeechBenchmarkState.Cancelled -> {
                     Text("已取消", style = MaterialTheme.typography.bodySmall)
-                    Button(
-                        enabled = canonicalReady,
-                        onClick = { runner.startVadGateA(recordingId) },
-                    ) {
+                    Button(onClick = { runner.startVadGateA(recordingId) }) {
                         Text("重新运行")
                     }
                 }
