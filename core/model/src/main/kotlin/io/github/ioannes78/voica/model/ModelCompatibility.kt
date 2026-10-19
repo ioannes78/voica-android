@@ -6,7 +6,27 @@ data class ModelEnvironment(
     val abi: String,
     val sdkInt: Int,
     val appVersionCode: Int,
-)
+    val additionalRuntimes: Map<String, String> = emptyMap(),
+) {
+    init {
+        require(runtimeId.isNotBlank()) { "primary runtimeId must not be blank" }
+        require(runtimeVersion.isNotBlank()) { "primary runtimeVersion must not be blank" }
+        require(runtimeId !in additionalRuntimes) {
+            "primary runtime must not be duplicated in additionalRuntimes"
+        }
+        additionalRuntimes.forEach { (id, version) ->
+            require(id.isNotBlank()) { "additional runtimeId must not be blank" }
+            require(version.isNotBlank()) { "additional runtimeVersion must not be blank" }
+        }
+    }
+
+    fun runtimeVersionFor(requiredRuntimeId: String): String? =
+        if (requiredRuntimeId == runtimeId) {
+            runtimeVersion
+        } else {
+            additionalRuntimes[requiredRuntimeId]
+        }
+}
 
 enum class ModelIncompatibilityReason {
     RUNTIME_ID,
@@ -26,16 +46,17 @@ data class ModelCompatibility(
 fun ModelDescriptor.compatibilityWith(
     environment: ModelEnvironment,
 ): ModelCompatibility {
-    if (runtimeId != environment.runtimeId) {
-        return ModelCompatibility(false, ModelIncompatibilityReason.RUNTIME_ID)
-    }
+    val availableRuntimeVersion =
+        environment.runtimeVersionFor(runtimeId)
+            ?: return ModelCompatibility(false, ModelIncompatibilityReason.RUNTIME_ID)
+
     if (runtimeVersionMin != null &&
-        compareDottedVersions(environment.runtimeVersion, runtimeVersionMin) < 0
+        compareDottedVersions(availableRuntimeVersion, runtimeVersionMin) < 0
     ) {
         return ModelCompatibility(false, ModelIncompatibilityReason.RUNTIME_TOO_OLD)
     }
     if (runtimeVersionMax != null &&
-        compareDottedVersions(environment.runtimeVersion, runtimeVersionMax) > 0
+        compareDottedVersions(availableRuntimeVersion, runtimeVersionMax) > 0
     ) {
         return ModelCompatibility(false, ModelIncompatibilityReason.RUNTIME_TOO_NEW)
     }
