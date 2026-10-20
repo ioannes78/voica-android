@@ -145,21 +145,29 @@ data class Stage16BGateBB1QualityObservation(
         get() = word?.errorRate
 }
 
+private val stage16BSenseVoiceLanguageMetadata =
+    Regex("""(?i)<(?:zh|en|ja|ko|yue)>""")
+
+/** Removes only known SenseVoice language metadata from the scoring view; raw evidence is retained. */
+internal fun stage16BScoringText(text: String): String =
+    text.replace(stage16BSenseVoiceLanguageMetadata, "")
+
 internal fun scoreStage16BGateBB1(
     profile: Stage16BGateBB1Profile,
     hypothesis: String,
 ): Stage16BGateBB1QualityObservation {
-    val character = AsrBenchmarkScoring.characterErrorRate(profile.referenceText, hypothesis)
+    val scoringHypothesis = stage16BScoringText(hypothesis)
+    val character = AsrBenchmarkScoring.characterErrorRate(profile.referenceText, scoringHypothesis)
     val word =
         if (profile.scoreEnglishWer) {
             AsrBenchmarkScoring.wordErrorRate(
                 referenceWords = stage16BEnglishWordTokens(profile.referenceText),
-                hypothesisWords = stage16BEnglishWordTokens(hypothesis),
+                hypothesisWords = stage16BEnglishWordTokens(scoringHypothesis),
             )
         } else {
             null
         }
-    val normalizedHypothesis = AsrBenchmarkScoring.normalizeForCharacterErrorRate(hypothesis)
+    val normalizedHypothesis = AsrBenchmarkScoring.normalizeForCharacterErrorRate(scoringHypothesis)
     val headDeletion =
         profile.expectedHeadText?.let { expected ->
             val normalizedExpected = AsrBenchmarkScoring.normalizeForCharacterErrorRate(expected)
@@ -171,7 +179,7 @@ internal fun scoreStage16BGateBB1(
             normalizedExpected.isNotEmpty() && !normalizedHypothesis.contains(normalizedExpected)
         }
     val duplicateNonBlankLineCount =
-        hypothesis
+        scoringHypothesis
             .lineSequence()
             .map(AsrBenchmarkScoring::normalizeForCharacterErrorRate)
             .filter { it.length >= 4 }
