@@ -1,6 +1,6 @@
 # Stage 16B — Local File ASR V2 Progress
 
-Status: **IN PROGRESS — GATE A TECHNICAL PASS / GATE B B0 REAL-DEVICE PASS / B1 NEXT**
+Status: **IN PROGRESS — GATE A TECHNICAL PASS / GATE B B0 REAL-DEVICE PASS / B1 AUTOMATED PASS / B1 REAL-DEVICE NEXT**
 
 Repository: `ioannes78/voica-android`
 
@@ -74,7 +74,7 @@ Gate A-only `A4 QA` / `VAD QA` product entry points have been removed.
 
 ## Gate B — ASR Model Matrix Gate
 
-Status: **B0 REAL-DEVICE PASS / B1 NEXT**
+Status: **B0 REAL-DEVICE PASS / B1 AUTOMATED PASS / B1 REAL-DEVICE NEXT**
 
 Candidates:
 
@@ -132,6 +132,46 @@ Real-device checkpoint supplied by the user on 2026-10-20: **REAL-DEVICE PASS**.
 
 B0 decision: **PASS.** All three candidates proceed to B1; no production ASR promotion/removal is authorized by B0.
 
+### B1 Same-input Base Quality
+
+The frozen first-pass corpus, scoring rules and human recording procedure are documented in:
+
+`docs/STAGE_16B_GATE_B_B1.md`
+
+B1 QA support is implemented for eight discriminatory profiles:
+
+- `ZH_BASE`
+- `ZH_LONG`
+- `EN_BASE`
+- `ZH_EN_MIXED`
+- `NUMBERS_ITN_RAW`
+- `PROPER_NOUNS`
+- `BOUNDARY`
+- `PAUSE`
+
+Each B1 run keeps the B0 fairness contract: FSMN runs once, the resulting canonical `sampleIndex` boundaries are frozen, and the exact same PCM chunks are delivered to all three candidates. B1 records CER, EN WER where applicable, edit counts, blank calls, whole-profile blank state, head/tail deletion evidence, duplicate-line evidence and raw hypothesis text.
+
+SenseVoice real-device B0 output exposed language metadata tags such as `<zh>`, `<yue>` and `<ja>`. B1 therefore removes only known SenseVoice language metadata (`<zh>`, `<en>`, `<ja>`, `<ko>`, `<yue>`) from the **scoring view** while retaining `rawText` unchanged. Regression tests lock that those tags do not inflate CER/WER and that metadata-only output remains blank.
+
+B1 automated checkpoint:
+
+- score/profile implementation: `ebe80d64a1a16851ebe7c78a198e19fa6a66eb5b`
+- QA profile selection: `f0560ee7e503e1d3a475748278c5b1346c3a5793`
+- initial scoring tests: `32f471f3799c8000c4310a729a5b3f74a04d00fc`
+- visibility fix: `2ccda951e194b0f9eca9bdeb7cd4ee2c6eabf6cc`
+- SenseVoice scoring normalization: `88dc69bcd038c2b846ab87c312c473c85c199188`
+- regression-test checkpoint / QA artifact head: `45954e4b13ef6ab69697e53d44109a5fa0044f3f`
+- Android PR CI #1959 / Fast PR Gate: **AUTOMATED PASS**
+- unit tests + debug compile: **PASS**
+- B1 scoring/fairness regression tests: **PASS**
+- FSMN runtime boundary: **PASS**
+- Android PR CI #1961 / production-like QA APK Gate: **AUTOMATED PASS**
+- release QA APK verification/security/model-channel checks: **PASS**
+- QA artifact ID: `12250801192`
+- QA artifact digest: `sha256:e7916339c769d25e0bac4d381cb0ee6ac298975e25705c4b4c9cad100d7beca5`
+
+B1 real-device reference corpus: **NOT RUN / NEXT**. No B1 shortlist or model ranking is authorized before the reference recordings are run and reviewed.
+
 ### Fun-ASR-Nano
 
 - sherpa-onnx `v1.13.8` adapter path implemented;
@@ -175,9 +215,10 @@ Candidate model-channel reference:
 
 ## Next planned work
 
-1. Start **B1 Same-input Base Quality** with a small frozen reference corpus.
+1. Run **B1 Same-input Base Quality** on real device using the eight frozen reference profiles.
 2. Keep exact active FSMN and reuse identical frozen PCM chunks for all three candidates.
-3. Measure CER / English WER where applicable, insertion/deletion/substitution, blank output, head/tail deletion, repetition, hallucination and ASR call count.
-4. Use B1 as the first discriminatory shortlist gate before expensive B5/B6 work.
+3. Capture full QA result evidence for CER / English WER where applicable, insertion/deletion/substitution, blank output, head/tail deletion, repetition/hallucination review and ASR call count.
+4. Build the first discriminatory shortlist only after the B1 reference evidence is complete; do not make the final Product Matrix decision in B1.
 5. Continue with B2 real-recording completeness, B3 punctuation/ITN/language/hallucination and B4 timeline compatibility for viable candidates.
-6. Present the complete Gate B evidence before any ASR production-model promotion/removal decision.
+6. Reserve B5/B6 performance/long-file work for viable finalists to avoid a meaningless Cartesian benchmark.
+7. Present the complete Gate B evidence before any ASR production-model promotion/removal decision.
