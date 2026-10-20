@@ -6,7 +6,6 @@ import android.app.Service
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.ServiceConnection
 import android.os.Binder
 import android.os.IBinder
 import android.os.SystemClock
@@ -245,25 +244,25 @@ class IsolatedModelValidationService : Service() {
 
 private fun modelCandidateValidatorFor(descriptor: ModelDescriptor): ModelCandidateValidator =
     if (descriptor.runtimeId == Stage16BCandidateRuntimes.FSMN_VAD_ID) {
-        createFsmnCandidateValidator()
+        createFsmnValidator()
     } else {
         SherpaModelCandidateValidator()
     }
 
-private fun createFsmnCandidateValidator(): ModelCandidateValidator {
+private fun createFsmnValidator(): ModelCandidateValidator {
     val className = "io.github.ioannes78.voica.fsmn.FsmnModelCandidateValidator"
-    val candidateClass =
+    val validatorClass =
         try {
             Class.forName(className)
         } catch (error: ClassNotFoundException) {
             error(
-                "FSMN candidate runtime is unavailable in this build; " +
-                    "formal production releases intentionally do not package it",
+                "FSMN runtime is unavailable in this build; " +
+                    "Local File FSMN validation requires the production FSMN runtime module",
             )
         }
-    val instance = candidateClass.getDeclaredConstructor().newInstance()
+    val instance = validatorClass.getDeclaredConstructor().newInstance()
     return instance as? ModelCandidateValidator
-        ?: error("FSMN candidate validator does not implement ModelCandidateValidator")
+        ?: error("FSMN validator does not implement ModelCandidateValidator")
 }
 
 private data class ValidationRequest(
