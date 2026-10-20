@@ -1,244 +1,139 @@
 # Stage 16B Gate B — B3 Real-Device Report
 
-Status: **IN PROGRESS — PUNCTUATION_ZH PASS / ITN_COMPLEX PASS / LANG_ZH NEXT**
+Status: **PASS**
 
 Date: 2026-10-20
 
-## PUNCTUATION_ZH
+This file is the consolidated B3 real-device closure. Detailed per-profile evidence is kept in the dedicated reports linked below.
 
-Real-device controlled recording:
+## Frozen contract
 
-- recording: `8e6a156083dcfb1c03c7b9ae61c8fbb96e0835b8231124d992fdec357451695d`;
-- canonical SHA-256: `32a253bcd225add6ea1025b303a6f94d7c4a650af2a9b109d1f1266d39bd9799`;
-- exact VAD: `fsmn-vad-int8@1.0.0/1`;
-- VAD wall: `307 ms`;
-- speech segments: `4`;
-- frozen ASR inputs: `4`;
-- maximum frozen ASR input: `25 s`;
-- `vadFilteredNoSpeech=false`.
+All formal B3 runs used:
+
+- exact `fsmn-vad-int8@1.0.0/1`;
+- FSMN once on canonical PCM;
+- frozen canonical `sampleIndex` boundaries reused by all applicable ASR variants;
+- common maximum ASR input duration `25 s`;
+- no external punctuation;
+- no Qwen timeline alignment;
+- no Room benchmark persistence.
+
+Unsupported model controls were not emulated.
+
+## Controlled-profile summary
+
+### PUNCTUATION_ZH — PASS
 
 Reference:
 
 `今天开会讨论三件事：第一，预算；第二，进度；第三，风险。你觉得哪一项最重要？`
 
-### FunASR Nano INT8 — DEFAULT_NATIVE
+All three candidates preserve literal content with `CER=0.0000` and zero blank calls.
 
-- engine open: `10438 ms`;
-- ASR wall: `5016 ms`;
-- calls / blank: `4 / 0`;
-- content CER: `0.0000`;
-- punctuation: comma `1`, sentence-end `1`, question `1`, exclamation `0`, colon/semicolon `0`;
-- raw text:
+Native punctuation ordering on this controlled profile:
 
-  `今天开会讨论三件事，第一预算。`
+1. Qwen3-ASR — strongest native punctuation;
+2. FunASR Nano — partial native punctuation;
+3. SenseVoice — no native punctuation under the B3 no-external-punctuation contract.
 
-  `第二进度`
+This does not eliminate SenseVoice because production may use a separate punctuation stage.
 
-  `第三风险`
+### ITN_COMPLEX — PASS
 
-  `你觉得哪一项最重要？`
+Reference includes date, time, money, percentage and phone-number groups.
 
-Interpretation: literal content is exact. Native punctuation is partial: the final question mark is preserved, but the reference colon/semicolon structure is not reproduced and the first item is terminated as a sentence.
+Observed behavior:
 
-### SenseVoice INT8 — DEFAULT_NATIVE
+- SenseVoice `ITN_ON`: strongest compact digit-form normalization on the controlled sample, semantic coverage `1.00`;
+- FunASR `ITN_ON`: semantic coverage `1.00`; ITN is clearly active but normalization is partial across categories;
+- Qwen3: current integration exposes no ITN switch and keeps mostly spoken-number forms; phone-number group failed in this sample;
+- FunASR and SenseVoice ON/OFF pairs prove their ITN controls are behaviorally wired.
 
-- engine open: `2409 ms`;
-- ASR wall: `840 ms`;
-- calls / blank: `4 / 0`;
-- detected language metadata: `<|zh|>`;
-- content CER: `0.0000`;
-- punctuation: comma `0`, sentence-end `0`, question `0`, exclamation `0`, colon/semicolon `0`;
-- raw text:
+Raw formatting and lexical errors remain separate from semantic-group coverage.
 
-  `今天开会讨论三件事第一预算`
+### LANG_ZH / LANG_EN / LANG_MIXED — PASS
 
-  `第二进度`
+Monolingual default/AUTO paths are exact on the controlled Chinese and English profiles.
 
-  `第三风险`
+Mixed-language profile literal CER:
 
-  `你觉得哪一项最重要`
+- FunASR AUTO: `0.2703` — best controlled exact-content result;
+- Qwen3 default: `0.4324`;
+- SenseVoice AUTO: `0.4865`.
 
-Interpretation: literal content is exact, but with external punctuation disabled the native output contains no punctuation evidence in this profile.
+Language-forcing controls are not verified hard locks. FunASR forcing is weak/non-locking on monolingual speech and can degrade mixed speech. SenseVoice forcing is asymmetric: forcing English can damage Chinese input, while forcing Chinese does not force English input into Chinese.
 
-### Qwen3-ASR 0.6B INT8 — DEFAULT_NATIVE
+Product recommendation: normal product behavior should remain AUTO/default. Any forcing control should be treated as advanced/experimental hint semantics, not as a guaranteed output-language lock.
 
-- engine open: `7563 ms`;
-- ASR wall: `7855 ms`;
-- calls / blank: `4 / 0`;
-- content CER: `0.0000`;
-- punctuation: comma `3`, sentence-end `3`, question `1`, exclamation `0`, colon/semicolon `1`;
-- raw text:
+Detailed matrix: `docs/STAGE_16B_GATE_B_B3_LANGUAGE_REAL_DEVICE_REPORT.md`.
 
-  `今天开会讨论三件事： 第一，预算。`
+### SHORT_UTTERANCE — PASS
 
-  `第二，进度。`
+Reference: `可以。`
 
-  `第三，风险。`
+All three candidates produce nonblank, semantically exact output with `contentCer=0.0000`; no repetition or hallucinated expansion.
 
-  `你觉得哪一项最重要？`
+Detailed evidence: `docs/STAGE_16B_GATE_B_B3_SHORT_UTTERANCE_REAL_DEVICE.md`.
 
-Interpretation: literal content is exact and Qwen3 supplies the strongest native punctuation of the three on the exact same FSMN-frozen inputs. It preserves the colon and final question mark, while rendering the three enumerated items mainly as comma + sentence-end rather than the exact reference semicolon pattern.
+### SILENCE — PASS
 
-## Punctuation checkpoint decision
+Exact FSMN produces:
 
-All three candidates pass content completeness for this profile (`CER=0.0000`, zero blank calls).
+- `speechSegments=0`;
+- `frozenAsrInputs=0`;
+- `vadFilteredNoSpeech=true`;
+- `pipelineHallucinationRisk=FILTERED_BEFORE_ASR`.
 
-Native punctuation ranking for this controlled profile:
+ASR is not invoked. This is product-pipeline hallucination-protection evidence, not intrinsic no-VAD ASR ranking.
 
-1. **Qwen3-ASR** — strongest native punctuation;
-2. **FunASR Nano** — partial native punctuation;
-3. **SenseVoice** — no native punctuation under the B3 no-external-punctuation contract.
+Detailed evidence: `docs/STAGE_16B_GATE_B_B3_SILENCE_REAL_DEVICE.md`.
 
-This does not by itself remove SenseVoice from Gate B because production may use a separate punctuation stage. B3 is intentionally measuring native ASR capability only.
+### NOISE — PASS
 
-Performance timings above are signals only; B5 owns isolated performance/memory ranking.
+Exact FSMN again produces zero speech ranges / frozen ASR inputs and filters the environmental-noise sample before ASR.
 
-## ITN_COMPLEX
+Detailed evidence: `docs/STAGE_16B_GATE_B_B3_NOISE_REAL_DEVICE.md`.
 
-Real-device controlled recording:
-
-- recording: `e823e7d55d6d9c21e3cf139bd560700c0a9f1d6314572e5923667ddefe93020b`;
-- canonical SHA-256: `ef63deaafadcc817b251d432a8d505fccfe2b7a5dabadeedfbf857e67eae6515`;
-- exact VAD: `fsmn-vad-int8@1.0.0/1`;
-- VAD wall: `388 ms`;
-- speech segments: `6`;
-- frozen ASR inputs: `6`;
-- maximum frozen ASR input: `25 s`;
-- `vadFilteredNoSpeech=false`.
+## Hotword / context-bias A/B — PASS
 
 Reference:
 
-`今天是二零二六年十月二十日，会议下午三点二十五分开始，预算是十二万三千四百五十六元，完成率百分之八十七点五，联系电话是一三八零零一三八零零零。`
+`今天测试 Qwen3、OpenAI 和 GitHub 的语音识别效果。`
 
-The semantic-coverage score has five groups: date, time, money, percentage and phone number. Spoken-number and digit-form equivalents count as the same semantic evidence. Formatting behavior and lexical errors are reviewed separately.
+Configured hotwords: `Qwen3,OpenAI,GitHub`.
 
-### FunASR Nano INT8 — ITN_ON
+Same exact FSMN-frozen PCM results:
 
-- engine open: `10433 ms`;
-- ASR wall: `42731 ms`;
-- calls / blank: `6 / 0`;
-- ITN semantic coverage: `1.00`;
-- raw text:
+| Candidate | OFF CER | ON CER | OFF exact coverage | ON exact coverage |
+| --- | ---: | ---: | ---: | ---: |
+| FunASR Nano | `0.1724` | `0.0345` | `2/3` | `3/3` |
+| Qwen3-ASR | `0.3103` | `0.0690` | `0/3` | `2/3` |
 
-  `今天是2026年10月20日。`
+Both supported runtimes show material OFF -> ON improvement with zero blank calls. FunASR reaches the stronger ON result on this one controlled sample. Qwen3 recovers `OpenAI` and `GitHub` but its self-name remains imperfect (`Qwen三力`).
 
-  `会议下午三点二十五分开始。`
+SenseVoice is excluded because the current integration exposes no equivalent hotword control; unsupported capability is not emulated.
 
-  `预算是十二万三千四百五十六元。`
+Detailed evidence: `docs/STAGE_16B_GATE_B_B3_HOTWORD_REAL_DEVICE.md`.
 
-  `完成率百分之八十七点五。`
+## B3 product-matrix interpretation
 
-  `联系电话是`
+B3 supports the following evidence-based role signals without yet changing production selection:
 
-  `13800138000`
+- Qwen3 — strongest native punctuation;
+- FunASR — active ITN, best controlled mixed-language AUTO result, and strongest supported hotword A/B result;
+- SenseVoice — strongest compact ITN formatting, but no equivalent hotword control in the current integration;
+- all three preserve short utterances;
+- exact FSMN blocks the tested silence/noise samples before ASR;
+- AUTO/default language behavior is the correct normal product path.
 
-Interpretation: all five semantic groups are preserved. ITN is demonstrably active, converting the date and phone number to digit form, but it does not fully normalize time, money and percentage in this sample. Therefore FunASR ITN is effective but partial rather than a comprehensive formatter.
+Performance timings observed in B3 are signals only. B5 owns isolated cold/warm performance and memory ranking.
 
-### FunASR Nano INT8 — ITN_OFF
+## Decision
 
-- engine open: `9253 ms`;
-- ASR wall: `25860 ms`;
-- calls / blank: `6 / 0`;
-- ITN semantic coverage: `0.80`;
-- raw text:
+**B3 REAL-DEVICE PASS.**
 
-  `今天是二零二六年十月二十日`
-
-  `会议下午三点二十五分开始`
-
-  `预算是十二万三千四百五十六元`
-
-  `完成率百分之八十七点五`
-
-  `联系电话是`
-
-  `么三八零零么三八零零零`
-
-Interpretation: disabling ITN changes the output as expected. Date/time/money/percentage remain in spoken-number form, while the phone-number group fails because the spoken `一` digits are misrecognized as `么` in this recording.
-
-### SenseVoice INT8 — ITN_ON
-
-- engine open: `2561 ms`;
-- ASR wall: `1440 ms`;
-- calls / blank: `6 / 0`;
-- detected language metadata: `<|zh|>`;
-- ITN semantic coverage: `1.00`;
-- raw text:
-
-  `今天是2026年10月20日。`
-
-  `会议下午3点25分开始。`
-
-  `预算是123456元。`
-
-  `完成率87.5%。`
-
-  `联系电话时。`
-
-  `13800138000。`
-
-Interpretation: this is the strongest ITN formatting behavior in the controlled sample: date, time, money, percentage and phone number are all normalized to compact digit form. The raw transcript still contains a local lexical error, `联系电话是` -> `联系电话时`, so full semantic-group coverage must not be confused with perfect literal transcription.
-
-### SenseVoice INT8 — ITN_OFF
-
-- engine open: `2324 ms`;
-- ASR wall: `8380 ms`;
-- calls / blank: `6 / 0`;
-- detected language metadata: `<|zh|>`;
-- ITN semantic coverage: `0.80`;
-- raw text:
-
-  `今天是二零二六年十月二十日`
-
-  `会议下午三点二十五分开始`
-
-  `预算是十二万三千四百五十六元`
-
-  `完成率百分之八十七点五`
-
-  `联系电话时`
-
-  `么三八零零么三八零零零`
-
-Interpretation: disabling ITN again behaves as expected and keeps spoken-number form, but the phone-number group fails and the same `是` -> `时` lexical error remains.
-
-### Qwen3-ASR 0.6B INT8 — NATIVE_NO_ITN_TOGGLE
-
-- engine open: `30853 ms`;
-- ASR wall: `24296 ms`;
-- calls / blank: `6 / 0`;
-- ITN semantic coverage: `0.80`;
-- raw text:
-
-  `今天是二零二六年十月二十日。`
-
-  `会议下午三点二十五分开始。`
-
-  `预算是十二万三千四百五十六元。`
-
-  `完成率百分之八十七点五。`
-
-  `联系电话是。`
-
-  `么三八零零，么三八零零零。`
-
-Interpretation: current integration exposes no ITN toggle and Qwen3 keeps spoken-number forms in this sample. The phone-number group fails because the leading `一` digits are misrecognized as `么`; an inserted comma also splits the number.
-
-## ITN checkpoint decision
-
-All five variants completed with zero blank calls under the same exact FSMN-frozen inputs.
-
-Controlled-sample conclusions:
-
-1. **SenseVoice ITN_ON** — strongest end-user numeric formatting; all five semantic groups covered and all five categories normalized to digit form, with one unrelated local lexical substitution (`是` -> `时`).
-2. **FunASR ITN_ON** — all five semantic groups covered and ITN is clearly functional, but formatting is partial in this sample: date/phone normalize while time/money/percentage remain spoken-number forms.
-3. **Qwen3 default** — no exposed ITN switch, keeps spoken-number forms and misses the phone-number semantic group in this sample.
-4. Both FunASR and SenseVoice ON/OFF pairs provide real evidence that their ITN controls are wired and behaviorally active.
-
-The `0.80` OFF/default scores are not interpreted as generic ASR quality rankings; they are driven by the phone-number group in this specific recording. Punctuation counts on this ITN profile are not used for punctuation ranking because decimal points/digit formatting can affect the raw punctuation counter. `PUNCTUATION_ZH` remains the punctuation benchmark.
-
-Performance timings above are signals only; B5 owns isolated performance/memory ranking.
+No ASR production promotion/removal is authorized by B3 alone. Android PR #35 and model-channel PR #21 remain Draft/unmerged. Room stays v14; Local File VAD remains `FSMN primary -> Silero fallback`; realtime VAD remains Silero until Stage 16C.1; canonical `sampleIndex` ownership is unchanged.
 
 ## Next
 
-Run `LANG_ZH`, followed by `LANG_EN` and `LANG_MIXED`. Do not change production model selection, Room, VAD policy or model-channel promotion based on these partial B3 checkpoints.
+Proceed to **B4 — Timestamp / Timeline Compatibility**. B4 must distinguish native token timing from additional alignment paths and preserve canonical `sampleIndex` ownership and timeline semantics.
