@@ -49,7 +49,7 @@ internal object Stage16BGateBBenchmarkContract {
 }
 
 /** Frozen first-pass B1 reference corpus. */
-internal enum class Stage16BGateBB1Profile(
+enum class Stage16BGateBB1Profile(
     val referenceText: String,
     val scoreEnglishWer: Boolean = false,
     val expectedHeadText: String? = null,
