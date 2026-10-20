@@ -9,7 +9,10 @@ import io.github.ioannes78.voica.model.ActiveModel
 import io.github.ioannes78.voica.model.ModelLease
 import io.github.ioannes78.voica.model.ModelManager
 import io.github.ioannes78.voica.model.ModelUseRegistry
+import io.github.ioannes78.voica.transcript.AsrAccuracyMetrics
+import io.github.ioannes78.voica.transcript.AsrBenchmarkScoring
 import io.github.ioannes78.voica.transcript.BenchmarkComponentIdentity
+import io.github.ioannes78.voica.transcript.EditDistanceMetrics
 import io.github.ioannes78.voica.transcript.LocalFileAsrBenchmarkObservation
 import io.github.ioannes78.voica.transcript.SpeechSegment
 import java.util.concurrent.CancellationException
@@ -43,6 +46,42 @@ internal object Stage16BGateBBenchmarkContract {
             Stage8ModelIds.SECOND_PASS_ASR,
             Stage13AOfflineModelIds.QWEN3_ASR,
         )
+}
+
+/** Frozen first-pass B1 reference corpus. */
+internal enum class Stage16BGateBB1Profile(
+    val referenceText: String,
+    val scoreEnglishWer: Boolean = false,
+    val expectedHeadText: String? = null,
+    val expectedTailText: String? = null,
+) {
+    ZH_BASE(
+        "今天我们测试离线语音识别，重点比较三个模型在相同录音上的准确率和完整性。",
+    ),
+    ZH_LONG(
+        "如果会议结束以后还有时间，请把今天讨论的产品计划、预算变化、风险事项和下周需要完成的任务整理成一份清晰的记录，然后发给项目组。",
+    ),
+    EN_BASE(
+        "Today we are testing offline speech recognition on the same recording to compare accuracy, completeness, and stability.",
+        scoreEnglishWer = true,
+    ),
+    ZH_EN_MIXED(
+        "今天我们测试 Voica 的 offline ASR，重点检查 Android、GitHub、OpenAI 和 Qwen3 这些英文名称能不能正确识别。",
+    ),
+    NUMBERS_ITN_RAW(
+        "今天是二零二六年十月二十日，会议下午三点二十五分开始，预算是十二万三千四百五十六元，完成率百分之八十七点五。",
+    ),
+    PROPER_NOUNS(
+        "这次测试会提到 Android、GitHub、OpenAI、Qwen3、SenseVoice 和 FunASR，请不要把这些名称替换成普通中文词。",
+    ),
+    BOUNDARY(
+        referenceText = "好，现在开始测试。中间这一句保持正常语速。最后请完整识别，谢谢。",
+        expectedHeadText = "好现在开始测试",
+        expectedTailText = "最后请完整识别谢谢",
+    ),
+    PAUSE(
+        "第一项检查准确率，稍微停一下，第二项检查完整性，再停一下，第三项检查是否出现重复内容。",
+    ),
 }
 
 internal data class Stage16BGateBFrozenInput(
@@ -89,6 +128,76 @@ internal fun buildStage16BGateBFrozenInputs(
     return result
 }
 
+data class Stage16BGateBB1QualityObservation(
+    val profile: Stage16BGateBB1Profile,
+    val referenceText: String,
+    val character: EditDistanceMetrics,
+    val word: EditDistanceMetrics?,
+    val wholeProfileBlank: Boolean,
+    val headDeletion: Boolean?,
+    val tailDeletion: Boolean?,
+    val duplicateNonBlankLineCount: Int,
+) {
+    val characterErrorRate: Double?
+        get() = character.errorRate
+
+    val wordErrorRate: Double?
+        get() = word?.errorRate
+}
+
+internal fun scoreStage16BGateBB1(
+    profile: Stage16BGateBB1Profile,
+    hypothesis: String,
+): Stage16BGateBB1QualityObservation {
+    val character = AsrBenchmarkScoring.characterErrorRate(profile.referenceText, hypothesis)
+    val word =
+        if (profile.scoreEnglishWer) {
+            AsrBenchmarkScoring.wordErrorRate(
+                referenceWords = stage16BEnglishWordTokens(profile.referenceText),
+                hypothesisWords = stage16BEnglishWordTokens(hypothesis),
+            )
+        } else {
+            null
+        }
+    val normalizedHypothesis = AsrBenchmarkScoring.normalizeForCharacterErrorRate(hypothesis)
+    val headDeletion =
+        profile.expectedHeadText?.let { expected ->
+            val normalizedExpected = AsrBenchmarkScoring.normalizeForCharacterErrorRate(expected)
+            normalizedExpected.isNotEmpty() && !normalizedHypothesis.contains(normalizedExpected)
+        }
+    val tailDeletion =
+        profile.expectedTailText?.let { expected ->
+            val normalizedExpected = AsrBenchmarkScoring.normalizeForCharacterErrorRate(expected)
+            normalizedExpected.isNotEmpty() && !normalizedHypothesis.contains(normalizedExpected)
+        }
+    val duplicateNonBlankLineCount =
+        hypothesis
+            .lineSequence()
+            .map(AsrBenchmarkScoring::normalizeForCharacterErrorRate)
+            .filter { it.length >= 4 }
+            .groupingBy { it }
+            .eachCount()
+            .values
+            .sumOf { count -> (count - 1).coerceAtLeast(0) }
+
+    return Stage16BGateBB1QualityObservation(
+        profile = profile,
+        referenceText = profile.referenceText,
+        character = character,
+        word = word,
+        wholeProfileBlank = normalizedHypothesis.isBlank(),
+        headDeletion = headDeletion,
+        tailDeletion = tailDeletion,
+        duplicateNonBlankLineCount = duplicateNonBlankLineCount,
+    )
+}
+
+private fun stage16BEnglishWordTokens(text: String): List<String> =
+    Regex("""[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)?""")
+        .findAll(text)
+        .map { it.value }
+        .toList()
+
 data class Stage16BGateBB0ModelObservation(
     val modelId: String,
     val benchmark: LocalFileAsrBenchmarkObservation?,
@@ -99,6 +208,7 @@ data class Stage16BGateBB0ModelObservation(
     val rawText: String,
     val detectedLanguages: List<String>,
     val errorMessage: String?,
+    val b1Quality: Stage16BGateBB1QualityObservation? = null,
 ) {
     val ready: Boolean
         get() = benchmark != null && errorMessage == null && asrCallCount > 0 && rawText.isNotBlank()
@@ -113,6 +223,7 @@ data class Stage16BGateBB0Result(
     val speechSegments: List<SpeechSegment>,
     val frozenAsrInputBoundaries: List<SpeechSegment>,
     val models: List<Stage16BGateBB0ModelObservation>,
+    val b1Profile: Stage16BGateBB1Profile? = null,
 ) {
     val formalBaselineValid: Boolean
         get() = vad.id == Stage16BGateBBenchmarkContract.FORMAL_VAD_MODEL_ID
@@ -148,7 +259,7 @@ sealed interface Stage16BGateBB0State {
 }
 
 /**
- * Stage 16B Gate B B0 QA-only candidate-readiness runner.
+ * Stage 16B Gate B QA-only runner for B0 readiness and B1 same-input base quality.
  *
  * It intentionally bypasses the product TranscriptionCoordinator so FSMN runs exactly once. The
  * resulting speech boundaries are frozen, split deterministically only for bounded ASR input size,
@@ -176,12 +287,22 @@ class Stage16BGateBAsrBenchmarkRunner(
 
     val state: StateFlow<Stage16BGateBB0State> = mutableState.asStateFlow()
 
-    fun start(recordingId: String): Boolean {
+    fun start(recordingId: String): Boolean = startInternal(recordingId, null)
+
+    fun startB1(
+        recordingId: String,
+        profile: Stage16BGateBB1Profile,
+    ): Boolean = startInternal(recordingId, profile)
+
+    private fun startInternal(
+        recordingId: String,
+        b1Profile: Stage16BGateBB1Profile?,
+    ): Boolean {
         require(recordingId.isNotBlank())
         checkQaBuild()
         synchronized(lock) {
             if (currentJob?.isActive == true) return false
-            val job = scope.launch { runB0(recordingId) }
+            val job = scope.launch { runBenchmark(recordingId, b1Profile) }
             currentJob = job
             job.invokeOnCompletion {
                 synchronized(lock) {
@@ -194,7 +315,7 @@ class Stage16BGateBAsrBenchmarkRunner(
 
     fun cancel() {
         synchronized(lock) {
-            currentJob?.cancel(CancellationException("user cancelled Stage 16B Gate B B0"))
+            currentJob?.cancel(CancellationException("user cancelled Stage 16B Gate B benchmark"))
         }
     }
 
@@ -211,9 +332,13 @@ class Stage16BGateBAsrBenchmarkRunner(
         }
     }
 
-    private suspend fun runB0(recordingId: String) {
+    private suspend fun runBenchmark(
+        recordingId: String,
+        b1Profile: Stage16BGateBB1Profile?,
+    ) {
         try {
-            mutableState.value = Stage16BGateBB0State.Running(recordingId, "Resolve strict FSMN baseline")
+            val gateLabel = if (b1Profile == null) "B0" else "B1/${b1Profile.name}"
+            mutableState.value = Stage16BGateBB0State.Running(recordingId, "$gateLabel: Resolve strict FSMN baseline")
             val fsmn = modelManager.activeModel(Stage16BGateBBenchmarkContract.FORMAL_VAD_MODEL_ID)
             if (fsmn == null) {
                 mutableState.value =
@@ -247,7 +372,7 @@ class Stage16BGateBAsrBenchmarkRunner(
                 }
             val vadWallTimeMillis = elapsedMillis(vadStartedNs)
 
-            mutableState.value = Stage16BGateBB0State.Running(recordingId, "Freeze canonical PCM inputs")
+            mutableState.value = Stage16BGateBB0State.Running(recordingId, "$gateLabel: Freeze canonical PCM inputs")
             val pcm = readCanonicalPcm(recordingId)
             val frozenInputs =
                 buildStage16BGateBFrozenInputs(
@@ -257,7 +382,7 @@ class Stage16BGateBAsrBenchmarkRunner(
                         CanonicalPcmProfile.SAMPLE_RATE_HZ *
                             Stage16BGateBBenchmarkContract.MAX_ASR_INPUT_SECONDS,
                 )
-            check(frozenInputs.isNotEmpty()) { "FSMN produced no speech input for Gate B B0" }
+            check(frozenInputs.isNotEmpty()) { "FSMN produced no speech input for Gate B benchmark" }
             val frozenBoundaries =
                 frozenInputs.map { SpeechSegment(it.startSampleIndex, it.endSampleIndexExclusive) }
             val canonicalSha256 = loadCanonicalSha256(recordingId)
@@ -266,7 +391,7 @@ class Stage16BGateBAsrBenchmarkRunner(
 
             val observations = mutableListOf<Stage16BGateBB0ModelObservation>()
             for (modelId in Stage16BGateBBenchmarkContract.MODEL_IDS) {
-                mutableState.value = Stage16BGateBB0State.Running(recordingId, "ASR: $modelId")
+                mutableState.value = Stage16BGateBB0State.Running(recordingId, "$gateLabel ASR: $modelId")
                 val model = modelManager.activeModel(modelId)
                 if (model == null) {
                     observations +=
@@ -280,6 +405,7 @@ class Stage16BGateBAsrBenchmarkRunner(
                             rawText = "",
                             detectedLanguages = emptyList(),
                             errorMessage = "model is not active/installed",
+                            b1Quality = b1Profile?.let { scoreStage16BGateBB1(it, "") },
                         )
                     continue
                 }
@@ -295,6 +421,7 @@ class Stage16BGateBAsrBenchmarkRunner(
                         frozenInputs = frozenInputs,
                         settings = settings,
                         numThreads = threads,
+                        b1Profile = b1Profile,
                     )
             }
 
@@ -309,6 +436,7 @@ class Stage16BGateBAsrBenchmarkRunner(
                         speechSegments = speechSegments.toList(),
                         frozenAsrInputBoundaries = frozenBoundaries,
                         models = observations.toList(),
+                        b1Profile = b1Profile,
                     ),
                 )
         } catch (cancelled: CancellationException) {
@@ -334,6 +462,7 @@ class Stage16BGateBAsrBenchmarkRunner(
         frozenInputs: List<Stage16BGateBFrozenInput>,
         settings: LocalSpeechSettings,
         numThreads: Int,
+        b1Profile: Stage16BGateBB1Profile?,
     ): Stage16BGateBB0ModelObservation =
         supervisorScope {
             val lease = acquire(model)
@@ -372,6 +501,7 @@ class Stage16BGateBAsrBenchmarkRunner(
                     }
                 }
                 val rawText = texts.filter(String::isNotBlank).joinToString("\n")
+                val quality = b1Profile?.let { scoreStage16BGateBB1(it, rawText) }
                 val asrTotalWithOpen = asrTimeMillis + checkNotNull(engineOpenTimeMillis)
                 val benchmark =
                     LocalFileAsrBenchmarkObservation(
@@ -390,17 +520,25 @@ class Stage16BGateBAsrBenchmarkRunner(
                         segmentCount = frozenInputs.size,
                         tokenCount = tokenCount,
                         peakPssKb = peakPssKb.get(),
+                        accuracy =
+                            quality?.let {
+                                AsrAccuracyMetrics(
+                                    character = it.character,
+                                    word = it.word,
+                                )
+                            },
                         notes =
-                            listOf(
-                                "gate=B0",
-                                "fsmn=frozen-once",
-                                "external-punctuation=off",
-                                "timeline-alignment=off",
-                                "threads=$numThreads",
-                                "engineOpenMs=$engineOpenTimeMillis",
-                                "asrCalls=$asrCallCount",
-                                "blankCalls=$blankCallCount",
-                            ),
+                            buildList {
+                                add("gate=${if (b1Profile == null) "B0" else "B1"}")
+                                b1Profile?.let { add("profile=${it.name}") }
+                                add("fsmn=frozen-once")
+                                add("external-punctuation=off")
+                                add("timeline-alignment=off")
+                                add("threads=$numThreads")
+                                add("engineOpenMs=$engineOpenTimeMillis")
+                                add("asrCalls=$asrCallCount")
+                                add("blankCalls=$blankCallCount")
+                            },
                     )
                 Stage16BGateBB0ModelObservation(
                     modelId = model.descriptor.modelId,
@@ -412,8 +550,10 @@ class Stage16BGateBAsrBenchmarkRunner(
                     rawText = rawText,
                     detectedLanguages = languages.toList(),
                     errorMessage = null,
+                    b1Quality = quality,
                 )
             } catch (error: Exception) {
+                val rawText = texts.filter(String::isNotBlank).joinToString("\n")
                 Stage16BGateBB0ModelObservation(
                     modelId = model.descriptor.modelId,
                     benchmark = null,
@@ -421,9 +561,10 @@ class Stage16BGateBAsrBenchmarkRunner(
                     engineOpenTimeMillis = engineOpenTimeMillis,
                     asrCallCount = asrCallCount,
                     blankCallCount = blankCallCount,
-                    rawText = texts.filter(String::isNotBlank).joinToString("\n"),
+                    rawText = rawText,
                     detectedLanguages = languages.toList(),
                     errorMessage = error.message ?: error::class.java.simpleName,
+                    b1Quality = b1Profile?.let { scoreStage16BGateBB1(it, rawText) },
                 )
             } finally {
                 sampler.cancelAndJoin()
@@ -461,17 +602,17 @@ class Stage16BGateBAsrBenchmarkRunner(
         totalSampleCount: Long,
     ) {
         require(sampleRateHz == CanonicalPcmProfile.SAMPLE_RATE_HZ) {
-            "Gate B B0 requires canonical 16 kHz PCM"
+            "Gate B short benchmark requires canonical 16 kHz PCM"
         }
         require(channelCount == CanonicalPcmProfile.CHANNEL_COUNT) {
-            "Gate B B0 requires canonical mono PCM"
+            "Gate B short benchmark requires canonical mono PCM"
         }
         require(totalSampleCount > 0L) { "canonical PCM is empty" }
         val maxSamples =
             CanonicalPcmProfile.SAMPLE_RATE_HZ.toLong() *
                 Stage16BGateBBenchmarkContract.MAX_B0_RECORDING_SECONDS
         require(totalSampleCount <= maxSamples) {
-            "B0 is intentionally limited to ${Stage16BGateBBenchmarkContract.MAX_B0_RECORDING_SECONDS}s; use B6 for long files"
+            "B0/B1 is intentionally limited to ${Stage16BGateBBenchmarkContract.MAX_B0_RECORDING_SECONDS}s; use B6 for long files"
         }
         require(totalSampleCount <= Int.MAX_VALUE.toLong())
     }
