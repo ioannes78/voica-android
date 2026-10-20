@@ -1,6 +1,6 @@
 # Stage 16B Gate B — B2 Real Recording Quality / Completeness
 
-Status: **AUTOMATED PASS / REAL-DEVICE NEXT**
+Status: **AUTOMATED PASS / REAL-DEVICE IN PROGRESS**
 
 ## Objective
 
@@ -20,10 +20,12 @@ B2 keeps the same formal Gate B baseline:
 2. Silero fallback invalidates the formal B2 run;
 3. FSMN runs exactly once per canonical recording;
 4. canonical `sampleIndex` speech boundaries are frozen once;
-5. oversized speech ranges are split deterministically with the existing 30-second ASR input cap;
+5. oversized speech ranges are split deterministically with the B2-specific **25-second** ASR input cap;
 6. the exact same frozen PCM chunks are sent to every ASR candidate in the same order;
 7. external punctuation and Qwen timeline alignment remain disabled;
 8. no B2 transcript/evidence is persisted to Room.
+
+The 25-second cap is B2-specific and was introduced after real-device evidence showed FunASR whole-chunk blank output on the previous 30-second boundary. B0/B1 historical 30-second evidence is unchanged. The finding and retest are documented in `docs/STAGE_16B_GATE_B_B2_30S_INPUT_FINDING.md`.
 
 First-pass B2 runs are limited to 120 seconds. B6 owns representative long-file testing.
 
@@ -48,22 +50,57 @@ The QA page also prints a `B2 FROZEN-CHUNK MATRIX` so the same chunk can be revi
 
 B2 PSS/RTF remain observational signals only. Formal isolated performance and memory ranking belongs to B5.
 
-## Automated checkpoint
+## Automated checkpoints
 
-Verified code / QA APK head: `e8e5477c4a99b98e6f6e149c9027647652b46324`.
+Initial B2 implementation:
 
-- Android PR CI #1973 / Fast PR Gate: **AUTOMATED PASS**
-- unit tests + debug compile: **PASS**
+- verified code / QA APK head: `e8e5477c4a99b98e6f6e149c9027647652b46324`
+- Android PR CI #1973 Fast PR Gate: **PASS**
 - B2 chunk-evidence regression tests: **PASS**
-- FSMN runtime boundary: **PASS**
-- Android PR CI #1974 / production-like QA APK Gate: **AUTOMATED PASS**
-- `assembleReleaseQa`: **PASS**
-- QA APK verification/security/model-channel checks: **PASS**
-- QA artifact ID: `12255162649`
-- QA artifact digest: `sha256:70de5ca27ac8fcaa70157b38366e043847447e12fd4113679050fb6b5ad25792`
-- extracted APK SHA-256: `608973e32313c2d3c8e1a586ca1c9260d63df0c63596f2c392fac2c1aea3551d`
+- Android PR CI #1974 production-like QA APK Gate: **PASS**
+- artifact ID: `12255162649`
+- artifact digest: `sha256:70de5ca27ac8fcaa70157b38366e043847447e12fd4113679050fb6b5ad25792`
+
+25-second verification revision:
+
+- checkpoint: `d00a3093adb3791b9a77866aa4b9148e9d9ea88c`
+- Android PR CI #1980 Fast PR Gate: **PASS**
+- `30 s -> 25 s + 5 s` frozen-input split regression: **PASS**
+- all-blank model cannot report READY: **PASS**
+- Android PR CI #1981 production-like QA APK Gate: **PASS**
+- artifact ID: `12260190295`
+- artifact digest: `sha256:6a21093443f0939fcc925558d74f300a08c7cd2c6de8c5cc28599aaba09ab639`
+- extracted APK SHA-256: `b4f2229f60279ebb611170cbe857a5fb1fabc24589069db93bce77fae486e9e2`
 
 CI success does not substitute for B2 real-device completeness review.
+
+## Real-device progress
+
+### Recording 1 — natural single-speaker / conversational speech
+
+Completed with exact FSMN and 17 frozen inputs. All three candidates ran without crash. FunASR returned all 17 chunks nonblank; SenseVoice/Qwen3 each had one blank on the same very short chunk. Manual chunk review showed FunASR generally preserved natural speech most consistently in this recording, but one recording is not used as a final rank.
+
+### Recording 2 — long natural AI discussion
+
+Recording ID: `4a76699d-e8bc-4e07-adf2-a0f63362ecb5`.
+
+The original 30-second B2 run exposed a candidate-specific FunASR blank pattern:
+
+- 5 frozen inputs;
+- FunASR blank on chunks `0,2,3`;
+- each failed chunk was exactly `30.00 s`;
+- SenseVoice and Qwen3 were nonblank on all five identical inputs.
+
+The same recording was rerun with the common 25-second B2 cap:
+
+- exact `fsmn-vad-int8@1.0.0/1`;
+- 5 FSMN speech segments;
+- 8 frozen ASR inputs;
+- FunASR: 8 calls / **0 blank**;
+- SenseVoice: 8 calls / 0 blank;
+- Qwen3: 8 calls / 0 blank.
+
+This verifies the 25-second cap as the safe B2 comparison boundary for the current runtime and clears B2 to continue. The lower-level root cause is not claimed to be proven.
 
 ## What B2 reviews
 
@@ -85,15 +122,15 @@ If all three candidates omit identical words from the same frozen chunk, do not 
 
 Use three short, representative recordings rather than a large matrix:
 
-1. **Single-speaker natural speech** — about 60–120 seconds, normal distance and speaking rate.
-2. **Two/multiple-speaker natural conversation** — about 60–120 seconds. B2 evaluates content completeness only; diarization accuracy is not scored here.
-3. **Mixed-content natural speech** — about 60–120 seconds containing some combination of English terms, numbers, names and natural pauses.
+1. **Single-speaker natural speech** — about 60–120 seconds, normal distance and speaking rate. **Completed.**
+2. **Two/multiple-speaker natural conversation** — about 60–120 seconds. B2 evaluates content completeness only; diarization accuracy is not scored here. **Completed / 25-second compatibility retest passed.**
+3. **Mixed-content natural speech** — about 60–120 seconds containing some combination of English terms, numbers, names and natural pauses. **Next.**
 
 Existing Voica recordings may be reused if they satisfy these conditions. Do not rerecord a synthetic script solely to make B2 easier to score; B1 already owns controlled reference quality.
 
 ## Human QA procedure
 
-1. Install the production-like QA APK containing B2.
+1. Install the current production-like QA APK containing B2.
 2. Keep exact FSMN, Fun-ASR-Nano, SenseVoice and Qwen3-ASR installed/active.
 3. Open `Voica Gate B QA`.
 4. Select `Use B2 real-recording completeness mode`.
