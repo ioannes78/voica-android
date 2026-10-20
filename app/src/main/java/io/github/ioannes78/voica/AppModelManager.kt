@@ -23,10 +23,10 @@ import java.net.URL
 object VoicaModelChannel {
     const val BOOTSTRAP_CATALOG_ASSET = "model-catalog-v1.json"
     const val PRODUCTION_MODEL_CHANNEL_COMMIT =
-        "be74c7065ce22a5f9b207a7cf1c88d3be0e872ec"
-    const val PRODUCTION_MANIFEST_VERSION = 7
+        "540f1e13c4cd2cdbe4cfbd1b23181839f206d939"
+    const val PRODUCTION_MANIFEST_VERSION = 8
     const val PRODUCTION_MANIFEST_DIGEST =
-        "8bdb505ce97820cb942bc2855c8a099484b7e22f63ec5567b63f2c1c18d567cf"
+        "d697f47d24c8beb9c610358f39b79f75073469315ce19d920e697b99abf167e8"
     const val PRODUCTION_MANIFEST_URL =
         "https://raw.githubusercontent.com/ioannes78/voica-model-channel/" +
             PRODUCTION_MODEL_CHANNEL_COMMIT +
@@ -130,8 +130,8 @@ internal fun isPromotedStage13aDebugManifestUrl(value: String): Boolean =
         url.protocol.equals("https", ignoreCase = true) &&
             url.host.equals("github.com", ignoreCase = true) &&
             url.query.isNullOrEmpty() &&
-                url.ref.isNullOrEmpty() &&
-                url.path in PROMOTED_STAGE13A_CANDIDATE_PATHS
+            url.ref.isNullOrEmpty() &&
+            url.path in PROMOTED_STAGE13A_CANDIDATE_PATHS
     }.getOrDefault(false)
 
 private val PROMOTED_STAGE13A_CANDIDATE_PATHS =
