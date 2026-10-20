@@ -1,6 +1,6 @@
 # Stage 16B — Local File ASR V2 Progress
 
-Status: **IN PROGRESS — GATE A TECHNICAL PASS / B0 PASS / B1 PASS / B2 PASS / B3 REAL-DEVICE PASS / B4 REAL-DEVICE PASS / B5 NEXT**
+Status: **IN PROGRESS — GATE A TECHNICAL PASS / B0 PASS / B1 PASS / B2 PASS / B3 REAL-DEVICE PASS / B4 REAL-DEVICE PASS / B5 REAL-DEVICE PASS / B6 NEXT**
 
 Repository: `ioannes78/voica-android`
 
@@ -53,7 +53,7 @@ Formal Gate B evidence requires exact active `fsmn-vad-int8`; Silero fallback in
 
 ## B0 Candidate Readiness — REAL-DEVICE PASS
 
-All three candidates loaded and produced nonblank overall transcription without crash on the same exact FSMN-frozen PCM. FunASR had `17/17` nonblank calls; SenseVoice and Qwen3 each had one blank call among 17 but nonblank overall output.
+All three candidates loaded and produced nonblank overall transcription without crash on the same exact FSMN-frozen PCM.
 
 Doc: `docs/STAGE_16B_GATE_B_B0.md`.
 
@@ -76,7 +76,7 @@ Docs:
 
 A material adapter/chunking compatibility issue was found at the former exact 30-second cap: FunASR blanked on multiple exact `30.00 s` chunks while SenseVoice/Qwen3 were nonblank on the same PCM.
 
-The formal common cap was changed to **25 seconds for all three candidates**. Retest on the same recording produced `8/8` nonblank for every candidate. A third mixed-content recording produced `10/10` nonblank for all three with no crash or deterministic whole-sentence repeat/hallucination.
+The formal common cap was changed to **25 seconds for all three candidates**. Retest on the same recording produced complete nonblank output. The third mixed-content recording also produced all-nonblank output for all three.
 
 This is a verified current Android runtime/adapter safe comparison boundary, not a claim of an intrinsic upstream FunASR 30-second limit.
 
@@ -88,64 +88,16 @@ Docs:
 
 ## B3 Punctuation / ITN / Language / Hallucination — REAL-DEVICE PASS
 
-B3 preserves exact FSMN-once, canonical frozen `sampleIndex`, common 25-second inputs, no external punctuation, no Qwen timeline alignment and no Room benchmark persistence.
+- native punctuation: Qwen3 strongest; FunASR partial; SenseVoice none under the no-external-punctuation contract;
+- ITN: SenseVoice strongest compact digit formatting; FunASR behaviorally active; Qwen3 current integration exposes no ITN switch;
+- language: monolingual AUTO/default paths exact; FunASR AUTO strongest controlled mixed-language result;
+- short utterance: all three exact/nonblank;
+- silence/noise: exact FSMN filters both before ASR;
+- hotword A/B: FunASR `CER 0.1724 -> 0.0345`, coverage `2/3 -> 3/3`; Qwen3 `0.3103 -> 0.0690`, `0/3 -> 2/3`.
 
-### Native punctuation
+Language forcing is not a verified hard lock for FunASR or SenseVoice and should not be exposed as a guaranteed product behavior.
 
-All three preserve literal content on the punctuation profile (`CER=0.0000`). Native punctuation ordering is Qwen3 strongest, FunASR partial, SenseVoice none under the no-external-punctuation contract.
-
-### ITN
-
-- SenseVoice `ITN_ON`: strongest compact digit formatting on the controlled profile;
-- FunASR `ITN_ON`: semantic coverage `1.00`, behaviorally active but partial category normalization;
-- Qwen3: current integration exposes no ITN switch.
-
-### Language behavior
-
-Monolingual default/AUTO paths are exact on ZH and EN. On the controlled mixed-language profile, FunASR AUTO has the best literal score (`CER=0.2703`) versus Qwen3 default `0.4324` and SenseVoice AUTO `0.4865`.
-
-Language forcing is not a verified hard lock for FunASR or SenseVoice and can degrade mismatched/mixed speech. Normal product behavior should remain AUTO/default; any forcing UI should be advanced/experimental hint semantics only.
-
-### Short utterance
-
-All three produce nonblank semantically exact `可以。` output with `contentCer=0.0000`.
-
-### Silence / noise
-
-Both controlled no-speech profiles are rejected by exact FSMN before ASR:
-
-- `speechSegments=0`;
-- `frozenAsrInputs=0`;
-- `vadFilteredNoSpeech=true`;
-- `pipelineHallucinationRisk=FILTERED_BEFORE_ASR`.
-
-This is pipeline-level hallucination-protection evidence, not intrinsic no-VAD ASR ranking.
-
-### Hotword / context-bias A/B
-
-Reference: `今天测试 Qwen3、OpenAI 和 GitHub 的语音识别效果。`
-
-Configured hotwords: `Qwen3,OpenAI,GitHub`.
-
-Same exact FSMN-frozen PCM:
-
-| Candidate | OFF CER | ON CER | OFF exact coverage | ON exact coverage |
-| --- | ---: | ---: | ---: | ---: |
-| FunASR Nano | `0.1724` | `0.0345` | `2/3` | `3/3` |
-| Qwen3-ASR | `0.3103` | `0.0690` | `0/3` | `2/3` |
-
-Both supported runtimes show material same-input improvement. SenseVoice is excluded because the current integration exposes no equivalent hotword control.
-
-Hotword QA checkpoint:
-
-- code head `7e22e2b184c34092c9a6082cf32925600aac8e63`;
-- Fast PR Gate #2012: **PASS**;
-- QA APK Gate #2013: **PASS**;
-- artifact `12276585259`;
-- artifact digest `sha256:bcdbc66828ef138237ec8f6e3e00a8b1bc8ca77109b7801d179d948cef4b26b2`;
-- extracted APK SHA-256 `1417ae43a2f091c823aa4299d595dafb322c824b4554db00047e8382200ca635`.
-
-B3 docs:
+Docs:
 
 - `docs/STAGE_16B_GATE_B_B3.md`;
 - `docs/STAGE_16B_GATE_B_B3_REAL_DEVICE_REPORT.md`;
@@ -155,24 +107,9 @@ B3 docs:
 - `docs/STAGE_16B_GATE_B_B3_NOISE_REAL_DEVICE.md`;
 - `docs/STAGE_16B_GATE_B_B3_HOTWORD_REAL_DEVICE.md`.
 
-B3 decision: **REAL-DEVICE PASS**. No production ASR promotion/removal is authorized yet.
-
 ## B4 Timestamp / Timeline Compatibility — REAL-DEVICE PASS
 
 B4 separates canonical segment timing from token-level timing precision.
-
-The first real-device screen showed `B4 INCOMPLETE` because the QA harness originally required every nonblank aligned segment to receive token timing. Source audit confirmed that this was stricter than the frozen product safety semantics: the production alignment algorithm intentionally returns no token cues when final/reference text similarity is too low rather than inventing a precise timestamp. `TranscriptTimeline` still uses the canonical segment `startSampleIndex/endSampleIndexExclusive` for the row, so a safe-refused segment retains segment-level timeline behavior.
-
-The QA interpretation was corrected without changing production `TimelineAlignment` behavior.
-
-Real-device recording:
-
-- exact VAD: `fsmn-vad-int8@1.0.0/1`;
-- VAD wall: `254 ms`;
-- FSMN speech segments / frozen inputs: `5 / 5`;
-- timing reference: `zipformer-small-bilingual@2023-02-16/1`.
-
-Capability result:
 
 | Candidate / route | Token timing | Timed-segment coverage | Coordinate safety | Decision |
 | --- | --- | ---: | --- | --- |
@@ -182,29 +119,58 @@ Capability result:
 | Qwen3 native | none | `0/5` | canonical segment timeline retained | PASS / expected no native timing |
 | Qwen3 current product alignment | aligned partial | `3/5` | `33/33` timed, `0` violations, `0` out-of-bounds | PASS / `PARTIAL_SAFE_REFUSAL` |
 
-Both aligned routes actually executed `TIMELINE_ALIGNMENT` and reported no pipeline timeline fallback error. Low-similarity segments were safely left without token cues rather than assigned fabricated precision.
+The initial QA interpretation was corrected after source audit; production `TimelineAlignment` behavior was not weakened or changed.
 
-B4 automated checkpoints:
+Docs:
 
-- initial QA head `76b53232ae37c4a9252706a8346d5338e7af39a4`;
-- Fast PR Gate #2025: **PASS**;
-- production-like QA APK Gate #2026: **PASS**;
-- artifact `12277747780`;
-- QA interpretation correction head `9e62acbfb179eb09fa5227d640ef0261765ce4c0`;
-- Fast PR Gate #2031: **PASS**;
-- boundary-drift / token-coordinate / partial-safe-refusal / SenseVoice strict-native regressions: **PASS**.
+- `docs/STAGE_16B_GATE_B_B4.md`;
+- `docs/STAGE_16B_GATE_B_B4_REAL_DEVICE_REPORT.md`.
 
-Doc: `docs/STAGE_16B_GATE_B_B4.md`.
+## B5 Isolated Cold/Warm Performance + Memory — REAL-DEVICE PASS
 
-B4 decision: **REAL-DEVICE PASS**. No production ASR promotion/removal is authorized by B4 alone.
+Formal common input:
 
-## Current candidate role signals before B5
+- recording `9ab2ded7-c31c-4048-9342-fd6b54a51cfb`;
+- canonical SHA `83ed651fee1553a22f83f5c40f73f68becc21c26c1c44f5e8221aab1e338981d`;
+- exact FSMN `1.0.0/1`;
+- `threads=2`;
+- `frozenInputs=10`;
+- frozen speech `109.3420 s`;
+- common 25-second input cap.
 
-- **Qwen3**: strongest long-Mandarin evidence and native punctuation; current product token timeline uses Small-Bilingual alignment with safe partial refusal where matching is weak;
-- **FunASR**: strongest mixed/proper-name tendency so far, active ITN, strongest supported hotword A/B, and demonstrated compatibility with the same alignment mechanism; still candidate-only;
-- **SenseVoice**: strongest compact ITN formatting, native full token timing and lower runtime-cost signals, but weaker complex mixed/proper-name accuracy and no equivalent hotword control in current integration.
+Final B5 harness uses a fresh lightweight candidate process instance and a read-only model-manager path; WorkManager / durable model-install runtime is excluded from the measured process. Each candidate process is terminated before the next model starts.
 
-These remain role signals, not the final Product Matrix. B5 owns isolated performance/memory ranking.
+| Candidate | Cold ASR RTF | Warm ASR RTF | Cold total RTF | Warm total RTF | Cold peak PSS KB | Warm peak PSS KB | End-PSS signal |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| SenseVoice | **0.0876** | **0.0871** | **0.1124** | **0.1125** | 389108 | 713942 | ~385 MB |
+| FunASR Nano | **0.6547** | **0.6300** | **0.7548** | **0.7313** | 1753708 | 1745334 | ~1.44 GB |
+| Qwen3-ASR | **0.9767** | **0.7543** | **1.0599** | **0.8362** | 2342673 | 2330256 | ~2.29–2.31 GB |
+
+All six passes completed with `blankCalls=0` and no crash/OOM.
+
+B5 runtime ordering is unambiguous: **SenseVoice << FunASR < Qwen3** for both speed cost and memory pressure. Qwen3 cold total RTF is slightly above realtime (`1.0599`).
+
+Docs:
+
+- `docs/STAGE_16B_GATE_B_B5.md`;
+- `docs/STAGE_16B_GATE_B_B5_REAL_DEVICE_REPORT.md`.
+
+### B1–B5 role reduction
+
+- **SenseVoice** remains the differentiated efficiency/balanced baseline: lowest runtime cost by a large margin, strongest compact ITN formatting, full native token timing. It is not eliminated, but it is not the high-quality-role finalist.
+- **FunASR Nano** remains a high-quality-role finalist: strong mixed/proper-name signal, active ITN, strongest controlled hotword A/B, and materially lower cost than Qwen3.
+- **Qwen3-ASR** remains a high-quality-role finalist because it owns the strongest controlled long-Mandarin result and strongest native punctuation despite the highest runtime/memory cost.
+
+## B6 finalists
+
+Run B6 only for the two models still competing for the **high-quality local-file role**:
+
+1. **FunASR Nano INT8**;
+2. **Qwen3-ASR 0.6B INT8**.
+
+SenseVoice is retained in the Product Matrix as the efficiency/balanced baseline and does not require an expensive B6 run to justify that distinct role.
+
+B6 contract: one representative ~30-minute real recording, exact FSMN, common verified 25-second ASR-input cap. No 60/120-minute extension is pre-required; extend only if the B6 result remains materially ambiguous.
 
 ## Product-state boundaries
 
@@ -220,7 +186,7 @@ These remain role signals, not the final Product Matrix. B5 owns isolated perfor
 
 ## Next planned work
 
-1. **B5 — isolated cold/warm performance + memory**: run candidates independently so PSS/model-memory carryover cannot contaminate the comparison; measure engine-open, ASR wall/RTF, total wall/RTF, start/peak/end PSS and warm rerun behavior.
-2. Use B1–B5 evidence to reduce the model/role matrix before any expensive long-file run.
-3. Run **B6 representative long-file** testing only on finalists/roles that remain materially competitive after B5.
-4. Present the complete Gate B Product Matrix before any production model promotion/removal decision.
+1. **B6 — representative ~30-minute long-file endurance / completeness** for FunASR Nano and Qwen3-ASR only.
+2. Compare long-file stability, blank-rate, end-to-end wall/RTF, memory behavior and output completeness on the same exact-FSMN frozen input.
+3. Present the complete Gate B Product Matrix before any production model promotion/removal decision.
+4. Do not start Stage 16C until Stage 16B is explicitly closed.
