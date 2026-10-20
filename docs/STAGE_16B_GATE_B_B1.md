@@ -1,6 +1,6 @@
 # Stage 16B Gate B — B1 Same-input Base Quality
 
-Status: **AUTOMATED PASS / REAL-DEVICE NEXT**
+Status: **AUTOMATED PASS / REAL-DEVICE PASS / FIRST SHORTLIST COMPLETE**
 
 ## Objective
 
@@ -28,8 +28,6 @@ A run that resolves Silero fallback is invalid B1 evidence.
 
 ## Frozen reference corpus — first pass
 
-Keep B1 intentionally small and discriminatory. Use separate short recordings with a known reference transcript so failures remain attributable.
-
 | Profile | Primary target | Reference script |
 | --- | --- | --- |
 | `ZH_BASE` | normal Mandarin / common words | 今天我们测试离线语音识别，重点比较三个模型在相同录音上的准确率和完整性。 |
@@ -41,31 +39,15 @@ Keep B1 intentionally small and discriminatory. Use separate short recordings wi
 | `BOUNDARY` | short head/tail words / deletion | 好，现在开始测试。中间这一句保持正常语速。最后请完整识别，谢谢。 |
 | `PAUSE` | short natural pauses / segmentation robustness | 第一项检查准确率，稍微停一下，第二项检查完整性，再停一下，第三项检查是否出现重复内容。 |
 
-Silence/noise hallucination probes belong to the B1/B3 boundary and may be run after the spoken profiles without expanding the initial spoken corpus.
-
 ## Metrics
 
-B1 records both per-profile and aggregate evidence:
-
-- normalized Chinese CER;
-- English WER for English-dominant material;
-- insertion / deletion / substitution counts;
-- blank ASR calls;
-- whole-profile blank output;
-- head-word and tail-word deletion flags;
-- repeated phrase/output flags;
-- obvious hallucination flags requiring manual evidence review;
-- ASR call count;
-- raw candidate output;
-- model identity and shared FSMN identity/boundaries.
+B1 records normalized Chinese CER, English WER where applicable, insertion/deletion/substitution counts, blank calls, whole-profile blank output, head/tail deletion, repeated output evidence, raw candidate output, model identity, shared FSMN identity/boundaries and manual hallucination/repetition review cues.
 
 Punctuation is ignored by normalized CER. English WER uses explicit word tokenization and is case-normalized by the shared scoring layer; it is never substituted for Chinese CER.
 
 ### SenseVoice metadata normalization
 
-Real-device B0 evidence showed SenseVoice can emit language metadata such as `<zh>`, `<yue>` and `<ja>` in the raw hypothesis. These are model metadata rather than spoken lexical content.
-
-B1 therefore keeps `rawText` unchanged for audit/manual review but removes only the known SenseVoice language tags `<zh>`, `<en>`, `<ja>`, `<ko>` and `<yue>` from the scoring view before CER/WER, blank, boundary and duplicate-line calculations. Arbitrary angle-bracket text is not stripped.
+Real-device B0 evidence showed SenseVoice can emit language metadata such as `<zh>`, `<yue>` and `<ja>` in the raw hypothesis. B1 keeps `rawText` unchanged for audit/manual review but removes only the known SenseVoice language tags `<zh>`, `<en>`, `<ja>`, `<ko>` and `<yue>` from the scoring view before CER/WER, blank, boundary and duplicate-line calculations. Arbitrary angle-bracket text is not stripped.
 
 Regression coverage locks both conditions:
 
@@ -88,27 +70,46 @@ Code head: `45954e4b13ef6ab69697e53d44109a5fa0044f3f`.
 - QA artifact digest: `sha256:e7916339c769d25e0bac4d381cb0ee6ac298975e25705c4b4c9cad100d7beca5`
 - artifact head: `45954e4b13ef6ab69697e53d44109a5fa0044f3f`
 
-B1 real-device reference-corpus execution is **NOT RUN / NEXT**. CI success does not substitute for real-device evidence.
+## Real-device checkpoint
 
-## First shortlist rule
+Real-device first-pass reference corpus completed on 2026-10-20: **REAL-DEVICE PASS**.
 
-B1 is a discriminatory gate, not a final weighted score. A candidate may be removed from expensive B5/B6 work when evidence shows a material, repeatable base-quality failure such as:
+Detailed evidence report:
 
-- frequent deterministic blank output;
-- severe head/tail deletion;
-- material sentence loss;
-- repeated/hallucinated text that changes meaning;
-- clearly worse reference error across multiple profiles rather than one isolated utterance.
+`docs/STAGE_16B_GATE_B_B1_REAL_DEVICE_REPORT.md`
 
-Close candidates remain in the matrix. Performance/memory alone does not eliminate a candidate in B1; that evidence belongs to B5.
+Summary:
 
-## Human recording procedure
+| Profile | Fun-ASR-Nano | SenseVoice | Qwen3-ASR |
+| --- | ---: | ---: | ---: |
+| `ZH_BASE` | CER `0.0000` | CER `0.0000` | CER `0.0000` |
+| `ZH_LONG` | CER `0.0345` | CER `0.0862` | CER `0.0000` |
+| `EN_BASE` | CER/WER `0.0000 / 0.0000` | CER/WER `0.0000 / 0.0000` | CER/WER `0.0000 / 0.0000` |
+| `ZH_EN_MIXED` | CER `0.0313` | CER `0.0938` | CER `0.0469` |
+| `NUMBERS_ITN_RAW` | raw CER `0.6000`, semantic content correct with ITN | CER `0.0000` | CER `0.0000` |
+| `PROPER_NOUNS` | CER `0.0313` | CER `0.1250` | CER `0.0469` |
+| `BOUNDARY` | CER `0.0000`, head/tail deletion false | CER `0.0000`, head/tail deletion false | CER `0.0000`, head/tail deletion false |
+| `PAUSE` | CER `0.2368`, `del=9` | CER `0.2368`, `del=9` | CER `0.2368`, `del=9` |
 
-- Record the reference script exactly as written when practical.
-- Use a natural speaking rate and normal phone/recorder distance.
-- Do not intentionally over-enunciate unless the profile says so.
-- Make one recording per profile so the reference remains unambiguous.
-- If the speaker makes a reading mistake, discard and rerecord that profile rather than editing the reference after seeing ASR output.
+`PAUSE` is explicitly non-discriminatory ASR evidence: the run produced `speechSegments=3` / `frozenAsrInputs=3`, every ASR returned three nonblank calls with no duplicate line, and all three had the identical nine-character deletion corresponding to `稍微停一下` + `再停一下`. This is retained as segmentation/continuity evidence rather than used to rank ASR quality.
+
+`NUMBERS_ITN_RAW` is also not ranked by raw CER alone. FunASR converted spoken numbers/date/time/money/percentage to digits while preserving semantic content, so its `0.6000` raw CER is an ITN-format mismatch, not a 60% semantic recognition failure. ITN is evaluated formally in B3.
+
+## First shortlist decision
+
+No candidate is removed after B1.
+
+- `funasr-nano-int8`: **PROCEED** to B2/B3/B4.
+- `qwen3-asr-0.6b-int8`: **PROCEED** to B2/B3/B4.
+- `sensevoice-2024-int8`: **PROCEED** to B2/B3/B4 as the current production/lightweight baseline despite weaker complex-content quality.
+
+B1 trend only:
+
+- Qwen3 is strongest on long Mandarin.
+- FunASR is strongest on mixed-language and proper-noun material and shows active ITN behavior.
+- SenseVoice is exact on simpler/base tasks and appears substantially lighter/faster, but is consistently weaker on the three complex lexical profiles (`ZH_LONG`, `ZH_EN_MIXED`, `PROPER_NOUNS`).
+
+No final production ranking is authorized by B1. B1 PSS/RTF/engine-open values are signals only because models ran sequentially in one process; B5 must use isolated cold/warm measurements before drawing performance conclusions.
 
 ## Frozen product state
 
@@ -127,4 +128,4 @@ B1 does not:
 
 ## Exit
 
-After the first-pass reference corpus is complete, summarize per-model error/completeness evidence and decide which candidates proceed to B2/B3/B4. Do not make the final Product Matrix decision until the later gates are complete.
+B1 is complete. All three candidates proceed to B2/B3/B4. The final Product Matrix decision remains blocked on real-recording completeness, punctuation/ITN/language/hallucination, timestamp/timeline compatibility and finalist isolated performance/long-file evidence.
