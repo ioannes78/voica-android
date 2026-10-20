@@ -23,10 +23,10 @@ import java.net.URL
 object VoicaModelChannel {
     const val BOOTSTRAP_CATALOG_ASSET = "model-catalog-v1.json"
     const val PRODUCTION_MODEL_CHANNEL_COMMIT =
-        "540f1e13c4cd2cdbe4cfbd1b23181839f206d939"
+        "8f2f94ef7a376f1b0b652072ef67df5e07dd31de"
     const val PRODUCTION_MANIFEST_VERSION = 8
     const val PRODUCTION_MANIFEST_DIGEST =
-        "d697f47d24c8beb9c610358f39b79f75073469315ce19d920e697b99abf167e8"
+        "05dcd9f205a3383c2bda0704996b85e741384daa9c2e8a63ff132b74b5424d37"
     const val PRODUCTION_MANIFEST_URL =
         "https://raw.githubusercontent.com/ioannes78/voica-model-channel/" +
             PRODUCTION_MODEL_CHANNEL_COMMIT +
@@ -155,12 +155,12 @@ private val PRODUCT_MODEL_IDS =
         Stage9ModelIds.SEGMENTATION,
         Stage13ASpeakerEmbeddingModelIds.CAMP_PLUS,
         STAGE16B_FSMN_VAD_CANDIDATE_ID,
-        STAGE16B_TEN_VAD_CANDIDATE_ID,
     )
 
 private val DEBUG_CANDIDATE_MODEL_IDS =
     setOf(
         STAGE16B_FUNASR_NANO_CANDIDATE_ID,
+        STAGE16B_TEN_VAD_CANDIDATE_ID,
     )
 
 internal fun allowedModelIdsForManifest(productionManifestPinned: Boolean): Set<String> =
