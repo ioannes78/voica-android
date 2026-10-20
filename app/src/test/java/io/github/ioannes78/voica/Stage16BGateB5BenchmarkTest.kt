@@ -45,7 +45,7 @@ class Stage16BGateB5BenchmarkTest {
         val decoded = Stage16BGateB5PlanStore.decode(Stage16BGateB5PlanStore.encode(plan))
 
         assertEquals(plan, decoded)
-        assertEquals(39_900, decoded.speechSampleCount)
+        assertEquals(39_900L, decoded.speechSampleCount)
     }
 
     @Test
