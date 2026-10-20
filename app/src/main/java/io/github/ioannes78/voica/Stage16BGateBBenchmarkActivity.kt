@@ -30,11 +30,11 @@ class Stage16BGateBBenchmarkActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        check(VoicaModelChannel.isDebuggable(this)) {
+        val app = application as VoicaApplication
+        check(VoicaModelChannel.isDebuggable(app)) {
             "Stage 16B Gate B QA activity must never run in a production build"
         }
 
-        val app = application as VoicaApplication
         val container = app.container
         runner =
             Stage16BGateBAsrBenchmarkRunner(
