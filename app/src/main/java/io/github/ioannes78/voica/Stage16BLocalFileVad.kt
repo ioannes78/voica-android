@@ -39,11 +39,13 @@ internal class Stage16BLocalFileVadModelManager(
     override suspend fun activeModel(modelId: String): ActiveModel? {
         if (modelId != Stage8ModelIds.VAD) return delegate.activeModel(modelId)
 
-        return Stage16BLocalFileVadPolicy.orderedModelIds
-            .firstNotNullOfOrNull { candidateId -> delegate.activeModel(candidateId) }
-            ?: throw MissingTranscriptionModelsException(
-                Stage16BLocalFileVadPolicy.orderedModelIds,
-            )
+        for (candidateId in Stage16BLocalFileVadPolicy.orderedModelIds) {
+            val active = delegate.activeModel(candidateId)
+            if (active != null) return active
+        }
+        throw MissingTranscriptionModelsException(
+            Stage16BLocalFileVadPolicy.orderedModelIds,
+        )
     }
 }
 
