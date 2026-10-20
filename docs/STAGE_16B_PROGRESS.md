@@ -1,6 +1,6 @@
 # Stage 16B — Local File ASR V2 Progress
 
-Status: **IN PROGRESS — GATE A TECHNICAL PASS / GATE B B0 REAL-DEVICE PASS / B1 REAL-DEVICE PASS / B2 AUTOMATED PASS / B2 REAL-DEVICE NEXT**
+Status: **IN PROGRESS — GATE A TECHNICAL PASS / GATE B B0 REAL-DEVICE PASS / B1 REAL-DEVICE PASS / B2 REAL-DEVICE PASS / B3 NEXT**
 
 Repository: `ioannes78/voica-android`
 
@@ -140,36 +140,55 @@ B1 first shortlist decision: **all three proceed to B2/B3/B4**. FunASR and Qwen3
 
 B1 PSS/RTF/open-time numbers are signals only because models ran sequentially in the same process. B5 must use isolated cold/warm measurements before any resource ranking.
 
-### B2 Real Recording Quality / Completeness — AUTOMATED PASS / REAL-DEVICE NEXT
+### B2 Real Recording Quality / Completeness — REAL-DEVICE PASS
 
-Documentation: `docs/STAGE_16B_GATE_B_B2.md`
+Documentation:
 
-B2 adds a dedicated QA-only completeness runner rather than changing the verified B0/B1 runner. The formal B2 path:
+- `docs/STAGE_16B_GATE_B_B2.md`
+- `docs/STAGE_16B_GATE_B_B2_REAL_DEVICE_REPORT.md`
+- `docs/STAGE_16B_GATE_B_B2_30S_INPUT_FINDING.md`
 
-1. resolves exact active FSMN and rejects Silero fallback;
-2. runs FSMN exactly once on the canonical recording;
-3. freezes canonical `sampleIndex` chunks once;
-4. reuses the identical chunks for FunASR, SenseVoice and Qwen3;
-5. stores each candidate's raw output against the exact same chunk index/boundary;
-6. reports blank chunk indexes without dropping alignment;
-7. prints a `B2 FROZEN-CHUNK MATRIX` for direct manual completeness comparison;
-8. does not manufacture CER/WER for uncontrolled real recordings;
-9. does not persist B2 transcript state to Room.
+B2 uses exact FSMN once, freezes canonical `sampleIndex` chunks once, and compares the same PCM across all three ASRs. It does not manufacture CER/WER for uncontrolled real recordings and does not persist benchmark transcripts to Room.
 
-Automated checkpoint:
+Initial automated checkpoint:
 
-- verified code / QA artifact head `e8e5477c4a99b98e6f6e149c9027647652b46324`
+- code / QA artifact head `e8e5477c4a99b98e6f6e149c9027647652b46324`
 - Android PR CI #1973 Fast PR Gate: **PASS**
-- unit tests + debug compile: **PASS**
-- B2 chunk evidence tests: **PASS**
-- FSMN runtime boundary: **PASS**
 - Android PR CI #1974 production-like QA APK Gate: **PASS**
-- QA APK verification/security/model-channel checks: **PASS**
-- QA artifact `12255162649`
-- artifact digest `sha256:70de5ca27ac8fcaa70157b38366e043847447e12fd4113679050fb6b5ad25792`
-- extracted APK SHA-256 `608973e32313c2d3c8e1a586ca1c9260d63df0c63596f2c392fac2c1aea3551d`
+- artifact `12255162649`
 
-B2 first-pass real-device matrix is **NOT RUN / NEXT**. Use three representative natural recordings of about 60–120 seconds: single-speaker natural speech, multi-speaker conversation, and mixed-content natural speech. B2 PSS/RTF remain signals only; B5 owns isolated resource ranking.
+B2 discovered a candidate-specific FunASR whole-chunk blank pattern on exact `30.00 s` inputs. The same three chunks were nonblank for SenseVoice and Qwen3. A B2-specific common 25-second cap was therefore introduced for all three candidates.
+
+25-second verification:
+
+- checkpoint `d00a3093adb3791b9a77866aa4b9148e9d9ea88c`
+- Android PR CI #1980 Fast PR Gate: **PASS**
+- Android PR CI #1981 production-like QA APK Gate: **PASS**
+- `30 s -> 25 s + 5 s` regression: **PASS**
+- artifact `12260190295`
+- digest `sha256:6a21093443f0939fcc925558d74f300a08c7cd2c6de8c5cc28599aaba09ab639`
+
+Same-recording retest under the 25-second cap:
+
+- 5 FSMN speech segments -> 8 frozen inputs;
+- FunASR: 8 calls / **0 blank**;
+- SenseVoice: 8 calls / 0 blank;
+- Qwen3: 8 calls / 0 blank.
+
+Three representative real recordings were completed. Final mixed-content recording:
+
+- recording ID `9ab2ded7-c31c-4048-9342-fd6b54a51cfb`;
+- canonical SHA-256 `83ed651fee1553a22f83f5c40f73f68becc21c26c1c44f5e8221aab1e338981d`;
+- exact `fsmn-vad-int8@1.0.0/1`;
+- 10 FSMN speech segments / 10 frozen inputs;
+- FunASR: 10/10 nonblank;
+- SenseVoice: 10/10 nonblank;
+- Qwen3: 10/10 nonblank;
+- no crash, deterministic repeat-output failure, or repeated whole-sentence hallucination.
+
+B2 decision: **all three remain viable and proceed to B3/B4**. The one material compatibility finding is the former FunASR 30-second boundary. The verified B2 safe comparison cap is 25 seconds; if FunASR is later selected for production, production chunking must explicitly account for this safe boundary before promotion. This does not claim an intrinsic upstream model limit.
+
+B2 resource numbers remain signals only; B5 owns isolated cold/warm RTF/PSS ranking.
 
 ### Fun-ASR-Nano
 
@@ -177,6 +196,7 @@ B2 first-pass real-device matrix is **NOT RUN / NEXT**. Use three representative
 - candidate package integrity and production-like packaging checks passed;
 - candidate activation / native transcription: **PASS in B0**;
 - comparative base quality: **PASS in B1**;
+- real-recording completeness: **PASS in B2 with verified 25-second safe chunking**;
 - remains candidate-only until the full Gate B Product Matrix decision.
 
 Candidate reference:
@@ -201,8 +221,7 @@ Candidate reference:
 
 ## Next planned work
 
-1. Run **B2 Real Recording Quality / Completeness** on real device with three short representative natural recordings and review the frozen-chunk matrix for candidate-specific omissions, repetition and hallucination.
-2. **B3 Punctuation / ITN / Language / Hallucination** — explicitly separate native punctuation, ITN-equivalent semantics, language forcing/detection and silence/noise hallucination behavior.
-3. **B4 Timestamp / Timeline Compatibility** — preserve canonical `sampleIndex` ownership; distinguish native token timing from extra alignment paths.
-4. Use B2/B3/B4 to clarify viable product roles before isolated B5 performance/memory and B6 representative long-file tests.
-5. Present the complete Gate B evidence before any ASR production promotion/removal decision.
+1. **B3 Punctuation / ITN / Language / Hallucination** — explicitly separate native punctuation, ITN-equivalent semantics, language forcing/detection and silence/noise hallucination behavior.
+2. **B4 Timestamp / Timeline Compatibility** — preserve canonical `sampleIndex` ownership; distinguish native token timing from extra alignment paths.
+3. Use B3/B4 to clarify viable product roles before isolated B5 performance/memory and B6 representative long-file tests.
+4. Present the complete Gate B evidence before any ASR production promotion/removal decision.
