@@ -131,16 +131,16 @@ internal fun stage16BGateB3Plans(profile: Stage16BGateB3Profile): List<Stage16BG
                 Stage16BGateB3VariantPlan(
                     STAGE16B_FUNASR_NANO_CANDIDATE_ID,
                     "LANG_FORCE_ZH",
-                    requestedLanguage = "zh",
+                    requestedLanguage = "中文",
                     useInverseTextNormalization = true,
-                    capabilityNote = "FunASR language force zh",
+                    capabilityNote = "FunASR native prompt language force 中文",
                 ),
                 Stage16BGateB3VariantPlan(
                     STAGE16B_FUNASR_NANO_CANDIDATE_ID,
                     "LANG_FORCE_EN",
-                    requestedLanguage = "en",
+                    requestedLanguage = "英文",
                     useInverseTextNormalization = true,
-                    capabilityNote = "FunASR language force en",
+                    capabilityNote = "FunASR native prompt language force 英文",
                 ),
                 Stage16BGateB3VariantPlan(
                     Stage8ModelIds.SECOND_PASS_ASR,
