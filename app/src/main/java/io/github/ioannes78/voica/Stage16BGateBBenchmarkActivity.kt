@@ -16,18 +16,23 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 /**
- * QA/releaseQa-only launcher activity for Stage 16B Gate B B0/B1.
+ * QA/releaseQa-only launcher activity for Stage 16B Gate B B0/B1/B2.
  *
  * The class lives in main source only so both QA build types compile one implementation; it is
  * declared as a launcher exclusively by app/src/qa and app/src/releaseQa manifest overlays.
  */
 class Stage16BGateBBenchmarkActivity : ComponentActivity() {
     private lateinit var runner: Stage16BGateBAsrBenchmarkRunner
+    private lateinit var b2Runner: Stage16BGateB2CompletenessRunner
     private lateinit var statusText: TextView
     private lateinit var modeText: TextView
     private lateinit var recordingsContainer: LinearLayout
     private var recordingsJob: Job? = null
-    private var stateJob: Job? = null
+    private var benchmarkStateJob: Job? = null
+    private var b2StateJob: Job? = null
+    private var latestBenchmarkState: Stage16BGateBB0State = Stage16BGateBB0State.Idle
+    private var latestB2State: Stage16BGateB2State = Stage16BGateB2State.Idle
+    private var selectedMode: SelectedMode = SelectedMode.B0
     private var selectedB1Profile: Stage16BGateBB1Profile? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -38,6 +43,14 @@ class Stage16BGateBBenchmarkActivity : ComponentActivity() {
         }
 
         val container = app.container
+        val lineageLoader: suspend (String) -> String? = { recordingId ->
+            container.recordingLibraryRepository
+                .loadCanonicalTranscriptionLineage(
+                    recordingId = recordingId,
+                    profileId = CanonicalPcmProfile.PROFILE_ID,
+                )
+                ?.canonicalSha256
+        }
         runner =
             Stage16BGateBAsrBenchmarkRunner(
                 application = app,
@@ -45,14 +58,16 @@ class Stage16BGateBBenchmarkActivity : ComponentActivity() {
                 modelManager = container.modelManager,
                 modelUseRegistry = container.modelUseRegistry,
                 localSpeechSettings = { container.localSpeechSettingsStore.settings.value },
-                loadCanonicalSha256 = { recordingId ->
-                    container.recordingLibraryRepository
-                        .loadCanonicalTranscriptionLineage(
-                            recordingId = recordingId,
-                            profileId = CanonicalPcmProfile.PROFILE_ID,
-                        )
-                        ?.canonicalSha256
-                },
+                loadCanonicalSha256 = lineageLoader,
+            )
+        b2Runner =
+            Stage16BGateB2CompletenessRunner(
+                application = app,
+                pcmSourceResolver = container.pcmSourceResolver,
+                modelManager = container.modelManager,
+                modelUseRegistry = container.modelUseRegistry,
+                localSpeechSettings = { container.localSpeechSettingsStore.settings.value },
+                loadCanonicalSha256 = lineageLoader,
             )
 
         setContentView(buildContentView())
@@ -60,16 +75,30 @@ class Stage16BGateBBenchmarkActivity : ComponentActivity() {
             lifecycleScope.launch {
                 container.recordingLibraryRepository.recordings.collectLatest(::renderRecordings)
             }
-        stateJob =
+        benchmarkStateJob =
             lifecycleScope.launch {
-                runner.state.collectLatest(::renderState)
+                runner.state.collectLatest { state ->
+                    latestBenchmarkState = state
+                    if (selectedMode != SelectedMode.B2) renderSelectedState()
+                }
+            }
+        b2StateJob =
+            lifecycleScope.launch {
+                b2Runner.state.collectLatest { state ->
+                    latestB2State = state
+                    if (selectedMode == SelectedMode.B2) renderSelectedState()
+                }
             }
     }
 
     override fun onDestroy() {
         recordingsJob?.cancel()
-        stateJob?.cancel()
-        if (isFinishing) runner.cancel()
+        benchmarkStateJob?.cancel()
+        b2StateJob?.cancel()
+        if (isFinishing) {
+            runner.cancel()
+            b2Runner.cancel()
+        }
         super.onDestroy()
     }
 
@@ -84,7 +113,7 @@ class Stage16BGateBBenchmarkActivity : ComponentActivity() {
 
         root.addView(
             TextView(this).apply {
-                text = "Stage 16B — Gate B B0 / B1"
+                text = "Stage 16B — Gate B B0 / B1 / B2"
                 textSize = 22f
             },
         )
@@ -93,8 +122,9 @@ class Stage16BGateBBenchmarkActivity : ComponentActivity() {
                 text =
                     "QA-only. FSMN runs once, then the exact same frozen PCM chunks are sent to " +
                         "Fun-ASR-Nano → SenseVoice → Qwen3-ASR. B0 checks candidate readiness; " +
-                        "B1 scores a frozen reference profile. Short runs are limited to " +
-                        "${Stage16BGateBBenchmarkContract.MAX_B0_RECORDING_SECONDS}s."
+                        "B1 scores frozen reference profiles; B2 compares real-recording completeness " +
+                        "chunk by chunk without inventing CER. Short B0/B1/B2 runs are limited to " +
+                        "${STAGE16B_GATE_B_B2_MAX_RECORDING_SECONDS}s."
             },
         )
 
@@ -108,6 +138,18 @@ class Stage16BGateBBenchmarkActivity : ComponentActivity() {
                 text = "Use B0 readiness mode"
                 isAllCaps = false
                 setOnClickListener {
+                    selectedMode = SelectedMode.B0
+                    selectedB1Profile = null
+                    renderMode()
+                }
+            },
+        )
+        root.addView(
+            Button(this).apply {
+                text = "Use B2 real-recording completeness mode"
+                isAllCaps = false
+                setOnClickListener {
+                    selectedMode = SelectedMode.B2
                     selectedB1Profile = null
                     renderMode()
                 }
@@ -127,6 +169,7 @@ class Stage16BGateBBenchmarkActivity : ComponentActivity() {
                     text = profile.name
                     isAllCaps = false
                     setOnClickListener {
+                        selectedMode = SelectedMode.B1
                         selectedB1Profile = profile
                         renderMode()
                     }
@@ -146,13 +189,17 @@ class Stage16BGateBBenchmarkActivity : ComponentActivity() {
         root.addView(
             Button(this).apply {
                 text = "Cancel current Gate B run"
-                setOnClickListener { runner.cancel() }
+                setOnClickListener {
+                    if (selectedMode == SelectedMode.B2) b2Runner.cancel() else runner.cancel()
+                }
             },
         )
         root.addView(
             Button(this).apply {
                 text = "Reset result"
-                setOnClickListener { runner.reset() }
+                setOnClickListener {
+                    if (selectedMode == SelectedMode.B2) b2Runner.reset() else runner.reset()
+                }
             },
         )
 
@@ -180,12 +227,27 @@ class Stage16BGateBBenchmarkActivity : ComponentActivity() {
 
     private fun renderMode() {
         if (!::modeText.isInitialized) return
-        val profile = selectedB1Profile
         modeText.text =
-            if (profile == null) {
-                "Current mode: B0 readiness\nNo reference scoring."
+            when (selectedMode) {
+                SelectedMode.B0 -> "Current mode: B0 readiness\nNo reference scoring."
+                SelectedMode.B1 -> {
+                    val profile = checkNotNull(selectedB1Profile)
+                    "Current mode: B1 ${profile.name}\nReference: ${profile.referenceText}"
+                }
+                SelectedMode.B2 ->
+                    "Current mode: B2 real-recording completeness\n" +
+                        "No CER/WER. Review identical frozen chunks across all three ASRs."
+            }
+        renderSelectedState()
+    }
+
+    private fun renderSelectedState() {
+        if (!::statusText.isInitialized) return
+        statusText.text =
+            if (selectedMode == SelectedMode.B2) {
+                formatB2State(latestB2State)
             } else {
-                "Current mode: B1 ${profile.name}\nReference: ${profile.referenceText}"
+                formatBenchmarkState(latestBenchmarkState)
             }
     }
 
@@ -202,11 +264,10 @@ class Stage16BGateBBenchmarkActivity : ComponentActivity() {
                     text = "${recording.displayName}\n${recording.id}"
                     isAllCaps = false
                     setOnClickListener {
-                        val profile = selectedB1Profile
-                        if (profile == null) {
-                            runner.start(recording.id)
-                        } else {
-                            runner.startB1(recording.id, profile)
+                        when (selectedMode) {
+                            SelectedMode.B0 -> runner.start(recording.id)
+                            SelectedMode.B1 -> runner.startB1(recording.id, checkNotNull(selectedB1Profile))
+                            SelectedMode.B2 -> b2Runner.start(recording.id)
                         }
                     }
                 },
@@ -214,26 +275,43 @@ class Stage16BGateBBenchmarkActivity : ComponentActivity() {
         }
     }
 
-    private fun renderState(state: Stage16BGateBB0State) {
-        statusText.text =
-            when (state) {
-                Stage16BGateBB0State.Idle -> "Idle"
-                is Stage16BGateBB0State.Running ->
-                    "Running\nrecording=${state.recordingId}\nphase=${state.phase}"
-                is Stage16BGateBB0State.Cancelled ->
-                    "Cancelled\nrecording=${state.recordingId}"
-                is Stage16BGateBB0State.Failed ->
-                    buildString {
-                        appendLine("FAILED")
-                        appendLine("recording=${state.recordingId}")
-                        appendLine(state.message)
-                        if (state.missingModelIds.isNotEmpty()) {
-                            appendLine("missing=${state.missingModelIds.joinToString()}")
-                        }
-                    }.trimEnd()
-                is Stage16BGateBB0State.Completed -> formatResult(state.result)
-            }
-    }
+    private fun formatBenchmarkState(state: Stage16BGateBB0State): String =
+        when (state) {
+            Stage16BGateBB0State.Idle -> "Idle"
+            is Stage16BGateBB0State.Running ->
+                "Running\nrecording=${state.recordingId}\nphase=${state.phase}"
+            is Stage16BGateBB0State.Cancelled ->
+                "Cancelled\nrecording=${state.recordingId}"
+            is Stage16BGateBB0State.Failed ->
+                buildString {
+                    appendLine("FAILED")
+                    appendLine("recording=${state.recordingId}")
+                    appendLine(state.message)
+                    if (state.missingModelIds.isNotEmpty()) {
+                        appendLine("missing=${state.missingModelIds.joinToString()}")
+                    }
+                }.trimEnd()
+            is Stage16BGateBB0State.Completed -> formatResult(state.result)
+        }
+
+    private fun formatB2State(state: Stage16BGateB2State): String =
+        when (state) {
+            Stage16BGateB2State.Idle -> "Idle"
+            is Stage16BGateB2State.Running ->
+                "Running\nrecording=${state.recordingId}\nphase=${state.phase}"
+            is Stage16BGateB2State.Cancelled ->
+                "Cancelled\nrecording=${state.recordingId}"
+            is Stage16BGateB2State.Failed ->
+                buildString {
+                    appendLine("B2 FAILED")
+                    appendLine("recording=${state.recordingId}")
+                    appendLine(state.message)
+                    if (state.missingModelIds.isNotEmpty()) {
+                        appendLine("missing=${state.missingModelIds.joinToString()}")
+                    }
+                }.trimEnd()
+            is Stage16BGateB2State.Completed -> formatB2Result(state.result)
+        }
 
     private fun formatResult(result: Stage16BGateBB0Result): String =
         buildString {
@@ -286,6 +364,69 @@ class Stage16BGateBBenchmarkActivity : ComponentActivity() {
                 appendLine("text=${observation.rawText.ifBlank { "<blank>" }}")
             }
         }.trimEnd()
+
+    private fun formatB2Result(result: Stage16BGateB2Result): String =
+        buildString {
+            appendLine(if (result.allCandidatesReady) "B2 COMPLETE" else "B2 INCOMPLETE")
+            appendLine("recording=${result.recordingId}")
+            appendLine("canonicalSha256=${result.canonicalSha256 ?: "unknown"}")
+            appendLine("vad=${result.vad.id}@${result.vad.version}/${result.vad.revision}")
+            appendLine("vadWallMs=${result.vadWallTimeMillis}")
+            appendLine("speechSegments=${result.speechSegments.size}")
+            appendLine("frozenAsrInputs=${result.frozenAsrInputBoundaries.size}")
+            appendLine("manualReview=missing-content/head-tail/repetition/hallucination")
+
+            result.models.forEach { observation ->
+                appendLine()
+                appendLine("[${observation.modelId}] ${if (observation.ready) "READY" else "NOT READY"}")
+                observation.errorMessage?.let { appendLine("error=$it") }
+                appendLine("engineOpenMs=${observation.engineOpenTimeMillis ?: "-"}")
+                appendLine("asrCalls=${observation.chunks.size}")
+                appendLine("blankCalls=${observation.blankChunkIndexes.size}")
+                appendLine("blankChunkIndexes=${observation.blankChunkIndexes.ifEmpty { listOf("none") }.joinToString()}")
+                appendLine("nonBlankChunks=${observation.nonBlankChunkCount}")
+                appendLine("startPssKb=${observation.startingPssKb ?: "-"}")
+                observation.benchmark?.let { benchmark ->
+                    appendLine("asrWallMs=${benchmark.asrTimeMillis ?: "-"}")
+                    appendLine("totalWallMs=${benchmark.wallTimeMillis}")
+                    appendLine("rtf=${benchmark.realTimeFactor?.let { "%.4f".format(it) } ?: "-"}")
+                    appendLine("peakPssKb=${benchmark.peakPssKb ?: "-"}")
+                }
+                appendLine("text=${observation.rawText.ifBlank { "<blank>" }}")
+            }
+
+            appendLine()
+            appendLine("B2 FROZEN-CHUNK MATRIX")
+            val byModel = result.models.associateBy(Stage16BGateB2ModelObservation::modelId)
+            result.frozenAsrInputBoundaries.forEachIndexed { index, boundary ->
+                val startSeconds = boundary.startSampleIndex.toDouble() / CanonicalPcmProfile.SAMPLE_RATE_HZ
+                val endSeconds = boundary.endSampleIndexExclusive.toDouble() / CanonicalPcmProfile.SAMPLE_RATE_HZ
+                appendLine()
+                appendLine(
+                    "chunk#$index samples=${boundary.startSampleIndex}..${boundary.endSampleIndexExclusive} " +
+                        "time=${"%.2f".format(startSeconds)}..${"%.2f".format(endSeconds)}s",
+                )
+                Stage16BGateBBenchmarkContract.MODEL_IDS.forEach { modelId ->
+                    val chunk = byModel[modelId]?.chunks?.getOrNull(index)
+                    val marker = if (chunk == null) "<missing>" else if (chunk.blank) "<blank>" else chunk.rawText
+                    appendLine("${shortModelName(modelId)}=$marker")
+                }
+            }
+        }.trimEnd()
+
+    private fun shortModelName(modelId: String): String =
+        when (modelId) {
+            STAGE16B_FUNASR_NANO_CANDIDATE_ID -> "FunASR"
+            Stage8ModelIds.SECOND_PASS_ASR -> "SenseVoice"
+            Stage13AOfflineModelIds.QWEN3_ASR -> "Qwen3"
+            else -> modelId
+        }
+
+    private enum class SelectedMode {
+        B0,
+        B1,
+        B2,
+    }
 
     private companion object {
         const val MAX_RECORDINGS = 20
