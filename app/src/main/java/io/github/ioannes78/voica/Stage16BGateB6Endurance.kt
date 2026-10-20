@@ -9,7 +9,6 @@ import android.os.SystemClock
 import io.github.ioannes78.voica.audio.CanonicalPcmProfile
 import io.github.ioannes78.voica.audio.PcmSource
 import io.github.ioannes78.voica.audio.PcmSourceResolver
-import io.github.ioannes78.voica.model.ModelLease
 import io.github.ioannes78.voica.model.ModelManager
 import io.github.ioannes78.voica.model.ModelUseRegistry
 import io.github.ioannes78.voica.transcript.AsrBenchmarkScoring
@@ -440,7 +439,7 @@ internal class Stage16BGateB6CandidateRunner(
     }
 }
 
-private fun readStage16BGateB6Boundary(
+private suspend fun readStage16BGateB6Boundary(
     source: PcmSource,
     boundary: SpeechSegment,
     startingSourcePosition: Long,
