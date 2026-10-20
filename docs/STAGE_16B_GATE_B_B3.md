@@ -1,6 +1,6 @@
 # Stage 16B Gate B — B3 Punctuation / ITN / Language / Hallucination
 
-Status: **FAST GATE PASS / PRODUCTION-LIKE QA APK NEXT**
+Status: **AUTOMATED PASS / REAL-DEVICE NEXT**
 
 Date: 2026-10-20
 
@@ -121,7 +121,7 @@ For each applicable variant B3 reports:
 
 ## Automated checkpoint
 
-Latest B3 code checkpoint: `39df8817586225d5f30e162b8d342ac1af74bec1`.
+B3 code checkpoint: `39df8817586225d5f30e162b8d342ac1af74bec1`.
 
 - Android PR CI #1995 Fast PR Gate: **PASS**;
 - repository contracts: **PASS**;
@@ -132,11 +132,36 @@ Latest B3 code checkpoint: `39df8817586225d5f30e162b8d342ac1af74bec1`.
 - FSMN runtime boundary: **PASS**;
 - Production Gate remains skipped.
 
-Production-like `releaseQa` packaging is the next automated checkpoint before real-device B3.
+Production-like QA artifact checkpoint: `382179fc92c619dac218e053f93e4e6770b1862a`.
+
+- Android PR CI #1997 QA APK Gate: **PASS**;
+- `assembleReleaseQa`: **PASS**;
+- APK verification / security / model-channel checks: **PASS**;
+- artifact upload: **PASS**;
+- artifact ID: `12262492806`;
+- artifact digest: `sha256:76f5a4e9518222af675315d0dea23dc2aec0ba84cdc038627f9787c8a261d7c9`;
+- extracted APK SHA-256: `ec46550bf3c2a8945de87ec6d2fe4ee5675eef0e69197a93651af18412637a6c`.
+
+CI success does not substitute for B3 real-device evidence.
 
 ## Hotword / context bias follow-up
 
 Gate B still requires a capability check for hotwords/context bias. Core B3 first establishes punctuation/ITN/language/hallucination. If FunASR and Qwen3 remain viable after those checks, a small B3 follow-up A/B probe will compare their actual hotword controls; SenseVoice will be marked unsupported where the current runtime exposes no equivalent control. Hotwords will not be enabled in the base quality runs.
+
+## Real-device order
+
+Run the controlled profiles in a small sequence rather than as one large matrix:
+
+1. `PUNCTUATION_ZH`;
+2. `ITN_COMPLEX`;
+3. `LANG_ZH`;
+4. `LANG_EN`;
+5. `LANG_MIXED`;
+6. `SHORT_UTTERANCE`;
+7. `SILENCE`;
+8. `NOISE`.
+
+Review each checkpoint before expanding the next group if an unexpected runtime failure appears.
 
 ## Frozen product state
 
