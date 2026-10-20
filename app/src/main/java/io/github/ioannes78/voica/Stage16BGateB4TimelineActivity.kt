@@ -134,7 +134,8 @@ internal fun stage16BGateB4TimelineMetrics(
             val end = token.endSampleIndexExclusive
             if (
                 end != null &&
-                (end < segment.startSampleIndex || end > segment.endSampleIndexExclusive ||
+                (end < segment.startSampleIndex ||
+                    end > segment.endSampleIndexExclusive ||
                     (start != null && end < start))
             ) {
                 outOfBounds += 1
@@ -166,22 +167,28 @@ internal data class Stage16BGateB4Observation(
     val errorMessage: String?,
 ) {
     val nativeTimingAvailable: Boolean
-        get() = route == Stage16BGateB4Route.NATIVE_ONLY && metrics?.nativeOrAlignedTimingAvailable == true
+        get() =
+            route == Stage16BGateB4Route.NATIVE_ONLY &&
+                metrics?.nativeOrAlignedTimingAvailable == true
 
     val routePass: Boolean
         get() {
             if (errorMessage != null || metrics == null) return false
             return when (route) {
-                Stage16BGateB4Route.NATIVE_ONLY -> {
-                    if (metrics.tokenCount == 0) {
-                        true
-                    } else {
-                        metrics.structurallyValid
+                Stage16BGateB4Route.NATIVE_ONLY ->
+                    when (modelId) {
+                        Stage8ModelIds.SECOND_PASS_ASR -> metrics.structurallyValid
+                        STAGE16B_FUNASR_NANO_CANDIDATE_ID,
+                        Stage13AOfflineModelIds.QWEN3_ASR,
+                        -> metrics.tokenCount == 0 || metrics.structurallyValid
+                        else -> false
                     }
-                }
                 Stage16BGateB4Route.FUNASR_ALIGNMENT_PROBE,
                 Stage16BGateB4Route.QWEN_CURRENT_PRODUCT_ALIGNMENT,
-                -> alignmentActivitySeen && timelineFallbackError == null && metrics.structurallyValid
+                ->
+                    alignmentActivitySeen &&
+                        timelineFallbackError == null &&
+                        metrics.structurallyValid
             }
         }
 }
@@ -286,20 +293,22 @@ internal class Stage16BGateB4TimelineRunner(
             if (fsmn == null) {
                 mutableState.value =
                     Stage16BGateB4State.Failed(
-                        recordingId,
-                        "B4 formal evidence requires active FSMN; Silero fallback is invalid",
-                        listOf(Stage16BGateBBenchmarkContract.FORMAL_VAD_MODEL_ID),
+                        recordingId = recordingId,
+                        message = "B4 formal evidence requires active FSMN; Silero fallback is invalid",
+                        missingModelIds = listOf(Stage16BGateBBenchmarkContract.FORMAL_VAD_MODEL_ID),
                     )
                 return
             }
+
             val settings = localSpeechSettings()
             val threads = settings.resolvePerformance().effectiveThreads
             val fsmnLease = acquire(fsmn)
             val vadStartedNs = SystemClock.elapsedRealtimeNanos()
             val speechSegments =
                 try {
-                    val source = pcmSourceResolver.resolvePcmSource(recordingId)
-                        ?: error("canonical PCM source is unavailable")
+                    val source =
+                        pcmSourceResolver.resolvePcmSource(recordingId)
+                            ?: error("canonical PCM source is unavailable")
                     source.use {
                         requireCanonicalSource(it)
                         vadEngineProvider.vadFactory(fsmn, threads, settings.vad).open().use { engine ->
@@ -311,17 +320,37 @@ internal class Stage16BGateB4TimelineRunner(
                 }
             val vadWallMillis = elapsedMillis(vadStartedNs)
 
-            mutableState.value = Stage16BGateB4State.Running(recordingId, "Freeze common 25-second PCM inputs")
+            mutableState.value =
+                Stage16BGateB4State.Running(recordingId, "Freeze common 25-second PCM inputs")
             val pcm = readCanonicalPcm(recordingId)
             val frozenInputs =
                 buildStage16BGateBFrozenInputs(
                     pcm = pcm,
                     speechSegments = speechSegments,
-                    maxChunkSamples = CanonicalPcmProfile.SAMPLE_RATE_HZ * STAGE16B_GATE_B_B4_MAX_ASR_INPUT_SECONDS,
+                    maxChunkSamples =
+                        CanonicalPcmProfile.SAMPLE_RATE_HZ *
+                            STAGE16B_GATE_B_B4_MAX_ASR_INPUT_SECONDS,
                 )
             require(frozenInputs.isNotEmpty()) { "FSMN produced no speech input for B4" }
             val frozenBoundaries =
-                frozenInputs.map { SpeechSegment(it.startSampleIndex, it.endSampleIndexExclusive) }
+                frozenInputs.map {
+                    SpeechSegment(it.startSampleIndex, it.endSampleIndexExclusive)
+                }
+
+            val requiredAsrIds =
+                stage16BGateB4Plans()
+                    .map(Stage16BGateB4Plan::modelId)
+                    .distinct()
+            val resolvedAsrModels = linkedMapOf<String, ActiveModel>()
+            val missing = mutableListOf<String>()
+            for (modelId in requiredAsrIds) {
+                val active = modelManager.activeModel(modelId)
+                if (active == null) {
+                    missing += modelId
+                } else {
+                    resolvedAsrModels[modelId] = active
+                }
+            }
 
             val alignmentModel =
                 modelManager.activeModel(Stage13ARealtimeModelIds.SMALL_BILINGUAL)
@@ -329,13 +358,6 @@ internal class Stage16BGateB4TimelineRunner(
                         it.descriptor.kind == ModelKind.ASR_STREAMING &&
                             it.descriptor.capabilities.supportsTokenTiming
                     }
-
-            val missing =
-                stage16BGateB4Plans()
-                    .map(Stage16BGateB4Plan::modelId)
-                    .distinct()
-                    .filter { modelManager.activeModel(it) == null }
-                    .toMutableList()
             if (alignmentModel == null) {
                 missing += Stage13ARealtimeModelIds.SMALL_BILINGUAL
             }
@@ -343,12 +365,14 @@ internal class Stage16BGateB4TimelineRunner(
                 mutableState.value =
                     Stage16BGateB4State.Failed(
                         recordingId = recordingId,
-                        message = "B4 requires all three ASR candidates and the Small Bilingual timing reference model",
+                        message =
+                            "B4 requires all three ASR candidates and the Small Bilingual timing reference model",
                         missingModelIds = missing.distinct(),
                     )
                 return
             }
 
+            val exactAlignmentModel = checkNotNull(alignmentModel)
             val observations = mutableListOf<Stage16BGateB4Observation>()
             for (plan in stage16BGateB4Plans()) {
                 mutableState.value =
@@ -356,13 +380,12 @@ internal class Stage16BGateB4TimelineRunner(
                         recordingId,
                         "${shortModelName(plan.modelId)}/${plan.route.name}",
                     )
-                val model = checkNotNull(modelManager.activeModel(plan.modelId))
                 observations +=
                     runRoute(
                         recordingId = recordingId,
                         fsmn = fsmn,
-                        model = model,
-                        alignmentModel = checkNotNull(alignmentModel),
+                        model = checkNotNull(resolvedAsrModels[plan.modelId]),
+                        alignmentModel = exactAlignmentModel,
                         frozenBoundaries = frozenBoundaries,
                         settings = settings,
                         numThreads = threads,
@@ -379,7 +402,7 @@ internal class Stage16BGateB4TimelineRunner(
                         vadWallMillis = vadWallMillis,
                         speechSegments = speechSegments,
                         frozenBoundaries = frozenBoundaries,
-                        alignmentModel = identity(checkNotNull(alignmentModel)),
+                        alignmentModel = identity(exactAlignmentModel),
                         observations = observations,
                     ),
                 )
@@ -482,7 +505,10 @@ internal class Stage16BGateB4TimelineRunner(
                 alignmentWallMillis = alignmentWallMillis,
                 timelineFallbackError = result.timelineAlignmentFallbackError,
                 metrics = metrics,
-                rawText = result.transcriptSegments.joinToString("\n") { it.secondPassRawText.orEmpty() },
+                rawText =
+                    result.transcriptSegments.joinToString("\n") {
+                        it.secondPassRawText.orEmpty()
+                    },
                 errorMessage = null,
             )
         } catch (error: Exception) {
@@ -503,8 +529,9 @@ internal class Stage16BGateB4TimelineRunner(
     }
 
     private suspend fun readCanonicalPcm(recordingId: String): ShortArray {
-        val source = pcmSourceResolver.resolvePcmSource(recordingId)
-            ?: error("canonical PCM source is unavailable")
+        val source =
+            pcmSourceResolver.resolvePcmSource(recordingId)
+                ?: error("canonical PCM source is unavailable")
         return source.use {
             requireCanonicalSource(it)
             val totalSamples = it.totalSampleCount.toInt()
@@ -515,7 +542,9 @@ internal class Stage16BGateB4TimelineRunner(
                 require(read.startSampleIndex == offset.toLong()) {
                     "canonical PCM source returned a non-sequential sample index"
                 }
-                require(read.sampleCount > 0) { "canonical PCM source returned an empty read" }
+                require(read.sampleCount > 0) {
+                    "canonical PCM source returned an empty read"
+                }
                 offset += read.sampleCount
             }
             require(offset == totalSamples) {
@@ -534,7 +563,8 @@ internal class Stage16BGateB4TimelineRunner(
         }
         require(source.totalSampleCount > 0L) { "canonical PCM is empty" }
         val maxSamples =
-            CanonicalPcmProfile.SAMPLE_RATE_HZ.toLong() * STAGE16B_GATE_B_B4_MAX_RECORDING_SECONDS
+            CanonicalPcmProfile.SAMPLE_RATE_HZ.toLong() *
+                STAGE16B_GATE_B_B4_MAX_RECORDING_SECONDS
         require(source.totalSampleCount <= maxSamples) {
             "B4 controlled recording is limited to ${STAGE16B_GATE_B_B4_MAX_RECORDING_SECONDS}s"
         }
@@ -607,7 +637,9 @@ class Stage16BGateB4TimelineActivity : ComponentActivity() {
                 pcmSourceResolver = container.pcmSourceResolver,
                 modelManager = container.modelManager,
                 modelUseRegistry = container.modelUseRegistry,
-                localSpeechSettings = { container.localSpeechSettingsStore.settings.value },
+                localSpeechSettings = {
+                    container.localSpeechSettingsStore.settings.value
+                },
                 loadCanonicalSha256 = { recordingId ->
                     container.recordingLibraryRepository
                         .loadCanonicalTranscriptionLineage(
@@ -625,7 +657,9 @@ class Stage16BGateB4TimelineActivity : ComponentActivity() {
             }
         stateJob =
             lifecycleScope.launch {
-                runner.state.collectLatest { state -> statusText.text = formatState(state) }
+                runner.state.collectLatest { state ->
+                    statusText.text = formatState(state)
+                }
             }
     }
 
@@ -662,7 +696,8 @@ class Stage16BGateB4TimelineActivity : ComponentActivity() {
             TextView(this).apply {
                 setPadding(0, padding, 0, padding)
                 text =
-                    "Instruction: record the reference naturally in about 10–20 seconds. Pause about 0.5–1 second between the three clauses.\n" +
+                    "Instruction: record the reference naturally in about 10–20 seconds. " +
+                        "Pause about 0.5–1 second between the three clauses.\n" +
                         "Reference: $STAGE16B_GATE_B_B4_REFERENCE"
             },
         )
@@ -693,7 +728,10 @@ class Stage16BGateB4TimelineActivity : ComponentActivity() {
                 textSize = 18f
             },
         )
-        recordingsContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        recordingsContainer =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+            }
         root.addView(
             recordingsContainer,
             LinearLayout.LayoutParams(
@@ -706,9 +744,14 @@ class Stage16BGateB4TimelineActivity : ComponentActivity() {
 
     private fun renderRecordings(recordings: List<RecordingLibraryItem>) {
         recordingsContainer.removeAllViews()
-        val recent = recordings.sortedByDescending(RecordingLibraryItem::updatedAtMs).take(MAX_RECORDINGS)
+        val recent =
+            recordings
+                .sortedByDescending(RecordingLibraryItem::updatedAtMs)
+                .take(MAX_RECORDINGS)
         if (recent.isEmpty()) {
-            recordingsContainer.addView(TextView(this).apply { text = "No local recordings." })
+            recordingsContainer.addView(
+                TextView(this).apply { text = "No local recordings." },
+            )
             return
         }
         recent.forEach { recording ->
@@ -727,7 +770,8 @@ class Stage16BGateB4TimelineActivity : ComponentActivity() {
             Stage16BGateB4State.Idle -> "Idle"
             is Stage16BGateB4State.Running ->
                 "Running\nrecording=${state.recordingId}\nphase=${state.phase}"
-            is Stage16BGateB4State.Cancelled -> "Cancelled\nrecording=${state.recordingId}"
+            is Stage16BGateB4State.Cancelled ->
+                "Cancelled\nrecording=${state.recordingId}"
             is Stage16BGateB4State.Failed ->
                 buildString {
                     appendLine("B4 FAILED")
@@ -753,7 +797,9 @@ class Stage16BGateB4TimelineActivity : ComponentActivity() {
             appendLine("maxAsrInputSeconds=$STAGE16B_GATE_B_B4_MAX_ASR_INPUT_SECONDS")
             appendLine(
                 "alignmentModel=" +
-                    (result.alignmentModel?.let { "${it.id}@${it.version}/${it.revision}" } ?: "missing"),
+                    (result.alignmentModel?.let {
+                        "${it.id}@${it.version}/${it.revision}"
+                    } ?: "missing"),
             )
             result.observations.forEach { observation ->
                 appendLine()
