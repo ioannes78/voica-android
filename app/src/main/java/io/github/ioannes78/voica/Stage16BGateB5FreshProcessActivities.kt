@@ -218,7 +218,7 @@ private class Stage16BGateB5MinimalDependencies(application: Application) : Auto
         recordingsRoot = recordingsRoot,
     )
     val modelUseRegistry = ModelUseRegistry()
-    val modelManager = createVoicaModelManager(
+    val modelManager = createStage16BGateB5ReadOnlyModelManager(
         application = application,
         useRegistry = modelUseRegistry,
     )
