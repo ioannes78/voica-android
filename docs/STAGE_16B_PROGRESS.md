@@ -1,6 +1,6 @@
 # Stage 16B — Local File ASR V2 Progress
 
-Status: **IN PROGRESS — GATE A TECHNICAL PASS / GATE B B0 REAL-DEVICE PASS / B1 AUTOMATED PASS / B1 REAL-DEVICE NEXT**
+Status: **IN PROGRESS — GATE A TECHNICAL PASS / GATE B B0 REAL-DEVICE PASS / B1 REAL-DEVICE PASS / B2 NEXT**
 
 Repository: `ioannes78/voica-android`
 
@@ -32,49 +32,28 @@ Development-plan baseline: **Stage 16B development plan V1 — confirmed by user
 
 ## Gate A — VAD Matrix Gate
 
-Gate A compared:
-
-- Silero VAD — production baseline
-- FSMN-VAD — challenger
-- TEN-VAD — challenger added by explicit user amendment
-
-Benchmark evidence is frozen in:
-
-`docs/STAGE_16B_GATE_A_VAD_BENCHMARK_REPORT.md`
-
-Final product policy is frozen in:
-
-`docs/STAGE_16B_GATE_A_FINAL_DECISION.md`
-
-Final production decision:
+Gate A compared Silero, FSMN and TEN. Final production decision:
 
 `FSMN VAD INT8 (primary) → Silero VAD INT8 (fallback)`
 
-TEN remains candidate / QA only because its production deployment-license applicability is not sufficiently clear. This no longer blocks Stage 16B Gate B.
+TEN remains candidate / QA only. Evidence and final policy are frozen in:
 
-Gate A technical evidence summary:
+- `docs/STAGE_16B_GATE_A_VAD_BENCHMARK_REPORT.md`
+- `docs/STAGE_16B_GATE_A_FINAL_DECISION.md`
+
+Gate A summary:
 
 - A1: FSMN led envelope consistency and VAD RTF.
 - A2 weighted CER: FSMN `32.34%`, TEN `51.35%`, Silero `72.50%`.
 - A3: FSMN materially reduced fragmentation and diarization workload versus Silero.
 - A4 30-minute: FSMN total RTF `0.128` versus Silero `0.187`; VAD wall `13.337 s` versus `131.736 s`.
 - 60/120-minute extension was explicitly waived by the user.
-- production-like QA for the Gate A wiring checkpoint passed on device.
+- FSMN product version is `1.0.0`; upstream revision stays provenance only.
+- Gate A-only `A4 QA` / `VAD QA` product entry points remain removed.
 
-Current production model-channel staging:
-
-- manifestVersion: `8`
-- production model-channel commit: `8f2f94ef7a376f1b0b652072ef67df5e07dd31de`
-- production manifestDigest: `05dcd9f205a3383c2bda0704996b85e741384daa9c2e8a63ff132b74b5424d37`
-- FSMN product version: `1.0.0`
-- FSMN upstream revision remains provenance only: `eeb66f413b94a33458f7edbe7f501b10f20fcc85`
-- TEN is excluded from the production manifest and stays candidate-only.
-
-Gate A-only `A4 QA` / `VAD QA` product entry points have been removed.
+Current model-channel promotion staging remains Draft in `ioannes78/voica-model-channel#21`; it must not be merged without explicit user authorization.
 
 ## Gate B — ASR Model Matrix Gate
-
-Status: **B0 REAL-DEVICE PASS / B1 AUTOMATED PASS / B1 REAL-DEVICE NEXT**
 
 Candidates:
 
@@ -82,143 +61,117 @@ Candidates:
 - Fun-ASR-Nano INT8
 - Qwen3-ASR 0.6B INT8
 
-All formal Gate B comparisons use exact active `fsmn-vad-int8`. A benchmark run that resolves the Local File Silero availability fallback is invalid for Gate B evidence.
+All formal Gate B comparisons require exact active `fsmn-vad-int8`. A run that resolves Silero fallback is invalid Gate B evidence.
 
-The gate must decide the long-term product matrix; model count is not predetermined.
+The gate decides a long-term product matrix; model count is not predetermined.
 
-### B0 Candidate Readiness harness
+### B0 Candidate Readiness — REAL-DEVICE PASS
 
-The QA-only B0 harness is implemented and documented in:
+Documentation: `docs/STAGE_16B_GATE_B_B0.md`
 
-`docs/STAGE_16B_GATE_B_B0.md`
+Contract:
 
-B0 benchmark contract:
-
-1. Resolve exact active FSMN directly; do not accept Silero fallback.
-2. Run FSMN exactly once on canonical PCM.
-3. Freeze canonical `sampleIndex` speech boundaries.
-4. Deterministically split only oversized ranges and reuse the exact same PCM chunks for every ASR candidate.
-5. Run Fun-ASR-Nano → SenseVoice → Qwen3-ASR against the same frozen inputs.
-6. Keep external punctuation and Qwen timeline alignment out of B0 so the checkpoint measures raw candidate readiness rather than downstream enrichment.
-7. Do not persist benchmark transcript state to Room.
-
-The harness captures model identity, canonical lineage SHA, shared FSMN identity/timing, engine-open time, ASR call/blank counts, raw text, detected language when available, ASR/total wall time, RTF and PSS.
+1. exact FSMN runs once on canonical PCM;
+2. canonical `sampleIndex` speech boundaries are frozen;
+3. exact same frozen PCM chunks are reused across all ASRs;
+4. external punctuation and Qwen alignment are excluded;
+5. benchmark transcript state is not persisted to Room.
 
 Automated checkpoint:
 
-- implementation commit: `118e283d67d3d1cc8acfe83d925157dd84c57aab`
-- compile fix commit: `a27ed998db56e8edd71c17ff50303285ae3453bf`
-- Android PR CI #1945 / Fast PR Gate: **AUTOMATED PASS**
-- unit tests + debug compile: **PASS**
-- FSMN runtime boundary: **PASS**
-- Android PR CI #1946 / production-like QA APK Gate: **AUTOMATED PASS**
-- release QA APK verification/security/model-channel checks: **PASS**
-- QA artifact ID: `12245362192`
-- QA artifact digest: `sha256:07c976c4aa38a3064e6e7e6628bea5a53107c81f595c6b773bde6299f918aa34`
-- QA artifact head: `a27ed998db56e8edd71c17ff50303285ae3453bf`
+- code checkpoint `a27ed998db56e8edd71c17ff50303285ae3453bf`
+- Android PR CI #1945 Fast PR Gate: **PASS**
+- Android PR CI #1946 production-like QA APK Gate: **PASS**
+- QA artifact `12245362192`
+- digest `sha256:07c976c4aa38a3064e6e7e6628bea5a53107c81f595c6b773bde6299f918aa34`
 
 Real-device checkpoint supplied by the user on 2026-10-20: **REAL-DEVICE PASS**.
 
-- formal VAD: `fsmn-vad-int8@1.0.0/1`
-- VAD wall: `1026 ms`
-- speech segments: `17`
-- frozen ASR inputs: `17`
-- Fun-ASR-Nano: READY, `17` calls / `0` blank, total RTF `0.5176`, peak PSS `1778348 KB`
-- SenseVoice: READY, `17` calls / `1` blank, total RTF `0.0876`, peak PSS `583185 KB`
-- Qwen3-ASR: READY, `17` calls / `1` blank, total RTF `0.5099`, peak PSS `1681547 KB`
-- no candidate crashed; every candidate produced nonblank overall transcription from the exact same frozen PCM inputs
-- B0 performance/PSS differences are signals only and are not a B5 conclusion
-- B0 raw transcript differences are not an accuracy ranking because the run did not use a frozen reference transcript
+- `fsmn-vad-int8@1.0.0/1`
+- 17 speech segments / 17 frozen ASR inputs
+- Fun-ASR-Nano READY: 17 calls / 0 blank
+- SenseVoice READY: 17 calls / 1 blank
+- Qwen3-ASR READY: 17 calls / 1 blank
+- no candidate crashed; every candidate produced nonblank overall transcription
 
-B0 decision: **PASS.** All three candidates proceed to B1; no production ASR promotion/removal is authorized by B0.
+B0 performance/PSS differences are signals only and are not a B5 conclusion.
 
-### B1 Same-input Base Quality
+### B1 Same-input Base Quality — REAL-DEVICE PASS
 
-The frozen first-pass corpus, scoring rules and human recording procedure are documented in:
+Primary documentation:
 
-`docs/STAGE_16B_GATE_B_B1.md`
-
-B1 QA support is implemented for eight discriminatory profiles:
-
-- `ZH_BASE`
-- `ZH_LONG`
-- `EN_BASE`
-- `ZH_EN_MIXED`
-- `NUMBERS_ITN_RAW`
-- `PROPER_NOUNS`
-- `BOUNDARY`
-- `PAUSE`
-
-Each B1 run keeps the B0 fairness contract: FSMN runs once, the resulting canonical `sampleIndex` boundaries are frozen, and the exact same PCM chunks are delivered to all three candidates. B1 records CER, EN WER where applicable, edit counts, blank calls, whole-profile blank state, head/tail deletion evidence, duplicate-line evidence and raw hypothesis text.
-
-SenseVoice real-device B0 output exposed language metadata tags such as `<zh>`, `<yue>` and `<ja>`. B1 therefore removes only known SenseVoice language metadata (`<zh>`, `<en>`, `<ja>`, `<ko>`, `<yue>`) from the **scoring view** while retaining `rawText` unchanged. Regression tests lock that those tags do not inflate CER/WER and that metadata-only output remains blank.
+- `docs/STAGE_16B_GATE_B_B1.md`
+- `docs/STAGE_16B_GATE_B_B1_REAL_DEVICE_REPORT.md`
 
 B1 automated checkpoint:
 
-- score/profile implementation: `ebe80d64a1a16851ebe7c78a198e19fa6a66eb5b`
-- QA profile selection: `f0560ee7e503e1d3a475748278c5b1346c3a5793`
-- initial scoring tests: `32f471f3799c8000c4310a729a5b3f74a04d00fc`
-- visibility fix: `2ccda951e194b0f9eca9bdeb7cd4ee2c6eabf6cc`
-- SenseVoice scoring normalization: `88dc69bcd038c2b846ab87c312c473c85c199188`
-- regression-test checkpoint / QA artifact head: `45954e4b13ef6ab69697e53d44109a5fa0044f3f`
-- Android PR CI #1959 / Fast PR Gate: **AUTOMATED PASS**
-- unit tests + debug compile: **PASS**
-- B1 scoring/fairness regression tests: **PASS**
+- QA artifact head `45954e4b13ef6ab69697e53d44109a5fa0044f3f`
+- Android PR CI #1959 Fast PR Gate: **PASS**
+- B1 scoring/fairness tests: **PASS**
 - FSMN runtime boundary: **PASS**
-- Android PR CI #1961 / production-like QA APK Gate: **AUTOMATED PASS**
-- release QA APK verification/security/model-channel checks: **PASS**
-- QA artifact ID: `12250801192`
-- QA artifact digest: `sha256:e7916339c769d25e0bac4d381cb0ee6ac298975e25705c4b4c9cad100d7beca5`
+- Android PR CI #1961 production-like QA APK Gate: **PASS**
+- QA artifact `12250801192`
+- digest `sha256:e7916339c769d25e0bac4d381cb0ee6ac298975e25705c4b4c9cad100d7beca5`
 
-B1 real-device reference corpus: **NOT RUN / NEXT**. No B1 shortlist or model ranking is authorized before the reference recordings are run and reviewed.
+Real-device eight-profile corpus completed on 2026-10-20: **REAL-DEVICE PASS**.
+
+| Profile | Fun-ASR-Nano | SenseVoice | Qwen3-ASR |
+| --- | ---: | ---: | ---: |
+| `ZH_BASE` | CER `0.0000` | CER `0.0000` | CER `0.0000` |
+| `ZH_LONG` | CER `0.0345` | CER `0.0862` | CER `0.0000` |
+| `EN_BASE` | CER/WER `0.0000 / 0.0000` | CER/WER `0.0000 / 0.0000` | CER/WER `0.0000 / 0.0000` |
+| `ZH_EN_MIXED` | CER `0.0313` | CER `0.0938` | CER `0.0469` |
+| `NUMBERS_ITN_RAW` | raw CER `0.6000`, semantic content correct with ITN | CER `0.0000` | CER `0.0000` |
+| `PROPER_NOUNS` | CER `0.0313` | CER `0.1250` | CER `0.0469` |
+| `BOUNDARY` | CER `0.0000`, head/tail deletion false | CER `0.0000`, head/tail deletion false | CER `0.0000`, head/tail deletion false |
+| `PAUSE` | CER `0.2368`, `del=9` | CER `0.2368`, `del=9` | CER `0.2368`, `del=9` |
+
+B1 interpretation:
+
+- Qwen3 is strongest on long Mandarin.
+- FunASR is strongest on code-switch/proper-noun material and demonstrated active ITN behavior.
+- SenseVoice is exact on simpler/base tasks but materially weaker on long Mandarin, mixed-language and proper nouns.
+- `NUMBERS_ITN_RAW` is not ranked by raw CER alone because FunASR converts spoken numbers/date/time/money/percentage to digit-form while preserving meaning; B3 owns formal ITN evaluation.
+- `PAUSE` is non-discriminatory ASR evidence. It produced 3 FSMN segments / 3 frozen ASR inputs and identical `del=9` for all three candidates, corresponding to `稍微停一下` + `再停一下`; the run is retained as segmentation/continuity evidence rather than model ranking.
+- no candidate crashed, produced a whole-profile blank, or showed deterministic repeat-output failure.
+- all three passed the BOUNDARY start/end completeness probe.
+
+B1 first shortlist decision: **all three proceed to B2/B3/B4**. FunASR and Qwen3 are the stronger complex-content quality contenders; SenseVoice remains because its lighter/faster runtime may support a differentiated production role and requires fair isolated B5 evaluation.
+
+B1 PSS/RTF/open-time numbers are signals only because models ran sequentially in the same process. B5 must use isolated cold/warm measurements before any resource ranking.
 
 ### Fun-ASR-Nano
 
 - sherpa-onnx `v1.13.8` adapter path implemented;
-- candidate package integrity workflow passed;
-- production-like candidate QA APK build/security/native packaging passed;
-- candidate manifest/model activation and real-device native transcription: **PASS in Gate B B0**;
-- comparative transcription quality remains to be measured in B1/B2/B3.
+- candidate package integrity and production-like packaging checks passed;
+- candidate activation / native transcription: **PASS in B0**;
+- comparative base quality: **PASS in B1**;
+- remains candidate-only until the full Gate B Product Matrix decision.
 
-Candidate model-channel reference:
+Candidate reference:
 
-- prerelease: `candidate-funasr-nano-r1`
-- candidate manifestDigest: `a05fab6a9f6464762a38e1a023c8f96f83db2fbe24585a766a14e2279aa12063`
-- official upstream package size: `841730611` bytes
-- official package SHA-256: `eb43d7ccc2e86b243f6a03b7df361033dda66db9523d1a92bf6aca2b50c9476b`
-- required installed files total: `1010070962` bytes
-
-### FSMN-VAD
-
-- dedicated `engine:fsmn` runtime integrated;
-- candidate download / integrity / isolated runtime validation / activation passed on real device;
-- Gate A A1–A4 completed;
-- promoted to production model catalog as `FSMN VAD INT8 1.0.0`.
-
-### TEN-VAD
-
-- sherpa-onnx TEN adapter and Gate A benchmark evidence retained;
-- candidate / QA only;
-- excluded from production model catalog;
-- may be reevaluated in Stage 16C.1 after license/product gating.
+- prerelease `candidate-funasr-nano-r1`
+- manifestDigest `a05fab6a9f6464762a38e1a023c8f96f83db2fbe24585a766a14e2279aa12063`
+- upstream package size `841730611` bytes
+- upstream SHA-256 `eb43d7ccc2e86b243f6a03b7df361033dda66db9523d1a92bf6aca2b50c9476b`
+- required installed files total `1010070962` bytes
 
 ## Product-state boundaries
 
 - Local File VAD: `FSMN primary → Silero fallback`.
-- Formal Gate B benchmark VAD: exact active `FSMN`; Silero fallback invalidates that benchmark run.
+- Formal Gate B VAD: exact active FSMN; Silero fallback invalidates the benchmark run.
 - Realtime VAD: Silero unchanged until Stage 16C.1.
-- SenseVoice / Qwen3 product ASR selection remains unchanged until Gate B finishes.
+- SenseVoice / Qwen3 production ASR selection remains unchanged until Gate B finishes.
 - Fun-ASR-Nano remains candidate-only until Gate B decision.
 - Room remains `v14`.
+- no QS668/CB08, Android Audio I/O, playback, Stage 16A.2 annotation or canonical `sampleIndex` ownership changes.
 - Stage 16C remains `RESERVED / NOT STARTED`.
-- PR #35 remains Draft and must not be merged without explicit user authorization.
+- PR #35 and model-channel PR #21 remain Draft and must not be merged without explicit user authorization.
 
 ## Next planned work
 
-1. Run **B1 Same-input Base Quality** on real device using the eight frozen reference profiles.
-2. Keep exact active FSMN and reuse identical frozen PCM chunks for all three candidates.
-3. Capture full QA result evidence for CER / English WER where applicable, insertion/deletion/substitution, blank output, head/tail deletion, repetition/hallucination review and ASR call count.
-4. Build the first discriminatory shortlist only after the B1 reference evidence is complete; do not make the final Product Matrix decision in B1.
-5. Continue with B2 real-recording completeness, B3 punctuation/ITN/language/hallucination and B4 timeline compatibility for viable candidates.
-6. Reserve B5/B6 performance/long-file work for viable finalists to avoid a meaningless Cartesian benchmark.
-7. Present the complete Gate B evidence before any ASR production-model promotion/removal decision.
+1. **B2 Real Recording Quality / Completeness** — use representative natural Voica recordings; focus on sentence loss, head/tail/mid-sentence omissions, repetitions and hallucinations while preserving FSMN boundaries.
+2. **B3 Punctuation / ITN / Language / Hallucination** — explicitly separate native punctuation, ITN-equivalent semantics, language forcing/detection and silence/noise hallucination behavior.
+3. **B4 Timestamp / Timeline Compatibility** — preserve canonical `sampleIndex` ownership; distinguish native token timing from extra alignment paths.
+4. Use B2/B3/B4 to clarify viable product roles before isolated B5 performance/memory and B6 representative long-file tests.
+5. Present the complete Gate B evidence before any ASR production promotion/removal decision.
