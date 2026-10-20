@@ -18,7 +18,7 @@ All three candidates remain because each still owns a materially different produ
 - **Fun-ASR-Nano INT8** — strongest mixed/proper-name tendency, active ITN, strongest supported hotword A/B, alignment-compatible candidate path;
 - **Qwen3-ASR 0.6B INT8** — strongest long-Mandarin evidence and native punctuation, existing high-quality product role.
 
-No additional model is added to B5.
+No additional model is added to B5. This is already the reduced role-aware matrix; B5 is needed before deciding whether any candidate is dominated enough to skip B6.
 
 ## Isolation contract
 
