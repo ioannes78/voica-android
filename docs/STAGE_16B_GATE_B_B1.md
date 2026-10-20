@@ -1,6 +1,6 @@
 # Stage 16B Gate B — B1 Same-input Base Quality
 
-Status: **PLANNED / IMPLEMENTATION NEXT**
+Status: **AUTOMATED PASS / REAL-DEVICE NEXT**
 
 ## Objective
 
@@ -59,7 +59,36 @@ B1 records both per-profile and aggregate evidence:
 - raw candidate output;
 - model identity and shared FSMN identity/boundaries.
 
-Punctuation is ignored by normalized CER. English WER must use explicit word tokenization and must never be substituted for Chinese CER.
+Punctuation is ignored by normalized CER. English WER uses explicit word tokenization and is case-normalized by the shared scoring layer; it is never substituted for Chinese CER.
+
+### SenseVoice metadata normalization
+
+Real-device B0 evidence showed SenseVoice can emit language metadata such as `<zh>`, `<yue>` and `<ja>` in the raw hypothesis. These are model metadata rather than spoken lexical content.
+
+B1 therefore keeps `rawText` unchanged for audit/manual review but removes only the known SenseVoice language tags `<zh>`, `<en>`, `<ja>`, `<ko>` and `<yue>` from the scoring view before CER/WER, blank, boundary and duplicate-line calculations. Arbitrary angle-bracket text is not stripped.
+
+Regression coverage locks both conditions:
+
+- known language metadata does not increase CER/WER;
+- metadata-only output is still treated as a blank B1 hypothesis.
+
+## Automated checkpoint
+
+Code head: `45954e4b13ef6ab69697e53d44109a5fa0044f3f`.
+
+- Android PR CI #1959 / Fast PR Gate: **AUTOMATED PASS**
+- unit tests + debug compile: **PASS**
+- B1 frozen corpus/scoring contract tests: **PASS**
+- SenseVoice language-metadata scoring regression tests: **PASS**
+- FSMN runtime boundary: **PASS**
+- Android PR CI #1961 / production-like QA APK Gate: **AUTOMATED PASS**
+- `assembleReleaseQa`: **PASS**
+- QA APK verification/security/model-channel checks: **PASS**
+- QA artifact ID: `12250801192`
+- QA artifact digest: `sha256:e7916339c769d25e0bac4d381cb0ee6ac298975e25705c4b4c9cad100d7beca5`
+- artifact head: `45954e4b13ef6ab69697e53d44109a5fa0044f3f`
+
+B1 real-device reference-corpus execution is **NOT RUN / NEXT**. CI success does not substitute for real-device evidence.
 
 ## First shortlist rule
 
