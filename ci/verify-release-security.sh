@@ -22,9 +22,9 @@ grep -Fq 'android:fullBackupContent="@xml/backup_rules"' app/src/main/AndroidMan
 
 model_manager="app/src/main/java/io/github/ioannes78/voica/AppModelManager.kt"
 grep -Fq 'PRODUCTION_MODEL_CHANNEL_COMMIT' "${model_manager}"
-grep -Fq '540f1e13c4cd2cdbe4cfbd1b23181839f206d939' "${model_manager}"
+grep -Fq '8f2f94ef7a376f1b0b652072ef67df5e07dd31de' "${model_manager}"
 grep -Fq 'PRODUCTION_MANIFEST_VERSION = 8' "${model_manager}"
-grep -Fq 'd697f47d24c8beb9c610358f39b79f75073469315ce19d920e697b99abf167e8' "${model_manager}"
+grep -Fq '05dcd9f205a3383c2bda0704996b85e741384daa9c2e8a63ff132b74b5424d37' "${model_manager}"
 
 if grep -Fq 'voica-model-channel/main/manifests/production.json' "${model_manager}"; then
     echo "Production model catalog must not track mutable main." >&2
