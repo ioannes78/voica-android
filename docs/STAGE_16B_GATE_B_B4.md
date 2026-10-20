@@ -1,6 +1,6 @@
 # Stage 16B Gate B — B4 Timestamp / Timeline Compatibility
 
-Status: **IMPLEMENTED / AUTOMATED CI PENDING / REAL-DEVICE NEXT**
+Status: **AUTOMATED PASS / REAL-DEVICE NEXT**
 
 Date: 2026-10-20
 
@@ -32,6 +32,8 @@ B4 does not rank generic ASR accuracy or performance. B5 owns isolated performan
 
 `SherpaSenseVoiceEngine` exposes native token timing and maps sherpa timestamps into relative sample offsets. The high-quality pipeline maps those tokens directly to absolute canonical `sampleIndex` values.
 
+Because native timing is an advertised/current capability, SenseVoice `NATIVE_ONLY` is a strict route: zero timed tokens do **not** pass B4.
+
 ### Qwen3-ASR 0.6B
 
 The current large-offline adapter does not provide native token timing for Qwen3. The current product coordinator can attach the active `zipformer-small-bilingual` streaming ASR as a timing reference and uses the production timeline-alignment algorithm to project final Qwen text onto canonical timing.
@@ -59,10 +61,13 @@ For a route that emits timeline tokens:
 - every nonblank transcript segment has timed-token coverage;
 - token starts are monotonic within each segment;
 - token starts and optional ends stay inside the segment's canonical `[startSampleIndex, endSampleIndexExclusive]` bounds;
-- the aligned routes actually emit `TIMELINE_ALIGNMENT` progress activity;
-- the production alignment path reports no timeline fallback error.
+- aligned routes actually emit `TIMELINE_ALIGNMENT` progress activity;
+- aligned routes report no timeline fallback error.
 
-For `NATIVE_ONLY`, zero tokens are valid evidence that native timing is absent. If native tokens are present, they must satisfy the same structural checks.
+For `NATIVE_ONLY`:
+
+- FunASR/Qwen3: zero tokens are valid evidence that native timing is absent; if native tokens appear, they must satisfy structural validation;
+- SenseVoice: native timed tokens are required and must satisfy structural validation.
 
 ## Controlled real-device script
 
@@ -70,7 +75,7 @@ Reference:
 
 `第一段现在开始。第二段用于时间轴测试。第三段包含 OpenAI 和 Qwen3，最后结束。`
 
-Record naturally in about 10–20 seconds. Pause roughly 0.5–1 second between the three clauses. The pauses are intended to give the canonical/VAD timeline observable boundaries; the structural pass does not assume an exact number of FSMN segments.
+Record naturally in about 10–20 seconds. Pause roughly 0.5–1 second between the three clauses. The structural pass does not assume an exact FSMN segment count.
 
 ## Evidence fields
 
@@ -88,7 +93,7 @@ The QA launcher reports:
 - approximate alignment callback-span wall time (signal only);
 - timeline fallback error;
 - transcript/nonblank segment counts;
-- total and timed token counts;
+- total/timed token counts;
 - timed-segment coverage;
 - monotonic violations;
 - out-of-bounds token count;
@@ -96,12 +101,34 @@ The QA launcher reports:
 - native timing availability;
 - raw second-pass text.
 
+## Automated checkpoint
+
+Final B4 QA code checkpoint:
+
+`76b53232ae37c4a9252706a8346d5338e7af39a4`
+
+Validation:
+
+- Android PR CI #2025 Fast PR Gate: **PASS**;
+- unit tests + Debug compile: **PASS**;
+- B4 route/structural timing regressions: **PASS**;
+- SenseVoice native-timing strict regression: **PASS**;
+- FSMN runtime boundary: **PASS**;
+- Android PR CI #2026 production-like QA APK Gate: **PASS**;
+- `assembleReleaseQa`: **PASS**;
+- APK verification/security/model-channel checks: **PASS**;
+- artifact ID: `12277747780`;
+- artifact digest: `sha256:f24b2aaf8c6bcc6cc96b143dee71832c915ddcf07a5ac6fbc99248dcc8b465cc`;
+- extracted APK SHA-256: `38a2c1f4a0ec0ba8b1950519c6dad4f95cb3e903204d29545ce71be94f89f56f`.
+
+The QA artifact expires on 2026-10-21.
+
 ## Interpretation rules
 
 - SenseVoice native timing PASS means no extra timing-reference ASR is required for canonical timeline tokens.
-- Qwen native-only absence is expected; the product-alignment route must pass to preserve current timeline behavior.
+- Qwen native-only absence is expected; the current product-alignment route must pass to preserve current timeline behavior.
 - FunASR native-only absence is expected; a successful alignment probe demonstrates technical timeline compatibility but still requires an explicit product-integration decision before promotion.
-- alignment wall/pipeline timings are not final performance rankings;
+- alignment/pipeline wall timings are only signals, not B5 performance rankings;
 - no route may replace canonical `sampleIndex` with seconds or model-local coordinates.
 
 ## QA-only boundary
@@ -110,7 +137,4 @@ The QA launcher reports:
 
 ## Next
 
-1. Fast PR Gate must pass compile/unit/FSMN-boundary checks.
-2. Generate one production-like `releaseQa` APK.
-3. Run one controlled B4 real-device recording and inspect all five routes.
-4. Use B2/B3/B4 evidence to decide which roles/candidates proceed to isolated B5 performance/memory testing.
+Run one controlled B4 real-device recording and inspect all five routes. Then use B2/B3/B4 evidence to decide which roles/candidates proceed to isolated B5 performance/memory testing.
