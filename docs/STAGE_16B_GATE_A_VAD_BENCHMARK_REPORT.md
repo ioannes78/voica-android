@@ -1,12 +1,12 @@
 # Stage 16B Gate A — VAD Benchmark Report
 
-状态：**GATE A BENCHMARK CLOSED / WAITING FOR EXPLICIT PRODUCTION VAD DECISION**
+状态：**GATE A BENCHMARK CLOSED / PRODUCT DECISION CONFIRMED**
 
 日期：2026-10-20
 
-目标：为 Stage 16B Local File ASR V2 选择文件转写前端 VAD。当前生产基线为 Silero；候选为 FSMN-VAD 与 TEN-VAD。用户在 A3 后明确停止继续比较 TEN，因此最终收口只比较 **Silero vs FSMN**。
+目标：为 Stage 16B Local File ASR V2 选择文件转写前端 VAD。初始生产基线为 Silero；候选为 FSMN-VAD 与 TEN-VAD。用户在 A3 后明确停止继续比较 TEN，因此最终收口只比较 **Silero vs FSMN**。
 
-> 本报告只形成 Gate A 技术推荐，不授权切换 production VAD。生产配置、Room schema、QS668/CB08、Android Audio I/O、播放与 Stage 16A.2 ownership 均保持不变，直到用户明确确认。
+> 本报告记录 Gate A 技术证据。用户随后已确认最终产品策略：**FSMN VAD INT8 为 Local File primary，Silero VAD INT8 为 fallback；TEN 保持 candidate / QA only。** 最终产品边界以 `docs/STAGE_16B_GATE_A_FINAL_DECISION.md` 为准。
 
 ## 1. 冻结配置
 
@@ -193,19 +193,21 @@ A4 结论：**30-minute real-device stability PASS for FSMN；未发现需要继
 
 依据不是单一 benchmark，而是 A1 → A2 synthetic/reference → A2 real speech → A3 diarization → A4 30-min stability 的连续一致证据。
 
-## 8. Decision boundary / STOP
+## 8. Final product disposition
 
-Gate A benchmark 到此正式收口。用户已明确要求停止 60/120 分钟追加 A4，并立即收口；因此当前 benchmark evidence set 被视为 Gate A 最终 evidence set。
+Gate A benchmark 已正式收口，用户随后完成产品决策。
 
-在用户明确确认以下决定前：
+最终策略：
 
-> **“确认 Gate A：生产 Local File VAD 从 Silero 切换为 FSMN。”**
+- Local File primary：`FSMN VAD INT8`；
+- Local File fallback：`Silero VAD INT8`；
+- realtime：Silero 继续保持 Stage 16A production ownership，直到 Stage 16C.1；
+- TEN：保留 candidate / QA only，不进入 production manifest；
+- FSMN product version：`1.0.0`，上游 revision 仅作为 provenance；
+- Gate A-only `A4 QA` / `VAD QA` 用户入口移除。
 
-不得：
+前一版 `FSMN → TEN` wiring 已完成 production-like QA 与真机 smoke；最终策略随后因 TEN deployment-license ambiguity 调整为 `FSMN → Silero`。修订后的自动 CI / production-like packaging 通过后即可进入 Gate B，不再需要等待 TEN license 结论。
 
-- 修改 production Local File VAD 默认绑定；
-- promote FSMN candidate 到 production model channel；
-- 删除 Silero fallback；
-- 进入以新 production VAD 为前提的 Gate B final ASR matrix 实现。
+下一阶段：Stage 16B Gate B ASR Model Matrix：
 
-用户确认后，下一步应先完成 FSMN production promotion / binding / fallback / regression contract，再进入 Gate B ASR Model Matrix。
+`SenseVoice INT8 vs Fun-ASR-Nano INT8 vs Qwen3-ASR 0.6B INT8`。
