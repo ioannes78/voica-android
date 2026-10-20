@@ -37,5 +37,29 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".Stage16BGateB5LauncherActivity"
+            android:exported="true"
+            android:label="Voica B5 Performance QA">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name=".Stage16BGateB5SenseVoiceActivity"
+            android:exported="false"
+            android:label="B5 SenseVoice"
+            android:process=":stage16b_b5_sense" />
+        <activity
+            android:name=".Stage16BGateB5FunAsrActivity"
+            android:exported="false"
+            android:label="B5 FunASR"
+            android:process=":stage16b_b5_funasr" />
+        <activity
+            android:name=".Stage16BGateB5Qwen3Activity"
+            android:exported="false"
+            android:label="B5 Qwen3"
+            android:process=":stage16b_b5_qwen3" />
     </application>
 </manifest>
