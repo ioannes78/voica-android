@@ -383,7 +383,9 @@ class Stage16BGateBBenchmarkActivity : ComponentActivity() {
                 appendLine("engineOpenMs=${observation.engineOpenTimeMillis ?: "-"}")
                 appendLine("asrCalls=${observation.chunks.size}")
                 appendLine("blankCalls=${observation.blankChunkIndexes.size}")
-                appendLine("blankChunkIndexes=${observation.blankChunkIndexes.ifEmpty { listOf("none") }.joinToString()}")
+                appendLine(
+                    "blankChunkIndexes=${if (observation.blankChunkIndexes.isEmpty()) "none" else observation.blankChunkIndexes.joinToString()}",
+                )
                 appendLine("nonBlankChunks=${observation.nonBlankChunkCount}")
                 appendLine("startPssKb=${observation.startingPssKb ?: "-"}")
                 observation.benchmark?.let { benchmark ->
