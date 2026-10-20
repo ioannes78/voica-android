@@ -6,6 +6,7 @@ import android.os.PowerManager
 import android.os.Process
 import android.text.method.ScrollingMovementMethod
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -228,6 +229,7 @@ abstract class Stage16BGateB6CandidateActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val app = application as VoicaApplication
         check(VoicaModelChannel.isDebuggable(app)) {
             "Stage 16B B6 candidate activity must never run in a production build"
@@ -255,7 +257,7 @@ abstract class Stage16BGateB6CandidateActivity : ComponentActivity() {
         })
         root.addView(TextView(this).apply {
             text =
-                "Fresh lightweight process. Run exactly once. This can take several minutes. Keep the screen on and avoid other heavy tasks during the formal endurance pass."
+                "Fresh lightweight process. Run exactly once. This can take several minutes. The B6 activity keeps the display awake for the formal endurance pass; avoid other heavy tasks until the result is shown."
         })
         statusText = TextView(this).apply {
             setPadding(0, padding, 0, padding)
@@ -281,7 +283,7 @@ abstract class Stage16BGateB6CandidateActivity : ComponentActivity() {
     private fun runBenchmark(app: VoicaApplication) {
         if (runJob?.isActive == true) return
         runButton.isEnabled = false
-        statusText.text = "B6 RUNNING\ncandidate=$candidateLabel\nDo not leave this screen until the result is shown."
+        statusText.text = "B6 RUNNING\ncandidate=$candidateLabel\nScreen-awake protection is active. Do not leave this screen until the result is shown."
         runJob = lifecycleScope.launch {
             try {
                 val result = withContext(Dispatchers.Default) {
