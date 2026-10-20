@@ -1,6 +1,6 @@
 # Stage 16B Gate B — B2 Real Recording Quality / Completeness
 
-Status: **IMPLEMENTED / AUTOMATED VERIFICATION PENDING**
+Status: **AUTOMATED PASS / REAL-DEVICE NEXT**
 
 ## Objective
 
@@ -47,6 +47,23 @@ The QA-only `Stage16BGateB2CompletenessRunner` records, for every frozen input c
 The QA page also prints a `B2 FROZEN-CHUNK MATRIX` so the same chunk can be reviewed across FunASR, SenseVoice and Qwen3 without losing alignment when one model returns blank text.
 
 B2 PSS/RTF remain observational signals only. Formal isolated performance and memory ranking belongs to B5.
+
+## Automated checkpoint
+
+Verified code / QA APK head: `e8e5477c4a99b98e6f6e149c9027647652b46324`.
+
+- Android PR CI #1973 / Fast PR Gate: **AUTOMATED PASS**
+- unit tests + debug compile: **PASS**
+- B2 chunk-evidence regression tests: **PASS**
+- FSMN runtime boundary: **PASS**
+- Android PR CI #1974 / production-like QA APK Gate: **AUTOMATED PASS**
+- `assembleReleaseQa`: **PASS**
+- QA APK verification/security/model-channel checks: **PASS**
+- QA artifact ID: `12255162649`
+- QA artifact digest: `sha256:70de5ca27ac8fcaa70157b38366e043847447e12fd4113679050fb6b5ad25792`
+- extracted APK SHA-256: `608973e32313c2d3c8e1a586ca1c9260d63df0c63596f2c392fac2c1aea3551d`
+
+CI success does not substitute for B2 real-device completeness review.
 
 ## What B2 reviews
 
