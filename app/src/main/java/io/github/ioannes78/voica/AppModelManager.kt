@@ -130,8 +130,8 @@ internal fun isPromotedStage13aDebugManifestUrl(value: String): Boolean =
         url.protocol.equals("https", ignoreCase = true) &&
             url.host.equals("github.com", ignoreCase = true) &&
             url.query.isNullOrEmpty() &&
-            url.ref.isNullOrEmpty() &&
-            url.path in PROMOTED_STAGE13A_CANDIDATE_PATHS
+                url.ref.isNullOrEmpty() &&
+                url.path in PROMOTED_STAGE13A_CANDIDATE_PATHS
     }.getOrDefault(false)
 
 private val PROMOTED_STAGE13A_CANDIDATE_PATHS =
@@ -154,13 +154,13 @@ private val PRODUCT_MODEL_IDS =
         Stage13ARealtimeModelIds.CHINESE_LARGE_CTC,
         Stage9ModelIds.SEGMENTATION,
         Stage13ASpeakerEmbeddingModelIds.CAMP_PLUS,
+        STAGE16B_FSMN_VAD_CANDIDATE_ID,
+        STAGE16B_TEN_VAD_CANDIDATE_ID,
     )
 
 private val DEBUG_CANDIDATE_MODEL_IDS =
     setOf(
         STAGE16B_FUNASR_NANO_CANDIDATE_ID,
-        STAGE16B_FSMN_VAD_CANDIDATE_ID,
-        STAGE16B_TEN_VAD_CANDIDATE_ID,
     )
 
 internal fun allowedModelIdsForManifest(productionManifestPinned: Boolean): Set<String> =
@@ -213,7 +213,6 @@ fun createVoicaModelManager(
             )
         }
 
-    val candidateRuntimeAllowed = VoicaModelChannel.isDebuggable(application)
     val environment =
         ModelEnvironment(
             runtimeId = SherpaRuntime.RUNTIME_ID,
@@ -222,14 +221,10 @@ fun createVoicaModelManager(
             sdkInt = Build.VERSION.SDK_INT,
             appVersionCode = appVersionCode,
             additionalRuntimes =
-                if (candidateRuntimeAllowed) {
-                    mapOf(
-                        Stage16BCandidateRuntimes.FSMN_VAD_ID to
-                            Stage16BCandidateRuntimes.FSMN_VAD_VERSION,
-                    )
-                } else {
-                    emptyMap()
-                },
+                mapOf(
+                    Stage16BCandidateRuntimes.FSMN_VAD_ID to
+                        Stage16BCandidateRuntimes.FSMN_VAD_VERSION,
+                ),
         )
     val storage = ModelStorage(File(application.noBackupFilesDir, "models"))
     val packageDirectory = File(application.cacheDir, "model-packages")
