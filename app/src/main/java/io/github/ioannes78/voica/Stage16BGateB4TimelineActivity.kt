@@ -86,6 +86,7 @@ internal fun stage16BGateB4Plans(): List<Stage16BGateB4Plan> =
 internal data class Stage16BGateB4TimelineMetrics(
     val transcriptSegmentCount: Int,
     val nonBlankSegmentCount: Int,
+    val segmentBoundaryMismatchCount: Int,
     val tokenCount: Int,
     val timedTokenCount: Int,
     val timedSegmentCount: Int,
@@ -95,24 +96,59 @@ internal data class Stage16BGateB4TimelineMetrics(
     val nativeOrAlignedTimingAvailable: Boolean
         get() = timedTokenCount > 0
 
-    val structurallyValid: Boolean
+    val canonicalSegmentTimelineValid: Boolean
+        get() = transcriptSegmentCount > 0 && segmentBoundaryMismatchCount == 0
+
+    val emittedTokenCoordinatesValid: Boolean
         get() =
-            nonBlankSegmentCount > 0 &&
-                tokenCount > 0 &&
+            tokenCount > 0 &&
                 timedTokenCount == tokenCount &&
-                timedSegmentCount == nonBlankSegmentCount &&
                 monotonicViolationCount == 0 &&
                 outOfBoundsTokenCount == 0
+
+    val fullTimedCoverage: Boolean
+        get() =
+            nonBlankSegmentCount > 0 &&
+                emittedTokenCoordinatesValid &&
+                timedSegmentCount == nonBlankSegmentCount
+
+    val structurallyValid: Boolean
+        get() = fullTimedCoverage
+
+    val tokenTimingStatus: String
+        get() =
+            when {
+                tokenCount == 0 -> "NONE"
+                fullTimedCoverage -> "FULL"
+                emittedTokenCoordinatesValid && timedSegmentCount > 0 -> "PARTIAL_SAFE_REFUSAL"
+                else -> "INVALID"
+            }
 }
 
 internal fun stage16BGateB4TimelineMetrics(
     segments: List<TranscriptSegment>,
+    expectedBoundaries: List<SpeechSegment>,
 ): Stage16BGateB4TimelineMetrics {
     var tokenCount = 0
     var timedTokenCount = 0
     var timedSegmentCount = 0
     var monotonicViolations = 0
     var outOfBounds = 0
+
+    val byIndex = segments.associateBy(TranscriptSegment::segmentIndex)
+    var boundaryMismatches = segments.size - byIndex.size
+    expectedBoundaries.forEachIndexed { index, expected ->
+        val actual = byIndex[index]
+        if (
+            actual == null ||
+            actual.startSampleIndex != expected.startSampleIndex ||
+            actual.endSampleIndexExclusive != expected.endSampleIndexExclusive
+        ) {
+            boundaryMismatches += 1
+        }
+    }
+    boundaryMismatches +=
+        segments.count { segment -> segment.segmentIndex !in expectedBoundaries.indices }
 
     segments.forEach { segment ->
         var previousStart: Long? = null
@@ -147,6 +183,7 @@ internal fun stage16BGateB4TimelineMetrics(
     return Stage16BGateB4TimelineMetrics(
         transcriptSegmentCount = segments.size,
         nonBlankSegmentCount = segments.count { it.finalText.isNotBlank() },
+        segmentBoundaryMismatchCount = boundaryMismatches,
         tokenCount = tokenCount,
         timedTokenCount = timedTokenCount,
         timedSegmentCount = timedSegmentCount,
@@ -177,10 +214,13 @@ internal data class Stage16BGateB4Observation(
             return when (route) {
                 Stage16BGateB4Route.NATIVE_ONLY ->
                     when (modelId) {
-                        Stage8ModelIds.SECOND_PASS_ASR -> metrics.structurallyValid
+                        Stage8ModelIds.SECOND_PASS_ASR ->
+                            metrics.canonicalSegmentTimelineValid && metrics.fullTimedCoverage
                         STAGE16B_FUNASR_NANO_CANDIDATE_ID,
                         Stage13AOfflineModelIds.QWEN3_ASR,
-                        -> metrics.tokenCount == 0 || metrics.structurallyValid
+                        ->
+                            metrics.canonicalSegmentTimelineValid &&
+                                (metrics.tokenCount == 0 || metrics.fullTimedCoverage)
                         else -> false
                     }
                 Stage16BGateB4Route.FUNASR_ALIGNMENT_PROBE,
@@ -188,7 +228,9 @@ internal data class Stage16BGateB4Observation(
                 ->
                     alignmentActivitySeen &&
                         timelineFallbackError == null &&
-                        metrics.structurallyValid
+                        metrics.canonicalSegmentTimelineValid &&
+                        metrics.nativeOrAlignedTimingAvailable &&
+                        metrics.emittedTokenCoordinatesValid
             }
         }
 }
@@ -490,7 +532,11 @@ internal class Stage16BGateB4TimelineRunner(
             require(result.speechSegments == frozenBoundaries) {
                 "B4 pipeline changed frozen FSMN boundaries"
             }
-            val metrics = stage16BGateB4TimelineMetrics(result.transcriptSegments)
+            val metrics =
+                stage16BGateB4TimelineMetrics(
+                    segments = result.transcriptSegments,
+                    expectedBoundaries = frozenBoundaries,
+                )
             val alignmentWallMillis =
                 if (alignmentStartedNs != null && alignmentLastNs != null) {
                     (alignmentLastNs!! - alignmentStartedNs!!).coerceAtLeast(0L) / 1_000_000L
@@ -816,14 +862,18 @@ class Stage16BGateB4TimelineActivity : ComponentActivity() {
                 observation.metrics?.let { metrics ->
                     appendLine("segments=${metrics.transcriptSegmentCount}")
                     appendLine("nonBlankSegments=${metrics.nonBlankSegmentCount}")
+                    appendLine("segmentBoundaryMismatches=${metrics.segmentBoundaryMismatchCount}")
+                    appendLine("canonicalSegmentTimelineValid=${metrics.canonicalSegmentTimelineValid}")
                     appendLine("tokens=${metrics.tokenCount}")
                     appendLine("timedTokens=${metrics.timedTokenCount}")
                     appendLine(
                         "timedSegmentCoverage=${metrics.timedSegmentCount}/${metrics.nonBlankSegmentCount}",
                     )
+                    appendLine("tokenTimingStatus=${metrics.tokenTimingStatus}")
+                    appendLine("emittedTokenCoordinatesValid=${metrics.emittedTokenCoordinatesValid}")
+                    appendLine("fullTimedCoverage=${metrics.fullTimedCoverage}")
                     appendLine("monotonicViolations=${metrics.monotonicViolationCount}")
                     appendLine("outOfBoundsTokens=${metrics.outOfBoundsTokenCount}")
-                    appendLine("structurallyValidTimeline=${metrics.structurallyValid}")
                 }
                 appendLine("nativeTimingAvailable=${observation.nativeTimingAvailable}")
                 appendLine("text=${observation.rawText.ifBlank { "<blank>" }}")
