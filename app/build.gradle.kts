@@ -183,12 +183,8 @@ dependencies {
     implementation(project(":engine:media"))
     implementation(project(":engine:playback"))
     implementation(project(":engine:sherpa"))
+    implementation(project(":engine:fsmn"))
     implementation(project(":engine:llm"))
-
-    // Stage 16B FSMN is a candidate-only runtime. It is deliberately absent from formal release.
-    debugRuntimeOnly(project(":engine:fsmn"))
-    add("qaRuntimeOnly", project(":engine:fsmn"))
-    add("releaseQaRuntimeOnly", project(":engine:fsmn"))
 
     implementation("androidx.core:core-ktx:1.19.1")
     implementation("androidx.activity:activity-compose:1.13.0")
