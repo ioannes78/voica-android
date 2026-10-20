@@ -16,7 +16,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.fail
 import org.junit.Test
 
@@ -24,13 +23,13 @@ class Stage16BLocalFileVadTest {
     @Test
     fun localFileVadPrefersFsmnWhenBothAreActive() = runBlocking {
         val fsmn = active(Stage16BLocalFileVadPolicy.PRIMARY_MODEL_ID)
-        val ten = active(Stage16BLocalFileVadPolicy.FALLBACK_MODEL_ID)
+        val silero = active(Stage16BLocalFileVadPolicy.FALLBACK_MODEL_ID)
         val manager =
             Stage16BLocalFileVadModelManager(
                 FakeModelManager(
                     mapOf(
                         fsmn.descriptor.modelId to fsmn,
-                        ten.descriptor.modelId to ten,
+                        silero.descriptor.modelId to silero,
                     ),
                 ),
             )
@@ -41,35 +40,30 @@ class Stage16BLocalFileVadTest {
     }
 
     @Test
-    fun localFileVadFallsBackToTenWhenFsmnIsUnavailable() = runBlocking {
-        val ten = active(Stage16BLocalFileVadPolicy.FALLBACK_MODEL_ID)
-        val manager =
-            Stage16BLocalFileVadModelManager(
-                FakeModelManager(mapOf(ten.descriptor.modelId to ten)),
-            )
-
-        val resolved = manager.activeModel(Stage8ModelIds.VAD)
-
-        assertEquals(Stage16BLocalFileVadPolicy.FALLBACK_MODEL_ID, resolved?.descriptor?.modelId)
-    }
-
-    @Test
-    fun localFileVadNeverFallsBackToSilero() = runBlocking {
-        val silero = active(Stage8ModelIds.VAD)
+    fun localFileVadFallsBackToSileroWhenFsmnIsUnavailable() = runBlocking {
+        val silero = active(Stage16BLocalFileVadPolicy.FALLBACK_MODEL_ID)
         val manager =
             Stage16BLocalFileVadModelManager(
                 FakeModelManager(mapOf(silero.descriptor.modelId to silero)),
             )
+
+        val resolved = manager.activeModel(Stage8ModelIds.VAD)
+
+        assertEquals(Stage8ModelIds.VAD, resolved?.descriptor?.modelId)
+    }
+
+    @Test
+    fun localFileVadReportsPrimaryAndFallbackWhenNeitherIsAvailable() = runBlocking {
+        val manager = Stage16BLocalFileVadModelManager(FakeModelManager(emptyMap()))
 
         try {
             manager.activeModel(Stage8ModelIds.VAD)
             fail("expected missing Local File VAD models")
         } catch (missing: MissingTranscriptionModelsException) {
             assertEquals(
-                Stage16BLocalFileVadPolicy.orderedModelIds,
+                listOf(Stage16BLocalFileVadPolicy.PRIMARY_MODEL_ID, Stage8ModelIds.VAD),
                 missing.modelIds,
             )
-            assertFalse(missing.modelIds.contains(Stage8ModelIds.VAD))
         }
     }
 
