@@ -1,6 +1,6 @@
 # Stage 16B — Local File ASR V2 Progress
 
-Status: **IN PROGRESS — GATE A TECHNICAL PASS / GATE B NEXT**
+Status: **IN PROGRESS — GATE A TECHNICAL PASS / GATE B B0 AUTOMATED PASS / REAL-DEVICE B0 NEXT**
 
 Repository: `ioannes78/voica-android`
 
@@ -74,7 +74,7 @@ Gate A-only `A4 QA` / `VAD QA` product entry points have been removed.
 
 ## Gate B — ASR Model Matrix Gate
 
-Status: **NEXT**
+Status: **B0 AUTOMATED PASS / REAL-DEVICE B0 NEXT**
 
 Candidates:
 
@@ -82,11 +82,41 @@ Candidates:
 - Fun-ASR-Nano INT8
 - Qwen3-ASR 0.6B INT8
 
-All final ASR comparisons use the Gate A production VAD baseline unless a model-specific exception is separately justified by strong evidence and explicitly approved.
+All formal Gate B comparisons use exact active `fsmn-vad-int8`. A benchmark run that resolves the Local File Silero availability fallback is invalid for Gate B evidence.
 
 The gate must decide the long-term product matrix; model count is not predetermined.
 
-## Candidate runtime status relevant to Gate B
+### B0 Candidate Readiness harness
+
+The QA-only B0 harness is implemented and documented in:
+
+`docs/STAGE_16B_GATE_B_B0.md`
+
+B0 benchmark contract:
+
+1. Resolve exact active FSMN directly; do not accept Silero fallback.
+2. Run FSMN exactly once on canonical PCM.
+3. Freeze canonical `sampleIndex` speech boundaries.
+4. Deterministically split only oversized ranges and reuse the exact same PCM chunks for every ASR candidate.
+5. Run Fun-ASR-Nano → SenseVoice → Qwen3-ASR against the same frozen inputs.
+6. Keep external punctuation and Qwen timeline alignment out of B0 so the checkpoint measures raw candidate readiness rather than downstream enrichment.
+7. Do not persist benchmark transcript state to Room.
+
+The harness captures model identity, canonical lineage SHA, shared FSMN identity/timing, engine-open time, ASR call/blank counts, raw text, detected language when available, ASR/total wall time, RTF and PSS.
+
+Automated checkpoint:
+
+- implementation commit: `118e283d67d3d1cc8acfe83d925157dd84c57aab`
+- compile fix commit: `a27ed998db56e8edd71c17ff50303285ae3453bf`
+- Android PR CI #1945 / Fast PR Gate: **AUTOMATED PASS**
+- unit tests + debug compile: **PASS**
+- FSMN runtime boundary: **PASS**
+- Android PR CI #1946 / production-like QA APK Gate: **AUTOMATED PASS**
+- release QA APK verification/security/model-channel checks: **PASS**
+- QA artifact ID: `12245362192`
+- QA artifact digest: `sha256:07c976c4aa38a3064e6e7e6628bea5a53107c81f595c6b773bde6299f918aa34`
+- QA artifact head: `a27ed998db56e8edd71c17ff50303285ae3453bf`
+- real-device three-candidate activation/transcription: **NOT RUN / NEXT**
 
 ### Fun-ASR-Nano
 
@@ -120,6 +150,7 @@ Candidate model-channel reference:
 ## Product-state boundaries
 
 - Local File VAD: `FSMN primary → Silero fallback`.
+- Formal Gate B benchmark VAD: exact active `FSMN`; Silero fallback invalidates that benchmark run.
 - Realtime VAD: Silero unchanged until Stage 16C.1.
 - SenseVoice / Qwen3 product ASR selection remains unchanged until Gate B finishes.
 - Fun-ASR-Nano remains candidate-only until Gate B decision.
@@ -129,7 +160,8 @@ Candidate model-channel reference:
 
 ## Next planned work
 
-1. Finish automated verification of the revised `FSMN → Silero` fallback policy and FSMN-only production manifest pin.
-2. Start Stage 16B Gate B benchmark harness/QA flow.
-3. Compare SenseVoice vs Fun-ASR-Nano vs Qwen3-ASR 0.6B on the same canonical inputs and frozen Gate A VAD policy.
-4. Present Gate B evidence before any ASR production-model promotion/removal decision.
+1. Install the B0 production-like QA APK and complete real-device candidate readiness.
+2. Confirm active FSMN plus Fun-ASR-Nano, SenseVoice and Qwen3-ASR on the same short canonical recording.
+3. Require non-crashing, non-deterministically-blank transcription from all three before B1.
+4. Start B1 Same-input Base Quality only after B0 real-device readiness evidence is captured.
+5. Present Gate B evidence before any ASR production-model promotion/removal decision.
