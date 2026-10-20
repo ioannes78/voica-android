@@ -90,7 +90,7 @@ class Stage16BGateB4TimelineTest {
     }
 
     @Test
-    fun `native absence is evidence while alignment route requires timed output`() {
+    fun `native absence is evidence for FunASR while alignment requires timed output`() {
         val noNativeTiming =
             Stage16BGateB4Observation(
                 modelId = STAGE16B_FUNASR_NANO_CANDIDATE_ID,
@@ -99,16 +99,7 @@ class Stage16BGateB4TimelineTest {
                 alignmentActivitySeen = false,
                 alignmentWallMillis = null,
                 timelineFallbackError = null,
-                metrics =
-                    Stage16BGateB4TimelineMetrics(
-                        transcriptSegmentCount = 1,
-                        nonBlankSegmentCount = 1,
-                        tokenCount = 0,
-                        timedTokenCount = 0,
-                        timedSegmentCount = 0,
-                        monotonicViolationCount = 0,
-                        outOfBoundsTokenCount = 0,
-                    ),
+                metrics = zeroTimingMetrics(),
                 rawText = "测试",
                 errorMessage = null,
             )
@@ -133,6 +124,36 @@ class Stage16BGateB4TimelineTest {
             )
         assertTrue(aligned.routePass)
     }
+
+    @Test
+    fun `SenseVoice native route cannot pass without native timed tokens`() {
+        val missingNativeTiming =
+            Stage16BGateB4Observation(
+                modelId = Stage8ModelIds.SECOND_PASS_ASR,
+                route = Stage16BGateB4Route.NATIVE_ONLY,
+                pipelineWallMillis = 1,
+                alignmentActivitySeen = false,
+                alignmentWallMillis = null,
+                timelineFallbackError = null,
+                metrics = zeroTimingMetrics(),
+                rawText = "测试",
+                errorMessage = null,
+            )
+
+        assertFalse(missingNativeTiming.routePass)
+        assertFalse(missingNativeTiming.nativeTimingAvailable)
+    }
+
+    private fun zeroTimingMetrics() =
+        Stage16BGateB4TimelineMetrics(
+            transcriptSegmentCount = 1,
+            nonBlankSegmentCount = 1,
+            tokenCount = 0,
+            timedTokenCount = 0,
+            timedSegmentCount = 0,
+            monotonicViolationCount = 0,
+            outOfBoundsTokenCount = 0,
+        )
 
     private fun segment(
         index: Int,
