@@ -26,18 +26,22 @@ class Stage16BGateB3ChallengeTest {
     }
 
     @Test
-    fun `language profile exposes auto zh en only where forcing exists`() {
+    fun `language profile uses each runtime native forcing values`() {
         val plans = stage16BGateB3Plans(Stage16BGateB3Profile.LANG_MIXED)
+        val funAsr = plans.filter { it.modelId == STAGE16B_FUNASR_NANO_CANDIDATE_ID }
+        val senseVoice = plans.filter { it.modelId == Stage8ModelIds.SECOND_PASS_ASR }
 
         assertEquals(7, plans.size)
         assertEquals(
             listOf("LANG_AUTO", "LANG_FORCE_ZH", "LANG_FORCE_EN"),
-            plans.filter { it.modelId == STAGE16B_FUNASR_NANO_CANDIDATE_ID }.map { it.label },
+            funAsr.map { it.label },
         )
+        assertEquals(listOf("", "中文", "英文"), funAsr.map { it.requestedLanguage })
         assertEquals(
             listOf("LANG_AUTO", "LANG_FORCE_ZH", "LANG_FORCE_EN"),
-            plans.filter { it.modelId == Stage8ModelIds.SECOND_PASS_ASR }.map { it.label },
+            senseVoice.map { it.label },
         )
+        assertEquals(listOf("", "zh", "en"), senseVoice.map { it.requestedLanguage })
         assertEquals(
             listOf("DEFAULT_NO_LANGUAGE_FORCE"),
             plans.filter { it.modelId == Stage13AOfflineModelIds.QWEN3_ASR }.map { it.label },
