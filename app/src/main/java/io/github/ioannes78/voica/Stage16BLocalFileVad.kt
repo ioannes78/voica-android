@@ -6,22 +6,19 @@ import io.github.ioannes78.voica.fsmn.FsmnVadModelLocation
 import io.github.ioannes78.voica.fsmn.FsmnVadSettings
 import io.github.ioannes78.voica.model.ActiveModel
 import io.github.ioannes78.voica.model.ModelManager
-import io.github.ioannes78.voica.sherpa.SherpaTenVadEngine
-import io.github.ioannes78.voica.sherpa.SherpaVadModelLocation
-import io.github.ioannes78.voica.sherpa.TenVadSettings
 import io.github.ioannes78.voica.transcript.VadEngineFactory
 import java.io.File
 
 /**
  * Stage 16B production Local File VAD policy.
  *
- * Local file transcription uses FSMN first and TEN only when FSMN is not active/available.
- * Silero remains owned by the realtime pipeline until Stage 16C.1 and is deliberately not part of
- * this local-file selection policy.
+ * Local file transcription uses FSMN first and falls back to the existing Silero production VAD
+ * only when FSMN is not active/available. TEN remains candidate-only until its deployment-license
+ * applicability is resolved and/or Stage 16C.1 reevaluates realtime VADs.
  */
 internal object Stage16BLocalFileVadPolicy {
     const val PRIMARY_MODEL_ID = STAGE16B_FSMN_VAD_CANDIDATE_ID
-    const val FALLBACK_MODEL_ID = STAGE16B_TEN_VAD_CANDIDATE_ID
+    const val FALLBACK_MODEL_ID = Stage8ModelIds.VAD
 
     val orderedModelIds: List<String> = listOf(PRIMARY_MODEL_ID, FALLBACK_MODEL_ID)
 }
@@ -31,7 +28,7 @@ internal object Stage16BLocalFileVadPolicy {
  *
  * The legacy coordinator requests Stage8ModelIds.VAD. This adapter resolves that request to the
  * Stage 16B local-file policy without changing the underlying global model manager, so Stage 16A
- * realtime continues to resolve the built-in Silero model by its real id.
+ * realtime keeps using its existing Silero binding.
  */
 internal class Stage16BLocalFileVadModelManager(
     private val delegate: ModelManager,
@@ -50,7 +47,8 @@ internal class Stage16BLocalFileVadModelManager(
 }
 
 /**
- * Local-file VAD engine adapter. Non-VAD factories stay delegated to the frozen Stage 8 provider.
+ * Local-file VAD engine adapter. Non-FSMN factories stay delegated to the frozen Stage 8 provider;
+ * that includes the existing Silero fallback implementation.
  */
 internal class Stage16BLocalFileTranscriptionEngineProvider(
     private val delegate: Stage8TranscriptionEngineProvider,
@@ -82,47 +80,11 @@ internal class Stage16BLocalFileTranscriptionEngineProvider(
                     )
                 }
 
-            Stage16BLocalFileVadPolicy.FALLBACK_MODEL_ID ->
-                VadEngineFactory {
-                    SherpaTenVadEngine(
-                        model = model.descriptor,
-                        modelLocation = sherpaVadLocation(model),
-                        settings =
-                            TenVadSettings(
-                                threshold = vadSettings.threshold,
-                                minSilenceDurationSeconds = vadSettings.minSilenceDurationSeconds,
-                                minSpeechDurationSeconds = vadSettings.minSpeechDurationSeconds,
-                                windowSizeSamples = TEN_WINDOW_SIZE_SAMPLES,
-                                maxSpeechDurationSeconds = vadSettings.maxSpeechDurationSeconds,
-                                numThreads = numThreads,
-                            ),
-                    )
-                }
-
             else -> delegate.vadFactory(model, numThreads, vadSettings)
         }
-
-    private fun sherpaVadLocation(model: ActiveModel): SherpaVadModelLocation {
-        val installed = model.installedDirectory
-        if (installed != null) {
-            val modelFile =
-                model.descriptor.files
-                    .singleOrNull { it.relativePath.endsWith(".onnx", ignoreCase = true) }
-                    ?.let { File(installed, it.relativePath).canonicalFile }
-                    ?: error("TEN VAD model must contain exactly one ONNX file")
-            require(modelFile.isFile) { "TEN VAD model file is missing: ${modelFile.name}" }
-            return SherpaVadModelLocation.File(modelFile.absolutePath)
-        }
-
-        val assetPath =
-            model.descriptor.builtinAssetPath
-                ?: error("TEN VAD model is neither installed nor backed by a builtin asset")
-        return SherpaVadModelLocation.Asset(assetManager, assetPath)
-    }
 
     private companion object {
         const val FSMN_MODEL_FILE = "model_quant.onnx"
         const val FSMN_CMVN_FILE = "vad.mvn"
-        const val TEN_WINDOW_SIZE_SAMPLES = 256
     }
 }
