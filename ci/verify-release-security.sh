@@ -22,13 +22,13 @@ grep -Fq 'android:fullBackupContent="@xml/backup_rules"' app/src/main/AndroidMan
 
 model_manager="app/src/main/java/io/github/ioannes78/voica/AppModelManager.kt"
 grep -Fq 'PRODUCTION_MODEL_CHANNEL_COMMIT' "${model_manager}"
-grep -Fq 'be74c7065ce22a5f9b207a7cf1c88d3be0e872ec' "${model_manager}"
-grep -Fq 'PRODUCTION_MANIFEST_VERSION = 7' "${model_manager}"
-grep -Fq '8bdb505ce97820cb942bc2855c8a099484b7e22f63ec5567b63f2c1c18d567cf' "${model_manager}"
+grep -Fq '540f1e13c4cd2cdbe4cfbd1b23181839f206d939' "${model_manager}"
+grep -Fq 'PRODUCTION_MANIFEST_VERSION = 8' "${model_manager}"
+grep -Fq 'd697f47d24c8beb9c610358f39b79f75073469315ce19d920e697b99abf167e8' "${model_manager}"
 
 if grep -Fq 'voica-model-channel/main/manifests/production.json' "${model_manager}"; then
-    echo "Production model catalog must not track mutable main in V1." >&2
+    echo "Production model catalog must not track mutable main." >&2
     exit 1
 fi
 
-echo "Verified Stage 14.4 security/model-channel boundary for ${apk}"
+echo "Verified security/model-channel boundary for ${apk}"
