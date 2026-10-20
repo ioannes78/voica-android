@@ -140,8 +140,13 @@ class AppContainer(
     val localSpeechSettingsStore =
         SharedPreferencesLocalSpeechSettingsStore(application)
     val taskCompletionNoticeStore = TaskCompletionNoticeStore(application)
-    private val stage8TranscriptionEngineProvider =
+    private val stage8BaseTranscriptionEngineProvider =
         SherpaStage8TranscriptionEngineProvider(
+            assetManager = application.assets,
+        )
+    private val stage16BLocalFileTranscriptionEngineProvider =
+        Stage16BLocalFileTranscriptionEngineProvider(
+            delegate = stage8BaseTranscriptionEngineProvider,
             assetManager = application.assets,
         )
     private val stage9BaseDiarizationEngineProvider =
@@ -211,9 +216,9 @@ class AppContainer(
             pcmSourceResolver = pcmSourceResolver,
             transcriptionRepository = transcriptionRepository,
             loadCanonicalLineage = recordingLibraryRepository::loadCanonicalTranscriptionLineage,
-            modelManager = modelManager,
+            modelManager = Stage16BLocalFileVadModelManager(modelManager),
             modelUseRegistry = modelUseRegistry,
-            engineProvider = stage8TranscriptionEngineProvider,
+            engineProvider = stage16BLocalFileTranscriptionEngineProvider,
             localSpeechSettings = { localSpeechSettingsStore.settings.value },
             isRecordingActive = recordingLibraryRepository::isRecordingActive,
         )
@@ -224,7 +229,7 @@ class AppContainer(
             pcmSourceResolver = pcmSourceResolver,
             modelManager = modelManager,
             modelUseRegistry = modelUseRegistry,
-            engineProvider = stage8TranscriptionEngineProvider,
+            engineProvider = stage8BaseTranscriptionEngineProvider,
             localSpeechSettings = { localSpeechSettingsStore.settings.value },
         )
 
