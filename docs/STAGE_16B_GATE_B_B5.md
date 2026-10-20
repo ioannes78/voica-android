@@ -1,119 +1,120 @@
 # Stage 16B Gate B — B5 Isolated Cold/Warm Performance + Memory
 
-Status: **AUTOMATED PASS / REAL-DEVICE NEXT**
+Status: **AUTOMATED PASS / REAL-DEVICE PASS**
 
-Date: 2026-10-20
+Date: 2026-10-21
 
-B4 handoff: **REAL-DEVICE PASS**. Corrected B4 QA interpretation checkpoint: `9e62acbfb179eb09fa5227d640ef0261765ce4c0`; Fast PR Gate #2031 PASS. B4 production alignment behavior was not changed.
+B4 handoff: **REAL-DEVICE PASS**.
 
 ## Objective
 
-B5 measures Android-device runtime cost without the cross-model PSS contamination observed in earlier same-process exploratory runs. B5 is not another accuracy matrix: B1–B4 already own quality/capability evidence.
+B5 measures Android-device runtime cost without cross-model PSS contamination. B1–B4 own quality/capability evidence; B5 owns isolated cold/warm speed and process-memory evidence.
 
-## Candidates retained for B5
+## Candidates
 
-All three candidates remain because each still owns a materially different product-role signal:
+- **SenseVoice INT8** — efficiency/balanced-role baseline;
+- **Fun-ASR-Nano INT8** — high-quality-role challenger;
+- **Qwen3-ASR 0.6B INT8** — existing high-quality-role baseline.
 
-- **SenseVoice INT8** — low runtime-cost signal, strongest compact ITN formatting, full native token timing;
-- **Fun-ASR-Nano INT8** — strongest mixed/proper-name tendency, active ITN, strongest supported hotword A/B, alignment-compatible candidate path;
-- **Qwen3-ASR 0.6B INT8** — strongest long-Mandarin evidence and native punctuation, existing high-quality product role.
+## Final isolation contract
 
-No additional model is added. B5 is needed before deciding whether any candidate is dominated enough to skip B6.
+The initial dedicated-process implementation exposed app-bootstrap dependencies in real-device QA. The final verified harness therefore uses a **fresh lightweight process instance** for each candidate session:
 
-## Isolation contract
+- the main QA process prepares the exact common FSMN plan once;
+- each candidate session starts in the lightweight validator process path where full `AppContainer` bootstrap is skipped;
+- B5 candidate dependencies use a **read-only model-manager path**, so WorkManager / durable model-install runtime is not initialized inside the measured process;
+- after the candidate result is captured, the candidate process is terminated before the next model starts;
+- a process-local guard allows exactly one formal COLD + WARM session per candidate process instance.
 
-The three candidates never run sequentially in the same Android process for formal B5 evidence.
-
-The QA build declares three private app processes:
-
-- SenseVoice: `:stage16b_b5_sense`;
-- FunASR: `:stage16b_b5_funasr`;
-- Qwen3: `:stage16b_b5_qwen3`.
-
-The B5 launcher prepares the common exact-FSMN frozen input once in the main QA process. Each candidate process may consume exactly one formal session containing:
-
-1. a cold engine-open + transcription pass;
-2. engine close;
-3. a warm engine-open + transcription pass on the exact same frozen PCM inputs.
-
-A process-local guard refuses a second formal session without process restart.
+This preserves cross-model memory isolation without bringing BLE, playback, recording, notification, durable model-install scheduling, or other unrelated runtime owners into the benchmark process.
 
 ## Frozen input contract
 
 - exact active `fsmn-vad-int8@1.0.0/1` is mandatory;
 - Silero fallback invalidates formal B5 evidence;
-- same recording / canonical SHA is used for all candidates;
-- common maximum ASR input is **25 seconds**;
-- canonical `sampleIndex` boundaries remain authoritative;
+- same recording / canonical SHA for all candidates;
+- common maximum ASR input **25 seconds**;
+- canonical `sampleIndex` boundaries authoritative;
 - no external punctuation;
 - no Qwen/FunASR timeline-alignment pass inside measured ASR time;
 - no Room writes;
 - no diarization;
-- no product model promotion/removal.
+- no production model promotion/removal.
 
-Use one representative 1–3 minute real-speech recording with several frozen ASR inputs. B6 owns long-file endurance.
+## Common formal real-device input
 
-## Measurements
-
-For each cold and warm pass B5 reports:
-
-- engine-open wall time;
-- ASR-only wall time;
-- engine-open + ASR total wall time;
-- ASR / total RTF using exact frozen **speech duration** as denominator;
-- start / peak / end process PSS via `Debug.getPss()`;
-- ASR call / blank-call counts;
-- process/session identity and PID;
-- crash/OOM outcome.
-
-VAD preparation time is reported separately and excluded from candidate ASR RTF. B4 alignment overhead is also excluded from B5 measured ASR time and carried separately into the final Product Matrix.
-
-## Automated checkpoint
-
-B5 implementation checkpoint: `a49ea1ef2fd7cff0ee385b5509262e9208853684`.
-
-- Android PR CI #2048 Fast PR Gate: **PASS**;
-- B5 plan codec / 25-second split / RTF / blank-call regressions: **PASS**;
-- Debug compile: **PASS**;
-- FSMN runtime boundary: **PASS**;
-- Android PR CI #2049 production-like QA APK Gate: **PASS**;
-- `assembleReleaseQa`: **PASS**;
-- APK verification / security / model-channel checks: **PASS**;
-- artifact ID: `12280288773`;
-- artifact digest: `sha256:36a1e20e05baf38a9370a2be71c60ffb8e16647cf2d91938780ab071bc529421`;
-- extracted APK SHA-256: `47596c051546b2b3260a1cb35ed2c60f4dd0a34b0909c7b83c2a07a0b13e8339`.
-
-CI success does not substitute for B5 real-device measurements.
-
-## Real-device procedure
-
-1. Install/cover-install the B5 `releaseQa` APK.
-2. Confirm FSMN, SenseVoice, FunASR Nano and Qwen3 are installed/active.
-3. Open **Voica B5 Performance QA**.
-4. Choose one representative **1–3 minute** real-speech recording. The launcher runs FSMN once and displays `B5 PLAN READY`.
-5. Do not choose another recording after the plan is ready. The same recording/SHA/frozen inputs must be used for all three candidates.
-6. Run **SenseVoice — isolated process** and press `RUN COLD + WARM` once. Capture the full result.
-7. Return to the B5 launcher and run **FunASR Nano — isolated process** once. Capture the full result.
-8. Return and run **Qwen3-ASR — isolated process** once. Capture the full result.
-9. Do not rerun a candidate in the same candidate process. If a formal rerun is needed, restart the app process and prepare a fresh common plan.
-
-Order does not contaminate candidate PSS because each candidate uses a different process. Use the same prepared plan throughout.
+- recording: `9ab2ded7-c31c-4048-9342-fd6b54a51cfb`;
+- canonical SHA-256: `83ed651fee1553a22f83f5c40f73f68becc21c26c1c44f5e8221aab1e338981d`;
+- exact VAD: `fsmn-vad-int8@1.0.0/1`;
+- VAD wall: `1349 ms`;
+- threads: `2`;
+- frozen inputs: `10`;
+- frozen speech duration: `109.3420 s`.
 
 ## Formal output
 
-| Candidate | Pass | Engine open | ASR wall | ASR RTF | Total wall | Total RTF | Start PSS | Peak PSS | End PSS | Calls / blank | Result |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| Candidate | Pass | Engine open ms | ASR wall ms | ASR RTF | Total wall ms | Total RTF | Start / peak / end PSS KB | Calls / blank |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| SenseVoice | COLD | 2707 | 9578 | **0.0876** | 12285 | **0.1124** | 50633 / 389108 / 385799 | 10 / 0 |
+| SenseVoice | WARM | 2779 | 9520 | **0.0871** | 12299 | **0.1125** | 385755 / 713942 / 385193 | 10 / 0 |
+| FunASR Nano | COLD | 10942 | 71587 | **0.6547** | 82529 | **0.7548** | 50970 / 1753708 / 1435369 | 10 / 0 |
+| FunASR Nano | WARM | 11078 | 68889 | **0.6300** | 79967 | **0.7313** | 441507 / 1745334 / 1445370 | 10 / 0 |
+| Qwen3-ASR | COLD | 9104 | 106789 | **0.9767** | 115893 | **1.0599** | 62938 / 2342673 / 2290038 | 10 / 0 |
+| Qwen3-ASR | WARM | 8955 | 82473 | **0.7543** | 91428 | **0.8362** | 1411650 / 2330256 / 2308684 | 10 / 0 |
 
-## Interpretation / B6 reduction
+All six passes completed without crash/OOM and with `blankCalls=0`.
 
-B5 does not select a universal winner by lowest RTF alone. The final decision combines B1/B2 quality, B3 capabilities, B4 timing behavior and B5 runtime cost.
+Full evidence: `docs/STAGE_16B_GATE_B_B5_REAL_DEVICE_REPORT.md`.
 
-After B5:
+## B5 ranking
 
-- keep candidates that remain materially differentiated by quality/capability/runtime role;
-- remove a candidate from expensive B6 if another dominates it on its relevant role without a compensating feature;
-- carry close candidates to B6;
-- do not automatically run B6 for all three.
+### Runtime speed
+
+1. **SenseVoice** — ASR RTF about `0.087` cold/warm; dramatically fastest.
+2. **FunASR Nano** — `0.655 -> 0.630`; comfortably below realtime.
+3. **Qwen3-ASR** — `0.977 -> 0.754`; cold ASR only just below realtime and cold total RTF `1.0599` is slightly slower than realtime.
+
+### Process memory
+
+1. **SenseVoice** — cold peak `389108 KB`; warm transient peak `713942 KB`, end about `385 MB`.
+2. **FunASR Nano** — peak about `1.75 GB`; end about `1.44 GB`.
+3. **Qwen3-ASR** — peak about `2.33 GB`; end about `2.29–2.31 GB`.
+
+## B1–B5 role reduction
+
+B5 does not choose a universal winner by RTF alone.
+
+- **SenseVoice** retains a materially differentiated efficiency role: lowest runtime cost by a large margin, strongest compact ITN formatting, and full native token timing. Its complex mixed/proper-name quality is weaker than the two high-quality contenders, so it is not the B6 high-quality-role finalist. It is **not eliminated** from the Product Matrix.
+- **FunASR Nano** remains a high-quality-role finalist because of strong mixed/proper-name evidence, active ITN, strongest controlled hotword A/B and materially lower runtime/memory than Qwen3. Current Android integration still requires the verified common 25-second input cap and lacks native token timing.
+- **Qwen3-ASR** remains a high-quality-role finalist because it owns the strongest controlled long-Mandarin result and strongest native punctuation, despite the highest memory pressure and weakest cold realtime margin.
+
+## B6 reduction
+
+Run expensive B6 only for the two candidates still competing for the **high-quality local-file role**:
+
+1. **FunASR Nano INT8**;
+2. **Qwen3-ASR 0.6B INT8**.
+
+SenseVoice remains the efficiency/balanced baseline and does not require B6 to justify that already differentiated role.
+
+B6 uses one representative ~30-minute real recording with exact FSMN and the common verified 25-second ASR-input cap. No 60/120-minute extension is pre-required; extend only if B6 remains materially ambiguous.
+
+## Automated checkpoints
+
+Initial B5 automated checkpoint:
+
+- Fast PR Gate #2048: PASS;
+- production-like QA APK Gate #2049: PASS.
+
+Fresh-process/bootstrap fixes:
+
+- Fast PR Gate #2055: PASS;
+- production-like QA Gate #2056: PASS;
+- read-only model-manager / WorkManager-free candidate process head `2e9638fe311db1f4bc02e8c51bc086f1d42e0775`;
+- Fast PR Gate #2059: PASS;
+- production-like QA Gate #2060: PASS;
+- artifact ID `12284494447`;
+- artifact digest `sha256:951364d79344960ce8d9b3cb265233930ef0585cfb0251e74248579381028ee9`.
 
 ## Frozen non-changes
 
@@ -121,4 +122,4 @@ B5 does not merge PR #35 or model-channel PR #21, modify `main`, promote FunASR,
 
 ## Next
 
-Run the three isolated B5 real-device sessions and compare their cold/warm latency + process PSS. Then reduce the candidate/role matrix before B6.
+**B6 — representative ~30-minute long-file endurance / completeness for FunASR Nano and Qwen3-ASR only.**
