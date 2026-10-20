@@ -28,6 +28,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 
 internal const val STAGE16B_GATE_B_B2_MAX_RECORDING_SECONDS = 120
+internal const val STAGE16B_GATE_B_B2_MAX_ASR_INPUT_SECONDS = 25
 
 /** Per-frozen-input evidence used for manual B2 completeness review. */
 data class Stage16BGateB2ChunkObservation(
@@ -60,7 +61,7 @@ data class Stage16BGateB2ModelObservation(
     val errorMessage: String?,
 ) {
     val ready: Boolean
-        get() = benchmark != null && errorMessage == null && chunks.isNotEmpty()
+        get() = benchmark != null && errorMessage == null && chunks.isNotEmpty() && chunks.any { !it.blank }
 
     val blankChunkIndexes: List<Int>
         get() = chunks.filter(Stage16BGateB2ChunkObservation::blank).map(Stage16BGateB2ChunkObservation::index)
@@ -221,8 +222,7 @@ class Stage16BGateB2CompletenessRunner(
                     pcm = pcm,
                     speechSegments = speechSegments,
                     maxChunkSamples =
-                        CanonicalPcmProfile.SAMPLE_RATE_HZ *
-                            Stage16BGateBBenchmarkContract.MAX_ASR_INPUT_SECONDS,
+                        CanonicalPcmProfile.SAMPLE_RATE_HZ * STAGE16B_GATE_B_B2_MAX_ASR_INPUT_SECONDS,
                 )
             check(frozenInputs.isNotEmpty()) { "FSMN produced no speech input for Gate B B2" }
 
@@ -360,6 +360,7 @@ class Stage16BGateB2CompletenessRunner(
                             listOf(
                                 "gate=B2",
                                 "fsmn=frozen-once",
+                                "maxAsrInputSeconds=$STAGE16B_GATE_B_B2_MAX_ASR_INPUT_SECONDS",
                                 "external-punctuation=off",
                                 "timeline-alignment=off",
                                 "threads=$numThreads",
