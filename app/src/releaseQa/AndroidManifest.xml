@@ -38,7 +38,7 @@
             </intent-filter>
         </activity>
         <activity
-            android:name=".Stage16BGateB5LauncherActivity"
+            android:name=".Stage16BGateB5FreshLauncherActivity"
             android:exported="true"
             android:label="Voica B5 Performance QA">
             <intent-filter>
@@ -47,19 +47,19 @@
             </intent-filter>
         </activity>
         <activity
-            android:name=".Stage16BGateB5SenseVoiceActivity"
+            android:name=".Stage16BGateB5FreshSenseVoiceActivity"
             android:exported="false"
             android:label="B5 SenseVoice"
-            android:process=":stage16b_b5_sense" />
+            android:process=":model_validator" />
         <activity
-            android:name=".Stage16BGateB5FunAsrActivity"
+            android:name=".Stage16BGateB5FreshFunAsrActivity"
             android:exported="false"
             android:label="B5 FunASR"
-            android:process=":stage16b_b5_funasr" />
+            android:process=":model_validator" />
         <activity
-            android:name=".Stage16BGateB5Qwen3Activity"
+            android:name=".Stage16BGateB5FreshQwen3Activity"
             android:exported="false"
             android:label="B5 Qwen3"
-            android:process=":stage16b_b5_qwen3" />
+            android:process=":model_validator" />
     </application>
 </manifest>
