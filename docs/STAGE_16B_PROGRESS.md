@@ -1,6 +1,6 @@
 # Stage 16B — Local File ASR V2 Progress
 
-Status: **IN PROGRESS — GATE A TECHNICAL PASS / B0 PASS / B1 PASS / B2 PASS / B3 REAL-DEVICE PASS / B4 NEXT**
+Status: **IN PROGRESS — GATE A TECHNICAL PASS / B0 PASS / B1 PASS / B2 PASS / B3 REAL-DEVICE PASS / B4 REAL-DEVICE PASS / B5 NEXT**
 
 Repository: `ioannes78/voica-android`
 
@@ -157,13 +157,54 @@ B3 docs:
 
 B3 decision: **REAL-DEVICE PASS**. No production ASR promotion/removal is authorized yet.
 
-## Current candidate role signals before B4/B5
+## B4 Timestamp / Timeline Compatibility — REAL-DEVICE PASS
 
-- **Qwen3**: strongest long-Mandarin evidence and native punctuation;
-- **FunASR**: strongest mixed/proper-name tendency so far, active ITN and strongest supported hotword A/B;
-- **SenseVoice**: strongest compact ITN formatting and lower runtime-cost signals, but weaker complex mixed/proper-name accuracy and no equivalent hotword control in current integration.
+B4 separates canonical segment timing from token-level timing precision.
 
-These are provisional role signals, not the final Product Matrix. B5 owns isolated performance/memory ranking.
+The first real-device screen showed `B4 INCOMPLETE` because the QA harness originally required every nonblank aligned segment to receive token timing. Source audit confirmed that this was stricter than the frozen product safety semantics: the production alignment algorithm intentionally returns no token cues when final/reference text similarity is too low rather than inventing a precise timestamp. `TranscriptTimeline` still uses the canonical segment `startSampleIndex/endSampleIndexExclusive` for the row, so a safe-refused segment retains segment-level timeline behavior.
+
+The QA interpretation was corrected without changing production `TimelineAlignment` behavior.
+
+Real-device recording:
+
+- exact VAD: `fsmn-vad-int8@1.0.0/1`;
+- VAD wall: `254 ms`;
+- FSMN speech segments / frozen inputs: `5 / 5`;
+- timing reference: `zipformer-small-bilingual@2023-02-16/1`.
+
+Capability result:
+
+| Candidate / route | Token timing | Timed-segment coverage | Coordinate safety | Decision |
+| --- | --- | ---: | --- | --- |
+| FunASR native | none | `0/5` | canonical segment timeline retained | PASS / expected no native timing |
+| FunASR alignment probe | aligned partial | `3/5` | `38/38` timed, `0` monotonic violations, `0` out-of-bounds | PASS / `PARTIAL_SAFE_REFUSAL` |
+| SenseVoice native | native full | `4/4` nonblank | `34/34` timed, `0` violations, `0` out-of-bounds | PASS / FULL |
+| Qwen3 native | none | `0/5` | canonical segment timeline retained | PASS / expected no native timing |
+| Qwen3 current product alignment | aligned partial | `3/5` | `33/33` timed, `0` violations, `0` out-of-bounds | PASS / `PARTIAL_SAFE_REFUSAL` |
+
+Both aligned routes actually executed `TIMELINE_ALIGNMENT` and reported no pipeline timeline fallback error. Low-similarity segments were safely left without token cues rather than assigned fabricated precision.
+
+B4 automated checkpoints:
+
+- initial QA head `76b53232ae37c4a9252706a8346d5338e7af39a4`;
+- Fast PR Gate #2025: **PASS**;
+- production-like QA APK Gate #2026: **PASS**;
+- artifact `12277747780`;
+- QA interpretation correction head `9e62acbfb179eb09fa5227d640ef0261765ce4c0`;
+- Fast PR Gate #2031: **PASS**;
+- boundary-drift / token-coordinate / partial-safe-refusal / SenseVoice strict-native regressions: **PASS**.
+
+Doc: `docs/STAGE_16B_GATE_B_B4.md`.
+
+B4 decision: **REAL-DEVICE PASS**. No production ASR promotion/removal is authorized by B4 alone.
+
+## Current candidate role signals before B5
+
+- **Qwen3**: strongest long-Mandarin evidence and native punctuation; current product token timeline uses Small-Bilingual alignment with safe partial refusal where matching is weak;
+- **FunASR**: strongest mixed/proper-name tendency so far, active ITN, strongest supported hotword A/B, and demonstrated compatibility with the same alignment mechanism; still candidate-only;
+- **SenseVoice**: strongest compact ITN formatting, native full token timing and lower runtime-cost signals, but weaker complex mixed/proper-name accuracy and no equivalent hotword control in current integration.
+
+These remain role signals, not the final Product Matrix. B5 owns isolated performance/memory ranking.
 
 ## Product-state boundaries
 
@@ -179,7 +220,7 @@ These are provisional role signals, not the final Product Matrix. B5 owns isolat
 
 ## Next planned work
 
-1. **B4 — Timestamp / Timeline Compatibility**: distinguish native token timing from extra alignment paths and preserve canonical `sampleIndex` ownership.
-2. Use B2/B3/B4 evidence to decide which candidates/roles proceed into isolated **B5 performance + memory** testing.
-3. Run **B6 representative long-file** testing only on finalists where needed.
+1. **B5 — isolated cold/warm performance + memory**: run candidates independently so PSS/model-memory carryover cannot contaminate the comparison; measure engine-open, ASR wall/RTF, total wall/RTF, start/peak/end PSS and warm rerun behavior.
+2. Use B1–B5 evidence to reduce the model/role matrix before any expensive long-file run.
+3. Run **B6 representative long-file** testing only on finalists/roles that remain materially competitive after B5.
 4. Present the complete Gate B Product Matrix before any production model promotion/removal decision.
