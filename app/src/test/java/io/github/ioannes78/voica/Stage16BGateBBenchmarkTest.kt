@@ -38,11 +38,47 @@ class Stage16BGateBBenchmarkTest {
     }
 
     @Test
+    fun `SenseVoice language metadata is excluded from B1 scoring`() {
+        val reference = Stage16BGateBB1Profile.ZH_BASE.referenceText
+        val hypothesis = "<zh>$reference\n<yue>"
+
+        val quality = scoreStage16BGateBB1(Stage16BGateBB1Profile.ZH_BASE, hypothesis)
+
+        assertEquals(0.0, quality.characterErrorRate ?: error("CER missing"), 0.0)
+        assertEquals(0, quality.character.errors)
+        assertFalse(quality.wholeProfileBlank)
+    }
+
+    @Test
+    fun `SenseVoice metadata only output remains blank for B1`() {
+        val quality =
+            scoreStage16BGateBB1(
+                Stage16BGateBB1Profile.ZH_BASE,
+                "<zh>\n<en>\n<ja>\n<ko>\n<yue>",
+            )
+
+        assertTrue(quality.wholeProfileBlank)
+    }
+
+    @Test
     fun `English profile uses explicit token WER and ignores punctuation casing`() {
         val reference = Stage16BGateBB1Profile.EN_BASE.referenceText
         val hypothesis = reference.lowercase().replace(",", "").replace(".", "")
 
         val quality = scoreStage16BGateBB1(Stage16BGateBB1Profile.EN_BASE, hypothesis)
+
+        assertEquals(0.0, quality.wordErrorRate ?: error("WER missing"), 0.0)
+        assertEquals(0, quality.word?.errors)
+    }
+
+    @Test
+    fun `English WER excludes SenseVoice language metadata`() {
+        val reference = Stage16BGateBB1Profile.EN_BASE.referenceText
+        val quality =
+            scoreStage16BGateBB1(
+                Stage16BGateBB1Profile.EN_BASE,
+                "<en>$reference",
+            )
 
         assertEquals(0.0, quality.wordErrorRate ?: error("WER missing"), 0.0)
         assertEquals(0, quality.word?.errors)
