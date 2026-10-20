@@ -1,6 +1,6 @@
 # Stage 16B — Local File ASR V2 Progress
 
-Status: **IN PROGRESS — GATE A TECHNICAL PASS / GATE B B0 AUTOMATED PASS / REAL-DEVICE B0 NEXT**
+Status: **IN PROGRESS — GATE A TECHNICAL PASS / GATE B B0 REAL-DEVICE PASS / B1 NEXT**
 
 Repository: `ioannes78/voica-android`
 
@@ -74,7 +74,7 @@ Gate A-only `A4 QA` / `VAD QA` product entry points have been removed.
 
 ## Gate B — ASR Model Matrix Gate
 
-Status: **B0 AUTOMATED PASS / REAL-DEVICE B0 NEXT**
+Status: **B0 REAL-DEVICE PASS / B1 NEXT**
 
 Candidates:
 
@@ -116,14 +116,29 @@ Automated checkpoint:
 - QA artifact ID: `12245362192`
 - QA artifact digest: `sha256:07c976c4aa38a3064e6e7e6628bea5a53107c81f595c6b773bde6299f918aa34`
 - QA artifact head: `a27ed998db56e8edd71c17ff50303285ae3453bf`
-- real-device three-candidate activation/transcription: **NOT RUN / NEXT**
+
+Real-device checkpoint supplied by the user on 2026-10-20: **REAL-DEVICE PASS**.
+
+- formal VAD: `fsmn-vad-int8@1.0.0/1`
+- VAD wall: `1026 ms`
+- speech segments: `17`
+- frozen ASR inputs: `17`
+- Fun-ASR-Nano: READY, `17` calls / `0` blank, total RTF `0.5176`, peak PSS `1778348 KB`
+- SenseVoice: READY, `17` calls / `1` blank, total RTF `0.0876`, peak PSS `583185 KB`
+- Qwen3-ASR: READY, `17` calls / `1` blank, total RTF `0.5099`, peak PSS `1681547 KB`
+- no candidate crashed; every candidate produced nonblank overall transcription from the exact same frozen PCM inputs
+- B0 performance/PSS differences are signals only and are not a B5 conclusion
+- B0 raw transcript differences are not an accuracy ranking because the run did not use a frozen reference transcript
+
+B0 decision: **PASS.** All three candidates proceed to B1; no production ASR promotion/removal is authorized by B0.
 
 ### Fun-ASR-Nano
 
 - sherpa-onnx `v1.13.8` adapter path implemented;
 - candidate package integrity workflow passed;
 - production-like candidate QA APK build/security/native packaging passed;
-- candidate manifest/model activation and transcription quality still require the Gate B real-device matrix.
+- candidate manifest/model activation and real-device native transcription: **PASS in Gate B B0**;
+- comparative transcription quality remains to be measured in B1/B2/B3.
 
 Candidate model-channel reference:
 
@@ -160,8 +175,9 @@ Candidate model-channel reference:
 
 ## Next planned work
 
-1. Install the B0 production-like QA APK and complete real-device candidate readiness.
-2. Confirm active FSMN plus Fun-ASR-Nano, SenseVoice and Qwen3-ASR on the same short canonical recording.
-3. Require non-crashing, non-deterministically-blank transcription from all three before B1.
-4. Start B1 Same-input Base Quality only after B0 real-device readiness evidence is captured.
-5. Present Gate B evidence before any ASR production-model promotion/removal decision.
+1. Start **B1 Same-input Base Quality** with a small frozen reference corpus.
+2. Keep exact active FSMN and reuse identical frozen PCM chunks for all three candidates.
+3. Measure CER / English WER where applicable, insertion/deletion/substitution, blank output, head/tail deletion, repetition, hallucination and ASR call count.
+4. Use B1 as the first discriminatory shortlist gate before expensive B5/B6 work.
+5. Continue with B2 real-recording completeness, B3 punctuation/ITN/language/hallucination and B4 timeline compatibility for viable candidates.
+6. Present the complete Gate B evidence before any ASR production-model promotion/removal decision.
