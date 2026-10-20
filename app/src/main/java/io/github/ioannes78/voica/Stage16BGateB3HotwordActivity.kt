@@ -273,7 +273,7 @@ internal class Stage16BGateB3HotwordRunner(
         }
     }
 
-    private fun runVariant(
+    private suspend fun runVariant(
         model: ActiveModel,
         plan: Stage16BGateB3HotwordVariantPlan,
         frozenInputs: List<Stage16BGateBFrozenInput>,
