@@ -121,6 +121,8 @@ Validated regressions include:
 - SenseVoice native route still requires full native timed coverage;
 - exact FSMN runtime boundary remains intact.
 
+The corrected QA harness exposes explicit `segmentBoundaryMismatches`, `canonicalSegmentTimelineValid`, `tokenTimingStatus`, `emittedTokenCoordinatesValid` and `fullTimedCoverage` fields for any future rerun. A rerun is not required for the B4 decision because no production runtime behavior changed and the original real-device run already supplied the raw token/alignment evidence used here.
+
 ## Final B4 matrix
 
 | Candidate | Native token timing | Extra alignment for token cues | Real-device timing result | Canonical segment timeline |
