@@ -1,6 +1,6 @@
 # Stage 16B — Local File ASR V2 Progress
 
-Status: **GATE A TECHNICAL PASS / GATE B REAL-DEVICE PASS / PRODUCT MATRIX AUTHORIZED / P2 REAL-DEVICE PASS / P3 TIMING FIREWALL CI PASS / CTC RUNTIME A0+A1 COMPILE/ABI PASS / CTC PORTABILITY GATE IN PROGRESS / FINAL FREEZE BLOCKED**
+Status: **GATE A TECHNICAL PASS / GATE B REAL-DEVICE PASS / PRODUCT MATRIX AUTHORIZED / P2 REAL-DEVICE PASS / P3 TIMING FIREWALL CI PASS / CTC RUNTIME A0+A1+A2 COMPILE/ABI PASS / A3 MODEL EXPORT + PARITY NEXT / FINAL FREEZE BLOCKED**
 
 Repository: `ioannes78/voica-android`
 
@@ -103,30 +103,29 @@ The user also reported:
 
 P2 completeness is therefore closed as REAL-DEVICE PASS. This does not imply Final Freeze.
 
-## P3 — synthetic timing firewall
+## P3 — synthetic timing firewall — PASS
 
-P3 is implemented on the FunASR product wrapper:
+P3 now fails closed at both the token-data and capability layers:
 
-- sherpa synthetic token/timestamp values remain private diagnostic input only;
-- FunASR product capabilities now advertise no token timing;
-- FunASR product hypotheses always expose an empty token timeline until real CTC exists;
-- downstream High Quality persistence therefore falls back to canonical FSMN/VAD segment timing;
-- pseudo-precision can no longer enter normal FunASR speaker alignment through the wrapper.
+- sherpa v1.13.8 FunASR synthetic timestamps never enter canonical product token timing;
+- FunASR base runtime never advertises native token timing, even if a descriptor accidentally declares it;
+- a stale FunASR `TimestampCapability.TOKEN` is downgraded to `NONE`;
+- `EXTERNAL_ALIGNER_REQUIRED` remains available for the future trusted `/2` wrapper;
+- downstream High Quality persistence therefore falls back to canonical FSMN/VAD segment timing until true CTC is connected;
+- FireRed real native timing, SenseVoice behavior and historical Qwen compatibility remain unchanged.
 
-Regression coverage explicitly verifies that even a single, non-retried FunASR chunk cannot leak synthetic tokens while the private diagnostic generated-token signal remains available.
-
-Checkpoint: Android head `11642818f670788afecb636f1914cdf7c6363559` — Fast PR Gate #2132 **SUCCESS** (unit tests + debug compile + FSMN runtime boundary).
+Fast PR Gate #2153 passed the timing-firewall regression suite. The later A2 protocol changes also passed Fast PR Gate #2164 at head `01dea605f6a83341d3426e4b95da91961c166381`.
 
 ## P4/P5 — true CTC timeline
 
-Source audit confirms the official FunASR Nano timestamp path is:
+Current official FunASR source establishes the timestamp path as:
 
-`pre-adaptor audio encoder output -> CTC decoder/projection -> CTC log probabilities -> SenseVoice CTC tokenizer(final text) -> forced alignment -> 60 ms CTC frame mapping -> canonical sampleIndex`.
+`pre-adaptor audio encoder output -> CTC Transformer decoder -> CTC projection -> final LLM text encoded with SenseVoice CTC tokenizer -> forced alignment -> 60 ms CTC frame mapping -> canonical sampleIndex`.
 
 The current production package `funasr-nano-int8@2025-12-30/1` is insufficient:
 
 - it contains the sherpa LLM path (`encoder_adaptor.int8.onnx`, `embedding.int8.onnx`, `llm.int8.onnx`, Qwen tokenizer);
-- it does not contain the official CTC decoder/projection or SenseVoice CTC tokenizer;
+- it does not contain the trained CTC Transformer decoder/projection or SenseVoice CTC tokenizer;
 - its public encoder/adaptor output is post-adaptor LLM embedding, while official CTC consumes the pre-adaptor 512-d encoder output.
 
 Therefore true CTC cannot be implemented correctly by attaching an aligner to revision `/1`.
@@ -147,37 +146,64 @@ Checkpoint `d7040f4a47881afe51102510686ddb19be589930`: FunASR CTC Runtime Gate #
 
 ### CTC runtime A1 — shared encoder / retained state — COMPILE/ABI PASS
 
-The next isolated native Gate adds the revision-2 runtime shape without a CTC scorer yet:
+A1 proved the intended one-encoder lifecycle without executing a CTC scorer:
 
-- a single encoder session can expose `encoder_out`, `ctc_encoder_out`, and exact `ctc_encoder_out_lens`;
-- the LLM branch consumes the post-adaptor embedding from that same encoder execution;
-- the pre-adaptor 512-d state + exact length can be retained per `OfflineStream`;
-- state IDs protect against stale stream-pointer reuse;
-- retained native state is bounded and fail-closed;
-- `align` / `discard` commands consume or clear retained state without rerunning encoder or LLM;
-- revision `/1` remains inactive because no `ctcCompact` model is configured.
+- when `ctcCompact` is configured, one encoder execution can expose `encoder_out`, `ctc_encoder_out`, and exact `ctc_encoder_out_lens`;
+- CTC state is strictly validated as `[1,T,512]` plus `[1]` int64 valid length with `0 < length <= T`;
+- the existing LLM branch consumes `encoder_out` from that same execution;
+- pre-adaptor state and length are retained per exact `OfflineStream`;
+- state-id plus bounded storage fail closed against stale pointer reuse or unbounded native tensor retention;
+- second same-stream `align` / `discard` commands consume or clear retained state without rerunning encoder or LLM;
+- no placeholder timing is returned while the scorer is absent.
 
-Exact sherpa `v1.13.8` + ORT `1.28.2` arm64 JNI compilation, AAR packaging, ABI inspection and A1 state-boundary marker verification all passed at head `ccfd80d7acbf99bb5c747794da93ae743c7a46a0`:
+Checkpoint `ccfd80d7acbf99bb5c747794da93ae743c7a46a0`: FunASR CTC Runtime Gate #11 **SUCCESS** and Android PR CI #2157 **SUCCESS**.
 
-- FunASR CTC Runtime Gate #11: **SUCCESS**;
-- Android PR CI #2157: **SUCCESS**.
+### CTC runtime A2 — compact scorer + native Viterbi — COMPILE/ABI PASS
 
-**Evidence boundary:** A1 is a native compile/ABI architecture PASS only. No real revision-2 dual-output ONNX has executed through this path yet, so tensor values, exact length parity and retained-state model execution remain an A2 empirical requirement.
+A2 extends the isolated patched runtime with the complete native alignment boundary while still using no real `/2` model asset:
 
-### A2 next — exact checkpoint / export / parity
+- one optional `ctc_compact` ONNX session shares the same sherpa/ORT `1.28.2` native runtime;
+- exact scorer ABI is `ctc_encoder_out + ctc_encoder_out_lens + candidate_ids -> candidate_logits`;
+- only `[blank + final-text target positions]` are scored, avoiding a full `T × 60515` JNI tensor;
+- raw compact logits are valid for Viterbi because full-vocabulary log-softmax subtracts the same per-frame constant from every path state;
+- stream protocol carries exact model-owned `blank_id`, `vocab_size` and final-text `target_ids` with bounds checks in both Kotlin and native code;
+- native CTC Viterbi implements stay / +1 / +2 transitions, requires blank separation for adjacent repeated targets, rejects impossible/non-finite paths, and maps accepted frame spans at 60 ms/frame;
+- aligned decimal target IDs, acoustic start seconds and durations are returned through the existing `OfflineRecognitionResult` ABI;
+- no second encoder pass and no large score tensor crosses JNI.
 
-The next Gate must freeze an exact official Fun-ASR-Nano-2512 checkpoint and prove actual exported model assets before product integration. Current official provenance independently identifies source revision `272c57b82523ada6fd87095e955f8e29100979ab` and source `model.pt` SHA-256 `55ae0d2fee369f0f11cce0795f6927934ad17cf11b278a7e56a51272074160bb`; Voica must still verify all downloaded/exported artifacts itself before accepting them.
+At Android head `01dea605f6a83341d3426e4b95da91961c166381`:
 
-A2 acceptance requires:
+- FunASR CTC Runtime Gate #17: **SUCCESS**;
+- A0/A1/A2 patch application: PASS;
+- arm64 JNI build with sherpa `v1.13.8` + ORT `1.28.2`: PASS;
+- arm64-only AAR package: PASS;
+- A2 CTC ABI/state/option/scorer marker verification: PASS;
+- Android Fast PR Gate #2164: **SUCCESS**.
 
-- real dual-output encoder ONNX with exact output names/shapes and `ctc_encoder_out_lens`;
-- CTC decoder/projection/log-softmax export from the same checkpoint;
-- exact `multilingual.tiktoken` artifact + digest;
-- exported vocab size, blank id, frame/downsample metadata and all artifact digests;
-- controlled official-Python parity for tokenizer target ids, encoder lengths, CTC score behavior and timestamps;
-- no model-channel `/2` staging or production replacement merely because export succeeds.
+**Evidence boundary:** A2 proves native source portability, ABI shape and buildability only. No actual revision-2 dual-output encoder or compact CTC ONNX has yet executed through this runtime, so it does not yet prove numerical parity, non-uniform real timing, RTF or PSS.
 
-Current CTC Gate status: **IN PROGRESS — A0/A1 compile/ABI architecture proven; real model export + parity + Android empirical proof still required before final PASS.**
+The expensive native Gate is now edge-triggered: prefix PR #35's title with `[CTC]` (or use `workflow_dispatch`) only when a new native runtime checkpoint needs verification. Ordinary pushes do not rebuild sherpa.
+
+### CTC A3 — exact checkpoint / export / parity — NEXT
+
+A3 is the first Gate allowed to produce empirical `/2` model assets.
+
+The provenance rule is corrected here: the older Hugging Face checkpoint at revision `272c57b82523ada6fd87095e955f8e29100979ab` / `model.pt` SHA-256 `55ae0d2fee369f0f11cce0795f6927934ad17cf11b278a7e56a51272074160bb` is a text-only artifact and must **not** be used as the true-CTC export source. Current official Fun-ASR source documentation identifies the ModelScope `FunAudioLLM/Fun-ASR-Nano-2512` checkpoint as the CTC-complete source, including all trained `ctc_decoder.*` / `ctc.*` tensors, and reports `model.pt` SHA-256 `81fec8616083c69377f3ceef36aba3655660ee0ca69a5d4a1e9810cd340ca499`.
+
+A3 must still download the selected ModelScope checkpoint itself and independently verify its bytes, tensor completeness and configuration before accepting that reported digest.
+
+A3 acceptance requires:
+
+- freeze the exact CTC-complete source checkpoint/revision and record its locally recomputed SHA-256;
+- verify all required `ctc_decoder.*` and `ctc.*` checkpoint tensors are populated before export;
+- export a real dual-output `encoder_adaptor.int8.onnx` preserving output[0] LLM parity while adding pre-adaptor 512-d state + exact length;
+- export `ctc_compact.int8.onnx` containing the official CTC Transformer decoder plus the model-owned CTC projection/gather, not a direct projection from raw encoder state;
+- copy/hash the exact `multilingual.tiktoken` from the same accepted source package;
+- derive and cross-check actual CTC vocabulary size, blank id, tensor names/types/shapes and 60 ms frame contract from checkpoint/config/export rather than hard-coding test defaults;
+- compare official Python full-vocabulary CTC forced alignment with compact raw-logit Viterbi on controlled fixtures;
+- prove `/1` versus `/2` LLM text parity for the same audio/prompt settings;
+- record SHA-256 for every exported asset and immutable provenance metadata;
+- do not stage `/2` in model-channel or replace the app runtime merely because desktop parity succeeds.
 
 ## Production-state boundaries
 
@@ -196,11 +222,12 @@ Current CTC Gate status: **IN PROGRESS — A0/A1 compile/ABI architecture proven
 ## Current work order
 
 1. **P0–P2: COMPLETE / REAL-DEVICE PASS.**
-2. **P3: IMPLEMENTED / FAST CI PASS.** Keep sherpa synthetic timing diagnostic-only and product timing fail-closed.
-3. **P4 / CTC A0+A1: COMPILE/ABI PASS.** Keep the patched sherpa runtime isolated; it is not a production dependency.
-4. **P4 / CTC A2: NEXT.** Freeze the exact official checkpoint, export the real shared encoder + CTC scorer/tokenizer assets, verify digests/metadata and official-Python parity, then execute the retained-state path empirically.
-5. **P5:** connect trusted compact CTC scores to the existing Android forced/Viterbi alignment, canonical sample-index mapping, punctuation anchoring and fail-closed fallback; prove actual non-uniform character/token timing on device.
+2. **P3: IMPLEMENTED / CI PASS.** Synthetic sherpa timing is fail-closed at both token-data and capability layers.
+3. **P4 / CTC A0+A1+A2: COMPILE/ABI PASS.** Keep the patched sherpa runtime isolated; it is not a production dependency.
+4. **P4 / CTC A3: NEXT.** Freeze the exact CTC-complete ModelScope checkpoint, export the real shared encoder + compact CTC scorer/tokenizer assets, verify digests/metadata and official-Python parity.
+5. **P5 / product integration:** only after A3 parity, connect the patched AAR and same-stream align/discard protocol to the `/2` candidate; convert trusted CTC spans to product tokens and canonical sample-index timing with fail-closed fallback.
 6. Re-test sentence segmentation and speaker alignment only after real CTC is present; do not tune CAM++ first.
 7. Measure CTC wall/RTF, total RTF, peak/end PSS, thermal, retries and completeness; preserve the important high-quality target `total RTF < 1.0` where practical.
-8. Only after CTC Gate + real-device timeline/segmentation/performance acceptance may revision `/2` / model-channel v10 remain as the candidate for later explicit promotion authorization.
-9. Do not Final Freeze/Handoff, merge either PR, promote model-channel, or start Stage 16C without explicit user authorization.
+8. Run real-device acceptance on the 118-second Hotword OFF/ON case plus at least two longer recordings and verify non-uniform real timing, completeness and boundary quality.
+9. Only after CTC Gate + real-device timeline/segmentation/performance acceptance may revision `/2` / model-channel v10 remain as the candidate for later explicit promotion authorization.
+10. Do not Final Freeze/Handoff, merge either PR, promote model-channel, or start Stage 16C without explicit user authorization.
