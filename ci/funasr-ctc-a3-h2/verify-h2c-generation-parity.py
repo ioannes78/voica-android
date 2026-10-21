@@ -98,14 +98,14 @@ class ProductionTokenizer:
 
 
 def build_source_ids(tokenizer: ProductionTokenizer, audio_token_len: int) -> tuple[np.ndarray, int, int]:
-    # Equivalent to the pinned revision-1 exporter's build_source_ids() for the
-    # exact Voica transcription prompt. Keep this local so the parity proof does
-    # not require tokenizer_config.json that is absent from the production tar.
+    # Match the pinned revision-1 exporter exactly: the entire
+    # <|startofspeech|>!!<|endofspeech|> substring is replaced by zero-valued
+    # fake token ids. The speech marker strings themselves never enter Qwen.
     prefix = (
         f"<|im_start|>system\n{SYSTEM_PROMPT}<|im_end|>\n"
-        f"<|im_start|>user\n{PROMPT}<|startofspeech|>"
+        f"<|im_start|>user\n{PROMPT}"
     )
-    suffix = "<|endofspeech|><|im_end|>\n<|im_start|>assistant\n"
+    suffix = "<|im_end|>\n<|im_start|>assistant\n"
     prefix_ids = tokenizer.encode(prefix)
     suffix_ids = tokenizer.encode(suffix)
     source_ids = np.asarray([*prefix_ids, *([0] * audio_token_len), *suffix_ids], dtype=np.int64)
@@ -242,7 +242,7 @@ def main() -> None:
         dual_encoder,
         ["encoder_out", "ctc_encoder_out", "ctc_encoder_out_lens"],
     )
-    input_meta = original_session.get_inputs()[0]
+    input_name = original_session.get_inputs()[0].name
 
     cases: list[dict[str, Any]] = []
     for fixture in FIXTURES:
@@ -250,14 +250,13 @@ def main() -> None:
         if not wave.is_file():
             raise RuntimeError(f"Pinned exporter fixture missing: {wave}")
         samples, sample_rate = load_and_resample_audio(str(wave))
-        # The production encoder metadata is fixed at LFR window=7, shift=6.
         features = compute_feat(samples, sample_rate, 7, 6)[None, ...]
         features = np.asarray(features, dtype=np.float32)
         if features.shape[0] != 1 or features.shape[2] != 560 or features.shape[1] <= 0:
             raise RuntimeError(f"Invalid feature geometry for {fixture}: {features.shape}")
 
-        original_out = original_session.run(["encoder_out"], {input_meta.name: features})[0]
-        dual_out, ctc_state, ctc_lens = dual_session.run(None, {input_meta.name: features})
+        original_out = original_session.run(["encoder_out"], {input_name: features})[0]
+        dual_out, ctc_state, ctc_lens = dual_session.run(None, {input_name: features})
         if not np.array_equal(original_out, dual_out):
             max_abs = float(np.max(np.abs(original_out - dual_out)))
             raise RuntimeError(f"Actual-audio encoder output0 parity failed for {fixture}: max_abs={max_abs}")
