@@ -346,12 +346,22 @@ fun createSherpaLargeOfflineAsrEngine(
     model: ModelDescriptor,
     modelDirectory: File,
     settings: LargeOfflineAsrSettings = LargeOfflineAsrSettings(),
-): SecondPassAsrEngine =
-    SherpaLargeOfflineAsrEngine(
-        model = model,
-        modelDirectory = modelDirectory,
-        settings = settings,
-    )
+): SecondPassAsrEngine {
+    val base =
+        SherpaLargeOfflineAsrEngine(
+            model = model,
+            modelDirectory = modelDirectory,
+            settings = settings,
+        )
+    return if (model.runtimeModelType == SherpaOfflineAsrModelType.FUNASR_NANO) {
+        FunAsrAdaptiveOfflineAsrEngine(
+            delegate = base,
+            settings = settings,
+        )
+    } else {
+        base
+    }
+}
 
 private fun offlineRecognizerConfig(
     descriptor: ModelDescriptor,
