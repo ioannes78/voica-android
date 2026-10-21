@@ -12,8 +12,8 @@ permissions:
   contents: read
 
 jobs:
-  runtime-a1:
-    name: Patched sherpa arm64 A1
+  runtime-a2:
+    name: Patched sherpa arm64 A2
     concurrency:
       group: funasr-ctc-runtime-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: true
@@ -73,6 +73,12 @@ jobs:
         run: |
           set -euo pipefail
           python3 ci/funasr-ctc-runtime/apply-a1-shared-encoder-patch.py sherpa-upstream
+
+      - name: Apply Stage 16B CTC A2 compact scorer patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ci/funasr-ctc-runtime/apply-a2-compact-ctc-patch.py sherpa-upstream
           git -C sherpa-upstream diff --check
           git -C sherpa-upstream diff -- \
             android/SherpaOnnxAar/sherpa_onnx/src/main/java/com/k2fsa/sherpa/onnx/OfflineRecognizer.kt \
@@ -118,7 +124,7 @@ jobs:
           cd android/SherpaOnnxAar
           ./gradlew :sherpa_onnx:assembleRelease --no-daemon
 
-      - name: Verify patched AAR ABI and A1 state boundary
+      - name: Verify patched AAR ABI and A2 CTC boundary
         shell: bash
         working-directory: sherpa-upstream
         run: |
@@ -151,7 +157,10 @@ jobs:
           strings "$work/jni.so" | grep -Fq 'ctcCompact'
           strings "$work/jni.so" | grep -Fq 'voica.funasr.ctc.command'
           strings "$work/jni.so" | grep -Fq 'voica.funasr.ctc.state_id'
-          strings "$work/jni.so" | grep -Fq 'ctc_encoder_out_lens'
-          strings "$work/jni.so" | grep -Fq 'A1 align command consumed retained state'
+          strings "$work/jni.so" | grep -Fq 'voica.funasr.ctc.target_ids'
+          strings "$work/jni.so" | grep -Fq 'voica.funasr.ctc.blank_id'
+          strings "$work/jni.so" | grep -Fq 'voica.funasr.ctc.vocab_size'
+          strings "$work/jni.so" | grep -Fq 'candidate_logits'
+          strings "$work/jni.so" | grep -Fq 'ForwardCompactCtc'
 
-          echo "Patched sherpa A1 shared-encoder ABI verified; no artifact uploaded."
+          echo "Patched sherpa A2 compact CTC ABI verified; no artifact uploaded."
