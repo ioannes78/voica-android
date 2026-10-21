@@ -1,6 +1,6 @@
 # Stage 16B — FunASR Nano CTC Portability Gate
 
-Status: **SOURCE GATE PARTIAL PASS / ANDROID TOKENIZER + VITERBI CORE CI PASS / RUNTIME A0+A1+A2 COMPILE/ABI PASS / CURRENT REVISION 1 INSUFFICIENT / A3 MODEL EXPORT + PARITY REQUIRED / FINAL FREEZE BLOCKED**
+Status: **SOURCE GATE PASS / ANDROID TOKENIZER + VITERBI CORE CI PASS / RUNTIME A0+A1+A2 COMPILE/ABI PASS / A3-H1 EXACT CHECKPOINT PASS / CURRENT REVISION 1 INSUFFICIENT / A3-H2 EXPORT + PARITY REQUIRED / FINAL FREEZE BLOCKED**
 
 Date: 2026-10-21
 
@@ -52,16 +52,39 @@ The current official model implementation identifies:
 - default CTC vocabulary size: `60515`;
 - default blank id: `ctc_vocab_size - 1`, therefore `60514` unless configuration overrides it.
 
-**The defaults are not production metadata. Revision `/2` must derive and verify the actual vocab size and blank id from the accepted checkpoint/config/export.**
+A3-H1 has now independently verified that the accepted checkpoint's actual CTC projection is `[60515,512]`, yielding actual vocabulary `60515` and blank id `60514` for the accepted source.
 
 ### Official checkpoint provenance rule for A3
 
-The provenance rule is now explicit:
+The provenance rule is explicit:
 
 - the older Hugging Face checkpoint at revision `272c57b82523ada6fd87095e955f8e29100979ab`, `model.pt` SHA-256 `55ae0d2fee369f0f11cce0795f6927934ad17cf11b278a7e56a51272074160bb`, is the older text-only artifact and is **not** an acceptable true-CTC export source;
-- current official Fun-ASR source documentation identifies the ModelScope `FunAudioLLM/Fun-ASR-Nano-2512` checkpoint as CTC-complete, including all trained `ctc_decoder.*` / `ctc.*` tensors, and reports `model.pt` SHA-256 `81fec8616083c69377f3ceef36aba3655660ee0ca69a5d4a1e9810cd340ca499`.
+- the accepted CTC-complete source is ModelScope `FunAudioLLM/Fun-ASR-Nano-2512`.
 
-A3 must independently download the chosen ModelScope snapshot, recompute all relevant SHA-256 values, verify required CTC tensor completeness and freeze the exact accepted snapshot/revision. External provenance is a pinning aid, not a substitute for Voica's own artifact verification.
+### A3-H1 exact checkpoint audit — PASS
+
+At branch checkpoint `3504e45559e99ee37b43a5c7300ef5c72b9f3af9`, FunASR CTC A3 Heavy Gate #8 independently downloaded, locally rehashed and audited the accepted source before any export:
+
+- requested source revision: `master`;
+- `model.pt` size: `2,127,426,538` bytes remote and local;
+- `model.pt` SHA-256: `81fec8616083c69377f3ceef36aba3655660ee0ca69a5d4a1e9810cd340ca499` remote and locally recomputed;
+- `config.yaml` SHA-256: `daed38ea6484f5650fb32cbd9069b9aa13880acaf2bcb1f0bf4be2712837917c`;
+- `multilingual.tiktoken` SHA-256: `747979631e813193436aabcff7c1c235d37de8097b71c563ec8b63b7a515c718`;
+- normalized checkpoint tensors: `1347`;
+- exact CTC tensor inventory: `86 = 84 ctc_decoder.* + 2 ctc.*`;
+- decoder blocks: `[0,1,2,3,4]`;
+- decoder FFN: `[2048,512] -> [512,2048]`;
+- CTC projection weight `[60515,512]`, bias `[60515]`;
+- derived vocab `60515`, blank `60514`, projection input dim `512`;
+- all audited CTC tensors finite and required weight tensors non-zero;
+- full SHA-256 verification completed before `torch.load(weights_only=true, mmap=true)`;
+- all source/model assets remained runner-local and cleanup removed them; nothing was uploaded.
+
+The same evidence point had Android PR CI #2188 **SUCCESS** and A3 Provenance Gate #13 **SUCCESS**. The filtered four-range ModelScope download completed in about `6m41s`.
+
+**H1 evidence boundary:** the accepted source checkpoint is now independently proven CTC-complete. This does not prove ONNX export correctness, numerical parity, revision `/1` versus `/2` LLM parity, Android execution, real acoustic timing, RTF/PSS or real-device segmentation.
+
+Before any candidate can be packaged, the mutable source label `master` must be represented by immutable provenance metadata/digests; H1's exact file digests are the current byte-level source truth.
 
 ## Current revision-1 package audit
 
@@ -128,7 +151,7 @@ Tests cover CJK byte fragments, BPE rank priority and mixed text/space/punctuati
 
 Android head `bbfe68299b44a2ea9249469896646ce895993dd1`: Fast PR Gate #2136 **SUCCESS**.
 
-Actual `/2` acceptance still requires parity against the exact accepted `multilingual.tiktoken` artifact and representative official target-id fixtures.
+A3 Source/Tokenizer Gate has additionally verified the exact accepted `multilingual.tiktoken` against independent Python target-id fixtures, including the real non-canonical Base64 entry accepted by Python's permissive loader.
 
 ## Existing APK / ONNX Runtime packaging finding
 
@@ -273,24 +296,24 @@ Revision 2 must add/export:
 
 If LLM context capacity is changed, that must be treated as an explicit `/2` model change with separate text-parity evidence, not silently bundled.
 
-## A3 — actual checkpoint / export / parity Gate — NEXT
+## A3-H2 — dual-output export / numerical parity Gate — NEXT
 
-A3 is the first Gate allowed to create empirical revision-2 model assets.
+A3-H1 has completed source-byte and CTC-tensor proof. H2 is now the first Gate allowed to create empirical revision-2 ONNX candidates.
 
-Required A3 evidence:
+Required H2 evidence:
 
-- freeze and locally hash the exact CTC-complete ModelScope checkpoint;
-- verify required `ctc_decoder.*` and `ctc.*` tensors are actually initialized before export;
-- export the dual-output encoder with the exact A1 output contract;
-- export `ctc_compact` from the official CTC Transformer decoder + projection/gather;
-- hash exact `multilingual.tiktoken` and verify Android target-id parity;
-- derive vocab/blank/tensor/frame metadata from the accepted source and exported graph rather than trusting test defaults;
-- compare official Python full-vocabulary CTC forced alignment with compact raw-logit Viterbi on controlled fixtures;
-- compare revision `/1` text output with `/2` LLM output under identical audio/prompts/settings;
-- record every source/export/tokenizer digest and immutable provenance;
-- do not stage or promote model-channel merely because desktop parity succeeds.
+- export a dual-output encoder/adaptor from the accepted source, preserving the existing post-adaptor LLM-facing output and adding exact pre-adaptor `[1,T,512]` CTC state + exact length;
+- compare the post-adaptor output against the reference `/1`/official path under identical controlled inputs before changing quantization;
+- export `ctc_compact` from the official trained five-block CTC Transformer decoder plus model-owned projection/gather;
+- preserve full-vocabulary CTC path-order semantics while materializing only blank + final-text target-position scores outside the graph/runtime boundary;
+- cross-check the exported graph's vocab `60515`, blank `60514`, input/output tensor names/types/shapes and 60 ms frame contract;
+- use the exact H1 tokenizer digest `747979631e813193436aabcff7c1c235d37de8097b71c563ec8b63b7a515c718`;
+- compare official Python full-vocabulary forced alignment with compact raw-logit Viterbi on controlled fixtures;
+- establish FP32 export parity first, then separately quantify any INT8 export error before accepting INT8 artifacts;
+- record SHA-256 and immutable provenance for every export candidate;
+- do not stage or promote model-channel merely because desktop H2 parity succeeds.
 
-Only after A3 parity passes may the actual `/2` assets be connected to the A2 native runtime in the app and measured on Android arm64.
+Only after H2 and subsequent export/parity checks pass may the actual `/2` assets be connected to the A2 native runtime in the app and measured on Android arm64.
 
 ## Product token construction requirements
 
@@ -307,12 +330,12 @@ The user-facing goal is trustworthy fine-grained timing, usually character-like 
 
 ## Remaining empirical Gate items
 
-Source/runtime portability is positive, but the CTC Gate is **not yet a final technical PASS**. Remaining evidence:
+Source/runtime portability and H1 source completeness are positive, but the CTC Gate is **not yet a final technical PASS**. Remaining evidence:
 
-1. A3 export and hash the exact accepted CTC-complete source checkpoint/tokenizer;
+1. A3-H2 export and hash the real dual-output encoder + compact trained CTC graph;
 2. verify dual-output encoder and compact CTC tensor semantics against official Python;
 3. verify official full-vocab versus compact raw-logit forced-alignment parity;
-4. verify LLM text parity `/1` versus `/2`;
+4. verify LLM text/numerical parity `/1` versus `/2` and quantify INT8 error separately;
 5. execute real `/2` ONNX through the A2 same-stream retained-state path on Android arm64;
 6. prove non-uniform character/subword timing tracks speech rather than interpolation;
 7. verify byte-fragment compaction and punctuation anchoring;
@@ -338,13 +361,15 @@ with semantic completeness preferred over mechanical one- or two-character cuts.
 - **Android CTC Viterbi core: IMPLEMENTED / CI PASS.**
 - **Android SenseVoice CTC tokenizer core: IMPLEMENTED / CI PASS.**
 - **CTC source architecture: PORTABLE IN PRINCIPLE.**
+- **CTC source/tokenizer provenance: PASS.**
 - **CTC runtime A0 config/arm64 rebuild: PASS.**
 - **CTC runtime A1 shared-encoder retained-state: COMPILE/ABI PASS.**
 - **CTC runtime A2 compact scorer/native Viterbi: COMPILE/ABI PASS.**
+- **A3-H1 exact CTC-complete checkpoint audit: PASS.**
 - **Current `/1` model package: INSUFFICIENT FOR TRUE CTC.**
-- **A3 actual CTC-complete model export/parity: NEXT / NOT YET PASS.**
+- **A3-H2 dual-output/CTC export + numerical parity: NEXT / NOT YET PASS.**
 - **Revision `/2`: REQUIRED, but NOT YET BUILT OR STAGED.**
-- **CTC portability Gate final decision: IN PROGRESS pending A3 export/parity + real Android model execution + real-device proof.**
+- **CTC portability Gate final decision: IN PROGRESS pending H2 export/parity + real Android model execution + real-device proof.**
 - **Stage 16B Final Freeze/Handoff: BLOCKED.**
 
 No PR merge, model-channel promotion, Stage 16C work, Room migration or historical Qwen compatibility deletion is authorized by this gate.
