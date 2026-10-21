@@ -52,7 +52,8 @@ jobs:
             "tiktoken==0.12.0" \
             "PyYAML==6.0.2" \
             "onnx==1.18.0" \
-            "onnxruntime==${H2_DESKTOP_ORT_VERSION}"
+            "onnxruntime==${H2_DESKTOP_ORT_VERSION}" \
+            "ml_dtypes==0.5.4"
           python -m pip install --disable-pip-version-check --no-cache-dir \
             --index-url https://download.pytorch.org/whl/cpu \
             "torch==2.7.1" \
@@ -63,6 +64,7 @@ jobs:
           import torch
           import torchaudio
           from importlib.metadata import version
+          from ml_dtypes import float8_e4m3fn, int4, uint4
           from modelscope_hub._download import DownloadManager
           from modelscope_hub.constants import (
               DOWNLOAD_PARALLEL_THRESHOLD,
@@ -72,6 +74,8 @@ jobs:
 
           assert version("modelscope-hub") == "0.4.6"
           assert version("tiktoken") == "0.12.0"
+          assert version("ml-dtypes") == "0.5.4"
+          assert float8_e4m3fn is not None and int4 is not None and uint4 is not None
           assert torch.__version__.startswith("2.7.1")
           assert torchaudio.__version__.startswith("2.7.1")
           assert ort.__version__ == os.environ["H2_DESKTOP_ORT_VERSION"]
@@ -84,6 +88,7 @@ jobs:
               "H2 tooling contract: "
               f"torch={torch.__version__} torchaudio={torchaudio.__version__} "
               f"desktop_ort={ort.__version__} "
+              f"ml_dtypes={version('ml-dtypes')} "
               f"android_native_ort={os.environ['ANDROID_NATIVE_ORT_VERSION']} "
               f"workers={DOWNLOAD_PARALLELS}"
           )
