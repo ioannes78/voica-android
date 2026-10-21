@@ -149,7 +149,6 @@ def main() -> None:
             raise RuntimeError(f"Baseline H2d did not preserve required diagnostic asset: {required}")
     baseline_summary = json.loads(baseline_summary_path.read_text(encoding="utf-8"))
 
-    # If full INT8 already satisfies the unchanged criteria, preserve it.
     if baseline.returncode == 0:
         summary = {
             "baseline_returncode": 0,
@@ -291,13 +290,14 @@ def main() -> None:
         if accepted_at_cardinality:
             break
 
+    report_candidates = [{key: value for key, value in item.items() if key != "path"} for item in candidate_results]
     if not accepted_at_cardinality:
         summary = {
             "baseline_returncode": baseline.returncode,
             "block_matmul_inventory": {str(block): names for block, names in groups.items()},
             "ungrouped_matmuls_left_fp32": ungrouped,
             "acceptance_thresholds_unchanged": baseline_summary["acceptance_thresholds_unchanged"],
-            "candidates": candidate_results,
+            "candidates": report_candidates,
             "status": "H2d mixed INT8 search FAIL: no candidate satisfies unchanged criteria",
         }
         summary_path = out / "a3-h2d-mixed-int8-selection.json"
@@ -332,7 +332,7 @@ def main() -> None:
         "search_policy": "minimum quantized decoder-block cardinality; then min max-relative-RMSE, max-abs-error, size-ratio, block tuple",
         "acceptance_thresholds_unchanged": baseline_summary["acceptance_thresholds_unchanged"],
         "candidate_count_evaluated": len(candidate_results),
-        "candidates": candidate_results,
+        "candidates": report_candidates,
         "selected": {key: value for key, value in selected.items() if key != "path"},
         "canonical_sha256": sha256_file(canonical_path),
         "canonical_size": canonical_path.stat().st_size,
