@@ -20,7 +20,11 @@ jobs:
       startsWith(github.event.pull_request.title, '[A3-H1]')
     name: H1 checkpoint hash + CTC tensor inventory
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 60
+    env:
+      MODELSCOPE_DOWNLOAD_PARALLEL_WORKERS: "4"
+      MODELSCOPE_DOWNLOAD_PARALLEL_THRESHOLD_MB: "500"
+      MODELSCOPE_DOWNLOAD_PART_SIZE_MB: "160"
 
     steps:
       - name: Checkout
