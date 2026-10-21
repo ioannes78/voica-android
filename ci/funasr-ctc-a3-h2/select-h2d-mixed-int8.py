@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import importlib.util
-import itertools
 import json
 import re
 import shutil
@@ -17,12 +16,12 @@ import numpy as np
 import onnx
 from onnxruntime.quantization import QuantType, quantize_dynamic
 
-
 FIXTURES = ("zh.wav", "en.wav")
 EXPECTED_BLOCKS = tuple(range(5))
 EXPECTED_WEIGHTED_MATMULS_PER_BLOCK = 6
 EXPECTED_ACTIVATION_MATMULS_PER_BLOCK = 2
 BLOCK_PATTERN = re.compile(r"(?:^|[/._])blocks[./](\d+)(?:[/._]|$)")
+ROLE_PATTERN = re.compile(r"/blocks\.\d+/(.+)/MatMul$")
 
 
 def load_module(path: Path, name: str):
@@ -47,15 +46,12 @@ def quantized_matmul_count(path: Path) -> int:
     return sum(node.op_type in {"MatMulInteger", "QLinearMatMul"} for node in model.graph.node)
 
 
-def block_matmul_inventory(
-    path: Path,
-) -> tuple[dict[int, list[str]], dict[int, list[str]], list[str]]:
+def block_matmul_inventory(path: Path) -> tuple[dict[int, list[str]], dict[int, list[str]], list[str]]:
     model = onnx.load(str(path))
     initializer_names = {initializer.name for initializer in model.graph.initializer}
-    weighted: dict[int, list[str]] = {block: [] for block in EXPECTED_BLOCKS}
-    activation: dict[int, list[str]] = {block: [] for block in EXPECTED_BLOCKS}
+    weighted = {block: [] for block in EXPECTED_BLOCKS}
+    activation = {block: [] for block in EXPECTED_BLOCKS}
     ungrouped: list[str] = []
-
     for node in model.graph.node:
         if node.op_type != "MatMul":
             continue
@@ -73,42 +69,32 @@ def block_matmul_inventory(
             weighted[block].append(name)
         else:
             activation[block].append(name)
-
     for block in EXPECTED_BLOCKS:
         if len(weighted[block]) != EXPECTED_WEIGHTED_MATMULS_PER_BLOCK:
             raise RuntimeError(
-                f"CTC block {block} weighted MatMul inventory drift: "
-                f"expected={EXPECTED_WEIGHTED_MATMULS_PER_BLOCK}, "
-                f"actual={len(weighted[block])}, nodes={weighted[block]}"
+                f"CTC block {block} weighted MatMul inventory drift: expected="
+                f"{EXPECTED_WEIGHTED_MATMULS_PER_BLOCK}, actual={len(weighted[block])}, nodes={weighted[block]}"
             )
         if len(activation[block]) != EXPECTED_ACTIVATION_MATMULS_PER_BLOCK:
             raise RuntimeError(
-                f"CTC block {block} activation MatMul inventory drift: "
-                f"expected={EXPECTED_ACTIVATION_MATMULS_PER_BLOCK}, "
-                f"actual={len(activation[block])}, nodes={activation[block]}"
+                f"CTC block {block} activation MatMul inventory drift: expected="
+                f"{EXPECTED_ACTIVATION_MATMULS_PER_BLOCK}, actual={len(activation[block])}, nodes={activation[block]}"
             )
-
     flattened = [name for names in weighted.values() for name in names]
     if len(flattened) != len(set(flattened)):
         raise RuntimeError("Duplicate weighted ONNX MatMul node name across block inventory")
     return weighted, activation, ungrouped
 
 
-def quantize_selected_blocks(
-    source: Path,
-    target: Path,
-    weighted_groups: dict[int, list[str]],
-    blocks: tuple[int, ...],
-) -> dict[str, Any]:
-    node_names = [name for block in blocks for name in weighted_groups[block]]
+def quantize_nodes(source: Path, target: Path, node_names: tuple[str, ...]) -> dict[str, Any]:
     if not node_names:
-        raise RuntimeError(f"No weighted MatMul nodes selected for blocks={blocks}")
+        raise RuntimeError("No weighted MatMul nodes selected")
     source_quantized = quantized_matmul_count(source)
     quantize_dynamic(
         model_input=str(source),
         model_output=str(target),
         op_types_to_quantize=["MatMul"],
-        nodes_to_quantize=node_names,
+        nodes_to_quantize=list(node_names),
         per_channel=True,
         reduce_range=False,
         weight_type=QuantType.QInt8,
@@ -120,19 +106,22 @@ def quantize_selected_blocks(
     actual_added = actual_total - source_quantized
     if actual_added != len(node_names):
         raise RuntimeError(
-            f"Selective decoder weighted-MatMul quantization drift for blocks={blocks}: "
+            "Selective decoder weighted-MatMul quantization drift: "
             f"expected_added={len(node_names)}, actual_added={actual_added}, "
-            f"source_quantized={source_quantized}, target_quantized={actual_total}, "
-            f"nodes={node_names}"
+            f"source_quantized={source_quantized}, target_quantized={actual_total}, nodes={node_names}"
         )
     return {
-        "blocks": list(blocks),
         "selected_weighted_matmul_count": len(node_names),
-        "selected_weighted_node_names": node_names,
+        "selected_weighted_node_names": list(node_names),
         "source_quantized_matmul_count": source_quantized,
         "target_quantized_matmul_count": actual_total,
         "added_quantized_matmul_count": actual_added,
     }
+
+
+def role_of(name: str) -> str:
+    match = ROLE_PATTERN.search(name)
+    return match.group(1) if match else name
 
 
 def main() -> None:
@@ -154,8 +143,7 @@ def main() -> None:
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     baseline_cmd = [
-        sys.executable,
-        str(baseline_script),
+        sys.executable, str(baseline_script),
         "--h2a-root", str(args.h2a_root.resolve()),
         "--h2c-root", str(args.h2c_root.resolve()),
         "--h2c-generation-root", str(args.h2c_generation_root.resolve()),
@@ -181,7 +169,7 @@ def main() -> None:
             "selected_size": canonical_path.stat().st_size,
             "selected_size_ratio": canonical_path.stat().st_size / int(baseline_summary["source_fp32_size"]),
             "acceptance_thresholds_unchanged": baseline_summary["acceptance_thresholds_unchanged"],
-            "status": "H2d full INT8 already PASS; mixed search not required",
+            "status": "H2d full INT8 already PASS; fine-grained search not required",
         }
         summary_path = out / "a3-h2d-mixed-int8-selection.json"
         summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -189,16 +177,16 @@ def main() -> None:
         return
 
     full_baseline_path = out / "ctc_compact.full-int8.onnx"
-    if full_baseline_path.exists():
-        full_baseline_path.unlink()
+    full_baseline_path.unlink(missing_ok=True)
     canonical_path.replace(full_baseline_path)
 
     weighted_groups, activation_groups, ungrouped = block_matmul_inventory(projection_path)
+    weighted_nodes = tuple(name for block in EXPECTED_BLOCKS for name in weighted_groups[block])
     fp32_path = args.h2a_root.resolve() / "ctc_compact.fp32.onnx"
     dual_encoder_path = args.h2c_root.resolve() / "encoder_adaptor.dual.int8.onnx"
     for required in (fp32_path, dual_encoder_path):
         if not required.is_file():
-            raise RuntimeError(f"Missing mixed-search prerequisite: {required}")
+            raise RuntimeError(f"Missing fine-search prerequisite: {required}")
 
     fp32_session = h2d.make_session(
         fp32_path,
@@ -210,7 +198,6 @@ def main() -> None:
         ["x"],
         ["encoder_out", "ctc_encoder_out", "ctc_encoder_out_lens"],
     )
-
     baseline_cases = {str(case["fixture"]): case for case in baseline_summary.get("cases", [])}
     if set(baseline_cases) != set(FIXTURES):
         raise RuntimeError(f"Unexpected baseline H2d fixtures: {sorted(baseline_cases)}")
@@ -242,132 +229,182 @@ def main() -> None:
         }
 
     fp32_size = fp32_path.stat().st_size
-    candidate_results: list[dict[str, Any]] = []
-    accepted_at_cardinality: list[dict[str, Any]] = []
+    projection_size = projection_path.stat().st_size
+    candidate_counter = 0
+    cache: dict[tuple[str, ...], dict[str, Any]] = {}
 
-    for cardinality in range(1, len(EXPECTED_BLOCKS) + 1):
-        round_results: list[dict[str, Any]] = []
-        for blocks in itertools.combinations(EXPECTED_BLOCKS, cardinality):
-            candidate_path = out / ("ctc_compact.mixed-b" + "-".join(map(str, blocks)) + ".int8.onnx")
-            quant_info = quantize_selected_blocks(projection_path, candidate_path, weighted_groups, blocks)
-            size = candidate_path.stat().st_size
-            size_ratio = size / fp32_size
-            session = h2d.make_session(
-                candidate_path,
-                ["ctc_encoder_out", "ctc_encoder_out_lens", "candidate_ids"],
-                ["candidate_logits"],
-            )
+    def evaluate(node_names: tuple[str, ...], phase: str, preserve: bool = False) -> dict[str, Any]:
+        nonlocal candidate_counter
+        key = tuple(sorted(node_names))
+        if key in cache:
+            return cache[key]
+        candidate_counter += 1
+        candidate_path = out / f"ctc_compact.fine-{candidate_counter:03d}.int8.onnx"
+        quant_info = quantize_nodes(projection_path, candidate_path, key)
+        size = candidate_path.stat().st_size
+        size_ratio = size / fp32_size
+        session = h2d.make_session(
+            candidate_path,
+            ["ctc_encoder_out", "ctc_encoder_out_lens", "candidate_ids"],
+            ["candidate_logits"],
+        )
+        cases: list[dict[str, Any]] = []
+        numeric_all = True
+        exact_all = True
+        max_relative_rmse = 0.0
+        max_abs_error = 0.0
+        total_state_diff_frames = 0
+        total_label_diff_frames = 0
+        for fixture in FIXTURES:
+            ctx = fixture_context[fixture]
+            logits = session.run(["candidate_logits"], ctx["feeds"])[0]
+            if not np.all(np.isfinite(logits)):
+                raise RuntimeError(f"Fine INT8 emitted non-finite logits for {fixture}, nodes={key}")
+            error = diag.score_error(ctx["fp32_logits"], logits)
+            states = h2d.viterbi_state_path(logits[0], ctx["targets"])
+            alignment = diag.compare_alignment(h2d, ctx["fp32_states"], states, ctx["targets"])
+            numeric_ok = error["relative_rmse"] <= h2d.MAX_RELATIVE_RMSE and error["max_abs"] <= h2d.MAX_LOGIT_ABS_ERROR
+            exact_ok = bool(alignment.get("state_path_exact", False))
+            numeric_all = numeric_all and numeric_ok
+            exact_all = exact_all and exact_ok
+            max_relative_rmse = max(max_relative_rmse, float(error["relative_rmse"]))
+            max_abs_error = max(max_abs_error, float(error["max_abs"]))
+            total_state_diff_frames += int(alignment.get("state_diff_frame_count", 0))
+            total_label_diff_frames += int(alignment.get("label_diff_frame_count", 0))
+            cases.append({
+                "fixture": fixture,
+                "logit_error": error,
+                "alignment": alignment,
+                "numeric_thresholds_pass": numeric_ok,
+            })
+        accepted = size_ratio <= h2d.MAX_SIZE_RATIO and numeric_all and exact_all
+        result = {
+            **quant_info,
+            "phase": phase,
+            "sha256": sha256_file(candidate_path),
+            "size": size,
+            "size_ratio": size_ratio,
+            "size_reduction_from_projection": projection_size - size,
+            "max_relative_rmse": max_relative_rmse,
+            "max_logit_abs_error": max_abs_error,
+            "numeric_thresholds_pass": numeric_all,
+            "exact_alignment_pass": exact_all,
+            "total_state_diff_frames": total_state_diff_frames,
+            "total_label_diff_frames": total_label_diff_frames,
+            "size_threshold_pass": size_ratio <= h2d.MAX_SIZE_RATIO,
+            "accepted": accepted,
+            "cases": cases,
+            "path": str(candidate_path),
+        }
+        cache[key] = result
+        if not preserve and not accepted:
+            candidate_path.unlink(missing_ok=True)
+        return result
 
-            case_results: list[dict[str, Any]] = []
-            numeric_all = True
-            exact_all = True
-            max_relative_rmse = 0.0
-            max_abs_error = 0.0
-            for fixture in FIXTURES:
-                ctx = fixture_context[fixture]
-                logits = session.run(["candidate_logits"], ctx["feeds"])[0]
-                if not np.all(np.isfinite(logits)):
-                    raise RuntimeError(f"Mixed INT8 emitted non-finite logits for {fixture}, blocks={blocks}")
-                error = diag.score_error(ctx["fp32_logits"], logits)
-                states = h2d.viterbi_state_path(logits[0], ctx["targets"])
-                alignment = diag.compare_alignment(h2d, ctx["fp32_states"], states, ctx["targets"])
-                numeric_ok = (
-                    error["relative_rmse"] <= h2d.MAX_RELATIVE_RMSE
-                    and error["max_abs"] <= h2d.MAX_LOGIT_ABS_ERROR
+    individual_results: list[dict[str, Any]] = []
+    for node in weighted_nodes:
+        result = evaluate((node,), "individual")
+        individual_results.append(result)
+        print(
+            "H2D_FINE_PROBE "
+            f"node={node} role={role_of(node)} save={result['size_reduction_from_projection']} "
+            f"ratio={result['size_ratio']:.9f} exact={result['exact_alignment_pass']} "
+            f"relrmse={result['max_relative_rmse']:.9f} state_diff={result['total_state_diff_frames']}"
+        )
+
+    safe_individual = [
+        item for item in individual_results
+        if item["numeric_thresholds_pass"] and item["exact_alignment_pass"]
+    ]
+    safe_nodes = {item["selected_weighted_node_names"][0] for item in safe_individual}
+    by_node = {item["selected_weighted_node_names"][0]: item for item in individual_results}
+    orders: list[tuple[str, tuple[str, ...]]] = []
+    orders.append(("saving-desc", tuple(sorted(safe_nodes, key=lambda n: (-int(by_node[n]["size_reduction_from_projection"]), float(by_node[n]["max_relative_rmse"]), n)))))
+    orders.append(("rmse-asc", tuple(sorted(safe_nodes, key=lambda n: (float(by_node[n]["max_relative_rmse"]), -int(by_node[n]["size_reduction_from_projection"]), n)))))
+    orders.append(("state-stable", tuple(sorted(safe_nodes, key=lambda n: (int(by_node[n]["total_state_diff_frames"]), float(by_node[n]["max_logit_abs_error"]), -int(by_node[n]["size_reduction_from_projection"]), n)))))
+    orders.append(("role-interleaved", tuple(sorted(safe_nodes, key=lambda n: (role_of(n), -int(by_node[n]["size_reduction_from_projection"]), n)))))
+
+    greedy_results: list[dict[str, Any]] = []
+    selected_result: dict[str, Any] | None = None
+    selected_order = ""
+    for order_name, order in orders:
+        selected: tuple[str, ...] = ()
+        for node in order:
+            trial = tuple(sorted((*selected, node)))
+            result = evaluate(trial, f"greedy:{order_name}")
+            greedy_results.append(result)
+            if result["numeric_thresholds_pass"] and result["exact_alignment_pass"]:
+                selected = trial
+                print(
+                    "H2D_FINE_KEEP "
+                    f"order={order_name} count={len(selected)} add={node} ratio={result['size_ratio']:.9f} "
+                    f"relrmse={result['max_relative_rmse']:.9f}"
                 )
-                exact_ok = bool(alignment.get("state_path_exact", False))
-                numeric_all = numeric_all and numeric_ok
-                exact_all = exact_all and exact_ok
-                max_relative_rmse = max(max_relative_rmse, float(error["relative_rmse"]))
-                max_abs_error = max(max_abs_error, float(error["max_abs"]))
-                case_results.append({
-                    "fixture": fixture,
-                    "wave_sha256": ctx["wave_sha256"],
-                    "sample_rate": ctx["sample_rate"],
-                    "feature_frames": ctx["feature_frames"],
-                    "logit_error": error,
-                    "alignment": alignment,
-                    "numeric_thresholds_pass": numeric_ok,
-                })
-
-            accepted = size_ratio <= h2d.MAX_SIZE_RATIO and numeric_all and exact_all
-            result = {
-                **quant_info,
-                "sha256": sha256_file(candidate_path),
-                "size": size,
-                "size_ratio": size_ratio,
-                "max_relative_rmse": max_relative_rmse,
-                "max_logit_abs_error": max_abs_error,
-                "numeric_thresholds_pass": numeric_all,
-                "exact_alignment_pass": exact_all,
-                "size_threshold_pass": size_ratio <= h2d.MAX_SIZE_RATIO,
-                "accepted": accepted,
-                "cases": case_results,
-                "path": str(candidate_path),
-            }
-            round_results.append(result)
-            candidate_results.append(result)
-            if not accepted:
-                candidate_path.unlink(missing_ok=True)
-
-        accepted_at_cardinality = [item for item in round_results if item["accepted"]]
-        if accepted_at_cardinality:
+                if result["accepted"]:
+                    selected_result = result
+                    selected_order = order_name
+                    break
+            else:
+                print(
+                    "H2D_FINE_SKIP "
+                    f"order={order_name} add={node} exact={result['exact_alignment_pass']} "
+                    f"numeric={result['numeric_thresholds_pass']} state_diff={result['total_state_diff_frames']}"
+                )
+        if selected_result is not None:
             break
 
-    report_candidates = [{key: value for key, value in item.items() if key != "path"} for item in candidate_results]
     inventory = {
         "weighted_quantizable_by_block": {str(block): names for block, names in weighted_groups.items()},
-        "activation_attention_matmuls_left_fp32_by_block": {
-            str(block): names for block, names in activation_groups.items()
-        },
+        "activation_attention_matmuls_left_fp32_by_block": {str(block): names for block, names in activation_groups.items()},
         "ungrouped_matmuls_left_fp32": ungrouped,
     }
-    if not accepted_at_cardinality:
-        summary = {
-            "baseline_returncode": baseline.returncode,
-            "decoder_matmul_inventory": inventory,
-            "acceptance_thresholds_unchanged": baseline_summary["acceptance_thresholds_unchanged"],
-            "candidates": report_candidates,
-            "status": "H2d mixed INT8 search FAIL: no candidate satisfies unchanged criteria",
-        }
-        summary_path = out / "a3-h2d-mixed-int8-selection.json"
-        summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        print(json.dumps(summary, ensure_ascii=False, indent=2))
-        raise RuntimeError("No mixed INT8 CTC scorer satisfies exact alignment + numeric + size criteria")
 
-    selected = min(
-        accepted_at_cardinality,
-        key=lambda item: (
-            float(item["max_relative_rmse"]),
-            float(item["max_logit_abs_error"]),
-            float(item["size_ratio"]),
-            tuple(item["blocks"]),
-        ),
-    )
-    selected_path = Path(str(selected["path"]))
-    shutil.copy2(selected_path, canonical_path)
-    if sha256_file(canonical_path) != selected["sha256"]:
-        raise RuntimeError("Canonical mixed INT8 copy SHA mismatch")
+    def strip_path(item: dict[str, Any]) -> dict[str, Any]:
+        return {key: value for key, value in item.items() if key != "path"}
 
-    summary = {
+    base_summary = {
         "baseline_returncode": baseline.returncode,
         "baseline_full_int8_sha256": sha256_file(full_baseline_path),
         "baseline_full_int8_size": full_baseline_path.stat().st_size,
-        "baseline_full_int8_exact_alignment_pass": bool(baseline_summary.get("full_int8_exact_alignment_pass")),
         "projection_only_sha256": sha256_file(projection_path),
-        "projection_only_size": projection_path.stat().st_size,
-        "projection_only_size_ratio": projection_path.stat().st_size / fp32_size,
+        "projection_only_size": projection_size,
+        "projection_only_size_ratio": projection_size / fp32_size,
         "decoder_matmul_inventory": inventory,
-        "search_policy": "minimum quantized decoder-block cardinality; then min max-relative-RMSE, max-abs-error, size-ratio, block tuple",
+        "search_policy": "per-node sensitivity probes; exact+numeric-only deterministic greedy additions with four orderings",
         "acceptance_thresholds_unchanged": baseline_summary["acceptance_thresholds_unchanged"],
-        "candidate_count_evaluated": len(candidate_results),
-        "candidates": report_candidates,
-        "selected": {key: value for key, value in selected.items() if key != "path"},
-        "canonical_sha256": sha256_file(canonical_path),
-        "canonical_size": canonical_path.stat().st_size,
-        "status": "H2d mixed INT8 exact alignment + numeric + size PASS",
+        "individual_probe_count": len(individual_results),
+        "individually_exact_numeric_count": len(safe_individual),
+        "individually_exact_numeric_nodes": sorted(safe_nodes),
+        "individual_probes": [strip_path(item) for item in individual_results],
+        "greedy_candidate_count": len(greedy_results),
+        "greedy_candidates": [strip_path(item) for item in greedy_results],
     }
     summary_path = out / "a3-h2d-mixed-int8-selection.json"
+
+    if selected_result is None:
+        summary = {
+            **base_summary,
+            "status": "H2d fine-grained INT8 search FAIL: no exact+numeric node subset reaches unchanged size criterion",
+        }
+        summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        raise RuntimeError("No fine-grained INT8 CTC scorer satisfies exact alignment + numeric + size criteria")
+
+    selected_path = Path(str(selected_result["path"]))
+    if not selected_path.is_file():
+        quantize_nodes(projection_path, selected_path, tuple(sorted(selected_result["selected_weighted_node_names"])))
+    shutil.copy2(selected_path, canonical_path)
+    if sha256_file(canonical_path) != sha256_file(selected_path):
+        raise RuntimeError("Canonical fine-grained INT8 copy SHA mismatch")
+
+    summary = {
+        **base_summary,
+        "selected_order": selected_order,
+        "selected": strip_path(selected_result),
+        "canonical_sha256": sha256_file(canonical_path),
+        "canonical_size": canonical_path.stat().st_size,
+        "status": "H2d fine-grained INT8 exact alignment + numeric + size PASS",
+    }
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     print(f"SUMMARY_PATH={summary_path}")
