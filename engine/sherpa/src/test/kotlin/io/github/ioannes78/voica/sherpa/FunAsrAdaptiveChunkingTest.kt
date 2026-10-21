@@ -97,6 +97,28 @@ class FunAsrAdaptiveChunkingTest {
     }
 
     @Test
+    fun productContractBlocksSyntheticTimingEvenWithoutRetry() = runBlocking {
+        FunAsrRuntimeDiagnostics.clear()
+        val delegate = RetryFakeEngine()
+        val engine =
+            FunAsrAdaptiveOfflineAsrEngine(
+                delegate = delegate,
+                settings = LargeOfflineAsrSettings(),
+            )
+        val samples = ShortArray(2 * 16_000) { 2_000 }
+
+        val result = engine.transcribe(samples, 16_000)
+        val diagnostics = FunAsrRuntimeDiagnostics.snapshot()
+
+        assertFalse(engine.capabilities.supportsTokenTiming)
+        assertEquals(TimestampCapability.NONE, engine.capabilities.timestampCapability)
+        assertTrue(result.tokens.isEmpty())
+        assertEquals(1, diagnostics.size)
+        assertTrue(diagnostics.single().generatedTokenCount > 0)
+        assertTrue(diagnostics.single().accepted)
+    }
+
+    @Test
     fun blankSpeechChunkIsDiscardedAndRetriedShorter() = runBlocking {
         FunAsrRuntimeDiagnostics.clear()
         val delegate = RetryFakeEngine(blankFirst = true)
