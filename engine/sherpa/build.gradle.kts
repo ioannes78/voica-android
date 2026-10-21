@@ -1,20 +1,15 @@
-import org.gradle.api.GradleException
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     id("com.android.library")
 }
 
-val patchedSherpaAar =
-    providers.gradleProperty("voica.patchedSherpaAar")
+val sherpaDependencyVersion =
+    providers.gradleProperty("voica.sherpaDependencyVersion")
         .orNull
         ?.trim()
         ?.takeIf { it.isNotEmpty() }
-        ?.let { rootProject.file(it).canonicalFile }
-
-if (patchedSherpaAar != null && !patchedSherpaAar.isFile) {
-    throw GradleException("Configured patched sherpa AAR does not exist: $patchedSherpaAar")
-}
+        ?: "v1.13.8"
 
 android {
     namespace = "io.github.ioannes78.voica.sherpa"
@@ -46,11 +41,7 @@ dependencies {
     implementation(project(":core:transcript"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
 
-    if (patchedSherpaAar != null) {
-        api(files(patchedSherpaAar))
-    } else {
-        api("com.github.k2-fsa.sherpa-onnx:sherpa-onnx:v1.13.8")
-    }
+    api("com.github.k2-fsa.sherpa-onnx:sherpa-onnx:$sherpaDependencyVersion")
 
     testImplementation(kotlin("test-junit"))
     testImplementation("junit:junit:4.13.2")
