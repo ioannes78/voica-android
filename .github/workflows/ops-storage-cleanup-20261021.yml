@@ -1,0 +1,154 @@
+name: One-time approved QA artifact cleanup
+
+'on':
+  push:
+    branches: [ops/actions-storage-cleanup-20261021]
+    paths: [.github/workflows/ops-storage-cleanup-20261021.yml]
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: ops-storage-cleanup-20261021
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    if: github.repository == 'ioannes78/voica-android' && github.ref == 'refs/heads/ops/actions-storage-cleanup-20261021'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Delete only the 12 user-approved old QA artifacts and verify all preserved artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.error
+          from pathlib import Path
+          
+          REPO = "ioannes78/voica-android"
+          MAIN = "988931ebed72a70ba799d909cd36a416a673eef5"
+          PLAN = json.loads("[{\"id\":12310470161,\"run\":39517993395,\"name\":\"Voica-1.1.0-stage16a2-export-qa-apk\",\"bytes\":32114636,\"branch\":\"stage16b-local-file-asr-v2\",\"sha\":\"9637650ed264162fd112803204258f6895c0aa6e\",\"digest\":\"sha256:2ebe554073aa4c8fac07d4d83b0baba36ff9b7c4e92a557b6bf64bb672f04ddc\"},{\"id\":12284494447,\"run\":39466882881,\"name\":\"Voica-1.1.0-stage16a2-export-qa-apk\",\"bytes\":32098176,\"branch\":\"stage16b-local-file-asr-v2\",\"sha\":\"2e9638fe311db1f4bc02e8c51bc086f1d42e0775\",\"digest\":\"sha256:951364d79344960ce8d9b3cb265233930ef0585cfb0251e74248579381028ee9\"},{\"id\":12282754988,\"run\":39463076056,\"name\":\"Voica-1.1.0-stage16a2-export-qa-apk\",\"bytes\":32098176,\"branch\":\"stage16b-local-file-asr-v2\",\"sha\":\"f2239ec901c4c42b103f06caf4e6a9aa3096fbb5\",\"digest\":\"sha256:4483c7fb5288668088424b6bc8993d473970814c7aac8bf942e31e06f26d14d2\"},{\"id\":12280288773,\"run\":39456842644,\"name\":\"Voica-1.1.0-stage16a2-export-qa-apk\",\"bytes\":32098228,\"branch\":\"stage16b-local-file-asr-v2\",\"sha\":\"a49ea1ef2fd7cff0ee385b5509262e9208853684\",\"digest\":\"sha256:36a1e20e05baf38a9370a2be71c60ffb8e16647cf2d91938780ab071bc529421\"},{\"id\":12277747780,\"run\":39450555577,\"name\":\"Voica-1.1.0-stage16a2-export-qa-apk\",\"bytes\":32081580,\"branch\":\"stage16b-local-file-asr-v2\",\"sha\":\"76b53232ae37c4a9252706a8346d5338e7af39a4\",\"digest\":\"sha256:f24b2aaf8c6bcc6cc96b143dee71832c915ddcf07a5ac6fbc99248dcc8b465cc\"},{\"id\":12276585259,\"run\":39444271060,\"name\":\"Voica-1.1.0-stage16a2-export-qa-apk\",\"bytes\":32081508,\"branch\":\"stage16b-local-file-asr-v2\",\"sha\":\"7e22e2b184c34092c9a6082cf32925600aac8e63\",\"digest\":\"sha256:bcdbc66828ef138237ec8f6e3e00a8b1bc8ca77109b7801d179d948cef4b26b2\"},{\"id\":12262492806,\"run\":39419289768,\"name\":\"Voica-1.1.0-stage16a2-export-qa-apk\",\"bytes\":32065060,\"branch\":\"stage16b-local-file-asr-v2\",\"sha\":\"382179fc92c619dac218e053f93e4e6770b1862a\",\"digest\":\"sha256:76f5a4e9518222af675315d0dea23dc2aec0ba84cdc038627f9787c8a261d7c9\"},{\"id\":12260190295,\"run\":39411106360,\"name\":\"Voica-1.1.0-stage16a2-export-qa-apk\",\"bytes\":32048620,\"branch\":\"stage16b-local-file-asr-v2\",\"sha\":\"d00a3093adb3791b9a77866aa4b9148e9d9ea88c\",\"digest\":\"sha256:6a21093443f0939fcc925558d74f300a08c7cd2c6de8c5cc28599aaba09ab639\"},{\"id\":12255162649,\"run\":39402918204,\"name\":\"Voica-1.1.0-stage16a2-export-qa-apk\",\"bytes\":32048620,\"branch\":\"stage16b-local-file-asr-v2\",\"sha\":\"e8e5477c4a99b98e6f6e149c9027647652b46324\",\"digest\":\"sha256:70de5ca27ac8fcaa70157b38366e043847447e12fd4113679050fb6b5ad25792\"},{\"id\":12250801192,\"run\":39392675955,\"name\":\"Voica-1.1.0-stage16a2-export-qa-apk\",\"bytes\":32048620,\"branch\":\"stage16b-local-file-asr-v2\",\"sha\":\"45954e4b13ef6ab69697e53d44109a5fa0044f3f\",\"digest\":\"sha256:e7916339c769d25e0bac4d381cb0ee6ac298975e25705c4b4c9cad100d7beca5\"},{\"id\":12245362192,\"run\":39380044902,\"name\":\"Voica-1.1.0-stage16a2-export-qa-apk\",\"bytes\":32048620,\"branch\":\"stage16b-local-file-asr-v2\",\"sha\":\"a27ed998db56e8edd71c17ff50303285ae3453bf\",\"digest\":\"sha256:07c976c4aa38a3064e6e7e6628bea5a53107c81f595c6b773bde6299f918aa34\"},{\"id\":12242275612,\"run\":39371393841,\"name\":\"Voica-1.1.0-stage16a2-export-qa-apk\",\"bytes\":32032148,\"branch\":\"stage16b-local-file-asr-v2\",\"sha\":\"0468cb0f609bb5569d241b7221a1774d43a4b9ec\",\"digest\":\"sha256:66c8edb3e43e628d10796c8624b069c2c3fda0b5f0e11c74cc483594caf967b7\"}]")
+          KEEP = {12310078138, 12289211982}
+          TARGETS = {item["id"] for item in PLAN}
+          assert len(PLAN) == len(TARGETS) == 12
+          assert not TARGETS & KEEP
+          assert os.environ["GITHUB_REPOSITORY"] == REPO
+          assert os.environ["GITHUB_REF"] == "refs/heads/ops/actions-storage-cleanup-20261021"
+          
+          def api(path, method="GET"):
+              req = urllib.request.Request(
+                  "https://api.github.com/repos/" + REPO + "/" + path,
+                  method=method,
+                  headers={
+                      "Authorization": "Bearer " + os.environ["GH_TOKEN"],
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                      "User-Agent": "Voica-authorized-storage-cleanup"
+                  }
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as response:
+                      data = response.read()
+                      return response.status, json.loads(data) if data else None
+              except urllib.error.HTTPError as exc:
+                  if exc.code == 404:
+                      return 404, None
+                  raise RuntimeError(f"{method} {path}: HTTP {exc.code}") from None
+          
+          def required(path):
+              status, data = api(path)
+              assert status == 200, (path, status)
+              return data
+          
+          def inventory():
+              found = {}
+              page = 1
+              while True:
+                  batch = required(f"actions/artifacts?per_page=100&page={page}")["artifacts"]
+                  for item in batch:
+                      assert item["id"] not in found
+                      found[item["id"]] = item
+                  if len(batch) < 100:
+                      return found
+                  page += 1
+          
+          def fingerprint(a):
+              return (a["id"], a["name"], a["size_in_bytes"], a.get("digest"), a["workflow_run"]["id"])
+          
+          def validate(expected, actual):
+              assert actual["id"] == expected["id"]
+              assert actual["name"] == expected["name"]
+              assert actual["size_in_bytes"] == expected["bytes"]
+              assert actual.get("digest") == expected["digest"]
+              assert actual["workflow_run"]["id"] == expected["run"]
+              assert actual["workflow_run"]["head_branch"] == expected["branch"]
+              assert actual["workflow_run"]["head_sha"] == expected["sha"]
+              assert actual["name"] in {
+                  "Voica-1.1.0-stage16a2-export-qa-apk",
+                  "Voica-1.1.0-stage16a-export-qa-apk"
+              }
+              assert actual["id"] not in KEEP
+          
+          assert required("git/ref/heads/main")["object"]["sha"] == MAIN
+          release_before = required("releases/tags/v1.0.0")
+          before = inventory()
+          assert KEEP <= before.keys(), "A required QA baseline is missing; refuse deletion"
+          protected = {key: fingerprint(item) for key, item in before.items() if key not in TARGETS}
+          candidates = []
+          for expected in PLAN:
+              if expected["id"] not in before:
+                  print(f"Already absent: {expected['id']}")
+                  continue
+              validate(expected, before[expected["id"]])
+              current = required(f"actions/artifacts/{expected['id']}")
+              validate(expected, current)
+              candidates.append(expected)
+          print(f"Preflight PASS: {len(candidates)} exact targets; {len(protected)} other artifacts protected", flush=True)
+          
+          deleted = []
+          for expected in candidates:
+              path = f"actions/artifacts/{expected['id']}"
+              current = required(path)
+              validate(expected, current)
+              status, _ = api(path, "DELETE")
+              assert status == 204, (expected["id"], status)
+              deleted.append(expected)
+              verify_status, _ = api(path)
+              assert verify_status == 404, f"Deleted artifact still readable: {expected['id']}"
+              print(f"Deleted {expected['id']} / run {expected['run']} / {expected['bytes']} bytes", flush=True)
+          
+          after = inventory()
+          assert not TARGETS & after.keys(), "An approved deletion target remains"
+          for key, expected in protected.items():
+              assert key in after, f"Protected artifact disappeared: {key}"
+              assert fingerprint(after[key]) == expected, f"Protected artifact changed: {key}"
+          assert KEEP <= after.keys()
+          assert required("git/ref/heads/main")["object"]["sha"] == MAIN
+          release_after = required("releases/tags/v1.0.0")
+          assert release_before["id"] == release_after["id"]
+          assert {(a["id"], a["name"], a["size"], a.get("digest")) for a in release_before["assets"]} == {(a["id"], a["name"], a["size"], a.get("digest")) for a in release_after["assets"]}
+          total_bytes = sum(item["bytes"] for item in deleted)
+          summary = {
+              "deleted_count": len(deleted),
+              "deleted_bytes": total_bytes,
+              "already_absent_count": len(PLAN) - len(candidates),
+              "protected_artifacts_verified": len(protected),
+              "remaining_artifact_count": len(after),
+              "remaining_artifact_bytes": sum(a["size_in_bytes"] for a in after.values() if not a["expired"]),
+              "preserved_qa_artifact_ids": sorted(KEEP),
+              "main_unchanged": MAIN,
+              "release_v1_0_0_unchanged": True,
+              "workflow_runs_and_caches": "untouched"
+          }
+          print("CLEANUP_RESULT=" + json.dumps(summary, sort_keys=True), flush=True)
+          print("REMAINING_INVENTORY=" + json.dumps([{"id": a["id"], "name": a["name"], "bytes": a["size_in_bytes"], "expired": a["expired"], "run": a["workflow_run"]["id"]} for a in after.values()], sort_keys=True), flush=True)
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as f:
+              f.write("# Actions 存储清理结果\n\n")
+              f.write(f"删除 {len(deleted)} 个指定旧 QA APK，共 {total_bytes:,} bytes。\n\n")
+              f.write("最新可用 QA #2083、上一份不同提交的 QA #2076、全部其他 Artifact、v1.0.0 Release 已核验保留。\n\n")
+              f.write("main、Workflow Run/CI 历史、Cache 均未改动。\n\n")
+              f.write("\n".join(f"- Artifact {x['id']} / run {x['run']}" for x in deleted) + "\n")
+          PY
