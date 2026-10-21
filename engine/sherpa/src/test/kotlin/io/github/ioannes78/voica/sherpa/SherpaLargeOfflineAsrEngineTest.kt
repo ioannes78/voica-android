@@ -11,6 +11,7 @@ import io.github.ioannes78.voica.model.ModelSourceType
 import io.github.ioannes78.voica.model.RedistributionPolicy
 import io.github.ioannes78.voica.model.TimestampCapability
 import java.nio.file.Files
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -78,6 +79,24 @@ class SherpaLargeOfflineAsrEngineTest {
         } finally {
             directory.deleteRecursively()
         }
+    }
+
+    @Test
+    fun funAsrNanoUsesSherpaNativeTokenTimingEvenWithConservativeDescriptorMetadata() {
+        assertTrue(
+            runtimeSupportsNativeTokenTiming(
+                descriptor(SherpaOfflineAsrModelType.FUNASR_NANO),
+            ),
+        )
+    }
+
+    @Test
+    fun qwenDoesNotGainNativeTimingWithoutDescriptorSupport() {
+        assertFalse(
+            runtimeSupportsNativeTokenTiming(
+                descriptor(SherpaOfflineAsrModelType.QWEN3_ASR),
+            ),
+        )
     }
 
     @Test
