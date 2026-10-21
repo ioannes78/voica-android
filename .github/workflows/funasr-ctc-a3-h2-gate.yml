@@ -1,0 +1,121 @@
+name: FunASR CTC A3 H2 Gate
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [ main ]
+    types: [edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: funasr-ctc-a3-h2-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  h2a-ctc-export-parity:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.event.pull_request.title, '[A3-H2]')
+    name: H2a FP32 CTC export + numerical parity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      MODELSCOPE_DOWNLOAD_PARALLEL_WORKERS: "4"
+      MODELSCOPE_DOWNLOAD_PARALLEL_THRESHOLD_MB: "500"
+      MODELSCOPE_DOWNLOAD_PART_SIZE_MB: "160"
+      FUNASR_REFERENCE_COMMIT: "24217c8ff0b81f3d967593f0bf84609306929f99"
+
+    steps:
+      - name: Checkout Voica
+        uses: actions/checkout@v5
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned H2 tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --no-cache-dir \
+            "modelscope-hub==0.4.6" \
+            "tiktoken==0.12.0" \
+            "PyYAML==6.0.2" \
+            "onnx==1.18.0" \
+            "onnxruntime==1.28.2"
+          python -m pip install --disable-pip-version-check --no-cache-dir \
+            --index-url https://download.pytorch.org/whl/cpu \
+            "torch==2.7.1" \
+            "torchaudio==2.7.1"
+          python - <<'PY'
+          import onnxruntime as ort
+          import torch
+          import torchaudio
+          from importlib.metadata import version
+          from modelscope_hub._download import DownloadManager
+          from modelscope_hub.constants import (
+              DOWNLOAD_PARALLEL_THRESHOLD,
+              DOWNLOAD_PARALLELS,
+              DOWNLOAD_PART_SIZE,
+          )
+
+          assert version("modelscope-hub") == "0.4.6"
+          assert version("tiktoken") == "0.12.0"
+          assert torch.__version__.startswith("2.7.1")
+          assert torchaudio.__version__.startswith("2.7.1")
+          assert ort.__version__ == "1.28.2"
+          assert DOWNLOAD_PARALLELS == 4
+          assert DOWNLOAD_PARALLEL_THRESHOLD == 500 * 1024 * 1024
+          assert DOWNLOAD_PART_SIZE == 160 * 1024 * 1024
+          assert "file_size" in __import__("inspect").signature(DownloadManager.download_file).parameters
+          print(
+              "H2 tooling contract: "
+              f"torch={torch.__version__} torchaudio={torchaudio.__version__} "
+              f"ort={ort.__version__} workers={DOWNLOAD_PARALLELS}"
+          )
+          PY
+
+      - name: Checkout pinned FunASR reference source
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="${RUNNER_TEMP}/FunASR-reference"
+          git init "$root"
+          git -C "$root" remote add origin https://github.com/modelscope/FunASR.git
+          git -C "$root" fetch --depth=1 origin "$FUNASR_REFERENCE_COMMIT"
+          git -C "$root" checkout --detach FETCH_HEAD
+          test "$(git -C "$root" rev-parse HEAD)" = "$FUNASR_REFERENCE_COMMIT"
+
+      - name: Show runner disk before H2 source download
+        shell: bash
+        run: df -h . "${RUNNER_TEMP}"
+
+      - name: Export compact FP32 CTC scorer and prove parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/funasr-a3-h2a"
+          python ci/funasr-ctc-a3-h2/verify-h2a-ctc-export.py \
+            --out "$out" \
+            --funasr-root "${RUNNER_TEMP}/FunASR-reference"
+          test -s "$out/a3-h2a-ctc-export-parity.json"
+          test -s "$out/ctc_compact.fp32.onnx"
+          {
+            echo "## Stage 16B A3-H2a FP32 CTC export/parity"
+            echo
+            echo '```json'
+            cat "$out/a3-h2a-ctc-export-parity.json"
+            echo '```'
+            echo
+            echo "The 2.13 GB checkpoint and exported FP32 ONNX remain runner-local; no binary artifact is uploaded."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove H2 model/export assets
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "${RUNNER_TEMP}/funasr-a3-h2a" "${RUNNER_TEMP}/FunASR-reference"
+          df -h . "${RUNNER_TEMP}"
