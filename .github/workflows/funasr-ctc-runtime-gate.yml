@@ -3,10 +3,8 @@ name: FunASR CTC Runtime Gate
 on:
   pull_request:
     branches: [ main ]
-    types: [opened, synchronize, reopened]
-    paths:
-      - ".github/workflows/funasr-ctc-runtime-gate.yml"
-      - "ci/funasr-ctc-runtime/**"
+    types: [edited]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,6 +12,13 @@ permissions:
 jobs:
   runtime-a2:
     name: Patched sherpa arm64 A2
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'pull_request' &&
+          github.event.changes.title.from != null &&
+          startsWith(github.event.pull_request.title, '[CTC]'))
+      }}
     concurrency:
       group: funasr-ctc-runtime-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: true
