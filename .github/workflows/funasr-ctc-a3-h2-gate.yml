@@ -18,7 +18,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.event.pull_request.title, '[A3-H2]')
-    name: H2a+H2b FP32 export + numerical parity
+    name: H2a+H2b+H2c export + production INT8 parity
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -161,6 +161,27 @@ jobs:
             echo "H2b reuses the exact H2a checkpoint download and the pinned revision-1 exporter; no second model download or binary upload is permitted."
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: H2c expose pre-adaptor state from the exact production INT8 graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/funasr-a3-h2c"
+          python ci/funasr-ctc-a3-h2/verify-h2c-int8-dual-surgery.py \
+            --h2b-root "${RUNNER_TEMP}/funasr-a3-h2b" \
+            --out "$out"
+          test -s "$out/a3-h2c-int8-dual-surgery.json"
+          test -s "$out/encoder_adaptor.dual.int8.onnx"
+          {
+            echo
+            echo "## Stage 16B A3-H2c production INT8 dual-output surgery"
+            echo
+            echo '```json'
+            cat "$out/a3-h2c-int8-dual-surgery.json"
+            echo '```'
+            echo
+            echo "H2c starts from the exact staged revision-1 sherpa package and requires output[0] bit-exact parity. The package and modified ONNX remain runner-local."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Remove H2 model/export assets
         if: always()
         shell: bash
@@ -168,6 +189,7 @@ jobs:
           rm -rf \
             "${RUNNER_TEMP}/funasr-a3-h2a" \
             "${RUNNER_TEMP}/funasr-a3-h2b" \
+            "${RUNNER_TEMP}/funasr-a3-h2c" \
             "${RUNNER_TEMP}/FunASR-reference" \
             "${RUNNER_TEMP}/FunASR-nano-onnx"
           df -h . "${RUNNER_TEMP}"
