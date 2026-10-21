@@ -36,8 +36,18 @@ class FunAsrCtcBundleContractTest {
         val bundle = requireNotNull(validateFunAsrCtcBundle(descriptor, root))
 
         assertTrue(requiresFunAsrCtcBundle(descriptor))
-        assertEquals(FunAsrCtcBundleLayout.POST_ADAPTOR_OUTPUT_INDEX, bundle.metadata.encoderPostAdaptorOutputIndex)
-        assertEquals(FunAsrCtcBundleLayout.PRE_ADAPTOR_OUTPUT_INDEX, bundle.metadata.encoderPreAdaptorOutputIndex)
+        assertEquals(
+            FunAsrCtcBundleLayout.POST_ADAPTOR_OUTPUT_INDEX,
+            bundle.metadata.encoderPostAdaptorOutputIndex,
+        )
+        assertEquals(
+            FunAsrCtcBundleLayout.PRE_ADAPTOR_OUTPUT_INDEX,
+            bundle.metadata.encoderPreAdaptorOutputIndex,
+        )
+        assertEquals(
+            FunAsrCtcBundleLayout.PRE_ADAPTOR_LENGTH_OUTPUT_INDEX,
+            bundle.metadata.encoderPreAdaptorLengthOutputIndex,
+        )
         assertEquals(512, bundle.metadata.encoderPreAdaptorDim)
         assertEquals(60_000L, bundle.metadata.framePeriodUs)
         assertEquals("raw_logits", bundle.metadata.scoreDomain)
@@ -63,7 +73,7 @@ class FunAsrCtcBundleContractTest {
     }
 
     @Test
-    fun revisionTwoRefusesDualEncoderOutputOrderThatWouldBreakRevisionOneTextPath() {
+    fun revisionTwoRefusesSharedEncoderOutputOrderThatWouldBreakRevisionOneTextPath() {
         val root = Files.createTempDirectory("funasr-ctc-output-order").toFile()
         writeValidBundle(
             root = root,
@@ -76,6 +86,22 @@ class FunAsrCtcBundleContractTest {
             }
 
         assertTrue(error.message.orEmpty().contains("output[0]"))
+    }
+
+    @Test
+    fun revisionTwoRequiresExactPreAdaptorLengthOutput() {
+        val root = Files.createTempDirectory("funasr-ctc-length-output").toFile()
+        writeValidBundle(
+            root = root,
+            metadataOverrides = mapOf("encoderPreAdaptorLengthOutputIndex" to "3"),
+        )
+
+        val error =
+            assertThrows(IllegalArgumentException::class.java) {
+                validateFunAsrCtcBundle(descriptor(revision = 2), root)
+            }
+
+        assertTrue(error.message.orEmpty().contains("output[2]"))
     }
 
     @Test
@@ -116,6 +142,8 @@ class FunAsrCtcBundleContractTest {
                 "encoderPostAdaptorOutputName" to "encoder_out",
                 "encoderPreAdaptorOutputIndex" to "1",
                 "encoderPreAdaptorOutputName" to "ctc_encoder_out",
+                "encoderPreAdaptorLengthOutputIndex" to "2",
+                "encoderPreAdaptorLengthOutputName" to "ctc_encoder_out_lens",
                 "encoderPreAdaptorDim" to "512",
                 "ctcEncoderInputName" to "ctc_encoder_out",
                 "ctcEncoderLengthInputName" to "ctc_encoder_out_lens",

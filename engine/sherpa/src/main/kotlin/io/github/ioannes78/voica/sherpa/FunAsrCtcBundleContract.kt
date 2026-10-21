@@ -9,8 +9,9 @@ import java.util.Properties
  *
  * Revision 1 intentionally has no CTC bundle. Revision 2 keeps the existing
  * encoder_adaptor output at index 0 so an unmodified sherpa-onnx v1.13.8 text
- * path can continue to consume the post-adaptor LLM embedding. A second output
- * at index 1 exposes the pre-adaptor 512-d encoder state for the CTC branch.
+ * path can continue to consume the post-adaptor LLM embedding. Output index 1
+ * exposes the pre-adaptor 512-d encoder state and output index 2 exposes its
+ * exact valid lengths for the CTC branch.
  *
  * The compact CTC scorer accepts only the final target ids plus blank and emits
  * candidate raw logits. Full-vocabulary log-softmax is unnecessary for Viterbi
@@ -28,10 +29,12 @@ internal object FunAsrCtcBundleLayout {
 
     const val POST_ADAPTOR_OUTPUT_INDEX = 0
     const val PRE_ADAPTOR_OUTPUT_INDEX = 1
+    const val PRE_ADAPTOR_LENGTH_OUTPUT_INDEX = 2
     const val PRE_ADAPTOR_DIM = 512
 
     const val POST_ADAPTOR_OUTPUT_NAME = "encoder_out"
     const val PRE_ADAPTOR_OUTPUT_NAME = "ctc_encoder_out"
+    const val PRE_ADAPTOR_LENGTH_OUTPUT_NAME = "ctc_encoder_out_lens"
     const val CTC_ENCODER_INPUT_NAME = "ctc_encoder_out"
     const val CTC_ENCODER_LENGTH_INPUT_NAME = "ctc_encoder_out_lens"
     const val CTC_CANDIDATE_IDS_INPUT_NAME = "candidate_ids"
@@ -56,6 +59,8 @@ internal data class FunAsrCtcBundleMetadata(
     val encoderPostAdaptorOutputName: String,
     val encoderPreAdaptorOutputIndex: Int,
     val encoderPreAdaptorOutputName: String,
+    val encoderPreAdaptorLengthOutputIndex: Int,
+    val encoderPreAdaptorLengthOutputName: String,
     val encoderPreAdaptorDim: Int,
     val ctcEncoderInputName: String,
     val ctcEncoderLengthInputName: String,
@@ -118,7 +123,7 @@ internal fun validateFunAsrCtcBundle(
 
     val properties =
         Properties().apply {
-            metadataFile.inputStream().buffered().use(::load)
+            metadataFile.inputStream().buffered().use { input -> load(input) }
         }
 
     fun required(key: String): String =
@@ -141,6 +146,10 @@ internal fun validateFunAsrCtcBundle(
             encoderPostAdaptorOutputName = required("encoderPostAdaptorOutputName"),
             encoderPreAdaptorOutputIndex = requiredInt("encoderPreAdaptorOutputIndex"),
             encoderPreAdaptorOutputName = required("encoderPreAdaptorOutputName"),
+            encoderPreAdaptorLengthOutputIndex =
+                requiredInt("encoderPreAdaptorLengthOutputIndex"),
+            encoderPreAdaptorLengthOutputName =
+                required("encoderPreAdaptorLengthOutputName"),
             encoderPreAdaptorDim = requiredInt("encoderPreAdaptorDim"),
             ctcEncoderInputName = required("ctcEncoderInputName"),
             ctcEncoderLengthInputName = required("ctcEncoderLengthInputName"),
@@ -174,6 +183,14 @@ internal fun validateFunAsrCtcBundle(
             FunAsrCtcBundleLayout.PRE_ADAPTOR_OUTPUT_NAME,
     ) {
         "FunASR revision 2 must expose encoder_adaptor output[1]=ctc_encoder_out"
+    }
+    require(
+        metadata.encoderPreAdaptorLengthOutputIndex ==
+            FunAsrCtcBundleLayout.PRE_ADAPTOR_LENGTH_OUTPUT_INDEX &&
+            metadata.encoderPreAdaptorLengthOutputName ==
+            FunAsrCtcBundleLayout.PRE_ADAPTOR_LENGTH_OUTPUT_NAME,
+    ) {
+        "FunASR revision 2 must expose encoder_adaptor output[2]=ctc_encoder_out_lens"
     }
     require(metadata.encoderPreAdaptorDim == FunAsrCtcBundleLayout.PRE_ADAPTOR_DIM) {
         "FunASR CTC pre-adaptor encoder dimension must be 512"
