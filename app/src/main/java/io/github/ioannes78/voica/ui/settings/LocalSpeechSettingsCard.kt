@@ -81,14 +81,14 @@ internal fun LocalSpeechSettingsCard(
             onToggle = { offlineExpanded = !offlineExpanded },
         ) {
             Text(
-                "录音文件只使用这里选择的离线模型。SenseVoice 均衡/效率优先，FunASR Nano 质量优先。",
+                "录音文件使用这里选择的模型。SenseVoice 更快更省资源；FunASR Nano 优先识别质量。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
             OfflineOption(
-                title = "快速 · SenseVoice",
-                subtitle = "默认 · 多语言 · 资源占用较低",
+                title = "均衡 · SenseVoice",
+                subtitle = "多语言 · 速度快 · 资源占用低 · 原生时间轴",
                 selected =
                     settings.offlineAsrQuality == OfflineAsrQualityChoice.BALANCED ||
                         settings.offlineAsrQuality == OfflineAsrQualityChoice.AUTO,
@@ -98,7 +98,7 @@ internal fun LocalSpeechSettingsCard(
             HorizontalDivider()
             OfflineOption(
                 title = "高质量 · FunASR Nano",
-                subtitle = "INT8 · 混合语言、专有名词和热词表现更强",
+                subtitle = "中/英/日 · 原生标点 · 原生时间轴 · 支持热词",
                 selected =
                     settings.offlineAsrQuality == OfflineAsrQualityChoice.HIGH_QUALITY ||
                         settings.offlineAsrQuality == OfflineAsrQualityChoice.ULTRA,
@@ -117,11 +117,11 @@ internal fun LocalSpeechSettingsCard(
                     parameters = supportedParameters[Stage13AOfflineModelIds.SENSEVOICE].orEmpty(),
                 )
             } else {
-                Text(
-                    "FunASR Nano 使用 Stage 16B 真机验证参数：AUTO 语言、ITN 开启；热词默认留空。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                FunAsrAdvanced(
+                    store = store,
+                    itn = settings.funAsr.useInverseTextNormalization,
+                    hotwords = settings.funAsr.hotwords,
+                    parameters = supportedParameters[Stage13AOfflineModelIds.FUNASR_NANO].orEmpty(),
                 )
             }
         }
@@ -133,7 +133,7 @@ internal fun LocalSpeechSettingsCard(
             onToggle = { realtimeExpanded = !realtimeExpanded },
         ) {
             Text(
-                "用于后续边录边转写，不影响当前录音文件的离线转写。",
+                "用于边录边转写，不影响录音文件的离线转写模型。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -339,14 +339,20 @@ internal fun LocalSpeechSettingsCard(
             }
             HorizontalDivider()
             Text(
-                "语音检测（Silero VAD）",
+                "语音检测",
                 style = MaterialTheme.typography.titleSmall,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+            )
+            Text(
+                "录音文件优先使用 FSMN VAD，不可用时回退 Silero VAD；实时转写继续使用 Silero VAD。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
             )
             ParameterStepper(
                 title = "VAD threshold",
                 value = formatFloat(settings.vad.threshold),
-                hint = "语音判定阈值",
+                hint = "Silero 语音判定阈值",
                 onDecrease = {
                     store.setVadSettings(
                         settings.vad.copy(threshold = (settings.vad.threshold - 0.05F).coerceAtLeast(0.05F)),
@@ -361,7 +367,7 @@ internal fun LocalSpeechSettingsCard(
             ParameterStepper(
                 title = "min silence",
                 value = formatSeconds(settings.vad.minSilenceDurationSeconds),
-                hint = "最短静音时长",
+                hint = "Silero 最短静音时长",
                 onDecrease = {
                     store.setVadSettings(
                         settings.vad.copy(
@@ -382,7 +388,7 @@ internal fun LocalSpeechSettingsCard(
             ParameterStepper(
                 title = "min speech",
                 value = formatSeconds(settings.vad.minSpeechDurationSeconds),
-                hint = "最短语音时长",
+                hint = "Silero 最短语音时长",
                 onDecrease = {
                     store.setVadSettings(
                         settings.vad.copy(
@@ -403,7 +409,7 @@ internal fun LocalSpeechSettingsCard(
             ParameterStepper(
                 title = "max speech",
                 value = formatSeconds(settings.vad.maxSpeechDurationSeconds),
-                hint = "单段语音最大时长",
+                hint = "FSMN / Silero 单段语音最大时长",
                 onDecrease = {
                     store.setVadSettings(
                         settings.vad.copy(
@@ -540,6 +546,63 @@ private fun SenseVoiceAdvanced(
         }
         TextButton(onClick = store::resetSenseVoiceSettings, modifier = Modifier.padding(horizontal = 8.dp)) {
             Text("恢复 SenseVoice 推荐值")
+        }
+    }
+}
+
+@Composable
+private fun FunAsrAdvanced(
+    store: LocalSpeechSettingsStore,
+    itn: Boolean,
+    hotwords: String,
+    parameters: Set<String>,
+) {
+    HorizontalDivider()
+    Column(modifier = Modifier.padding(top = 4.dp)) {
+        Text(
+            "FunASR Nano 设置",
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+        )
+        Text(
+            "默认自动识别语言。ITN 可规范化数字和日期；热词可提升专有名词识别。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+        )
+        fun supported(name: String) = parameters.isEmpty() || name in parameters
+        if (supported("itn")) {
+            HorizontalDivider()
+            ListItem(
+                headlineContent = { Text("ITN") },
+                supportingContent = { Text("规范化数字、日期、时间等表达；默认开启。") },
+                trailingContent = {
+                    Switch(
+                        checked = itn,
+                        onCheckedChange = { enabled ->
+                            val current = store.settings.value.funAsr
+                            store.setFunAsrSettings(current.copy(useInverseTextNormalization = enabled))
+                        },
+                    )
+                },
+            )
+        }
+        if (supported("hotwords")) {
+            HorizontalDivider()
+            OutlinedTextField(
+                value = hotwords,
+                onValueChange = { value ->
+                    if (value.length <= 512) {
+                        store.setFunAsrSettings(store.settings.value.funAsr.copy(hotwords = value))
+                    }
+                },
+                label = { Text("热词") },
+                supportingText = { Text("可选；多个热词可用逗号、分号或换行分隔，最多 512 个字符。") },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+            )
+        }
+        TextButton(onClick = store::resetFunAsrSettings, modifier = Modifier.padding(horizontal = 8.dp)) {
+            Text("恢复 FunASR Nano 推荐值")
         }
     }
 }
@@ -687,7 +750,7 @@ private fun offlineSummary(choice: OfflineAsrQualityChoice): String =
         OfflineAsrQualityChoice.HIGH_QUALITY,
         OfflineAsrQualityChoice.ULTRA,
         -> "高质量 · FunASR Nano"
-        else -> "快速 · SenseVoice"
+        else -> "均衡 · SenseVoice"
     }
 
 private fun realtimeSummary(choice: RealtimeAsrModelChoice): String =
