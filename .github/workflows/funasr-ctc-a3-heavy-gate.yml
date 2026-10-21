@@ -1,0 +1,71 @@
+name: FunASR CTC A3 Heavy Gate
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [ main ]
+    types: [edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: funasr-ctc-a3-heavy-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  checkpoint-audit:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.event.pull_request.title, '[A3-H1]')
+    name: H1 checkpoint hash + CTC tensor inventory
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned checkpoint tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --no-cache-dir \
+            "modelscope-hub==0.4.0" \
+            "PyYAML==6.0.2"
+          python -m pip install --disable-pip-version-check --no-cache-dir \
+            --index-url https://download.pytorch.org/whl/cpu \
+            "torch==2.7.1"
+
+      - name: Show runner disk before checkpoint download
+        shell: bash
+        run: df -h . "${RUNNER_TEMP}"
+
+      - name: Audit exact CTC-complete ModelScope checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/funasr-a3-h1"
+          python ci/funasr-ctc-a3-heavy/audit-checkpoint.py --out "$out"
+          test -s "$out/a3-h1-checkpoint-audit.json"
+          {
+            echo "## Stage 16B A3-H1 checkpoint audit"
+            echo
+            echo '```json'
+            cat "$out/a3-h1-checkpoint-audit.json"
+            echo '```'
+            echo
+            echo "The 2.1 GB checkpoint and all model assets remain runner-local; no artifact upload is permitted."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove downloaded model assets
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "${RUNNER_TEMP}/funasr-a3-h1"
+          df -h . "${RUNNER_TEMP}"
