@@ -120,8 +120,16 @@ jobs:
           test -s "$aar"
           zipinfo -1 "$aar" | grep -qx 'jni/arm64-v8a/libsherpa-onnx-jni.so'
           zipinfo -1 "$aar" | grep -qx 'jni/arm64-v8a/libonnxruntime.so'
-          if zipinfo -1 "$aar" | grep -E '^jni/' | grep -Ev '^jni/arm64-v8a/' >/dev/null; then
-            echo "Unexpected non-arm64 ABI in patched AAR" >&2
+          # Check actual native-library entries only. ZIP directory entries such
+          # as `jni/` are metadata, not an ABI, and must not trip this guard.
+          unexpected_native_libs="$(
+            zipinfo -1 "$aar" |
+              grep -E '^jni/[^/]+/[^/]+\.so$' |
+              grep -Ev '^jni/arm64-v8a/' || true
+          )"
+          if [ -n "$unexpected_native_libs" ]; then
+            echo "Unexpected non-arm64 native libraries in patched AAR:" >&2
+            printf '%s\n' "$unexpected_native_libs" >&2
             exit 1
           fi
 
