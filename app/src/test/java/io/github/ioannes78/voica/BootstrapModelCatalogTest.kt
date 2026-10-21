@@ -92,13 +92,14 @@ class BootstrapModelCatalogTest {
     }
 
     @Test
-    fun fsmnIsProductionWhileTenAndFunAsrRemainCandidateOnly() {
+    fun fsmnAndFunAsrAreProductionWhileTenRemainsCandidateOnly() {
         val productionIds = allowedModelIdsForManifest(productionManifestPinned = true)
         val candidateIds = allowedModelIdsForManifest(productionManifestPinned = false)
 
-        assertFalse(STAGE16B_FUNASR_NANO_CANDIDATE_ID in productionIds)
+        assertTrue(STAGE16B_FUNASR_NANO_CANDIDATE_ID in productionIds)
         assertFalse(STAGE16B_TEN_VAD_CANDIDATE_ID in productionIds)
         assertTrue(STAGE16B_FSMN_VAD_CANDIDATE_ID in productionIds)
+        assertFalse(Stage13AOfflineModelIds.QWEN3_ASR in productionIds)
         assertTrue(STAGE16B_FUNASR_NANO_CANDIDATE_ID in candidateIds)
         assertTrue(STAGE16B_FSMN_VAD_CANDIDATE_ID in candidateIds)
         assertTrue(STAGE16B_TEN_VAD_CANDIDATE_ID in candidateIds)
