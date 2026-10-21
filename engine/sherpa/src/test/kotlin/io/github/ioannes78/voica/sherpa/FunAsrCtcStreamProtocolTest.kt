@@ -3,9 +3,37 @@ package io.github.ioannes78.voica.sherpa
 import com.k2fsa.sherpa.onnx.OfflineRecognizerResult
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class FunAsrCtcStreamProtocolTest {
+    @Test
+    fun validatesAlignmentArgumentsIncludingModelOwnedBlankId() {
+        assertThrows(IllegalArgumentException::class.java) {
+            FunAsrCtcStreamProtocol.validateAlignmentArguments(
+                targetIds = intArrayOf(),
+                blankId = 99,
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            FunAsrCtcStreamProtocol.validateAlignmentArguments(
+                targetIds = intArrayOf(10, 99),
+                blankId = 99,
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            FunAsrCtcStreamProtocol.validateAlignmentArguments(
+                targetIds = intArrayOf(10),
+                blankId = -1,
+            )
+        }
+
+        FunAsrCtcStreamProtocol.validateAlignmentArguments(
+            targetIds = intArrayOf(10, 20),
+            blankId = 99,
+        )
+    }
+
     @Test
     fun parsesExistingResultFieldsAsTrustedCtcSpans() {
         val expected = intArrayOf(10, 20)

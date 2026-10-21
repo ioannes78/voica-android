@@ -12,33 +12,49 @@ import kotlin.math.roundToLong
  * pre-adaptor encoder state after the first normal decode only when ctcCompact
  * is configured. The same OfflineStream then receives one of these commands:
  *
- * align   target ids are supplied as CSV; a second decode runs compact CTC +
- *         forced alignment without rerunning ASR. Its result uses tokens as
- *         decimal target ids, timestamps as start seconds, and durations as
- *         acoustic duration seconds.
+ * align   target ids and the validated CTC blank id are supplied as stream
+ *         options; a second decode runs compact CTC + forced alignment without
+ *         rerunning ASR. Its result uses tokens as decimal target ids,
+ *         timestamps as start seconds, and durations as acoustic duration
+ *         seconds.
  * discard erase retained native state without scoring.
  */
 internal object FunAsrCtcStreamProtocol {
     const val COMMAND_KEY = "voica.funasr.ctc.command"
     const val TARGET_IDS_KEY = "voica.funasr.ctc.target_ids"
+    const val BLANK_ID_KEY = "voica.funasr.ctc.blank_id"
     const val COMMAND_ALIGN = "align"
     const val COMMAND_DISCARD = "discard"
 
     fun requestAlignment(
         stream: OfflineStream,
         targetIds: IntArray,
+        blankId: Int,
+    ) {
+        validateAlignmentArguments(targetIds, blankId)
+        stream.setOption(TARGET_IDS_KEY, targetIds.joinToString(separator = ","))
+        stream.setOption(BLANK_ID_KEY, blankId.toString())
+        stream.setOption(COMMAND_KEY, COMMAND_ALIGN)
+    }
+
+    internal fun validateAlignmentArguments(
+        targetIds: IntArray,
+        blankId: Int,
     ) {
         require(targetIds.isNotEmpty()) { "FunASR CTC target ids must not be empty" }
+        require(blankId >= 0) { "FunASR CTC blank id must be non-negative" }
         require(targetIds.all { it >= 0 }) { "FunASR CTC target ids must be non-negative" }
-        stream.setOption(TARGET_IDS_KEY, targetIds.joinToString(separator = ","))
-        stream.setOption(COMMAND_KEY, COMMAND_ALIGN)
+        require(targetIds.none { it == blankId }) {
+            "FunASR CTC final-text targets must not contain the blank id"
+        }
     }
 
     fun requestDiscard(stream: OfflineStream) {
         stream.setOption(COMMAND_KEY, COMMAND_DISCARD)
-        // No remove-option API exists. Clear stale ids so a buggy native
-        // implementation cannot accidentally reuse a previous target list.
+        // No remove-option API exists. Clear stale alignment arguments so a
+        // buggy native implementation cannot accidentally reuse an old request.
         stream.setOption(TARGET_IDS_KEY, "")
+        stream.setOption(BLANK_ID_KEY, "")
     }
 
     fun parseAlignmentResult(
