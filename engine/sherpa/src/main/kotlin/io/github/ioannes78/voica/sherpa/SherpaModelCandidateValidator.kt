@@ -215,6 +215,12 @@ class SherpaModelCandidateValidator : ModelCandidateValidator {
         descriptor: ModelDescriptor,
         directory: File,
     ) {
+        if (requiresFunAsrCtcBundle(descriptor)) {
+            validationInit {
+                validateFunAsrCtcBundle(descriptor, directory)
+            }
+        }
+
         val engine =
             validationInit {
                 createSherpaLargeOfflineAsrEngine(

@@ -31,6 +31,44 @@ class FunAsrCtcForcedAlignerTest {
     }
 
     @Test
+    fun perFrameCommonOffsetsDoNotChangeAlignmentPath() {
+        val blank = floatArrayOf(1.2f, -2.0f, 0.6f, -3.0f, 0.4f)
+        val targets =
+            arrayOf(
+                floatArrayOf(-4f, -5f),
+                floatArrayOf(3f, -5f),
+                floatArrayOf(-2f, -4f),
+                floatArrayOf(-6f, 2.5f),
+                floatArrayOf(-5f, -1f),
+            )
+        val targetIds = intArrayOf(11, 22)
+        val baseline = assertNotNullValue(forceAlignCtc(scores(blank, targetIds, targets)))
+
+        // log_softmax(raw_logits) subtracts one logsumexp constant from every
+        // vocabulary score in a frame. Forced alignment consumes exactly one
+        // emission per frame, so any such common per-frame offset must leave
+        // the Viterbi path unchanged. This is why /2 may emit compact raw
+        // blank+target logits without materializing T x full-vocabulary scores.
+        val offsets = floatArrayOf(10f, -7f, 2f, 0.5f, -3f)
+        val shiftedBlank = FloatArray(blank.size) { frame -> blank[frame] + offsets[frame] }
+        val shiftedTargets =
+            Array(targets.size) { frame ->
+                FloatArray(targetIds.size) { target ->
+                    targets[frame][target] + offsets[frame]
+                }
+            }
+        val shifted =
+            assertNotNullValue(
+                forceAlignCtc(scores(shiftedBlank, targetIds, shiftedTargets)),
+            )
+
+        assertEquals(
+            baseline.map { listOf(it.tokenId, it.startFrame, it.endFrameExclusive) },
+            shifted.map { listOf(it.tokenId, it.startFrame, it.endFrameExclusive) },
+        )
+    }
+
+    @Test
     fun repeatedTargetsRequireInterveningBlank() {
         val scores =
             scores(
