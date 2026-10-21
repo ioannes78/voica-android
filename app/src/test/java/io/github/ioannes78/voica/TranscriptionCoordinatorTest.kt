@@ -262,6 +262,7 @@ class TranscriptionCoordinatorTest {
             model: ActiveModel,
             numThreads: Int,
             senseVoiceSettings: LocalSenseVoiceSettings,
+            funAsrSettings: LocalFunAsrSettings,
             qwenSettings: LocalQwenAsrSettings,
         ) =
             SecondPassAsrEngineFactory {
