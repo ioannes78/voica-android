@@ -229,35 +229,38 @@ jobs:
             echo "Only the encoder graph changes between the two runs. Production embedding, LLM and tokenizer assets are SHA-pinned and byte-identical. All assets remain runner-local."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: H2d diagnose projection-only vs full INT8 CTC alignment
+      - name: H2d select exact mixed INT8 CTC scorer
         shell: bash
         run: |
-          set -uo pipefail
+          set -euo pipefail
           out="${RUNNER_TEMP}/funasr-a3-h2d"
-          set +e
-          python ci/funasr-ctc-a3-h2/diagnose-h2d-int8-alignment.py \
+          python ci/funasr-ctc-a3-h2/select-h2d-mixed-int8.py \
             --h2a-root "${RUNNER_TEMP}/funasr-a3-h2a" \
             --h2c-root "${RUNNER_TEMP}/funasr-a3-h2c" \
             --h2c-generation-root "${RUNNER_TEMP}/funasr-a3-h2c-generation" \
             --exporter-root "${RUNNER_TEMP}/FunASR-nano-onnx" \
             --funasr-root "${RUNNER_TEMP}/FunASR-reference" \
             --out "$out"
-          rc=$?
-          set -e
           test -s "$out/a3-h2d-int8-alignment-diagnostic.json"
+          test -s "$out/a3-h2d-mixed-int8-selection.json"
           test -s "$out/ctc_compact.projection-int8.onnx"
           test -s "$out/ctc_compact.int8.onnx"
           {
             echo
-            echo "## Stage 16B A3-H2d INT8 CTC alignment diagnostics"
+            echo "## Stage 16B A3-H2d INT8 baseline diagnostics"
             echo
             echo '```json'
             cat "$out/a3-h2d-int8-alignment-diagnostic.json"
             echo '```'
             echo
-            echo "The original exact state-path acceptance criterion remains unchanged. This diagnostic separates projection-only INT8 from full decoder+projection INT8 before any tolerance decision."
+            echo "## Stage 16B A3-H2d mixed INT8 selection"
+            echo
+            echo '```json'
+            cat "$out/a3-h2d-mixed-int8-selection.json"
+            echo '```'
+            echo
+            echo "Acceptance criteria remain unchanged: exact state-path equality on both real-audio fixtures, size ratio <= 0.35, relative RMSE <= 0.08, and max logit absolute error <= 2.0. The selector searches the minimum quantized decoder-block cardinality before deterministic error-based selection."
           } >> "$GITHUB_STEP_SUMMARY"
-          exit "$rc"
 
       - name: Remove H2 model/export assets
         if: always()
