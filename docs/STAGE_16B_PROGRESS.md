@@ -1,6 +1,6 @@
 # Stage 16B — Local File ASR V2 Progress
 
-Status: **GATE A TECHNICAL PASS / GATE B REAL-DEVICE PASS / PRODUCT MATRIX AUTHORIZED / P2 REAL-DEVICE PASS / P3 TIMING FIREWALL CI PASS / CTC PORTABILITY GATE IN PROGRESS / FINAL FREEZE BLOCKED**
+Status: **GATE A TECHNICAL PASS / GATE B REAL-DEVICE PASS / PRODUCT MATRIX AUTHORIZED / P2 REAL-DEVICE PASS / P3 TIMING FIREWALL CI PASS / CTC RUNTIME A0+A1 COMPILE/ABI PASS / CTC PORTABILITY GATE IN PROGRESS / FINAL FREEZE BLOCKED**
 
 Repository: `ioannes78/voica-android`
 
@@ -133,7 +133,51 @@ Therefore true CTC cannot be implemented correctly by attaching an aligner to re
 
 Full portability findings and the required revision-2 architecture are recorded in `docs/STAGE_16B_CTC_PORTABILITY_GATE.md`.
 
-Current CTC Gate status: **IN PROGRESS — source architecture portable in principle; export + Android empirical proof still required before final PASS.**
+### CTC runtime A0 — config / ABI rebuild — PASS
+
+A dedicated no-artifact runtime Gate rebuilt exact sherpa-onnx `v1.13.8` for Android `arm64-v8a` against ONNX Runtime `1.28.2` after adding the optional `ctcCompact` configuration ABI.
+
+- pinned sherpa source and ORT version were checked explicitly;
+- native JNI compiled successfully;
+- the patched arm64 AAR assembled successfully;
+- the AAR exposed the expected Kotlin `ctcCompact` getter/setter and retained only the intended arm64 native libraries;
+- the patched AAR was **not** uploaded and did **not** replace the production dependency.
+
+Checkpoint `d7040f4a47881afe51102510686ddb19be589930`: FunASR CTC Runtime Gate #8 **SUCCESS** and Android PR CI #2154 **SUCCESS**.
+
+### CTC runtime A1 — shared encoder / retained state — COMPILE/ABI PASS
+
+The next isolated native Gate adds the revision-2 runtime shape without a CTC scorer yet:
+
+- a single encoder session can expose `encoder_out`, `ctc_encoder_out`, and exact `ctc_encoder_out_lens`;
+- the LLM branch consumes the post-adaptor embedding from that same encoder execution;
+- the pre-adaptor 512-d state + exact length can be retained per `OfflineStream`;
+- state IDs protect against stale stream-pointer reuse;
+- retained native state is bounded and fail-closed;
+- `align` / `discard` commands consume or clear retained state without rerunning encoder or LLM;
+- revision `/1` remains inactive because no `ctcCompact` model is configured.
+
+Exact sherpa `v1.13.8` + ORT `1.28.2` arm64 JNI compilation, AAR packaging, ABI inspection and A1 state-boundary marker verification all passed at head `ccfd80d7acbf99bb5c747794da93ae743c7a46a0`:
+
+- FunASR CTC Runtime Gate #11: **SUCCESS**;
+- Android PR CI #2157: **SUCCESS**.
+
+**Evidence boundary:** A1 is a native compile/ABI architecture PASS only. No real revision-2 dual-output ONNX has executed through this path yet, so tensor values, exact length parity and retained-state model execution remain an A2 empirical requirement.
+
+### A2 next — exact checkpoint / export / parity
+
+The next Gate must freeze an exact official Fun-ASR-Nano-2512 checkpoint and prove actual exported model assets before product integration. Current official provenance independently identifies source revision `272c57b82523ada6fd87095e955f8e29100979ab` and source `model.pt` SHA-256 `55ae0d2fee369f0f11cce0795f6927934ad17cf11b278a7e56a51272074160bb`; Voica must still verify all downloaded/exported artifacts itself before accepting them.
+
+A2 acceptance requires:
+
+- real dual-output encoder ONNX with exact output names/shapes and `ctc_encoder_out_lens`;
+- CTC decoder/projection/log-softmax export from the same checkpoint;
+- exact `multilingual.tiktoken` artifact + digest;
+- exported vocab size, blank id, frame/downsample metadata and all artifact digests;
+- controlled official-Python parity for tokenizer target ids, encoder lengths, CTC score behavior and timestamps;
+- no model-channel `/2` staging or production replacement merely because export succeeds.
+
+Current CTC Gate status: **IN PROGRESS — A0/A1 compile/ABI architecture proven; real model export + parity + Android empirical proof still required before final PASS.**
 
 ## Production-state boundaries
 
@@ -153,9 +197,10 @@ Current CTC Gate status: **IN PROGRESS — source architecture portable in princ
 
 1. **P0–P2: COMPLETE / REAL-DEVICE PASS.**
 2. **P3: IMPLEMENTED / FAST CI PASS.** Keep sherpa synthetic timing diagnostic-only and product timing fail-closed.
-3. **P4: CTC portability Gate IN PROGRESS.** Export pre-adaptor encoder state + CTC decoder/projection + SenseVoice CTC tokenizer; verify exact blank/vocab/frame metadata and official-Python parity.
-4. **P5:** implement Android forced/Viterbi alignment, canonical sample-index mapping, punctuation anchoring and fail-closed fallback; prove actual non-uniform character/token timing on device.
-5. Re-test sentence segmentation and speaker alignment only after real CTC is present; do not tune CAM++ first.
-6. Measure CTC wall/RTF, total RTF, peak/end PSS, thermal, retries and completeness; preserve the important high-quality target `total RTF < 1.0` where practical.
-7. Only after CTC Gate + real-device timeline/segmentation/performance acceptance may revision `/2` / model-channel v10 remain as the candidate for later explicit promotion authorization.
-8. Do not Final Freeze/Handoff, merge either PR, promote model-channel, or start Stage 16C without explicit user authorization.
+3. **P4 / CTC A0+A1: COMPILE/ABI PASS.** Keep the patched sherpa runtime isolated; it is not a production dependency.
+4. **P4 / CTC A2: NEXT.** Freeze the exact official checkpoint, export the real shared encoder + CTC scorer/tokenizer assets, verify digests/metadata and official-Python parity, then execute the retained-state path empirically.
+5. **P5:** connect trusted compact CTC scores to the existing Android forced/Viterbi alignment, canonical sample-index mapping, punctuation anchoring and fail-closed fallback; prove actual non-uniform character/token timing on device.
+6. Re-test sentence segmentation and speaker alignment only after real CTC is present; do not tune CAM++ first.
+7. Measure CTC wall/RTF, total RTF, peak/end PSS, thermal, retries and completeness; preserve the important high-quality target `total RTF < 1.0` where practical.
+8. Only after CTC Gate + real-device timeline/segmentation/performance acceptance may revision `/2` / model-channel v10 remain as the candidate for later explicit promotion authorization.
+9. Do not Final Freeze/Handoff, merge either PR, promote model-channel, or start Stage 16C without explicit user authorization.
