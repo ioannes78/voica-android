@@ -1,0 +1,50 @@
+name: Stage 16B Final Local-File ASR Product Matrix
+
+on:
+  push:
+    branches:
+      - stage16b-local-file-asr-v2
+    paths:
+      - ".github/workflows/stage16b-finalize-product-matrix.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply final product matrix
+        run: python3 scripts/stage16b_finalize_product_matrix.py
+
+      - name: Sanity-check final product matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'val ALL = listOf(SENSEVOICE, FUNASR_NANO)' app/src/main/java/io/github/ioannes78/voica/LocalSpeechSettings.kt
+          grep -q 'Stage13AOfflineModelIds.FUNASR_NANO' app/src/main/java/io/github/ioannes78/voica/AppModelManager.kt
+          grep -q 'PRODUCTION_MANIFEST_VERSION = 9' app/src/main/java/io/github/ioannes78/voica/AppModelManager.kt
+          grep -q '高质量 · FunASR Nano' app/src/main/java/io/github/ioannes78/voica/ui/settings/LocalSpeechSettingsCard.kt
+          grep -q 'REAL-DEVICE PASS / PRODUCT DECISION AUTHORIZED' docs/STAGE_16B_GATE_B_B6.md
+
+      - name: Commit final product matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app/src/main/java/io/github/ioannes78/voica/AppModelManager.kt \
+            app/src/main/java/io/github/ioannes78/voica/LocalSpeechSettings.kt \
+            app/src/main/java/io/github/ioannes78/voica/TranscriptionCoordinator.kt \
+            app/src/main/java/io/github/ioannes78/voica/ui/settings/LocalSpeechSettingsCard.kt \
+            app/src/main/java/io/github/ioannes78/voica/ui/transcript/TranscriptionCards.kt \
+            app/src/test/java/io/github/ioannes78/voica/LocalSpeechSettingsTest.kt \
+            app/src/test/java/io/github/ioannes78/voica/TranscriptionCoordinatorTest.kt \
+            docs/STAGE_16B_GATE_B_B6.md \
+            docs/STAGE_16B_PROGRESS.md
+          git commit -m "feat(stage16b): promote FunASR Nano high-quality local ASR"
+          git push origin HEAD:stage16b-local-file-asr-v2
