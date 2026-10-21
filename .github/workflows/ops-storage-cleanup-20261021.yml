@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Delete only the 12 user-approved old QA artifacts and verify all preserved artifacts
+      - name: Delete only the 1 user-approved old QA artifacts and verify all preserved artifacts
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -30,10 +30,10 @@ jobs:
           
           REPO = "ioannes78/voica-android"
           MAIN = "988931ebed72a70ba799d909cd36a416a673eef5"
-          PLAN = json.loads("[{\"id\":12310470161,\"run\":39517993395,\"name\":\"Voica-1.1.0-stage16a2-export-qa-apk\",\"bytes\":32114636,\"branch\":\"stage16b-local-file-asr-v2\",\"sha\":\"9637650ed264162fd112803204258f6895c0aa6e\",\"digest\":\"sha256:2ebe554073aa4c8fac07d4d83b0baba36ff9b7c4e92a557b6bf64bb672f04ddc\"},{\"id\":12284494447,\"run\":39466882881,\"name\":\"Voica-1.1.0-stage16a2-export-qa-apk\",\"bytes\":32098176,\"branch\":\"stage16b-local-file-asr-v2\",\"sha\":\"2e9638fe311db1f4bc02e8c51bc086f1d42e0775\",\"digest\":\"sha256:951364d79344960ce8d9b3cb265233930ef0585cfb0251e74248579381028ee9\"},{\"id\":12282754988,\"run\":39463076056,\"name\":\"Voica-1.1.0-stage16a2-export-qa-apk\",\"bytes\":32098176,\"branch\":\"stage16b-local-file-asr-v2\",\"sha\":\"f2239ec901c4c42b103f06caf4e6a9aa3096fbb5\",\"digest\":\"sha256:4483c7fb5288668088424b6bc8993d473970814c7aac8bf942e31e06f26d14d2\"},{\"id\":12280288773,\"run\":39456842644,\"name\":\"Voica-1.1.0-stage16a2-export-qa-apk\",\"bytes\":32098228,\"branch\":\"stage16b-local-file-asr-v2\",\"sha\":\"a49ea1ef2fd7cff0ee385b5509262e9208853684\",\"digest\":\"sha256:36a1e20e05baf38a9370a2be71c60ffb8e16647cf2d91938780ab071bc529421\"},{\"id\":12277747780,\"run\":39450555577,\"name\":\"Voica-1.1.0-stage16a2-export-qa-apk\",\"bytes\":32081580,\"branch\":\"stage16b-local-file-asr-v2\",\"sha\":\"76b53232ae37c4a9252706a8346d5338e7af39a4\",\"digest\":\"sha256:f24b2aaf8c6bcc6cc96b143dee71832c915ddcf07a5ac6fbc99248dcc8b465cc\"},{\"id\":12276585259,\"run\":39444271060,\"name\":\"Voica-1.1.0-stage16a2-export-qa-apk\",\"bytes\":32081508,\"branch\":\"stage16b-local-file-asr-v2\",\"sha\":\"7e22e2b184c34092c9a6082cf32925600aac8e63\",\"digest\":\"sha256:bcdbc66828ef138237ec8f6e3e00a8b1bc8ca77109b7801d179d948cef4b26b2\"},{\"id\":12262492806,\"run\":39419289768,\"name\":\"Voica-1.1.0-stage16a2-export-qa-apk\",\"bytes\":32065060,\"branch\":\"stage16b-local-file-asr-v2\",\"sha\":\"382179fc92c619dac218e053f93e4e6770b1862a\",\"digest\":\"sha256:76f5a4e9518222af675315d0dea23dc2aec0ba84cdc038627f9787c8a261d7c9\"},{\"id\":12260190295,\"run\":39411106360,\"name\":\"Voica-1.1.0-stage16a2-export-qa-apk\",\"bytes\":32048620,\"branch\":\"stage16b-local-file-asr-v2\",\"sha\":\"d00a3093adb3791b9a77866aa4b9148e9d9ea88c\",\"digest\":\"sha256:6a21093443f0939fcc925558d74f300a08c7cd2c6de8c5cc28599aaba09ab639\"},{\"id\":12255162649,\"run\":39402918204,\"name\":\"Voica-1.1.0-stage16a2-export-qa-apk\",\"bytes\":32048620,\"branch\":\"stage16b-local-file-asr-v2\",\"sha\":\"e8e5477c4a99b98e6f6e149c9027647652b46324\",\"digest\":\"sha256:70de5ca27ac8fcaa70157b38366e043847447e12fd4113679050fb6b5ad25792\"},{\"id\":12250801192,\"run\":39392675955,\"name\":\"Voica-1.1.0-stage16a2-export-qa-apk\",\"bytes\":32048620,\"branch\":\"stage16b-local-file-asr-v2\",\"sha\":\"45954e4b13ef6ab69697e53d44109a5fa0044f3f\",\"digest\":\"sha256:e7916339c769d25e0bac4d381cb0ee6ac298975e25705c4b4c9cad100d7beca5\"},{\"id\":12245362192,\"run\":39380044902,\"name\":\"Voica-1.1.0-stage16a2-export-qa-apk\",\"bytes\":32048620,\"branch\":\"stage16b-local-file-asr-v2\",\"sha\":\"a27ed998db56e8edd71c17ff50303285ae3453bf\",\"digest\":\"sha256:07c976c4aa38a3064e6e7e6628bea5a53107c81f595c6b773bde6299f918aa34\"},{\"id\":12242275612,\"run\":39371393841,\"name\":\"Voica-1.1.0-stage16a2-export-qa-apk\",\"bytes\":32032148,\"branch\":\"stage16b-local-file-asr-v2\",\"sha\":\"0468cb0f609bb5569d241b7221a1774d43a4b9ec\",\"digest\":\"sha256:66c8edb3e43e628d10796c8624b069c2c3fda0b5f0e11c74cc483594caf967b7\"}]")
-          KEEP = {12310078138, 12289211982}
+          PLAN = json.loads("[{\"id\":12249693461,\"run\":39391904005,\"name\":\"Voica-1.1.0-stage16a2-export-qa-apk\",\"bytes\":32048620,\"branch\":\"stage16b-local-file-asr-v2\",\"sha\":\"2ccda951e194b0f9eca9bdeb7cd4ee2c6eabf6cc\",\"digest\":\"sha256:2203b0c1a81a7fa45f22535e07a4c94948a74a59374f2a5cc952485cad474246\"}]")
+          KEEP = {12310078138, 12289211982, 12126176254}
           TARGETS = {item["id"] for item in PLAN}
-          assert len(PLAN) == len(TARGETS) == 12
+          assert len(PLAN) == len(TARGETS) == 1
           assert not TARGETS & KEEP
           assert os.environ["GITHUB_REPOSITORY"] == REPO
           assert os.environ["GITHUB_REF"] == "refs/heads/ops/actions-storage-cleanup-20261021"
@@ -148,7 +148,7 @@ jobs:
           with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as f:
               f.write("# Actions 存储清理结果\n\n")
               f.write(f"删除 {len(deleted)} 个指定旧 QA APK，共 {total_bytes:,} bytes。\n\n")
-              f.write("最新可用 QA #2083、上一份不同提交的 QA #2076、全部其他 Artifact、v1.0.0 Release 已核验保留。\n\n")
+              f.write("最新可用 QA #2083、上一份不同提交的 QA #2076、上一阶段基线 #1763、全部其他 Artifact、v1.0.0 Release 已核验保留。\n\n")
               f.write("main、Workflow Run/CI 历史、Cache 均未改动。\n\n")
               f.write("\n".join(f"- Artifact {x['id']} / run {x['run']}" for x in deleted) + "\n")
           PY
