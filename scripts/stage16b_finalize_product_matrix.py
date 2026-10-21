@@ -1,0 +1,311 @@
+#!/usr/bin/env python3
+from pathlib import Path
+
+
+def replace_once(path: str, old: str, new: str) -> None:
+    p = Path(path)
+    text = p.read_text(encoding="utf-8")
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f"{path}: expected exactly one match, got {count}: {old[:120]!r}")
+    p.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
+# Production model-channel pin + product catalog exposure.
+path = "app/src/main/java/io/github/ioannes78/voica/AppModelManager.kt"
+replace_once(path, '"8f2f94ef7a376f1b0b652072ef67df5e07dd31de"', '"eeb59214244f392f3e2eecdb90016efbe3a95401"')
+replace_once(path, "const val PRODUCTION_MANIFEST_VERSION = 8", "const val PRODUCTION_MANIFEST_VERSION = 9")
+replace_once(path, '"05dcd9f205a3383c2bda0704996b85e741384daa9c2e8a63ff132b74b5424d37"', '"a49da9fdf2dabf2408ba2bb14cf6b5c25c35563052cc6307db8f8095caac0b45"')
+replace_once(path, "        Stage13AOfflineModelIds.QWEN3_ASR,\n", "        Stage13AOfflineModelIds.FUNASR_NANO,\n")
+replace_once(
+    path,
+    "private val DEBUG_CANDIDATE_MODEL_IDS =\n    setOf(\n        STAGE16B_FUNASR_NANO_CANDIDATE_ID,\n        STAGE16B_TEN_VAD_CANDIDATE_ID,\n    )",
+    "private val DEBUG_CANDIDATE_MODEL_IDS =\n    setOf(\n        STAGE16B_TEN_VAD_CANDIDATE_ID,\n    )",
+)
+
+# Offline product role mapping. Qwen ID/runtime remains for historical/QA compatibility only.
+path = "app/src/main/java/io/github/ioannes78/voica/LocalSpeechSettings.kt"
+replace_once(
+    path,
+    '    const val FIRERED_ASR2 = "fireredasr2-ctc-zh-en-int8"\n    const val QWEN3_ASR = "qwen3-asr-0.6b-int8"',
+    '    const val FIRERED_ASR2 = "fireredasr2-ctc-zh-en-int8"\n    const val FUNASR_NANO = "funasr-nano-int8"\n    const val QWEN3_ASR = "qwen3-asr-0.6b-int8"',
+)
+replace_once(path, "    val ALL = listOf(SENSEVOICE, QWEN3_ASR)", "    val ALL = listOf(SENSEVOICE, FUNASR_NANO)")
+replace_once(
+    path,
+    "/** SenseVoice is the fast/default offline model; Qwen3-ASR is the high-quality model. */",
+    "/** SenseVoice is the balanced/efficiency offline model; FunASR Nano is the high-quality model. */",
+)
+replace_once(path, "        -> listOf(Stage13AOfflineModelIds.QWEN3_ASR)", "        -> listOf(Stage13AOfflineModelIds.FUNASR_NANO)")
+
+# Product settings UI: remove Qwen from selectable high-quality role.
+path = "app/src/main/java/io/github/ioannes78/voica/ui/settings/LocalSpeechSettingsCard.kt"
+replace_once(
+    path,
+    "录音文件只使用这里选择的离线模型。SenseVoice 速度优先，Qwen3-ASR 质量优先。",
+    "录音文件只使用这里选择的离线模型。SenseVoice 均衡/效率优先，FunASR Nano 质量优先。",
+)
+replace_once(
+    path,
+    'title = "高质量 · Qwen3-ASR",\n                subtitle = "0.6B INT8 · 更高质量，内存和计算开销更高",',
+    'title = "高质量 · FunASR Nano",\n                subtitle = "INT8 · 混合语言、专有名词和热词表现更强",',
+)
+replace_once(
+    path,
+    "status = availabilityStatus(availability[Stage13AOfflineModelIds.QWEN3_ASR]),",
+    "status = availabilityStatus(availability[Stage13AOfflineModelIds.FUNASR_NANO]),",
+)
+replace_once(
+    path,
+    """            } else {
+                QwenAdvanced(
+                    store = store,
+                    maxTotalLen = settings.qwen.maxTotalLen,
+                    maxNewTokens = settings.qwen.maxNewTokens,
+                    temperature = settings.qwen.temperature,
+                    topP = settings.qwen.topP,
+                    seed = settings.qwen.seed,
+                    hotwords = settings.qwen.hotwords,
+                    parameters = supportedParameters[Stage13AOfflineModelIds.QWEN3_ASR].orEmpty(),
+                )
+            }""",
+    """            } else {
+                Text(
+                    "FunASR Nano 使用 Stage 16B 真机验证参数：AUTO 语言、ITN 开启；热词默认留空。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }""",
+)
+replace_once(path, '-> "高质量 · Qwen3-ASR"', '-> "高质量 · FunASR Nano"')
+
+# Runtime pipeline: FunASR takes the proven high-quality timeline-alignment route.
+path = "app/src/main/java/io/github/ioannes78/voica/TranscriptionCoordinator.kt"
+replace_once(
+    path,
+    "            if (secondPassSelection?.descriptor?.modelId == Stage13AOfflineModelIds.QWEN3_ASR) {",
+    """            if (
+                secondPassSelection?.descriptor?.modelId in
+                    setOf(
+                        Stage13AOfflineModelIds.FUNASR_NANO,
+                        Stage13AOfflineModelIds.QWEN3_ASR,
+                    )
+            ) {""",
+)
+replace_once(
+    path,
+    "                Stage13AOfflineModelIds.QWEN3_ASR -> false\n                else -> false",
+    "                Stage13AOfflineModelIds.FUNASR_NANO,\n                Stage13AOfflineModelIds.QWEN3_ASR,\n                -> false\n                else -> false",
+)
+replace_once(
+    path,
+    """            if (
+                mode == TranscriptionMode.HIGH_QUALITY &&
+                models.offlineAsrQualityChoice == OfflineAsrQualityChoice.HIGH_QUALITY
+            ) {
+                append(",\\\"qwen\\\":")
+                appendQwenSnapshot(models.qwenSettings)
+            }""",
+    """            if (
+                mode == TranscriptionMode.HIGH_QUALITY &&
+                models.secondPass?.descriptor?.modelId == Stage13AOfflineModelIds.FUNASR_NANO
+            ) {
+                append(",\\\"funAsrNano\\\":")
+                appendFunAsrNanoSnapshot()
+            }
+            if (
+                mode == TranscriptionMode.HIGH_QUALITY &&
+                models.secondPass?.descriptor?.modelId == Stage13AOfflineModelIds.QWEN3_ASR
+            ) {
+                append(",\\\"qwen\\\":")
+                appendQwenSnapshot(models.qwenSettings)
+            }""",
+)
+replace_once(
+    path,
+    """            if (offlineAsrModelId == Stage13AOfflineModelIds.QWEN3_ASR) {
+                append(",\\\"qwen\\\":")
+                appendQwenSnapshot(models.qwenSettings)
+            }""",
+    """            if (offlineAsrModelId == Stage13AOfflineModelIds.FUNASR_NANO) {
+                append(",\\\"funAsrNano\\\":")
+                appendFunAsrNanoSnapshot()
+            }
+            if (offlineAsrModelId == Stage13AOfflineModelIds.QWEN3_ASR) {
+                append(",\\\"qwen\\\":")
+                appendQwenSnapshot(models.qwenSettings)
+            }""",
+)
+replace_once(
+    path,
+    "    private fun StringBuilder.appendQwenSnapshot(settings: LocalQwenAsrSettings) {",
+    """    private fun StringBuilder.appendFunAsrNanoSnapshot() {
+        append("{\\\"maxNewTokens\\\":512")
+        append(",\\\"temperature\\\":1.0E-6")
+        append(",\\\"topP\\\":0.8")
+        append(",\\\"seed\\\":42")
+        append(",\\\"language\\\":\\\"auto\\\"")
+        append(",\\\"useInverseTextNormalization\\\":true")
+        append(",\\\"hotwords\\\":\\\"\\\"")
+        append('}')
+    }
+
+    private fun StringBuilder.appendQwenSnapshot(settings: LocalQwenAsrSettings) {""",
+)
+
+# User-visible transcript labels retain Qwen for old transcripts but add FunASR for new runs.
+path = "app/src/main/java/io/github/ioannes78/voica/ui/transcript/TranscriptionCards.kt"
+replace_once(
+    path,
+    '        Stage13AOfflineModelIds.QWEN3_ASR -> "Qwen3-ASR · 高质量"',
+    '        Stage13AOfflineModelIds.FUNASR_NANO -> "FunASR Nano · 高质量"\n        Stage13AOfflineModelIds.QWEN3_ASR -> "Qwen3-ASR · 历史转写"',
+)
+replace_once(
+    path,
+    '        Stage13AOfflineModelIds.QWEN3_ASR -> "Qwen3-ASR"',
+    '        Stage13AOfflineModelIds.FUNASR_NANO -> "FunASR Nano"\n        Stage13AOfflineModelIds.QWEN3_ASR -> "Qwen3-ASR"',
+)
+
+# Product-selection unit tests.
+path = "app/src/test/java/io/github/ioannes78/voica/LocalSpeechSettingsTest.kt"
+replace_once(path, "fun productOfflineMatrixContainsOnlySenseVoiceAndQwen()", "fun productOfflineMatrixContainsOnlySenseVoiceAndFunAsrNano()")
+replace_once(path, "                Stage13AOfflineModelIds.QWEN3_ASR,", "                Stage13AOfflineModelIds.FUNASR_NANO,")
+replace_once(path, "fun offlineDefaultsToSenseVoiceAndHighQualityUsesQwen()", "fun offlineDefaultsToSenseVoiceAndHighQualityUsesFunAsrNano()")
+text = Path(path).read_text(encoding="utf-8")
+old = "listOf(Stage13AOfflineModelIds.QWEN3_ASR)"
+if text.count(old) != 2:
+    raise SystemExit(f"{path}: expected 2 high-quality Qwen expectations, got {text.count(old)}")
+Path(path).write_text(text.replace(old, "listOf(Stage13AOfflineModelIds.FUNASR_NANO)"), encoding="utf-8")
+
+path = "app/src/test/java/io/github/ioannes78/voica/TranscriptionCoordinatorTest.kt"
+replace_once(path, "fun highQualityOfflineChoiceUsesQwenInsteadOfFireRed()", "fun highQualityOfflineChoiceUsesFunAsrNano()")
+replace_once(path, "descriptor(Stage13AOfflineModelIds.QWEN3_ASR, ModelKind.ASR_LARGE),", "descriptor(Stage13AOfflineModelIds.FUNASR_NANO, ModelKind.ASR_LARGE),")
+replace_once(path, "assertEquals(Stage13AOfflineModelIds.QWEN3_ASR, persisted.secondPassAsrModelId)", "assertEquals(Stage13AOfflineModelIds.FUNASR_NANO, persisted.secondPassAsrModelId)")
+replace_once(path, "if (model.descriptor.modelId == Stage13AOfflineModelIds.QWEN3_ASR) {", "if (model.descriptor.kind == ModelKind.ASR_LARGE) {")
+
+# Final B6 evidence and product decision.
+Path("docs/STAGE_16B_GATE_B_B6.md").write_text(
+    """# Stage 16B Gate B — B6 Finalist Long-File Endurance
+
+Status: **REAL-DEVICE PASS / PRODUCT DECISION AUTHORIZED**
+
+Date: 2026-10-21
+
+## Frozen contract
+
+- exact active `fsmn-vad-int8@1.0.0/1`;
+- common ASR input cap: **25 seconds**;
+- same recording / canonical SHA / FSMN-frozen boundaries for both finalists;
+- `threads=2`, fresh lightweight `:model_validator` process per finalist;
+- one formal run per finalist; no external punctuation, diarization, Room writes or model promotion included in measured ASR time.
+
+## Formal real-device input
+
+- recording: `badf8d81-4ede-4fb1-b1f7-966d85e2ac78`;
+- canonical SHA-256: `2f611589ba1c48eb0d7f4634340c9e5e4bc81f0c40c635d508464ad797138e878`;
+- recording: `628.3468 s`;
+- frozen speech: `597.7900 s`;
+- frozen inputs: `54`;
+- VAD wall: `5003 ms`.
+
+The accepted B6 window is 9–45 minutes. The ~10.5-minute run did not leave the finalists materially ambiguous, so the preferred ~30-minute extension is not required.
+
+## Results
+
+| Metric | FunASR Nano INT8 | Qwen3-ASR 0.6B INT8 |
+| --- | ---: | ---: |
+| engine open | 12.522 s | **8.175 s** |
+| ASR wall | **377.987 s** | 425.601 s |
+| ASR RTF | **0.6323** | 0.7120 |
+| total RTF | **0.6533** | 0.7256 |
+| first-quarter ASR RTF | **0.5836** | 0.7407 |
+| last-quarter ASR RTF | **0.6304** | 0.6546 |
+| thermal slowdown ratio | 1.0801 | **0.8838** |
+| PSS start / peak / end KB | **46540 / 1728929 / 1543305** | 50059 / 2396068 / 2390460 |
+| thermal start / max / end | NONE / NONE / NONE | NONE / NONE / NONE |
+| ASR calls | 54 | 54 |
+| blank calls | **0** | **0** |
+| normalized chars | 1965 | 1920 |
+| crash / OOM | none | none |
+
+Both finalists pass endurance. FunASR keeps materially lower long-run ASR time and memory pressure; Qwen3 opens faster and also shows no thermal instability.
+
+## Final Gate B product decision
+
+User authorization after B6 fixes the Local File ASR V2 production roles as:
+
+1. **SenseVoice INT8 — balanced / efficiency role**;
+2. **FunASR Nano INT8 — high-quality role**;
+3. **Qwen3-ASR 0.6B INT8 — removed from the production product matrix and replaced by FunASR Nano**.
+
+The decision combines B1–B6 rather than speed alone: FunASR showed the stronger mixed/proper-name tendency, active ITN, strongest controlled hotword A/B, no B6 blanks/crash/OOM, lower B5/B6 runtime cost than Qwen3, and substantially lower B6 peak PSS. Qwen3 historical QA/runtime support may remain in source so prior evidence/transcripts remain interpretable; it is no longer a selectable production Local File ASR role.
+
+## Promotion boundary
+
+The authorized product-matrix change is staged through Draft model-channel PR #21. Android PR #35 and model-channel PR #21 remain unmerged until explicit merge authorization. Stage 16C remains RESERVED / NOT STARTED.
+""",
+    encoding="utf-8",
+)
+
+path = Path("docs/STAGE_16B_PROGRESS.md")
+text = path.read_text(encoding="utf-8")
+old_status = "Status: **IN PROGRESS — GATE A TECHNICAL PASS / B0 PASS / B1 PASS / B2 PASS / B3 REAL-DEVICE PASS / B4 REAL-DEVICE PASS / B5 REAL-DEVICE PASS / B6 AUTOMATED PASS / B6 REAL-DEVICE NEXT**"
+new_status = "Status: **GATE A TECHNICAL PASS / GATE B REAL-DEVICE PASS / FINAL PRODUCT MATRIX AUTHORIZED / STAGED, UNMERGED**"
+if old_status not in text:
+    raise SystemExit("progress status source not found")
+text = text.replace(old_status, new_status, 1)
+start = text.index("## B6 Finalist Long-file Endurance")
+end = text.index("## Product-state boundaries", start)
+b6 = """## B6 Finalist Long-file Endurance — REAL-DEVICE PASS
+
+Both finalists completed the same formal B6 input with exact FSMN `1.0.0/1`, `threads=2`, `54` frozen inputs, `597.7900 s` frozen speech and `blankCalls=0`.
+
+| Candidate | ASR RTF | Total RTF | First-quarter | Last-quarter | Thermal ratio | Peak PSS KB | End PSS KB |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| **FunASR Nano** | **0.6323** | **0.6533** | **0.5836** | **0.6304** | 1.0801 | **1728929** | **1543305** |
+| Qwen3-ASR | 0.7120 | 0.7256 | 0.7407 | 0.6546 | **0.8838** | 2396068 | 2390460 |
+
+Both reported thermal `NONE/NONE/NONE`, no crash/OOM and 54/54 nonblank calls. The accepted ~10.5-minute run leaves no material endurance ambiguity, so the preferred ~30-minute extension is waived.
+
+Final authorized product roles:
+
+- **SenseVoice INT8 = balanced / efficiency**;
+- **FunASR Nano INT8 = high quality**;
+- **Qwen3-ASR 0.6B INT8 = removed from the production product matrix and replaced by FunASR Nano**.
+
+Historical Qwen runtime/evidence may remain for prior-transcript compatibility and QA traceability; it is not a production Local File ASR choice.
+
+Doc: `docs/STAGE_16B_GATE_B_B6.md`.
+
+"""
+text = text[:start] + b6 + text[end:]
+start = text.index("## Product-state boundaries")
+end = text.index("## Next planned work", start)
+product = """## Product-state boundaries
+
+- Local File VAD: `FSMN primary -> Silero fallback`;
+- formal Gate B VAD: exact active FSMN;
+- realtime VAD: Silero unchanged until Stage 16C.1;
+- Local File balanced/efficiency ASR: **SenseVoice INT8**;
+- Local File high-quality ASR: **FunASR Nano INT8**;
+- Qwen3-ASR removed from the production product matrix;
+- model-channel staged manifest: v9, digest `a49da9fdf2dabf2408ba2bb14cf6b5c25c35563052cc6307db8f8095caac0b45`, commit `eeb59214244f392f3e2eecdb90016efbe3a95401`;
+- Room remains v14;
+- Android PR #35 remains Draft/unmerged;
+- model-channel PR #21 remains Draft/unmerged;
+- Stage 16C remains `RESERVED / NOT STARTED`.
+
+"""
+text = text[:start] + product + text[end:]
+start = text.index("## Next planned work")
+text = text[:start] + """## Next planned work
+
+1. Run final Android CI against the pinned v9 model-channel matrix.
+2. Verify the production-like Local File UI exposes SenseVoice + FunASR Nano and no Qwen3 production choice.
+3. Freeze Stage 16B handoff after CI/QA evidence is green.
+4. Do not merge PR #35 or model-channel PR #21, and do not start Stage 16C, without explicit user authorization.
+"""
+path.write_text(text, encoding="utf-8")
+
+print("Stage 16B final product matrix applied")
