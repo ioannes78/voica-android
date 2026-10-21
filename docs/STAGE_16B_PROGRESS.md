@@ -1,6 +1,6 @@
 # Stage 16B — Local File ASR V2 Progress
 
-Status: **GATE A TECHNICAL PASS / GATE B REAL-DEVICE PASS / PRODUCT MATRIX AUTHORIZED / POST-GATE REMEDIATION ACTIVE / FINAL FREEZE BLOCKED**
+Status: **GATE A TECHNICAL PASS / GATE B REAL-DEVICE PASS / PRODUCT MATRIX AUTHORIZED / P2 REAL-DEVICE PASS / P3 TIMING FIREWALL CI PASS / CTC PORTABILITY GATE IN PROGRESS / FINAL FREEZE BLOCKED**
 
 Repository: `ioannes78/voica-android`
 
@@ -76,36 +76,64 @@ Both finalists passed without crash/OOM. The accepted ~10.5-minute run did not l
 
 Historical Qwen runtime/evidence may remain for prior-transcript compatibility and QA traceability; it is not a production Local File ASR choice.
 
-## Post-Gate real-device revalidation — current truth
+## Post-Gate P0–P2 — completeness remediation
 
-The product-role decision above remains authorized, but post-gate production-like QA found two blockers.
+Pinned sherpa-onnx v1.13.8 FunASR generated-token timestamps were corrected from the earlier post-gate interpretation: they are synthetic/evenly distributed timing, not CTC/forced acoustic alignment.
 
-| Item | State |
-| --- | --- |
-| QA Hub launcher behavior | **PASS** |
-| FunASR hotword UI / call path | **PASS** |
-| Local Speech settings copy | **PASS** |
-| FunASR ITN | **PASS** |
-| FunASR precise/native token timeline | **FAIL** |
-| FunASR Hotword ON transcription completeness | **FAIL** |
-| Same 118-second sample, Hotword OFF completeness | **PASS** |
-| Final Freeze / Handoff | **BLOCKED** |
+Separately, a fixed 118-second recording had shown an entire ASR span missing with Hotword ON while the same span was present with Hotword OFF. P1/P2 added context-budget diagnostics and replaced fixed-duration guesswork with a FunASR-specific adaptive planner:
 
-### Corrected FunASR timestamp interpretation
+- estimated prompt/hotword/audio/generation budget diagnostics;
+- target approximately 15–18 seconds, budget-aware rather than a new fixed cut;
+- reliable low-energy boundaries preferred;
+- continuous/low-volume speech protected by approximately one second overlap;
+- normalized suffix/prefix overlap reconciliation;
+- blank/truncation/capacity/abnormal-short-output attempts retried shorter and fail closed if still suspicious;
+- SenseVoice and FAST pipelines unchanged;
+- Room unchanged at v14.
 
-Pinned sherpa-onnx v1.13.8 does return generated token strings and timestamp values, but its FunASR implementation derives those timestamp values from effective injected audio duration and distributes them evenly across the generated token sequence. This is **synthetic uniform timing**, not CTC/forced acoustic alignment.
+### P2 real-device result — PASS
 
-Accordingly, the post-gate claim that sherpa FunASR timestamps can serve as a precise native product timeline is withdrawn. Historical B4 evidence is not rewritten; this correction applies to the later post-gate adapter promotion attempt.
+The user installed the production-like P2 QA build and reported the test **passed with no obvious missing or incorrect content**. The previous Hotword-ON whole-span omission was not reproduced.
 
-The synthetic timing may be used temporarily as a diagnostic of effective audio coverage during P1/P2, but it must not be represented as a true CTC timeline. Full removal from canonical token timing/speaker alignment is the next phase after the completeness blocker passes real-device QA.
+The user also reported:
 
-### Hotword completeness blocker
+- no separate Stage 16B QA Hub desktop icon — **expected for this release-like QA packaging**, whose launcher contract keeps only normal Voica;
+- sentence segmentation is still problematic — **open / deferred until real CTC timing is available and re-tested**;
+- timeline is still coarse large segments and has no character-level timing — **expected pre-CTC state, not a P2 completeness regression**.
 
-A fixed 118-second user recording has shown an entire ASR span missing with Hotword ON while the same span returns with Hotword OFF. The strongest current mechanism is FunASR Nano KV/context pressure: hotword prompt tokens consume the same fixed `max_total_len` budget as audio placeholders and generated output.
+P2 completeness is therefore closed as REAL-DEVICE PASS. This does not imply Final Freeze.
 
-P1/P2 therefore replace guess-based fixed-duration tuning with explicit context-budget diagnostics and a FunASR-specific adaptive chunk planner.
+## P3 — synthetic timing firewall
 
-Full remediation contract: `docs/STAGE_16B_POST_GATE_REMEDIATION.md`.
+P3 is implemented on the FunASR product wrapper:
+
+- sherpa synthetic token/timestamp values remain private diagnostic input only;
+- FunASR product capabilities now advertise no token timing;
+- FunASR product hypotheses always expose an empty token timeline until real CTC exists;
+- downstream High Quality persistence therefore falls back to canonical FSMN/VAD segment timing;
+- pseudo-precision can no longer enter normal FunASR speaker alignment through the wrapper.
+
+Regression coverage explicitly verifies that even a single, non-retried FunASR chunk cannot leak synthetic tokens while the private diagnostic generated-token signal remains available.
+
+Checkpoint: Android head `11642818f670788afecb636f1914cdf7c6363559` — Fast PR Gate #2132 **SUCCESS** (unit tests + debug compile + FSMN runtime boundary).
+
+## P4/P5 — true CTC timeline
+
+Source audit confirms the official FunASR Nano timestamp path is:
+
+`pre-adaptor audio encoder output -> CTC decoder/projection -> CTC log probabilities -> SenseVoice CTC tokenizer(final text) -> forced alignment -> 60 ms CTC frame mapping -> canonical sampleIndex`.
+
+The current production package `funasr-nano-int8@2025-12-30/1` is insufficient:
+
+- it contains the sherpa LLM path (`encoder_adaptor.int8.onnx`, `embedding.int8.onnx`, `llm.int8.onnx`, Qwen tokenizer);
+- it does not contain the official CTC decoder/projection or SenseVoice CTC tokenizer;
+- its public encoder/adaptor output is post-adaptor LLM embedding, while official CTC consumes the pre-adaptor 512-d encoder output.
+
+Therefore true CTC cannot be implemented correctly by attaching an aligner to revision `/1`.
+
+Full portability findings and the required revision-2 architecture are recorded in `docs/STAGE_16B_CTC_PORTABILITY_GATE.md`.
+
+Current CTC Gate status: **IN PROGRESS — source architecture portable in principle; export + Android empirical proof still required before final PASS.**
 
 ## Production-state boundaries
 
@@ -113,7 +141,8 @@ Full remediation contract: `docs/STAGE_16B_POST_GATE_REMEDIATION.md`.
 - realtime VAD: Silero unchanged until Stage 16C.1;
 - Local File balanced/efficiency ASR: SenseVoice INT8;
 - Local File high-quality ASR: FunASR Nano INT8;
-- current FunASR package remains `funasr-nano-int8@2025-12-30/1` for P0–P2;
+- current production/staged FunASR identity remains `funasr-nano-int8@2025-12-30/1`;
+- no revision `/2` package or model-channel v10 has been staged yet;
 - model-channel staged manifest remains v9 at Draft PR #21 until separately authorized;
 - Room remains v14;
 - Android PR #35 remains Draft/unmerged;
@@ -122,11 +151,11 @@ Full remediation contract: `docs/STAGE_16B_POST_GATE_REMEDIATION.md`.
 
 ## Current work order
 
-1. **P0 — documentation/status correction**: record timeline FAIL, Hotword ON completeness FAIL and Final Freeze BLOCKED.
-2. **P1 — FunASR context-budget diagnostics**: capture prompt/audio/generation budget evidence; explicitly distinguish exact fields from estimates/inferences unavailable through the current sherpa Java API.
-3. **P2 — adaptive FunASR chunking + retry**: budget-aware 15–18-second target, natural-boundary preference, overlap for continuous speech, fuzzy overlap reconciliation and fail-closed retry.
-4. Run automated regression for FunASR planner/retry plus SenseVoice and FAST non-regression.
-5. Generate production-like QA APK after CI is green.
-6. Real-device gate: fixed 118-second recording Hotword OFF/ON with ITN ON, plus at least two additional long recordings.
-7. **Only after explicit P2 real-device PASS**, proceed to P3–P5 true CTC timeline work.
+1. **P0–P2: COMPLETE / REAL-DEVICE PASS.**
+2. **P3: IMPLEMENTED / FAST CI PASS.** Keep sherpa synthetic timing diagnostic-only and product timing fail-closed.
+3. **P4: CTC portability Gate IN PROGRESS.** Export pre-adaptor encoder state + CTC decoder/projection + SenseVoice CTC tokenizer; verify exact blank/vocab/frame metadata and official-Python parity.
+4. **P5:** implement Android forced/Viterbi alignment, canonical sample-index mapping, punctuation anchoring and fail-closed fallback; prove actual non-uniform character/token timing on device.
+5. Re-test sentence segmentation and speaker alignment only after real CTC is present; do not tune CAM++ first.
+6. Measure CTC wall/RTF, total RTF, peak/end PSS, thermal, retries and completeness; preserve the important high-quality target `total RTF < 1.0` where practical.
+7. Only after CTC Gate + real-device timeline/segmentation/performance acceptance may revision `/2` / model-channel v10 remain as the candidate for later explicit promotion authorization.
 8. Do not Final Freeze/Handoff, merge either PR, promote model-channel, or start Stage 16C without explicit user authorization.
