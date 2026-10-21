@@ -18,7 +18,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.event.pull_request.title, '[A3-H2]')
-    name: H2a+H2b+H2c export + production INT8 parity
+    name: H2a+H2b+H2c export + production INT8 + generation parity
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -182,6 +182,48 @@ jobs:
             echo "H2c starts from the exact staged revision-1 sherpa package and requires output[0] bit-exact parity. The package and modified ONNX remain runner-local."
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Install pinned revision-1 generation dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --no-cache-dir \
+            "transformers==4.57.3" \
+            "kaldi-native-fbank==1.22.3" \
+            "soundfile==0.13.1"
+          python - <<'PY'
+          from importlib.metadata import version
+          assert version("transformers") == "4.57.3"
+          assert version("kaldi-native-fbank") == "1.22.3"
+          assert version("soundfile") == "0.13.1"
+          print(
+              "H2c generation dependencies: "
+              f"transformers={version('transformers')} "
+              f"kaldi-native-fbank={version('kaldi-native-fbank')} "
+              f"soundfile={version('soundfile')}"
+          )
+          PY
+
+      - name: H2c prove full revision-1 to dual-output LLM generation parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/funasr-a3-h2c-generation"
+          python ci/funasr-ctc-a3-h2/verify-h2c-generation-parity.py \
+            --h2c-root "${RUNNER_TEMP}/funasr-a3-h2c" \
+            --exporter-root "${RUNNER_TEMP}/FunASR-nano-onnx" \
+            --out "$out"
+          test -s "$out/a3-h2c-generation-parity.json"
+          {
+            echo
+            echo "## Stage 16B A3-H2c full LLM generation parity"
+            echo
+            echo '```json'
+            cat "$out/a3-h2c-generation-parity.json"
+            echo '```'
+            echo
+            echo "Only the encoder graph changes between the two runs. Production embedding, LLM and tokenizer assets are SHA-pinned and byte-identical. All assets remain runner-local."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Remove H2 model/export assets
         if: always()
         shell: bash
@@ -190,6 +232,7 @@ jobs:
             "${RUNNER_TEMP}/funasr-a3-h2a" \
             "${RUNNER_TEMP}/funasr-a3-h2b" \
             "${RUNNER_TEMP}/funasr-a3-h2c" \
+            "${RUNNER_TEMP}/funasr-a3-h2c-generation" \
             "${RUNNER_TEMP}/FunASR-reference" \
             "${RUNNER_TEMP}/FunASR-nano-onnx"
           df -h . "${RUNNER_TEMP}"
