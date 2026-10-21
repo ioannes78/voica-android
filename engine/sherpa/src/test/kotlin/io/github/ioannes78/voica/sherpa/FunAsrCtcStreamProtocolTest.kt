@@ -8,29 +8,54 @@ import org.junit.Test
 
 class FunAsrCtcStreamProtocolTest {
     @Test
-    fun validatesAlignmentArgumentsIncludingModelOwnedBlankId() {
+    fun validatesAlignmentArgumentsIncludingModelOwnedBlankAndVocabulary() {
         assertThrows(IllegalArgumentException::class.java) {
             FunAsrCtcStreamProtocol.validateAlignmentArguments(
                 targetIds = intArrayOf(),
                 blankId = 99,
+                vocabSize = 100,
             )
         }
         assertThrows(IllegalArgumentException::class.java) {
             FunAsrCtcStreamProtocol.validateAlignmentArguments(
                 targetIds = intArrayOf(10, 99),
                 blankId = 99,
+                vocabSize = 100,
             )
         }
         assertThrows(IllegalArgumentException::class.java) {
             FunAsrCtcStreamProtocol.validateAlignmentArguments(
                 targetIds = intArrayOf(10),
                 blankId = -1,
+                vocabSize = 100,
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            FunAsrCtcStreamProtocol.validateAlignmentArguments(
+                targetIds = intArrayOf(10),
+                blankId = 100,
+                vocabSize = 100,
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            FunAsrCtcStreamProtocol.validateAlignmentArguments(
+                targetIds = intArrayOf(100),
+                blankId = 99,
+                vocabSize = 100,
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            FunAsrCtcStreamProtocol.validateAlignmentArguments(
+                targetIds = intArrayOf(10),
+                blankId = 0,
+                vocabSize = 1,
             )
         }
 
         FunAsrCtcStreamProtocol.validateAlignmentArguments(
             targetIds = intArrayOf(10, 20),
             blankId = 99,
+            vocabSize = 100,
         )
     }
 
