@@ -7,6 +7,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.activity.ComponentActivity
+import io.github.ioannes78.voica.sherpa.FunAsrRuntimeDiagnostics
 
 /** Single QA/releaseQa launcher to avoid one desktop icon per Stage 16B benchmark activity. */
 class Stage16BQaHubActivity : ComponentActivity() {
@@ -32,22 +33,43 @@ class Stage16BQaHubActivity : ComponentActivity() {
         })
         root.addView(TextView(this).apply {
             text =
-                "QA/releaseQa only. Stage-specific benchmark activities are internal and no longer create separate launcher icons. " +
-                    "Use the current Gate B6 finalist endurance entry below; earlier tools remain available for evidence recovery only."
+                "QA/releaseQa only. Post-Gate P1/P2 is active: validate FunASR Hotword OFF/ON completeness before any CTC timeline work. " +
+                    "Earlier Gate B tools remain available for evidence recovery only."
         })
 
         root.addView(TextView(this).apply {
             setPadding(0, padding, 0, padding / 2)
-            text = "Current"
+            text = "Current — Post-Gate P1/P2"
             textSize = 18f
         })
-        addButton(root, "Gate B6 — Finalist Endurance", Stage16BGateB6LauncherActivity::class.java)
+        val diagnosticsText = TextView(this).apply {
+            textSize = 12f
+            setTextIsSelectable(true)
+            text = FunAsrRuntimeDiagnostics.formatForQa()
+        }
+        root.addView(Button(this).apply {
+            text = "Refresh FunASR Context Diagnostics"
+            isAllCaps = false
+            setOnClickListener {
+                diagnosticsText.text = FunAsrRuntimeDiagnostics.formatForQa()
+            }
+        })
+        root.addView(Button(this).apply {
+            text = "Clear FunASR Diagnostics"
+            isAllCaps = false
+            setOnClickListener {
+                FunAsrRuntimeDiagnostics.clear()
+                diagnosticsText.text = FunAsrRuntimeDiagnostics.formatForQa()
+            }
+        })
+        root.addView(diagnosticsText)
 
         root.addView(TextView(this).apply {
             setPadding(0, padding, 0, padding / 2)
             text = "Previous Stage 16B QA tools"
             textSize = 18f
         })
+        addButton(root, "Gate B6 — Finalist Endurance", Stage16BGateB6LauncherActivity::class.java)
         addButton(root, "Gate B0/B1/B2 — ASR Matrix", Stage16BGateBBenchmarkActivity::class.java)
         addButton(root, "Gate B3 — Capability Profiles", Stage16BGateB3Activity::class.java)
         addButton(root, "Gate B3 — Hotword A/B", Stage16BGateB3HotwordActivity::class.java)
