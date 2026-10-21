@@ -42,19 +42,17 @@ internal class SenseVoiceCtcTokenizer private constructor(
 
     fun decode(tokenIds: IntArray): String {
         val out = ByteArrayOutputStream()
-        tokenIds.forEach { tokenId ->
-            val bytes = bytesByRank[tokenId]
-                ?: error("Unknown SenseVoice CTC mergeable token id: $tokenId")
-            out.write(bytes)
-        }
+        tokenIds.forEach { tokenId -> out.write(tokenBytes(tokenId)) }
         return out.toByteArray().toString(StandardCharsets.UTF_8)
     }
 
-    fun decodeToken(tokenId: Int): String {
-        val bytes = bytesByRank[tokenId]
+    fun decodeToken(tokenId: Int): String =
+        tokenBytes(tokenId).toString(StandardCharsets.UTF_8)
+
+    /** Raw mergeable bytes are needed to compact split UTF-8 CTC target ids without guessing. */
+    fun tokenBytes(tokenId: Int): ByteArray =
+        bytesByRank[tokenId]?.copyOf()
             ?: error("Unknown SenseVoice CTC mergeable token id: $tokenId")
-        return bytes.toString(StandardCharsets.UTF_8)
-    }
 
     private fun encodePiece(piece: ByteArray): IntArray {
         if (piece.isEmpty()) return intArrayOf()
