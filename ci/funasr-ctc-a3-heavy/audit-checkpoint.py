@@ -39,7 +39,6 @@ def download_file(
     revision: str,
     out_dir: Path,
     expected_sha256: str | None = None,
-    file_size: int | None = None,
 ) -> Path:
     result = Path(
         api.download_file(
@@ -50,13 +49,37 @@ def download_file(
             local_dir=out_dir,
             force=True,
             expected_sha256=expected_sha256,
-            file_size=file_size,
         )
     )
     for candidate in (result, out_dir / remote_path, out_dir / Path(remote_path).name):
         if candidate.is_file():
             return candidate
     raise RuntimeError(f"ModelScope download did not produce {remote_path}: {result}")
+
+
+def download_model_checkpoint(
+    api: HubApi,
+    revision: str,
+    out_dir: Path,
+) -> Path:
+    # HubApi.download_repo() carries each selected file's authoritative metadata
+    # (including size + SHA-256) into the pinned v0.4.6 downloader. With the H1
+    # worker env this enables a 4-way HTTP Range download for model.pt while the
+    # public API still restricts the snapshot to this one file.
+    root = Path(
+        api.download_repo(
+            MODEL_ID,
+            "model",
+            revision=revision,
+            local_dir=out_dir,
+            allow_patterns=["model.pt"],
+            max_workers=1,
+        )
+    )
+    for candidate in (root / "model.pt", out_dir / "model.pt"):
+        if candidate.is_file():
+            return candidate
+    raise RuntimeError(f"ModelScope filtered repo download did not produce model.pt: {root}")
 
 
 def normalize_checkpoint_state(state: Any) -> dict[str, Any]:
@@ -162,14 +185,7 @@ def main() -> None:
 
     config_path = download_file(api, "config.yaml", args.revision, args.out)
     tokenizer_path = download_file(api, "multilingual.tiktoken", args.revision, args.out)
-    model_path = download_file(
-        api,
-        "model.pt",
-        args.revision,
-        args.out,
-        expected_sha256=EXPECTED_MODEL_SHA256,
-        file_size=remote_size,
-    )
+    model_path = download_model_checkpoint(api, args.revision, args.out)
 
     local_size = model_path.stat().st_size
     if local_size != EXPECTED_MODEL_SIZE:
