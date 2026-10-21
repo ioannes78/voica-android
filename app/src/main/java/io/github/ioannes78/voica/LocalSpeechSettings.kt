@@ -181,6 +181,15 @@ data class LocalSenseVoiceSettings(
     val useInverseTextNormalization: Boolean = false,
 )
 
+data class LocalFunAsrSettings(
+    val useInverseTextNormalization: Boolean = true,
+    val hotwords: String = "",
+) {
+    init {
+        require(hotwords.length <= 512)
+    }
+}
+
 data class LocalQwenAsrSettings(
     val maxTotalLen: Int = 512,
     val maxNewTokens: Int = 128,
@@ -234,6 +243,7 @@ data class LocalSpeechSettings(
     val requestedThreads: Int? = null,
     val realtime: LocalRealtimeAsrSettings = LocalRealtimeAsrSettings(),
     val senseVoice: LocalSenseVoiceSettings = LocalSenseVoiceSettings(),
+    val funAsr: LocalFunAsrSettings = LocalFunAsrSettings(),
     val qwen: LocalQwenAsrSettings = LocalQwenAsrSettings(),
     val vad: LocalVadSettings = LocalVadSettings(),
     val diarization: LocalDiarizationSettings = LocalDiarizationSettings(),
@@ -323,6 +333,10 @@ interface LocalSpeechSettingsStore {
 
     fun resetSenseVoiceSettings()
 
+    fun setFunAsrSettings(settings: LocalFunAsrSettings)
+
+    fun resetFunAsrSettings()
+
     fun setQwenSettings(settings: LocalQwenAsrSettings)
 
     fun resetQwenSettings()
@@ -369,6 +383,7 @@ class SharedPreferencesLocalSpeechSettingsStore(
                         .takeIf { it > 0 },
                 realtime = readRealtimeSettings(preferences),
                 senseVoice = readSenseVoiceSettings(preferences),
+                funAsr = readFunAsrSettings(preferences),
                 qwen = readQwenSettings(preferences),
                 vad = readVadSettings(preferences),
                 diarization = readDiarizationSettings(preferences),
@@ -452,6 +467,23 @@ class SharedPreferencesLocalSpeechSettingsStore(
             .remove(KEY_SENSEVOICE_USE_ITN)
             .apply()
         mutableSettings.value = mutableSettings.value.copy(senseVoice = defaults)
+    }
+
+    override fun setFunAsrSettings(settings: LocalFunAsrSettings) {
+        preferences.edit()
+            .putBoolean(KEY_FUNASR_USE_ITN, settings.useInverseTextNormalization)
+            .putString(KEY_FUNASR_HOTWORDS, settings.hotwords)
+            .apply()
+        mutableSettings.value = mutableSettings.value.copy(funAsr = settings)
+    }
+
+    override fun resetFunAsrSettings() {
+        val defaults = LocalFunAsrSettings()
+        preferences.edit()
+            .remove(KEY_FUNASR_USE_ITN)
+            .remove(KEY_FUNASR_HOTWORDS)
+            .apply()
+        mutableSettings.value = mutableSettings.value.copy(funAsr = defaults)
     }
 
     override fun setQwenSettings(settings: LocalQwenAsrSettings) {
@@ -541,6 +573,8 @@ class SharedPreferencesLocalSpeechSettingsStore(
         const val KEY_REALTIME_MAX_ACTIVE_PATHS = "realtime-max-active-paths"
         const val KEY_SENSEVOICE_LANGUAGE = "sensevoice-language"
         const val KEY_SENSEVOICE_USE_ITN = "sensevoice-use-itn"
+        const val KEY_FUNASR_USE_ITN = "funasr-use-itn"
+        const val KEY_FUNASR_HOTWORDS = "funasr-hotwords"
         const val KEY_QWEN_MAX_TOTAL_LEN = "qwen-max-total-len"
         const val KEY_QWEN_MAX_NEW_TOKENS = "qwen-max-new-tokens"
         const val KEY_QWEN_TEMPERATURE = "qwen-temperature"
@@ -581,6 +615,16 @@ class SharedPreferencesLocalSpeechSettingsStore(
                     ),
             )
 
+        fun readFunAsrSettings(preferences: android.content.SharedPreferences): LocalFunAsrSettings =
+            LocalFunAsrSettings(
+                useInverseTextNormalization =
+                    preferences.getBoolean(
+                        KEY_FUNASR_USE_ITN,
+                        LocalFunAsrSettings().useInverseTextNormalization,
+                    ),
+                hotwords = preferences.getString(KEY_FUNASR_HOTWORDS, "").orEmpty().take(512),
+            )
+
         fun readQwenSettings(preferences: android.content.SharedPreferences): LocalQwenAsrSettings =
             runCatching {
                 LocalQwenAsrSettings(
@@ -618,8 +662,3 @@ class SharedPreferencesLocalSpeechSettingsStore(
 }
 
 const val MAX_CONFIGURABLE_THREADS = 8
-const val FIVE_PLUS_INITIAL_CLUSTERING_THRESHOLD = 0.45F
-const val FIVE_PLUS_MINIMUM_SPEAKERS = 5
-const val FIVE_PLUS_MAXIMUM_SPEAKERS = 8
-private const val DEFAULT_BALANCED_THREADS = 2
-private const val PERFORMANCE_THREADS = 4
