@@ -30,10 +30,14 @@ jobs:
       VOICA_BUILD_GIT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       P5_CANDIDATE_MANIFEST: https://github.com/ioannes78/voica-model-channel/releases/download/candidate-stage16b-funasr-ctc-p5-r1/production.json
       P5_CANDIDATE_TAG: candidate-stage16b-funasr-ctc-p5-r1
+      P5_SHERPA_VERSION: v1.13.8-p5-ctc-r1
+      P5_SHERPA_REPOSITORY: ${{ runner.temp }}/p5-sherpa-maven
 
     steps:
       - name: Checkout Voica
         uses: actions/checkout@v5
+        with:
+          ref: ${{ env.VOICA_BUILD_GIT_SHA }}
 
       - name: Checkout pinned sherpa-onnx v1.13.8
         uses: actions/checkout@v5
@@ -181,6 +185,31 @@ jobs:
           strings "$work/jni.so" | grep -Fq 'candidate_logits'
           strings "$work/jni.so" | grep -Fq 'ForwardCompactCtc'
 
+      - name: Publish patched AAR into isolated local Maven repository
+        shell: bash
+        env:
+          PATCHED_AAR: ${{ steps.patched_aar.outputs.aar }}
+        run: |
+          set -euo pipefail
+          artifact_dir="$P5_SHERPA_REPOSITORY/com/github/k2-fsa/sherpa-onnx/sherpa-onnx/$P5_SHERPA_VERSION"
+          mkdir -p "$artifact_dir"
+          cp "$PATCHED_AAR" "$artifact_dir/sherpa-onnx-$P5_SHERPA_VERSION.aar"
+          cat > "$artifact_dir/sherpa-onnx-$P5_SHERPA_VERSION.pom" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <project xmlns="http://maven.apache.org/POM/4.0.0"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+            <modelVersion>4.0.0</modelVersion>
+            <groupId>com.github.k2-fsa.sherpa-onnx</groupId>
+            <artifactId>sherpa-onnx</artifactId>
+            <version>$P5_SHERPA_VERSION</version>
+            <packaging>aar</packaging>
+          </project>
+          EOF
+          test -s "$artifact_dir/sherpa-onnx-$P5_SHERPA_VERSION.aar"
+          test -s "$artifact_dir/sherpa-onnx-$P5_SHERPA_VERSION.pom"
+          sha256sum "$artifact_dir/sherpa-onnx-$P5_SHERPA_VERSION.aar"
+
       - name: Restore pinned Opus 1.6.1 source
         uses: actions/cache@v5
         with:
@@ -191,27 +220,44 @@ jobs:
         shell: bash
         run: bash ci/prepare-opus-source.sh
 
+      - name: Verify patched sherpa resolves through standard dependency graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle \
+            :engine:sherpa:dependencies \
+            --configuration debugCompileClasspath \
+            -Pvoica.patchedSherpaRepository="$P5_SHERPA_REPOSITORY" \
+            -Pvoica.sherpaDependencyVersion="$P5_SHERPA_VERSION" \
+            > "${RUNNER_TEMP}/sherpa-dependencies.txt"
+          grep -Fq "com.github.k2-fsa.sherpa-onnx:sherpa-onnx:$P5_SHERPA_VERSION" \
+            "${RUNNER_TEMP}/sherpa-dependencies.txt"
+          if grep -Fq 'com.github.k2-fsa.sherpa-onnx:sherpa-onnx:v1.13.8 ' \
+            "${RUNNER_TEMP}/sherpa-dependencies.txt"; then
+            echo "::error::Stock sherpa dependency leaked into P5 patched dependency graph"
+            cat "${RUNNER_TEMP}/sherpa-dependencies.txt"
+            exit 1
+          fi
+
       - name: Unit tests with patched sherpa dependency
         shell: bash
-        env:
-          PATCHED_AAR: ${{ steps.patched_aar.outputs.aar }}
         run: |
           set -euo pipefail
           gradle \
             :engine:sherpa:testDebugUnitTest \
             :app:testDebugUnitTest \
-            -Pvoica.patchedSherpaAar="$PATCHED_AAR" \
+            -Pvoica.patchedSherpaRepository="$P5_SHERPA_REPOSITORY" \
+            -Pvoica.sherpaDependencyVersion="$P5_SHERPA_VERSION" \
             --stacktrace
 
       - name: Build production-like P5 releaseQa APK
         shell: bash
-        env:
-          PATCHED_AAR: ${{ steps.patched_aar.outputs.aar }}
         run: |
           set -euo pipefail
           gradle \
             :app:assembleReleaseQa \
-            -Pvoica.patchedSherpaAar="$PATCHED_AAR" \
+            -Pvoica.patchedSherpaRepository="$P5_SHERPA_REPOSITORY" \
+            -Pvoica.sherpaDependencyVersion="$P5_SHERPA_VERSION" \
             -Pvoica.qa.defaultModelManifestUrl="$P5_CANDIDATE_MANIFEST" \
             --stacktrace
 
