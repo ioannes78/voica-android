@@ -1,6 +1,7 @@
 package io.github.ioannes78.voica
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class LocalSpeechSettingsTest {
@@ -78,6 +79,20 @@ class LocalSpeechSettingsTest {
 
         assertEquals(true, funAsr.useInverseTextNormalization)
         assertEquals("", funAsr.hotwords)
+    }
+
+    @Test
+    fun funAsrHotwordsAreBoundedForProductPreferences() {
+        assertEquals(
+            "OpenAI,Voica",
+            LocalFunAsrSettings(
+                useInverseTextNormalization = false,
+                hotwords = "OpenAI,Voica",
+            ).hotwords,
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            LocalFunAsrSettings(hotwords = "x".repeat(513))
+        }
     }
 
     @Test
