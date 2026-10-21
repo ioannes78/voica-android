@@ -23,17 +23,17 @@ class Stage16BGateBBenchmarkContractTest {
     }
 
     @Test
-    fun productionOfflineChoicesRemainSenseVoiceOrQwenOnly() {
+    fun productionOfflineChoicesRemainSenseVoiceOrFunAsrOnly() {
         val productModelIds =
             OfflineAsrQualityChoice.values()
                 .flatMap(OfflineAsrQualityChoice::preferredModelIds)
                 .toSet()
 
         assertEquals(
-            setOf(Stage13AOfflineModelIds.SENSEVOICE, Stage13AOfflineModelIds.QWEN3_ASR),
+            setOf(Stage13AOfflineModelIds.SENSEVOICE, Stage13AOfflineModelIds.FUNASR_NANO),
             productModelIds,
         )
-        assertFalse(STAGE16B_FUNASR_NANO_CANDIDATE_ID in productModelIds)
+        assertFalse(Stage13AOfflineModelIds.QWEN3_ASR in productModelIds)
     }
 
     @Test
