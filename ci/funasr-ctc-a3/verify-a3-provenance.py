@@ -5,6 +5,7 @@ import argparse
 import base64
 import hashlib
 import json
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,9 @@ from tiktoken.load import load_tiktoken_bpe
 MODEL_ID = "FunAudioLLM/Fun-ASR-Nano-2512"
 DEFAULT_REVISION = "master"
 REPORTED_CTC_MODEL_SHA256 = "81fec8616083c69377f3ceef36aba3655660ee0ca69a5d4a1e9810cd340ca499"
+OFFICIAL_TOKENIZER_SHA256 = "74797963e813193436aabcff7c1c235d37de8097b71c563ec8b63b7a515c718"
+OFFICIAL_DEFAULT_CTC_VOCAB_SIZE = 60515
+OFFICIAL_CTC_FRAME_PERIOD_MS = 60
 PATTERN = r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"
 FIXTURES = (
     "郗",
@@ -62,10 +66,6 @@ def single_int(config: Any, key: str) -> int | None:
     return distinct[0]
 
 
-def string_values(config: Any, key: str) -> list[str]:
-    return [value for value in recursive_values(config, key) if isinstance(value, str)]
-
-
 def file_map(api: HubApi, revision: str) -> dict[str, Any]:
     files = api.list_repo_files(MODEL_ID, "model", revision=revision, recursive=True)
     return {item.path: item for item in files}
@@ -97,10 +97,23 @@ def download_small_file(api: HubApi, remote_path: str, revision: str, out_dir: P
     return downloaded
 
 
+def require_mapping(parent: dict[str, Any], key: str) -> dict[str, Any]:
+    value = parent.get(key)
+    if not isinstance(value, dict):
+        raise RuntimeError(f"config.yaml {key} must be a mapping")
+    return value
+
+
+def require_int(mapping: dict[str, Any], key: str, expected: int, context: str) -> None:
+    value = mapping.get(key)
+    if value != expected:
+        raise RuntimeError(f"Unexpected {context}.{key}: expected {expected}, got {value!r}")
+
+
 def build_tiktoken(tokenizer_path: Path) -> tuple[tiktoken.Encoding, dict[bytes, int]]:
     mergeable_ranks = load_tiktoken_bpe(str(tokenizer_path))
     encoding = tiktoken.Encoding(
-        name="voica-funasr-a3-sensevoice",
+        name="voica-funasr-a3-sensevoice-ordinary-text",
         pat_str=PATTERN,
         mergeable_ranks=mergeable_ranks,
         special_tokens={},
@@ -142,43 +155,79 @@ def main() -> None:
     if not isinstance(config, dict):
         raise RuntimeError("config.yaml root must be a mapping")
 
-    ctc_decoder_values = string_values(config, "ctc_decoder")
-    if not ctc_decoder_values or not any(value.strip() for value in ctc_decoder_values):
-        raise RuntimeError("config.yaml does not enable a CTC decoder")
+    if config.get("ctc_decoder") != "Transformer":
+        raise RuntimeError(f"Unexpected ctc_decoder: {config.get('ctc_decoder')!r}")
 
-    ctc_tokenizer_values = string_values(config, "ctc_tokenizer")
-    if not any("SenseVoice" in value for value in ctc_tokenizer_values):
-        raise RuntimeError(f"Expected SenseVoice CTC tokenizer, got {ctc_tokenizer_values!r}")
+    audio_adaptor_conf = require_mapping(config, "audio_adaptor_conf")
+    require_int(audio_adaptor_conf, "encoder_dim", 512, "audio_adaptor_conf")
+    require_int(audio_adaptor_conf, "llm_dim", 1024, "audio_adaptor_conf")
+    require_int(audio_adaptor_conf, "n_layer", 2, "audio_adaptor_conf")
+    require_int(audio_adaptor_conf, "downsample_rate", 1, "audio_adaptor_conf")
 
-    tiktoken_refs: list[str] = []
+    ctc_decoder_conf = require_mapping(config, "ctc_decoder_conf")
+    require_int(ctc_decoder_conf, "encoder_dim", 512, "ctc_decoder_conf")
+    require_int(ctc_decoder_conf, "llm_dim", 512, "ctc_decoder_conf")
+    require_int(ctc_decoder_conf, "n_layer", 5, "ctc_decoder_conf")
+    require_int(ctc_decoder_conf, "downsample_rate", 1, "ctc_decoder_conf")
 
-    def collect_tiktoken_refs(value: Any) -> None:
-        if isinstance(value, dict):
-            for child in value.values():
-                collect_tiktoken_refs(child)
-        elif isinstance(value, list):
-            for child in value:
-                collect_tiktoken_refs(child)
-        elif isinstance(value, str) and value.endswith(".tiktoken"):
-            tiktoken_refs.append(value)
+    frontend_conf = require_mapping(config, "frontend_conf")
+    require_int(frontend_conf, "fs", 16000, "frontend_conf")
+    require_int(frontend_conf, "frame_shift", 10, "frontend_conf")
+    require_int(frontend_conf, "lfr_n", 6, "frontend_conf")
+    if frontend_conf["frame_shift"] * frontend_conf["lfr_n"] != OFFICIAL_CTC_FRAME_PERIOD_MS:
+        raise RuntimeError("Frontend config no longer maps to the official 60 ms CTC frame period")
 
-    collect_tiktoken_refs(config)
-    if not any(Path(value).name == "multilingual.tiktoken" for value in tiktoken_refs):
+    dataset_conf = require_mapping(config, "dataset_conf")
+    if dataset_conf.get("ctc_tokenizer") != "SenseVoiceTokenizer":
         raise RuntimeError(
-            f"config.yaml does not reference multilingual.tiktoken: {tiktoken_refs!r}"
+            f"Expected dataset_conf.ctc_tokenizer=SenseVoiceTokenizer, got "
+            f"{dataset_conf.get('ctc_tokenizer')!r}"
         )
+    require_int(dataset_conf, "audio_encoder_downsample_rate", 6, "dataset_conf")
+    ctc_tokenizer_conf = require_mapping(dataset_conf, "ctc_tokenizer_conf")
+    if ctc_tokenizer_conf.get("is_multilingual") is not True:
+        raise RuntimeError("SenseVoice CTC tokenizer must remain multilingual")
+    require_int(ctc_tokenizer_conf, "num_languages", 8749, "dataset_conf.ctc_tokenizer_conf")
 
-    vocab_size = single_int(config, "ctc_vocab_size")
-    if vocab_size is None:
-        raise RuntimeError("config.yaml must explicitly declare ctc_vocab_size for A3 provenance")
+    configured_vocab_path = ctc_tokenizer_conf.get("vocab_path")
+    if configured_vocab_path is not None and not isinstance(configured_vocab_path, str):
+        raise RuntimeError(
+            f"Unexpected dataset_conf.ctc_tokenizer_conf.vocab_path type: "
+            f"{type(configured_vocab_path).__name__}"
+        )
+    if isinstance(configured_vocab_path, str) and os.path.isabs(configured_vocab_path):
+        raise RuntimeError(
+            "A3 ModelScope config unexpectedly pins an absolute CTC tokenizer path: "
+            f"{configured_vocab_path}"
+        )
+    tokenizer_resolution = (
+        "official loader fallback: model_dir/multilingual.tiktoken"
+        if not configured_vocab_path
+        else f"official loader relative path with model_dir fallback: {configured_vocab_path}"
+    )
+
+    configured_vocab_size = single_int(config, "ctc_vocab_size")
+    if configured_vocab_size is None:
+        vocab_size = OFFICIAL_DEFAULT_CTC_VOCAB_SIZE
+        vocab_source = "official FunASR source default; A3 heavy export must cross-check CTC projection"
+    else:
+        vocab_size = configured_vocab_size
+        vocab_source = "config.yaml"
     blank_id = single_int(config, "blank_id")
     if blank_id is None:
         blank_id = vocab_size - 1
-        blank_source = "official FunASR default: ctc_vocab_size - 1 (config has no override)"
+        blank_source = "official FunASR source default: ctc_vocab_size - 1"
     else:
         blank_source = "config.yaml"
     if blank_id != vocab_size - 1:
         raise RuntimeError(f"Unexpected CTC blank id {blank_id} for vocab size {vocab_size}")
+
+    tokenizer_sha = sha256_file(tokenizer_path)
+    if tokenizer_sha != OFFICIAL_TOKENIZER_SHA256:
+        raise RuntimeError(
+            "ModelScope multilingual.tiktoken digest differs from the official FunASR artifact "
+            f"cross-check: {tokenizer_sha}"
+        )
 
     encoding, mergeable_ranks = build_tiktoken(tokenizer_path)
     ranks = sorted(mergeable_ranks.values())
@@ -217,12 +266,15 @@ def main() -> None:
         "model_pt_reported_ctc_complete_sha256": REPORTED_CTC_MODEL_SHA256,
         "model_pt_locally_downloaded": False,
         "config_sha256": sha256_file(config_path),
-        "tokenizer_sha256": sha256_file(tokenizer_path),
-        "ctc_decoder": ctc_decoder_values,
-        "ctc_tokenizer": ctc_tokenizer_values,
+        "tokenizer_sha256": tokenizer_sha,
+        "tokenizer_resolution": tokenizer_resolution,
+        "ctc_decoder": config.get("ctc_decoder"),
+        "ctc_tokenizer": dataset_conf.get("ctc_tokenizer"),
         "ctc_vocab_size": vocab_size,
+        "ctc_vocab_size_source": vocab_source,
         "blank_id": blank_id,
         "blank_id_source": blank_source,
+        "ctc_frame_period_ms": OFFICIAL_CTC_FRAME_PERIOD_MS,
         "mergeable_rank_count": len(mergeable_ranks),
         "mergeable_rank_max": max(ranks),
         "known_fixture_xi_ids": known_xi,
