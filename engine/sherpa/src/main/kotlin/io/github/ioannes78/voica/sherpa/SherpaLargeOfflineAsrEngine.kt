@@ -7,6 +7,7 @@ import com.k2fsa.sherpa.onnx.OfflineModelConfig
 import com.k2fsa.sherpa.onnx.OfflineQwen3AsrModelConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
 import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
+import com.k2fsa.sherpa.onnx.OfflineStream
 import io.github.ioannes78.voica.audio.CanonicalPcmProfile
 import io.github.ioannes78.voica.model.ModelDescriptor
 import io.github.ioannes78.voica.model.ModelKind
@@ -15,6 +16,7 @@ import io.github.ioannes78.voica.model.TimestampCapability
 import io.github.ioannes78.voica.transcript.AsrCapabilities
 import io.github.ioannes78.voica.transcript.AsrHypothesis
 import io.github.ioannes78.voica.transcript.PunctuationCapability
+import io.github.ioannes78.voica.transcript.RelativeTimedToken
 import io.github.ioannes78.voica.transcript.SecondPassAsrEngine
 import java.io.File
 
@@ -166,6 +168,7 @@ private data class NativeLargeOfflineResult(
     val tokens: List<String>,
     val timestampsSeconds: List<Float>,
     val language: String,
+    val trustedTimedTokens: List<RelativeTimedToken>? = null,
 )
 
 private interface NativeLargeOfflineRecognizer : AutoCloseable {
@@ -177,8 +180,11 @@ private interface NativeLargeOfflineRecognizer : AutoCloseable {
 
 private class SherpaNativeLargeOfflineRecognizer(
     config: OfflineRecognizerConfig,
+    ctcBundle: FunAsrCtcBundle? = null,
 ) : NativeLargeOfflineRecognizer {
     private val delegate = OfflineRecognizer(assetManager = null, config = config)
+    private val ctcBundle = ctcBundle
+    private val ctcTokenizer = ctcBundle?.let { SenseVoiceCtcTokenizer.fromTiktokenFile(it.tokenizer) }
     private var closed = false
 
     override fun transcribe(
@@ -191,14 +197,70 @@ private class SherpaNativeLargeOfflineRecognizer(
             stream.acceptWaveform(samples, sampleRateHz)
             delegate.decode(stream)
             val result = delegate.getResult(stream)
+            val trustedTimedTokens =
+                if (ctcBundle == null || ctcTokenizer == null) {
+                    null
+                } else {
+                    alignDecodedFunAsrText(
+                        stream = stream,
+                        text = result.text,
+                        acceptedSampleCount = samples.size.toLong(),
+                    )
+                }
             return NativeLargeOfflineResult(
                 text = result.text,
                 tokens = result.tokens.toList(),
                 timestampsSeconds = result.timestamps.toList(),
                 language = result.lang,
+                trustedTimedTokens = trustedTimedTokens,
             )
         } finally {
             stream.release()
+        }
+    }
+
+    private fun alignDecodedFunAsrText(
+        stream: OfflineStream,
+        text: String,
+        acceptedSampleCount: Long,
+    ): List<RelativeTimedToken>? {
+        val bundle = ctcBundle ?: return null
+        val tokenizer = ctcTokenizer ?: return null
+        val targetIds = tokenizer.encode(text)
+        if (targetIds.isEmpty()) return emptyList()
+
+        var alignmentDecodeCompleted = false
+        return try {
+            FunAsrCtcStreamProtocol.requestAlignment(
+                stream = stream,
+                targetIds = targetIds,
+                blankId = bundle.metadata.blankId,
+                vocabSize = bundle.metadata.ctcVocabSize,
+            )
+            delegate.decode(stream)
+            alignmentDecodeCompleted = true
+            val alignedResult = delegate.getResult(stream)
+            val aligned =
+                FunAsrCtcStreamProtocol.parseAlignmentResult(
+                    result = alignedResult,
+                    expectedTargetIds = targetIds,
+                    acceptedSampleCount = acceptedSampleCount,
+                ) ?: return null
+            buildFunAsrCtcRelativeTokens(
+                tokenizer = tokenizer,
+                targetTokenIds = targetIds,
+                alignment = aligned,
+                acceptedSampleCount = acceptedSampleCount,
+            )
+        } catch (_: Exception) {
+            null
+        } finally {
+            if (!alignmentDecodeCompleted) {
+                runCatching {
+                    FunAsrCtcStreamProtocol.requestDiscard(stream)
+                    delegate.decode(stream)
+                }
+            }
         }
     }
 
@@ -215,6 +277,7 @@ class SherpaLargeOfflineAsrEngine private constructor(
 ) : SecondPassAsrEngine {
     private var closed = false
     private val runtimeSupportsTokenTiming = runtimeSupportsNativeTokenTiming(model)
+    private val hasTrustedFunAsrCtcTiming = requiresFunAsrCtcBundle(model)
 
     constructor(
         model: ModelDescriptor,
@@ -230,6 +293,7 @@ class SherpaLargeOfflineAsrEngine private constructor(
                         directory = modelDirectory,
                         settings = settings,
                     ),
+                ctcBundle = validateFunAsrCtcBundle(model, modelDirectory),
             ),
     )
 
@@ -246,7 +310,7 @@ class SherpaLargeOfflineAsrEngine private constructor(
         AsrCapabilities(
             supportsStreaming = false,
             supportsPartial = false,
-            supportsTokenTiming = runtimeSupportsTokenTiming,
+            supportsTokenTiming = runtimeSupportsTokenTiming || hasTrustedFunAsrCtcTiming,
             supportsLanguageDetection = model.capabilities.supportsLanguageDetection,
             supportsConfidence = model.capabilities.supportsConfidence,
             supportsInverseTextNormalization =
@@ -260,7 +324,9 @@ class SherpaLargeOfflineAsrEngine private constructor(
                 },
             supportsSecondPass = true,
             executionMode = model.capabilities.executionMode,
-            timestampCapability = runtimeTimestampCapability(model),
+            timestampCapability =
+                if (hasTrustedFunAsrCtcTiming) TimestampCapability.TOKEN
+                else runtimeTimestampCapability(model),
             supportsLanguageForcing = model.capabilities.supportsLanguageForcing,
             supportsHotwords = model.capabilities.supportsHotwords,
         )
@@ -281,15 +347,16 @@ class SherpaLargeOfflineAsrEngine private constructor(
             }
         val result = native.transcribe(normalized, sampleRateHz)
         val timedTokens =
-            if (!runtimeSupportsTokenTiming) {
-                emptyList()
-            } else {
-                validatedTimedTokens(
-                    tokens = result.tokens,
-                    timestampsSeconds = result.timestampsSeconds,
-                    acceptedSampleCount = samples.size.toLong(),
-                )
-            }
+            result.trustedTimedTokens
+                ?: if (!runtimeSupportsTokenTiming) {
+                    emptyList()
+                } else {
+                    validatedTimedTokens(
+                        tokens = result.tokens,
+                        timestampsSeconds = result.timestampsSeconds,
+                        acceptedSampleCount = samples.size.toLong(),
+                    )
+                }
 
         return AsrHypothesis(
             text = result.text,
