@@ -7,6 +7,14 @@ plugins {
 }
 
 val buildGitSha = providers.environmentVariable("VOICA_BUILD_GIT_SHA").getOrElse("unknown")
+val qaDefaultModelManifestUrl =
+    providers.gradleProperty("voica.qa.defaultModelManifestUrl")
+        .orNull
+        ?.trim()
+        .orEmpty()
+if ('"' in qaDefaultModelManifestUrl || '\\' in qaDefaultModelManifestUrl) {
+    throw GradleException("QA default model manifest URL contains unsupported quoting characters")
+}
 
 fun releaseSecret(environmentName: String, propertyName: String): String? =
     providers.environmentVariable(environmentName)
@@ -58,6 +66,7 @@ android {
         versionName = "1.1.0-stage16a2"
         buildConfigField("String", "GIT_SHA", "\"$buildGitSha\"")
         buildConfigField("boolean", "ALLOW_CANDIDATE_MODEL_CHANNEL", "false")
+        buildConfigField("String", "QA_DEFAULT_MODEL_MANIFEST_URL", "\"\"")
         ndk {
             abiFilters += "arm64-v8a"
         }
@@ -122,6 +131,11 @@ android {
             versionNameSuffix = "-export-qa"
             signingConfig = signingConfigs.getByName("qa")
             buildConfigField("boolean", "ALLOW_CANDIDATE_MODEL_CHANNEL", "true")
+            buildConfigField(
+                "String",
+                "QA_DEFAULT_MODEL_MANIFEST_URL",
+                "\"$qaDefaultModelManifestUrl\"",
+            )
             matchingFallbacks += listOf("release")
         }
     }
