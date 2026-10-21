@@ -20,6 +20,8 @@ from onnxruntime.quantization import QuantType, quantize_dynamic
 
 FIXTURES = ("zh.wav", "en.wav")
 EXPECTED_BLOCKS = tuple(range(5))
+EXPECTED_WEIGHTED_MATMULS_PER_BLOCK = 6
+EXPECTED_ACTIVATION_MATMULS_PER_BLOCK = 2
 BLOCK_PATTERN = re.compile(r"(?:^|[/._])blocks[./](\d+)(?:[/._]|$)")
 
 
@@ -45,10 +47,15 @@ def quantized_matmul_count(path: Path) -> int:
     return sum(node.op_type in {"MatMulInteger", "QLinearMatMul"} for node in model.graph.node)
 
 
-def block_matmul_inventory(path: Path) -> tuple[dict[int, list[str]], list[str]]:
+def block_matmul_inventory(
+    path: Path,
+) -> tuple[dict[int, list[str]], dict[int, list[str]], list[str]]:
     model = onnx.load(str(path))
-    groups: dict[int, list[str]] = {block: [] for block in EXPECTED_BLOCKS}
+    initializer_names = {initializer.name for initializer in model.graph.initializer}
+    weighted: dict[int, list[str]] = {block: [] for block in EXPECTED_BLOCKS}
+    activation: dict[int, list[str]] = {block: [] for block in EXPECTED_BLOCKS}
     ungrouped: list[str] = []
+
     for node in model.graph.node:
         if node.op_type != "MatMul":
             continue
@@ -58,33 +65,45 @@ def block_matmul_inventory(path: Path) -> tuple[dict[int, list[str]], list[str]]
             ungrouped.append(name)
             continue
         block = int(match.group(1))
-        if block not in groups:
+        if block not in weighted:
             raise RuntimeError(f"Unexpected CTC decoder block in ONNX node {name!r}: {block}")
         if not name:
             raise RuntimeError("Block MatMul node has no stable ONNX node name")
-        groups[block].append(name)
+        if len(node.input) >= 2 and node.input[1] in initializer_names:
+            weighted[block].append(name)
+        else:
+            activation[block].append(name)
 
-    missing = [block for block, names in groups.items() if not names]
-    if missing:
-        raise RuntimeError(
-            "Cannot map CTC decoder MatMul nodes to all five blocks; "
-            f"missing={missing}, ungrouped={ungrouped}"
-        )
-    flattened = [name for names in groups.values() for name in names]
+    for block in EXPECTED_BLOCKS:
+        if len(weighted[block]) != EXPECTED_WEIGHTED_MATMULS_PER_BLOCK:
+            raise RuntimeError(
+                f"CTC block {block} weighted MatMul inventory drift: "
+                f"expected={EXPECTED_WEIGHTED_MATMULS_PER_BLOCK}, "
+                f"actual={len(weighted[block])}, nodes={weighted[block]}"
+            )
+        if len(activation[block]) != EXPECTED_ACTIVATION_MATMULS_PER_BLOCK:
+            raise RuntimeError(
+                f"CTC block {block} activation MatMul inventory drift: "
+                f"expected={EXPECTED_ACTIVATION_MATMULS_PER_BLOCK}, "
+                f"actual={len(activation[block])}, nodes={activation[block]}"
+            )
+
+    flattened = [name for names in weighted.values() for name in names]
     if len(flattened) != len(set(flattened)):
-        raise RuntimeError("Duplicate ONNX MatMul node name across block inventory")
-    return groups, ungrouped
+        raise RuntimeError("Duplicate weighted ONNX MatMul node name across block inventory")
+    return weighted, activation, ungrouped
 
 
 def quantize_selected_blocks(
     source: Path,
     target: Path,
-    groups: dict[int, list[str]],
+    weighted_groups: dict[int, list[str]],
     blocks: tuple[int, ...],
 ) -> dict[str, Any]:
-    node_names = [name for block in blocks for name in groups[block]]
+    node_names = [name for block in blocks for name in weighted_groups[block]]
     if not node_names:
-        raise RuntimeError(f"No MatMul nodes selected for blocks={blocks}")
+        raise RuntimeError(f"No weighted MatMul nodes selected for blocks={blocks}")
+    source_quantized = quantized_matmul_count(source)
     quantize_dynamic(
         model_input=str(source),
         model_output=str(target),
@@ -97,17 +116,22 @@ def quantize_selected_blocks(
     )
     model = onnx.load(str(target))
     onnx.checker.check_model(model)
-    actual = quantized_matmul_count(target)
-    if actual != len(node_names):
+    actual_total = quantized_matmul_count(target)
+    actual_added = actual_total - source_quantized
+    if actual_added != len(node_names):
         raise RuntimeError(
-            f"Selective decoder quantization count drift for blocks={blocks}: "
-            f"expected={len(node_names)}, actual={actual}, nodes={node_names}"
+            f"Selective decoder weighted-MatMul quantization drift for blocks={blocks}: "
+            f"expected_added={len(node_names)}, actual_added={actual_added}, "
+            f"source_quantized={source_quantized}, target_quantized={actual_total}, "
+            f"nodes={node_names}"
         )
     return {
         "blocks": list(blocks),
-        "selected_matmul_count": len(node_names),
-        "selected_node_names": node_names,
-        "quantized_matmul_count": actual,
+        "selected_weighted_matmul_count": len(node_names),
+        "selected_weighted_node_names": node_names,
+        "source_quantized_matmul_count": source_quantized,
+        "target_quantized_matmul_count": actual_total,
+        "added_quantized_matmul_count": actual_added,
     }
 
 
@@ -169,7 +193,7 @@ def main() -> None:
         full_baseline_path.unlink()
     canonical_path.replace(full_baseline_path)
 
-    groups, ungrouped = block_matmul_inventory(projection_path)
+    weighted_groups, activation_groups, ungrouped = block_matmul_inventory(projection_path)
     fp32_path = args.h2a_root.resolve() / "ctc_compact.fp32.onnx"
     dual_encoder_path = args.h2c_root.resolve() / "encoder_adaptor.dual.int8.onnx"
     for required in (fp32_path, dual_encoder_path):
@@ -225,7 +249,7 @@ def main() -> None:
         round_results: list[dict[str, Any]] = []
         for blocks in itertools.combinations(EXPECTED_BLOCKS, cardinality):
             candidate_path = out / ("ctc_compact.mixed-b" + "-".join(map(str, blocks)) + ".int8.onnx")
-            quant_info = quantize_selected_blocks(projection_path, candidate_path, groups, blocks)
+            quant_info = quantize_selected_blocks(projection_path, candidate_path, weighted_groups, blocks)
             size = candidate_path.stat().st_size
             size_ratio = size / fp32_size
             session = h2d.make_session(
@@ -291,11 +315,17 @@ def main() -> None:
             break
 
     report_candidates = [{key: value for key, value in item.items() if key != "path"} for item in candidate_results]
+    inventory = {
+        "weighted_quantizable_by_block": {str(block): names for block, names in weighted_groups.items()},
+        "activation_attention_matmuls_left_fp32_by_block": {
+            str(block): names for block, names in activation_groups.items()
+        },
+        "ungrouped_matmuls_left_fp32": ungrouped,
+    }
     if not accepted_at_cardinality:
         summary = {
             "baseline_returncode": baseline.returncode,
-            "block_matmul_inventory": {str(block): names for block, names in groups.items()},
-            "ungrouped_matmuls_left_fp32": ungrouped,
+            "decoder_matmul_inventory": inventory,
             "acceptance_thresholds_unchanged": baseline_summary["acceptance_thresholds_unchanged"],
             "candidates": report_candidates,
             "status": "H2d mixed INT8 search FAIL: no candidate satisfies unchanged criteria",
@@ -327,8 +357,7 @@ def main() -> None:
         "projection_only_sha256": sha256_file(projection_path),
         "projection_only_size": projection_path.stat().st_size,
         "projection_only_size_ratio": projection_path.stat().st_size / fp32_size,
-        "block_matmul_inventory": {str(block): names for block, names in groups.items()},
-        "ungrouped_matmuls_left_fp32": ungrouped,
+        "decoder_matmul_inventory": inventory,
         "search_policy": "minimum quantized decoder-block cardinality; then min max-relative-RMSE, max-abs-error, size-ratio, block tuple",
         "acceptance_thresholds_unchanged": baseline_summary["acceptance_thresholds_unchanged"],
         "candidate_count_evaluated": len(candidate_results),
