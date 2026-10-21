@@ -68,8 +68,22 @@ object VoicaModelChannel {
         return configured.takeIf(::isAllowedDebugManifestUrl)
     }
 
+    internal fun defaultCandidateManifestUrl(
+        candidateChannelAllowed: Boolean,
+        buildConfiguredUrl: String,
+    ): String? {
+        if (!candidateChannelAllowed) return null
+        val normalized = buildConfiguredUrl.trim().takeIf { it.isNotEmpty() } ?: return null
+        return normalized.takeIf(::isAllowedDebugManifestUrl)
+    }
+
     fun resolveManifestUrl(application: Application): String =
-        configuredDebugManifestUrl(application) ?: PRODUCTION_MANIFEST_URL
+        configuredDebugManifestUrl(application)
+            ?: defaultCandidateManifestUrl(
+                candidateChannelAllowed = isCandidateModelChannelAllowed(application),
+                buildConfiguredUrl = BuildConfig.QA_DEFAULT_MODEL_MANIFEST_URL,
+            )
+            ?: PRODUCTION_MANIFEST_URL
 
     fun setDebugManifestUrl(
         application: Application,
