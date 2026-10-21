@@ -18,7 +18,10 @@ from tiktoken.load import load_tiktoken_bpe
 MODEL_ID = "FunAudioLLM/Fun-ASR-Nano-2512"
 DEFAULT_REVISION = "master"
 REPORTED_CTC_MODEL_SHA256 = "81fec8616083c69377f3ceef36aba3655660ee0ca69a5d4a1e9810cd340ca499"
-OFFICIAL_TOKENIZER_SHA256 = "74797963e813193436aabcff7c1c235d37de8097b71c563ec8b63b7a515c718"
+# A3 Gate #2 independently downloaded the current official ModelScope asset and measured this
+# complete 64-hex SHA-256. An upstream FunASR test comment cites a malformed 63-hex variant
+# (74797963e813...), so that comment is retained only as a provenance clue, not as a digest pin.
+ACCEPTED_MODELSCOPE_TOKENIZER_SHA256 = "747979631e813193436aabcff7c1c235d37de8097b71c563ec8b63b7a515c718"
 OFFICIAL_DEFAULT_CTC_VOCAB_SIZE = 60515
 OFFICIAL_CTC_FRAME_PERIOD_MS = 60
 PATTERN = r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"
@@ -223,10 +226,10 @@ def main() -> None:
         raise RuntimeError(f"Unexpected CTC blank id {blank_id} for vocab size {vocab_size}")
 
     tokenizer_sha = sha256_file(tokenizer_path)
-    if tokenizer_sha != OFFICIAL_TOKENIZER_SHA256:
+    if tokenizer_sha != ACCEPTED_MODELSCOPE_TOKENIZER_SHA256:
         raise RuntimeError(
-            "ModelScope multilingual.tiktoken digest differs from the official FunASR artifact "
-            f"cross-check: {tokenizer_sha}"
+            "ModelScope multilingual.tiktoken digest drifted from the A3 measured provenance pin: "
+            f"{tokenizer_sha}"
         )
 
     encoding, mergeable_ranks = build_tiktoken(tokenizer_path)
