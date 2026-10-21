@@ -451,7 +451,15 @@ void OfflineRecognizerFunASRNanoImpl::DecodeStreams(OfflineStream **ss,
     require_exact_count(model_h, "struct OfflineFunASRNanoEncoderOutputs")
     require_exact_count(model_h, "ForwardEncoderAdaptorWithCtc")
     require_exact_count(model_h, "HasCtcCompact")
-    require_exact_count(model_cc, "ForwardEncoderAdaptorWithCtc", expected=4)
+    require_exact_count(
+        model_cc,
+        "OfflineFunASRNanoEncoderOutputs ForwardEncoderAdaptorWithCtc(\n",
+    )
+    require_exact_count(
+        model_cc,
+        "OfflineFunASRNanoModel::ForwardEncoderAdaptorWithCtc(Ort::Value features)",
+    )
+    require_exact_count(model_cc, "impl_->ForwardEncoderAdaptorWithCtc(")
     require_exact_count(model_cc, "HasCtcCompact", expected=3)
     require_exact_count(recognizer_h, "struct RetainedCtcState")
     require_exact_count(recognizer_h, "retained_ctc_states_")
