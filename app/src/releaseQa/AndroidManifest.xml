@@ -3,13 +3,8 @@
     <application>
         <activity
             android:name=".Stage16BQaHubActivity"
-            android:exported="true"
-            android:label="Voica Stage 16B QA">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:exported="false"
+            android:label="Voica Stage 16B QA" />
 
         <activity android:name=".Stage16BGateBBenchmarkActivity" android:exported="false" android:label="Voica Gate B QA" />
         <activity android:name=".Stage16BGateB3Activity" android:exported="false" android:label="Voica Gate B3 QA" />
