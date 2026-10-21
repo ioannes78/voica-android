@@ -6,9 +6,30 @@ pluginManagement {
     }
 }
 
+val patchedSherpaRepository =
+    providers.gradleProperty("voica.patchedSherpaRepository")
+        .orNull
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+        ?.let(::file)
+        ?.canonicalFile
+
+if (patchedSherpaRepository != null && !patchedSherpaRepository.isDirectory) {
+    error("Configured patched sherpa Maven repository does not exist: $patchedSherpaRepository")
+}
+
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
+        patchedSherpaRepository?.let { repository ->
+            maven {
+                name = "voicaP5PatchedSherpa"
+                url = uri(repository)
+                content {
+                    includeGroup("com.github.k2-fsa.sherpa-onnx")
+                }
+            }
+        }
         google()
         mavenCentral()
         maven { url = uri("https://jitpack.io") }
