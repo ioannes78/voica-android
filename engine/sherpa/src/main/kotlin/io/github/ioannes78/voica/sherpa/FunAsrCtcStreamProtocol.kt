@@ -12,17 +12,18 @@ import kotlin.math.roundToLong
  * pre-adaptor encoder state after the first normal decode only when ctcCompact
  * is configured. The same OfflineStream then receives one of these commands:
  *
- * align   target ids and the validated CTC blank id are supplied as stream
- *         options; a second decode runs compact CTC + forced alignment without
- *         rerunning ASR. Its result uses tokens as decimal target ids,
- *         timestamps as start seconds, and durations as acoustic duration
- *         seconds.
+ * align   target ids plus the validated CTC blank/vocabulary contract are
+ *         supplied as stream options; a second decode runs compact CTC + forced
+ *         alignment without rerunning ASR. Its result uses tokens as decimal
+ *         target ids, timestamps as start seconds, and durations as acoustic
+ *         duration seconds.
  * discard erase retained native state without scoring.
  */
 internal object FunAsrCtcStreamProtocol {
     const val COMMAND_KEY = "voica.funasr.ctc.command"
     const val TARGET_IDS_KEY = "voica.funasr.ctc.target_ids"
     const val BLANK_ID_KEY = "voica.funasr.ctc.blank_id"
+    const val VOCAB_SIZE_KEY = "voica.funasr.ctc.vocab_size"
     const val COMMAND_ALIGN = "align"
     const val COMMAND_DISCARD = "discard"
 
@@ -30,20 +31,28 @@ internal object FunAsrCtcStreamProtocol {
         stream: OfflineStream,
         targetIds: IntArray,
         blankId: Int,
+        vocabSize: Int,
     ) {
-        validateAlignmentArguments(targetIds, blankId)
+        validateAlignmentArguments(targetIds, blankId, vocabSize)
         stream.setOption(TARGET_IDS_KEY, targetIds.joinToString(separator = ","))
         stream.setOption(BLANK_ID_KEY, blankId.toString())
+        stream.setOption(VOCAB_SIZE_KEY, vocabSize.toString())
         stream.setOption(COMMAND_KEY, COMMAND_ALIGN)
     }
 
     internal fun validateAlignmentArguments(
         targetIds: IntArray,
         blankId: Int,
+        vocabSize: Int,
     ) {
         require(targetIds.isNotEmpty()) { "FunASR CTC target ids must not be empty" }
-        require(blankId >= 0) { "FunASR CTC blank id must be non-negative" }
-        require(targetIds.all { it >= 0 }) { "FunASR CTC target ids must be non-negative" }
+        require(vocabSize > 1) { "FunASR CTC vocabulary size must be > 1" }
+        require(blankId in 0 until vocabSize) {
+            "FunASR CTC blank id must be inside the declared vocabulary"
+        }
+        require(targetIds.all { it in 0 until vocabSize }) {
+            "FunASR CTC target ids must be inside the declared vocabulary"
+        }
         require(targetIds.none { it == blankId }) {
             "FunASR CTC final-text targets must not contain the blank id"
         }
@@ -55,6 +64,7 @@ internal object FunAsrCtcStreamProtocol {
         // buggy native implementation cannot accidentally reuse an old request.
         stream.setOption(TARGET_IDS_KEY, "")
         stream.setOption(BLANK_ID_KEY, "")
+        stream.setOption(VOCAB_SIZE_KEY, "")
     }
 
     fun parseAlignmentResult(
