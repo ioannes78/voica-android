@@ -242,9 +242,6 @@ jobs:
 
   p5-qa-apk:
     name: P5 patched sherpa + revision-2 QA APK
-    # The dedicated P5 workflow is introduced by this PR and therefore cannot
-    # receive pull_request events until it exists on the base branch. Bridge the
-    # same gate through this already-registered workflow for Stage 16B QA only.
     if: >-
       ${{
         github.event_name == 'pull_request' &&
@@ -262,7 +259,7 @@ jobs:
       P5_CANDIDATE_MANIFEST: https://github.com/ioannes78/voica-model-channel/releases/download/candidate-stage16b-funasr-ctc-p5-r1/production.json
       P5_CANDIDATE_TAG: candidate-stage16b-funasr-ctc-p5-r1
       P5_SHERPA_VERSION: v1.13.8-p5-ctc-r1
-      P5_SHERPA_REPOSITORY: ${{ runner.temp }}/p5-sherpa-maven
+      P5_SHERPA_REPOSITORY: /tmp/voica-p5-sherpa-maven
 
     steps:
       - name: Checkout Voica
