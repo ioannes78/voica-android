@@ -15,6 +15,7 @@ import io.github.ioannes78.voica.model.TimestampCapability
 import io.github.ioannes78.voica.transcript.AsrCapabilities
 import io.github.ioannes78.voica.transcript.AsrHypothesis
 import io.github.ioannes78.voica.transcript.PunctuationCapability
+import io.github.ioannes78.voica.transcript.RelativeTimedToken
 import io.github.ioannes78.voica.transcript.SecondPassAsrEngine
 import java.io.File
 
@@ -28,6 +29,43 @@ internal fun runtimeSupportsNativeTokenTiming(model: ModelDescriptor): Boolean =
     model.capabilities.supportsTokenTiming ||
         model.runtimeModelType == SherpaOfflineAsrModelType.FIRE_RED_ASR2_CTC ||
         model.runtimeModelType == SherpaOfflineAsrModelType.FUNASR_NANO
+
+/**
+ * sherpa-onnx FunASR Nano emits one timestamp per generated BPE id. Its streaming UTF-8 decoder
+ * may emit an empty token while bytes for one Unicode character are still pending. Compact those
+ * empty pieces without inventing timing: the completed token inherits the first native timestamp
+ * in that UTF-8 sequence, then the normal canonical-sample validator enforces monotonic bounds.
+ */
+internal fun validatedFunAsrNativeTimedTokens(
+    tokens: List<String>,
+    timestampsSeconds: List<Float>,
+    acceptedSampleCount: Long,
+): List<RelativeTimedToken> {
+    if (tokens.isEmpty() || tokens.size != timestampsSeconds.size) return emptyList()
+
+    val compactTokens = ArrayList<String>(tokens.size)
+    val compactTimestamps = ArrayList<Float>(timestampsSeconds.size)
+    var pendingTimestamp: Float? = null
+
+    for (index in tokens.indices) {
+        val timestamp = timestampsSeconds[index]
+        if (!timestamp.isFinite() || timestamp < 0F) return emptyList()
+        val token = tokens[index]
+        if (token.isEmpty()) {
+            if (pendingTimestamp == null) pendingTimestamp = timestamp
+            continue
+        }
+        compactTokens += token
+        compactTimestamps += pendingTimestamp ?: timestamp
+        pendingTimestamp = null
+    }
+
+    return validatedTimedTokens(
+        tokens = compactTokens,
+        timestampsSeconds = compactTimestamps,
+        acceptedSampleCount = acceptedSampleCount,
+    )
+}
 
 data class LargeOfflineAsrSettings(
     val numThreads: Int = SherpaRuntime.DEFAULT_NUM_THREADS,
@@ -268,14 +306,20 @@ class SherpaLargeOfflineAsrEngine private constructor(
             }
         val result = native.transcribe(normalized, sampleRateHz)
         val timedTokens =
-            if (runtimeSupportsTokenTiming) {
-                validatedTimedTokens(
+            if (!runtimeSupportsTokenTiming) {
+                emptyList()
+            } else if (model.runtimeModelType == SherpaOfflineAsrModelType.FUNASR_NANO) {
+                validatedFunAsrNativeTimedTokens(
                     tokens = result.tokens,
                     timestampsSeconds = result.timestampsSeconds,
                     acceptedSampleCount = samples.size.toLong(),
                 )
             } else {
-                emptyList()
+                validatedTimedTokens(
+                    tokens = result.tokens,
+                    timestampsSeconds = result.timestampsSeconds,
+                    acceptedSampleCount = samples.size.toLong(),
+                )
             }
 
         return AsrHypothesis(
