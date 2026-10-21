@@ -80,11 +80,18 @@ jobs:
           VOICA_FUNASR_CTC_TIKTOKEN: ${{ runner.temp }}/funasr-a3/multilingual.tiktoken
           VOICA_FUNASR_CTC_PARITY_VECTORS: ${{ runner.temp }}/funasr-a3/sensevoice-ctc-parity.tsv
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          status=0
           gradle \
             :engine:sherpa:testDebugUnitTest \
             --tests 'io.github.ioannes78.voica.sherpa.SenseVoiceCtcTokenizerTest.matchesPinnedModelscopeTiktokenReferenceWhenProvided' \
-            --stacktrace
+            --stacktrace || status=$?
+          if [[ "$status" -ne 0 ]]; then
+            echo "A3 tokenizer parity failed; dumping JUnit XML for the exact parser/parity cause." >&2
+            find engine/sherpa/build/test-results/testDebugUnitTest \
+              -type f -name '*.xml' -print -exec cat {} \; || true
+          fi
+          exit "$status"
 
       - name: Publish provenance summary without model artifacts
         shell: bash
