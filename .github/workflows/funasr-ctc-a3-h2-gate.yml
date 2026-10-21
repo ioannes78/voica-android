@@ -229,30 +229,35 @@ jobs:
             echo "Only the encoder graph changes between the two runs. Production embedding, LLM and tokenizer assets are SHA-pinned and byte-identical. All assets remain runner-local."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: H2d quantize compact CTC and prove production-state end-to-end parity
+      - name: H2d diagnose projection-only vs full INT8 CTC alignment
         shell: bash
         run: |
-          set -euo pipefail
+          set -uo pipefail
           out="${RUNNER_TEMP}/funasr-a3-h2d"
-          python ci/funasr-ctc-a3-h2/verify-h2d-int8-ctc-e2e.py \
+          set +e
+          python ci/funasr-ctc-a3-h2/diagnose-h2d-int8-alignment.py \
             --h2a-root "${RUNNER_TEMP}/funasr-a3-h2a" \
             --h2c-root "${RUNNER_TEMP}/funasr-a3-h2c" \
             --h2c-generation-root "${RUNNER_TEMP}/funasr-a3-h2c-generation" \
             --exporter-root "${RUNNER_TEMP}/FunASR-nano-onnx" \
             --funasr-root "${RUNNER_TEMP}/FunASR-reference" \
             --out "$out"
-          test -s "$out/a3-h2d-int8-ctc-e2e.json"
+          rc=$?
+          set -e
+          test -s "$out/a3-h2d-int8-alignment-diagnostic.json"
+          test -s "$out/ctc_compact.projection-int8.onnx"
           test -s "$out/ctc_compact.int8.onnx"
           {
             echo
-            echo "## Stage 16B A3-H2d production INT8 compact CTC end-to-end parity"
+            echo "## Stage 16B A3-H2d INT8 CTC alignment diagnostics"
             echo
             echo '```json'
-            cat "$out/a3-h2d-int8-ctc-e2e.json"
+            cat "$out/a3-h2d-int8-alignment-diagnostic.json"
             echo '```'
             echo
-            echo "H2d requires exact official->FP32 and FP32->INT8 CTC state-path parity on both real-audio fixtures. Quantized assets remain runner-local."
+            echo "The original exact state-path acceptance criterion remains unchanged. This diagnostic separates projection-only INT8 from full decoder+projection INT8 before any tolerance decision."
           } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
 
       - name: Remove H2 model/export assets
         if: always()
