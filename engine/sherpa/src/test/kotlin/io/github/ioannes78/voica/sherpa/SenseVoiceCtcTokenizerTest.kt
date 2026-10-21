@@ -72,6 +72,50 @@ class SenseVoiceCtcTokenizerTest {
         }
     }
 
+    @Test
+    fun matchesPinnedModelscopeTiktokenReferenceWhenProvided() {
+        val vocabPath = System.getenv("VOICA_FUNASR_CTC_TIKTOKEN") ?: return
+        val vectorsPath =
+            System.getenv("VOICA_FUNASR_CTC_PARITY_VECTORS")
+                ?: error("VOICA_FUNASR_CTC_PARITY_VECTORS is required when real tokenizer parity is enabled")
+        val vocab = File(vocabPath)
+        val vectors = File(vectorsPath)
+        assertTrue("Pinned multilingual.tiktoken is missing: $vocabPath", vocab.isFile)
+        assertTrue("Reference parity vectors are missing: $vectorsPath", vectors.isFile)
+
+        val tokenizer = SenseVoiceCtcTokenizer.fromTiktokenFile(vocab)
+        var checked = 0
+        vectors.readLines(Charsets.UTF_8).forEachIndexed { zeroBasedLine, rawLine ->
+            val line = rawLine.trimEnd()
+            if (line.isEmpty()) return@forEachIndexed
+            val parts = line.split('\t', limit = 2)
+            require(parts.size == 2) {
+                "Invalid A3 tokenizer parity vector line ${zeroBasedLine + 1}"
+            }
+            val text =
+                Base64.getDecoder().decode(parts[0]).toString(Charsets.UTF_8)
+            val expected =
+                if (parts[1].isEmpty()) {
+                    intArrayOf()
+                } else {
+                    parts[1].split(',').map(String::toInt).toIntArray()
+                }
+
+            assertArrayEquals(
+                "SenseVoice target-id parity mismatch for fixture line ${zeroBasedLine + 1}: $text",
+                expected,
+                tokenizer.encode(text),
+            )
+            assertEquals(
+                "SenseVoice decode parity mismatch for fixture line ${zeroBasedLine + 1}",
+                text,
+                tokenizer.decode(expected),
+            )
+            checked += 1
+        }
+        assertTrue("A3 tokenizer parity vector set must not be empty", checked > 0)
+    }
+
     private fun createFixtureVocab(): File {
         val lines = baseByteLines().toMutableList()
         var nextRank = 256
