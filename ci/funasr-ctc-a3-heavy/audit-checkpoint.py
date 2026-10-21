@@ -39,6 +39,7 @@ def download_file(
     revision: str,
     out_dir: Path,
     expected_sha256: str | None = None,
+    file_size: int | None = None,
 ) -> Path:
     result = Path(
         api.download_file(
@@ -49,6 +50,7 @@ def download_file(
             local_dir=out_dir,
             force=True,
             expected_sha256=expected_sha256,
+            file_size=file_size,
         )
     )
     for candidate in (result, out_dir / remote_path, out_dir / Path(remote_path).name):
@@ -166,6 +168,7 @@ def main() -> None:
         args.revision,
         args.out,
         expected_sha256=EXPECTED_MODEL_SHA256,
+        file_size=remote_size,
     )
 
     local_size = model_path.stat().st_size
