@@ -119,6 +119,74 @@ class FunAsrAdaptiveChunkingTest {
     }
 
     @Test
+    fun revisionTwoPreservesTrustedTimingAcrossNaturalBoundaryChunks() = runBlocking {
+        FunAsrRuntimeDiagnostics.clear()
+        val sampleRate = 16_000
+        val samples = ShortArray(22 * sampleRate) { 4_000 }
+        val silenceStart = 17 * sampleRate
+        val silenceEnd = silenceStart + sampleRate
+        for (index in silenceStart until silenceEnd) samples[index] = 0
+        val delegate = RetryFakeEngine(revision = 2)
+        val engine =
+            FunAsrAdaptiveOfflineAsrEngine(
+                delegate = delegate,
+                settings = LargeOfflineAsrSettings(),
+            )
+
+        val result = engine.transcribe(samples, sampleRate)
+
+        assertTrue(engine.capabilities.supportsTokenTiming)
+        assertEquals(TimestampCapability.TOKEN, engine.capabilities.timestampCapability)
+        assertTrue(delegate.acceptedCounts.size >= 2)
+        assertTrue(result.tokens.isNotEmpty())
+        assertTrue(result.tokens.all { it.startSampleOffset != null && it.endSampleOffsetExclusive != null })
+        assertTrue(
+            result.tokens.zipWithNext().all { (left, right) ->
+                checkNotNull(left.startSampleOffset) <= checkNotNull(right.startSampleOffset)
+            },
+        )
+        assertTrue(checkNotNull(result.tokens.last().endSampleOffsetExclusive) <= samples.size.toLong())
+        assertTrue(FunAsrRuntimeDiagnostics.snapshot().all { !it.audioTruncated })
+    }
+
+    @Test
+    fun revisionTwoFailsTimingClosedWhenPlannerNeedsOverlap() = runBlocking {
+        FunAsrRuntimeDiagnostics.clear()
+        val sampleRate = 16_000
+        val samples = ShortArray(25 * sampleRate) { 4_000 }
+        val delegate = RetryFakeEngine(revision = 2)
+        val engine =
+            FunAsrAdaptiveOfflineAsrEngine(
+                delegate = delegate,
+                settings = LargeOfflineAsrSettings(),
+            )
+
+        val result = engine.transcribe(samples, sampleRate)
+
+        assertTrue(engine.capabilities.supportsTokenTiming)
+        assertTrue(result.text.isNotBlank())
+        assertTrue(result.tokens.isEmpty())
+    }
+
+    @Test
+    fun revisionTwoFailsTimingClosedAfterAdaptiveRetry() = runBlocking {
+        FunAsrRuntimeDiagnostics.clear()
+        val delegate = RetryFakeEngine(revision = 2, blankFirst = true)
+        val engine =
+            FunAsrAdaptiveOfflineAsrEngine(
+                delegate = delegate,
+                settings = LargeOfflineAsrSettings(),
+            )
+        val samples = ShortArray(10 * 16_000) { 2_000 }
+
+        val result = engine.transcribe(samples, 16_000)
+
+        assertTrue(result.text.isNotBlank())
+        assertTrue(result.tokens.isEmpty())
+        assertTrue(FunAsrRuntimeDiagnostics.snapshot().first().retryReason == "blank_with_vad_speech")
+    }
+
+    @Test
     fun blankSpeechChunkIsDiscardedAndRetriedShorter() = runBlocking {
         FunAsrRuntimeDiagnostics.clear()
         val delegate = RetryFakeEngine(blankFirst = true)
@@ -163,10 +231,11 @@ class FunAsrAdaptiveChunkingTest {
     }
 
     private class RetryFakeEngine(
+        revision: Long = 1,
         private val blankFirst: Boolean = false,
         private val capacityFirst: Boolean = false,
     ) : SecondPassAsrEngine {
-        override val model = descriptor()
+        override val model = descriptor(revision)
         override val capabilities =
             AsrCapabilities(
                 supportsStreaming = false,
@@ -227,8 +296,16 @@ class FunAsrAdaptiveChunkingTest {
                         emptyList()
                     } else {
                         listOf(
-                            RelativeTimedToken("首", 0L),
-                            RelativeTimedToken("尾", sampleCount - 1L),
+                            RelativeTimedToken(
+                                text = "首",
+                                startSampleOffset = 0L,
+                                endSampleOffsetExclusive = minOf(80L, sampleCount.toLong()),
+                            ),
+                            RelativeTimedToken(
+                                text = "尾",
+                                startSampleOffset = sampleCount - 1L,
+                                endSampleOffsetExclusive = sampleCount.toLong(),
+                            ),
                         )
                     },
                 detectedLanguage = "zh",
@@ -238,26 +315,27 @@ class FunAsrAdaptiveChunkingTest {
     }
 
     companion object {
-        private fun descriptor() =
+        private fun descriptor(revision: Long = 1) =
             ModelDescriptor(
                 modelId = "funasr-nano-int8",
                 kind = ModelKind.ASR_LARGE,
                 displayName = "FunASR Nano",
                 version = "2025-12-30",
-                revision = 1,
+                revision = revision,
                 runtimeId = "sherpa-onnx",
                 runtimeVersionMin = "1.13.8",
                 runtimeVersionMax = null,
                 languages = setOf("zh", "en"),
                 capabilities =
                     ModelCapabilities(
-                        supportsTokenTiming = false,
+                        supportsTokenTiming = revision >= 2,
                         supportsLanguageDetection = true,
                         supportsInverseTextNormalization = true,
                         supportsSecondPass = true,
                         supportsHotwords = true,
                         executionMode = AsrExecutionMode.OFFLINE,
-                        timestampCapability = TimestampCapability.NONE,
+                        timestampCapability =
+                            if (revision >= 2) TimestampCapability.TOKEN else TimestampCapability.NONE,
                         punctuationMode = ModelPunctuationMode.NATIVE,
                     ),
                 sourceType = ModelSourceType.MANAGED_DOWNLOAD,
