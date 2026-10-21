@@ -17,8 +17,9 @@ import kotlin.math.min
  *
  * sherpa-onnx v1.13.8 does not expose tokenizer counts, valid_len, or the terminal decode reason
  * through its Kotlin API. Fields derived without that API surface are explicitly marked by
- * [budgetValuesEstimated] / [terminationInferred]. Synthetic sherpa timestamps are used only to
- * infer effective audio coverage; they are not promoted as product token timing here.
+ * [budgetValuesEstimated] / [terminationInferred]. Revision-1 synthetic sherpa timestamps are used
+ * only to infer effective audio coverage; revision-2 trusted CTC timing is never fed into that
+ * synthetic-coverage heuristic.
  */
 data class FunAsrRuntimeDiagnostic(
     val maxTotalLen: Int,
@@ -368,14 +369,17 @@ internal class FunAsrAdaptiveOfflineAsrEngine(
     private val settings: LargeOfflineAsrSettings,
 ) : SecondPassAsrEngine {
     override val model = delegate.model
+    private val trustedCtcTimingEnabled =
+        requiresFunAsrCtcBundle(model) &&
+            delegate.capabilities.supportsTokenTiming &&
+            delegate.capabilities.timestampCapability == TimestampCapability.TOKEN
 
-    // sherpa-onnx v1.13.8 exposes evenly distributed FunASR timestamps. They remain available on
-    // the private delegate solely for context-budget diagnostics, but are deliberately blocked from
-    // the product contract until real CTC forced alignment is available.
     override val capabilities: AsrCapabilities =
         delegate.capabilities.copy(
-            supportsTokenTiming = false,
-            timestampCapability = TimestampCapability.NONE,
+            supportsTokenTiming = trustedCtcTimingEnabled,
+            timestampCapability =
+                if (trustedCtcTimingEnabled) TimestampCapability.TOKEN
+                else TimestampCapability.NONE,
         )
     private var closed = false
 
@@ -417,15 +421,72 @@ internal class FunAsrAdaptiveOfflineAsrEngine(
         }
 
         val languages = accepted.mapNotNull { it.hypothesis.detectedLanguage }.distinct()
+        val trustedTokens =
+            if (trustedCtcTimingEnabled) {
+                mergeTrustedCtcTiming(
+                    totalSampleCount = samples.size.toLong(),
+                    plan = plan,
+                    accepted = accepted,
+                )
+            } else {
+                emptyList()
+            }
 
         return AsrHypothesis(
             text = mergedText,
-            tokens = emptyList(),
+            tokens = trustedTokens,
             detectedLanguage = languages.singleOrNull(),
             confidence = null,
             punctuationCapability = capabilities.punctuationCapability,
             isFinal = true,
         )
+    }
+
+    private fun mergeTrustedCtcTiming(
+        totalSampleCount: Long,
+        plan: List<FunAsrChunkRange>,
+        accepted: List<AdaptiveResult>,
+    ): List<RelativeTimedToken> {
+        if (plan.size != accepted.size) return emptyList()
+        // Overlap/retry text reconciliation can delete or rewrite duplicate text. Until timing-aware
+        // reconciliation exists, never attach chunk-local CTC spans to that rewritten product text.
+        if (accepted.any { it.hadRetry } || plan.any { it.overlapFromPrevious > 0 }) {
+            return emptyList()
+        }
+
+        val output = ArrayList<RelativeTimedToken>()
+        var previousStart = -1L
+        plan.indices.forEach { index ->
+            val range = plan[index]
+            val hypothesis = accepted[index].hypothesis
+            if (hypothesis.text.isNotBlank() && hypothesis.tokens.isEmpty()) return emptyList()
+            hypothesis.tokens.forEach { token ->
+                val localStart = token.startSampleOffset ?: return emptyList()
+                val localEnd = token.endSampleOffsetExclusive ?: return emptyList()
+                if (
+                    localStart < 0L ||
+                    localEnd < localStart ||
+                    localEnd > range.sampleCount.toLong()
+                ) {
+                    return emptyList()
+                }
+                val absoluteStart = Math.addExact(range.start.toLong(), localStart)
+                val absoluteEnd = Math.addExact(range.start.toLong(), localEnd)
+                if (
+                    absoluteStart < previousStart ||
+                    absoluteEnd > totalSampleCount
+                ) {
+                    return emptyList()
+                }
+                output +=
+                    token.copy(
+                        startSampleOffset = absoluteStart,
+                        endSampleOffsetExclusive = absoluteEnd,
+                    )
+                previousStart = absoluteStart
+            }
+        }
+        return output
     }
 
     private suspend fun transcribeRange(
@@ -528,8 +589,14 @@ internal class FunAsrAdaptiveOfflineAsrEngine(
                 .toInt()
         val contextLen = budget.promptTokens + budget.hotwordPromptTokens + audioTokens
         val availableGeneration = (budget.maxTotalLen - contextLen).coerceAtLeast(0)
-        val generated = hypothesis.tokens.size
-        val effectiveCoverage = inferSyntheticAudioCoverageSamples(hypothesis.tokens)
+        val generated =
+            if (trustedCtcTimingEnabled) {
+                estimateTextTokens(hypothesis.text)
+            } else {
+                hypothesis.tokens.size
+            }
+        val effectiveCoverage =
+            if (trustedCtcTimingEnabled) null else inferSyntheticAudioCoverageSamples(hypothesis.tokens)
         val coverageTolerance = (AUDIO_TRUNCATION_TOLERANCE_SECONDS * sampleRateHz).toLong()
         val audioTruncated =
             effectiveCoverage != null &&
