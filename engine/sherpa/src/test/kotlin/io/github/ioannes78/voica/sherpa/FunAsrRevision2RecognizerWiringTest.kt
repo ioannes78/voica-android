@@ -13,11 +13,17 @@ import java.io.File
 import java.nio.file.Files
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertThrows
+import org.junit.Assume.assumeFalse
 import org.junit.Test
 
 class FunAsrRevision2RecognizerWiringTest {
     @Test
     fun revisionTwoRecognizerFailsClosedWhenStockSherpaAbiHasNoCtcCompactSetter() {
+        assumeFalse(
+            "Stock-ABI refusal test only applies when sherpa has no ctcCompact setter",
+            currentSherpaAbiHasCtcCompactSetter(),
+        )
+
         val root = Files.createTempDirectory("funasr-r2-recognizer").toFile()
         writeBaseFunAsrFiles(root)
         writeCtcBundle(root)
@@ -33,6 +39,20 @@ class FunAsrRevision2RecognizerWiringTest {
         assertTrue(
             error.message.orEmpty().contains("patched sherpa-onnx config ABI"),
         )
+    }
+
+    private fun currentSherpaAbiHasCtcCompactSetter(): Boolean {
+        val configClass =
+            Class.forName(
+                "com.k2fsa.sherpa.onnx.OfflineFunAsrNanoModelConfig",
+                false,
+                javaClass.classLoader,
+            )
+        return configClass.methods.any { method ->
+            method.name == "setCtcCompact" &&
+                method.parameterCount == 1 &&
+                method.parameterTypes[0] == String::class.java
+        }
     }
 
     private fun writeBaseFunAsrFiles(root: File) {
