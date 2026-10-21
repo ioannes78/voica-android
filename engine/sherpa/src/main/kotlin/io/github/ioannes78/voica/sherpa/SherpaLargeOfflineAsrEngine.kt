@@ -355,23 +355,28 @@ private fun offlineRecognizerConfig(
 
             SherpaOfflineAsrModelType.FUNASR_NANO -> {
                 val files = LargeOfflineAsrFiles.funAsrNano(directory)
+                val ctcBundle = validateFunAsrCtcBundle(descriptor, directory)
+                val funAsrConfig =
+                    OfflineFunAsrNanoModelConfig(
+                        encoderAdaptor = checkNotNull(files.encoderAdaptor).absolutePath,
+                        llm = checkNotNull(files.llm).absolutePath,
+                        embedding = checkNotNull(files.embedding).absolutePath,
+                        tokenizer = checkNotNull(files.tokenizer).absolutePath,
+                        systemPrompt = settings.funAsrSystemPrompt,
+                        userPrompt = settings.funAsrUserPrompt,
+                        maxNewTokens = settings.funAsrMaxNewTokens,
+                        temperature = settings.funAsrTemperature,
+                        topP = settings.funAsrTopP,
+                        seed = settings.funAsrSeed,
+                        language = settings.funAsrLanguage,
+                        itn = settings.funAsrUseInverseTextNormalization,
+                        hotwords = settings.funAsrHotwords,
+                    )
+                if (ctcBundle != null) {
+                    configurePatchedFunAsrCtcModelConfig(funAsrConfig, ctcBundle)
+                }
                 OfflineModelConfig(
-                    funasrNano =
-                        OfflineFunAsrNanoModelConfig(
-                            encoderAdaptor = checkNotNull(files.encoderAdaptor).absolutePath,
-                            llm = checkNotNull(files.llm).absolutePath,
-                            embedding = checkNotNull(files.embedding).absolutePath,
-                            tokenizer = checkNotNull(files.tokenizer).absolutePath,
-                            systemPrompt = settings.funAsrSystemPrompt,
-                            userPrompt = settings.funAsrUserPrompt,
-                            maxNewTokens = settings.funAsrMaxNewTokens,
-                            temperature = settings.funAsrTemperature,
-                            topP = settings.funAsrTopP,
-                            seed = settings.funAsrSeed,
-                            language = settings.funAsrLanguage,
-                            itn = settings.funAsrUseInverseTextNormalization,
-                            hotwords = settings.funAsrHotwords,
-                        ),
+                    funasrNano = funAsrConfig,
                     tokens = "",
                     numThreads = settings.numThreads,
                     debug = settings.debug,
