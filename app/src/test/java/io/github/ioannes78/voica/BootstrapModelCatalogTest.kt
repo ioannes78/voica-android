@@ -20,8 +20,7 @@ class BootstrapModelCatalogTest {
                 ?: error("bootstrap model catalog asset is missing from app/src/main/assets")
 
         val catalog = ModelCatalogCodec.decode(asset.readText(Charsets.UTF_8))
-        val silero =
-            requireNotNull(catalog.model(Stage8ModelIds.VAD))
+        val silero = requireNotNull(catalog.model(Stage8ModelIds.VAD))
 
         assertEquals("production", catalog.channel)
         assertEquals(ModelSourceType.BUILTIN_WITH_OVERRIDE, silero.sourceType)
@@ -87,6 +86,39 @@ class BootstrapModelCatalogTest {
             candidateModelChannelAllowed(
                 isDebuggable = false,
                 buildAllowsCandidateChannel = true,
+            ),
+        )
+    }
+
+    @Test
+    fun qaBuildDefaultCandidateManifestIsAcceptedOnlyBehindCandidateGate() {
+        val p5 =
+            "https://github.com/ioannes78/voica-model-channel/releases/download/" +
+                "candidate-stage16b-funasr-ctc-p5-r1/production.json"
+
+        assertNull(
+            VoicaModelChannel.defaultCandidateManifestUrl(
+                candidateChannelAllowed = false,
+                buildConfiguredUrl = p5,
+            ),
+        )
+        assertEquals(
+            p5,
+            VoicaModelChannel.defaultCandidateManifestUrl(
+                candidateChannelAllowed = true,
+                buildConfiguredUrl = p5,
+            ),
+        )
+        assertNull(
+            VoicaModelChannel.defaultCandidateManifestUrl(
+                candidateChannelAllowed = true,
+                buildConfiguredUrl = VoicaModelChannel.PRODUCTION_MANIFEST_URL,
+            ),
+        )
+        assertNull(
+            VoicaModelChannel.defaultCandidateManifestUrl(
+                candidateChannelAllowed = true,
+                buildConfiguredUrl = "https://example.invalid/production.json",
             ),
         )
     }
