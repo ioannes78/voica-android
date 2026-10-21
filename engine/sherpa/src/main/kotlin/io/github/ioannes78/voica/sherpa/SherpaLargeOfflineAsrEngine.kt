@@ -24,6 +24,11 @@ object SherpaOfflineAsrModelType {
     const val QWEN3_ASR = "qwen3-asr"
 }
 
+internal fun runtimeSupportsNativeTokenTiming(model: ModelDescriptor): Boolean =
+    model.capabilities.supportsTokenTiming ||
+        model.runtimeModelType == SherpaOfflineAsrModelType.FIRE_RED_ASR2_CTC ||
+        model.runtimeModelType == SherpaOfflineAsrModelType.FUNASR_NANO
+
 data class LargeOfflineAsrSettings(
     val numThreads: Int = SherpaRuntime.DEFAULT_NUM_THREADS,
     val funAsrSystemPrompt: String = "You are a helpful assistant.",
@@ -191,9 +196,7 @@ class SherpaLargeOfflineAsrEngine private constructor(
     private val native: NativeLargeOfflineRecognizer,
 ) : SecondPassAsrEngine {
     private var closed = false
-    private val runtimeSupportsTokenTiming =
-        model.capabilities.supportsTokenTiming ||
-            model.runtimeModelType == SherpaOfflineAsrModelType.FIRE_RED_ASR2_CTC
+    private val runtimeSupportsTokenTiming = runtimeSupportsNativeTokenTiming(model)
 
     constructor(
         model: ModelDescriptor,
