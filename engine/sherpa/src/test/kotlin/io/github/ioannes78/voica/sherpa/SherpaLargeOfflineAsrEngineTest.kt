@@ -11,7 +11,6 @@ import io.github.ioannes78.voica.model.ModelSourceType
 import io.github.ioannes78.voica.model.RedistributionPolicy
 import io.github.ioannes78.voica.model.TimestampCapability
 import java.nio.file.Files
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -83,8 +82,8 @@ class SherpaLargeOfflineAsrEngineTest {
     }
 
     @Test
-    fun funAsrNanoUsesSherpaNativeTokenTimingEvenWithConservativeDescriptorMetadata() {
-        assertTrue(
+    fun funAsrNanoRejectsSyntheticSherpaTimingUntilTrustedCtcIsEnabled() {
+        assertFalse(
             runtimeSupportsNativeTokenTiming(
                 descriptor(SherpaOfflineAsrModelType.FUNASR_NANO),
             ),
@@ -92,17 +91,24 @@ class SherpaLargeOfflineAsrEngineTest {
     }
 
     @Test
-    fun funAsrNativeTimingCompactsUtf8PiecesWithoutInventingOffsets() {
-        val mapped =
-            validatedFunAsrNativeTimedTokens(
-                tokens = listOf("", "今", "", "", "天"),
-                timestampsSeconds = listOf(0.10F, 0.20F, 0.30F, 0.35F, 0.40F),
-                acceptedSampleCount = 16_000L,
-            )
+    fun funAsrNanoRejectsSherpaTimingEvenWhenDescriptorAdvertisesTokenTiming() {
+        assertFalse(
+            runtimeSupportsNativeTokenTiming(
+                descriptor(
+                    runtimeModelType = SherpaOfflineAsrModelType.FUNASR_NANO,
+                    supportsTokenTiming = true,
+                ),
+            ),
+        )
+    }
 
-        assertEquals(listOf("今", "天"), mapped.map { it.text })
-        assertEquals(1_600L, mapped[0].startSampleOffset)
-        assertEquals(4_800L, mapped[1].startSampleOffset)
+    @Test
+    fun fireRedCtcKeepsNativeTokenTiming() {
+        assertTrue(
+            runtimeSupportsNativeTokenTiming(
+                descriptor(SherpaOfflineAsrModelType.FIRE_RED_ASR2_CTC),
+            ),
+        )
     }
 
     @Test
@@ -155,7 +161,10 @@ class SherpaLargeOfflineAsrEngineTest {
         }
     }
 
-    private fun descriptor(runtimeModelType: String) =
+    private fun descriptor(
+        runtimeModelType: String,
+        supportsTokenTiming: Boolean = false,
+    ) =
         ModelDescriptor(
             modelId = "large-test",
             kind = ModelKind.ASR_LARGE,
@@ -169,6 +178,7 @@ class SherpaLargeOfflineAsrEngineTest {
             capabilities =
                 ModelCapabilities(
                     supportsSecondPass = true,
+                    supportsTokenTiming = supportsTokenTiming,
                     executionMode = AsrExecutionMode.OFFLINE,
                     timestampCapability = TimestampCapability.NONE,
                     punctuationMode = ModelPunctuationMode.EXTERNAL,
