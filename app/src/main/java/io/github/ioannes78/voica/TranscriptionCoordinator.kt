@@ -119,6 +119,7 @@ interface Stage8TranscriptionEngineProvider {
         model: ActiveModel,
         numThreads: Int,
         senseVoiceSettings: LocalSenseVoiceSettings = LocalSenseVoiceSettings(),
+        funAsrSettings: LocalFunAsrSettings = LocalFunAsrSettings(),
         qwenSettings: LocalQwenAsrSettings = LocalQwenAsrSettings(),
     ): SecondPassAsrEngineFactory
 }
@@ -210,6 +211,7 @@ class SherpaStage8TranscriptionEngineProvider(
         model: ActiveModel,
         numThreads: Int,
         senseVoiceSettings: LocalSenseVoiceSettings,
+        funAsrSettings: LocalFunAsrSettings,
         qwenSettings: LocalQwenAsrSettings,
     ): SecondPassAsrEngineFactory {
         require(
@@ -240,6 +242,9 @@ class SherpaStage8TranscriptionEngineProvider(
                         settings =
                             LargeOfflineAsrSettings(
                                 numThreads = numThreads,
+                                funAsrUseInverseTextNormalization =
+                                    funAsrSettings.useInverseTextNormalization,
+                                funAsrHotwords = funAsrSettings.hotwords,
                                 qwenMaxTotalLen = qwenSettings.maxTotalLen,
                                 qwenMaxNewTokens = qwenSettings.maxNewTokens,
                                 qwenTemperature = qwenSettings.temperature,
@@ -443,6 +448,7 @@ class TranscriptionCoordinator(
                                         model = secondPass,
                                         numThreads = models.performance.effectiveThreads,
                                         senseVoiceSettings = models.senseVoiceSettings,
+                                        funAsrSettings = models.funAsrSettings,
                                         qwenSettings = models.qwenSettings,
                                     ),
                                 punctuationEngineFactory =
@@ -581,13 +587,7 @@ class TranscriptionCoordinator(
                     }
                 }
 
-            if (
-                secondPassSelection?.descriptor?.modelId in
-                    setOf(
-                        Stage13AOfflineModelIds.FUNASR_NANO,
-                        Stage13AOfflineModelIds.QWEN3_ASR,
-                    )
-            ) {
+            if (secondPassSelection?.descriptor?.modelId == Stage13AOfflineModelIds.QWEN3_ASR) {
                 timelineAlignment =
                     modelManager.activeModel(Stage13ARealtimeModelIds.SMALL_BILINGUAL)
                         ?.takeIf {
@@ -645,6 +645,7 @@ class TranscriptionCoordinator(
             realtimeSettings = settings.realtime,
             performance = performance,
             senseVoiceSettings = settings.senseVoice,
+            funAsrSettings = settings.funAsr,
             qwenSettings = settings.qwen,
             vadSettings = settings.vad,
         )
@@ -759,6 +760,7 @@ class TranscriptionCoordinator(
         val realtimeSettings: LocalRealtimeAsrSettings,
         val performance: ResolvedSpeechPerformance,
         val senseVoiceSettings: LocalSenseVoiceSettings,
+        val funAsrSettings: LocalFunAsrSettings,
         val qwenSettings: LocalQwenAsrSettings,
         val vadSettings: LocalVadSettings,
     ) {
@@ -823,7 +825,7 @@ class TranscriptionCoordinator(
                 models.secondPass?.descriptor?.modelId == Stage13AOfflineModelIds.FUNASR_NANO
             ) {
                 append(",\"funAsrNano\":")
-                appendFunAsrNanoSnapshot()
+                appendFunAsrNanoSnapshot(models.funAsrSettings)
             }
             if (
                 mode == TranscriptionMode.HIGH_QUALITY &&
@@ -903,7 +905,7 @@ class TranscriptionCoordinator(
             }
             if (offlineAsrModelId == Stage13AOfflineModelIds.FUNASR_NANO) {
                 append(",\"funAsrNano\":")
-                appendFunAsrNanoSnapshot()
+                appendFunAsrNanoSnapshot(models.funAsrSettings)
             }
             if (offlineAsrModelId == Stage13AOfflineModelIds.QWEN3_ASR) {
                 append(",\"qwen\":")
@@ -976,14 +978,16 @@ class TranscriptionCoordinator(
         append('}')
     }
 
-    private fun StringBuilder.appendFunAsrNanoSnapshot() {
+    private fun StringBuilder.appendFunAsrNanoSnapshot(settings: LocalFunAsrSettings) {
         append("{\"maxNewTokens\":512")
         append(",\"temperature\":1.0E-6")
         append(",\"topP\":0.8")
         append(",\"seed\":42")
         append(",\"language\":\"auto\"")
-        append(",\"useInverseTextNormalization\":true")
-        append(",\"hotwords\":\"\"")
+        append(",\"useInverseTextNormalization\":")
+            .append(settings.useInverseTextNormalization)
+        append(",\"hotwords\":")
+        appendJsonString(settings.hotwords)
         append('}')
     }
 
