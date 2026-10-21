@@ -14,11 +14,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  h2a-ctc-export-parity:
+  h2-fp32-export-parity:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.event.pull_request.title, '[A3-H2]')
-    name: H2a FP32 CTC export + numerical parity
+    name: H2a+H2b FP32 export + numerical parity
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -26,6 +26,7 @@ jobs:
       MODELSCOPE_DOWNLOAD_PARALLEL_THRESHOLD_MB: "500"
       MODELSCOPE_DOWNLOAD_PART_SIZE_MB: "160"
       FUNASR_REFERENCE_COMMIT: "24217c8ff0b81f3d967593f0bf84609306929f99"
+      LEGACY_EXPORTER_COMMIT: "6823a8ed9f4a0393750d54d750051cf5a51a7fa9"
       # Public PyPI does not publish an onnxruntime 1.28.2 wheel. H2 desktop
       # export/parity therefore uses the closest published 1.28.x wheel only
       # for numerical export validation. The Android sherpa native boundary
@@ -99,11 +100,22 @@ jobs:
           git -C "$root" checkout --detach FETCH_HEAD
           test "$(git -C "$root" rev-parse HEAD)" = "$FUNASR_REFERENCE_COMMIT"
 
+      - name: Checkout pinned revision-1 exporter
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="${RUNNER_TEMP}/FunASR-nano-onnx"
+          git init "$root"
+          git -C "$root" remote add origin https://github.com/Wasser1462/FunASR-nano-onnx.git
+          git -C "$root" fetch --depth=1 origin "$LEGACY_EXPORTER_COMMIT"
+          git -C "$root" checkout --detach FETCH_HEAD
+          test "$(git -C "$root" rev-parse HEAD)" = "$LEGACY_EXPORTER_COMMIT"
+
       - name: Show runner disk before H2 source download
         shell: bash
         run: df -h . "${RUNNER_TEMP}"
 
-      - name: Export compact FP32 CTC scorer and prove parity
+      - name: H2a export compact FP32 CTC scorer and prove parity
         shell: bash
         run: |
           set -euo pipefail
@@ -125,9 +137,37 @@ jobs:
             echo "The 2.13 GB checkpoint and exported FP32 ONNX remain runner-local; no binary artifact is uploaded."
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: H2b prove revision-1 to dual-output encoder parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_root="${RUNNER_TEMP}/funasr-a3-h2a"
+          out="${RUNNER_TEMP}/funasr-a3-h2b"
+          python ci/funasr-ctc-a3-h2/verify-h2b-dual-encoder.py \
+            --source-root "$source_root" \
+            --exporter-root "${RUNNER_TEMP}/FunASR-nano-onnx" \
+            --out "$out"
+          test -s "$out/a3-h2b-dual-encoder-parity.json"
+          test -s "$out/encoder_adaptor.legacy.fp32.onnx"
+          test -s "$out/encoder_adaptor.dual.fp32.onnx"
+          {
+            echo
+            echo "## Stage 16B A3-H2b dual-output encoder parity"
+            echo
+            echo '```json'
+            cat "$out/a3-h2b-dual-encoder-parity.json"
+            echo '```'
+            echo
+            echo "H2b reuses the exact H2a checkpoint download and the pinned revision-1 exporter; no second model download or binary upload is permitted."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Remove H2 model/export assets
         if: always()
         shell: bash
         run: |
-          rm -rf "${RUNNER_TEMP}/funasr-a3-h2a" "${RUNNER_TEMP}/FunASR-reference"
+          rm -rf \
+            "${RUNNER_TEMP}/funasr-a3-h2a" \
+            "${RUNNER_TEMP}/funasr-a3-h2b" \
+            "${RUNNER_TEMP}/FunASR-reference" \
+            "${RUNNER_TEMP}/FunASR-nano-onnx"
           df -h . "${RUNNER_TEMP}"
