@@ -76,10 +76,10 @@ class FunAsrAdaptiveChunkingTest {
             ),
         )
         assertEquals(
-            "今天我们讨论语音转写方案下一步安排。",
+            "前文abcd结束",
             mergeFunAsrOverlapText(
-                "今天我们讨论语音转写方案",
-                "语音转写方按，下一步安排。",
+                "前文abcd",
+                "xbcd，结束",
             ),
         )
     }
