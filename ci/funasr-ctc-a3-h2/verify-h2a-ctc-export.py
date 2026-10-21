@@ -205,8 +205,24 @@ def build_official_ctc(
 
 
 class CompactCtcScorer(nn.Module):
+    """Exportable single-stream/full-valid form of the official CTC path.
+
+    FunASR's generic Transformer forward creates a padding mask with
+    make_pad_mask(). The legacy ONNX exporter specializes that helper to the
+    trace-time sequence length, so a graph traced at T=17 fails at T=48/64.
+
+    Voica A1 retains one OfflineStream at a time as [1,T,512] with exact valid
+    length T and no batch padding. For the accepted checkpoint k=1, therefore,
+    the official padding mask is all-true and every EncoderLayer is exactly
+    equivalent to calling the same official block with mask=None. H2a proves
+    that equivalence against the official masked PyTorch forward before ONNX
+    output is accepted.
+    """
+
     def __init__(self, decoder: nn.Module, ctc: nn.Module):
         super().__init__()
+        if int(decoder.k) != 1:
+            raise RuntimeError(f"Compact export requires CTC decoder k=1, got {decoder.k}")
         self.decoder = decoder
         self.projection = ctc.ctc_lo
 
@@ -216,21 +232,28 @@ class CompactCtcScorer(nn.Module):
         ctc_encoder_out_lens: torch.Tensor,
         candidate_ids: torch.Tensor,
     ) -> torch.Tensor:
-        decoder_out, decoder_out_lens = self.decoder(
-            ctc_encoder_out,
-            ctc_encoder_out_lens,
-        )
-        # Current accepted checkpoint has decoder downsample_rate=1. Keep the
-        # length calculation in the official module and refuse any future drift
-        # during eager parity before export acceptance.
-        if torch.jit.is_scripting():
-            pass
+        # For k=1 and a full-valid single stream, the official Transformer
+        # padding/reshape stage is identity and its mask contains no false
+        # positions. Execute the exact trained modules with mask=None so T stays
+        # genuinely dynamic in ONNX instead of being frozen by make_pad_mask().
+        x = self.decoder.linear1(ctc_encoder_out)
+        x = self.decoder.relu(x)
+        x = self.decoder.linear2(x)
+        if self.decoder.blocks is not None:
+            for block in self.decoder.blocks:
+                x, _ = block(x, None)
+
         weight = torch.index_select(self.projection.weight, 0, candidate_ids)
         bias = torch.index_select(self.projection.bias, 0, candidate_ids)
-        logits = F.linear(decoder_out, weight, bias)
-        # Keep decoder_out_lens data-dependent in the graph without altering
-        # logits. A2 consumes the model-owned input valid length separately.
-        return logits + decoder_out_lens.to(logits.dtype).sum() * 0.0
+        logits = F.linear(x, weight, bias)
+
+        # Preserve the exact-length input in the ONNX ABI. A1 guarantees
+        # lens[0] == tensor T. If a future caller violates that contract, rows
+        # outside valid_len are zeroed and native A2 still consumes only the
+        # model-owned valid frame count.
+        frame_index = torch.arange(logits.size(1), device=logits.device)
+        valid = frame_index < ctc_encoder_out_lens[0]
+        return torch.where(valid.view(1, -1, 1), logits, torch.zeros_like(logits))
 
 
 def export_compact(model: nn.Module, path: Path) -> None:
@@ -380,7 +403,11 @@ def verify_case(
 
     if not torch.allclose(selected_full, compact_pt, rtol=1e-5, atol=1e-5):
         diff = float(torch.max(torch.abs(selected_full - compact_pt)).item())
-        raise RuntimeError(f"PyTorch full-vocab/compact raw-logit mismatch: max_abs={diff}")
+        raise RuntimeError(
+            "Official masked PyTorch != full-valid compact PyTorch raw logits: "
+            f"max_abs={diff}"
+        )
+    official_fullvalid_max_abs = float(torch.max(torch.abs(selected_full - compact_pt)).item())
 
     ort_out = session.run(
         ["candidate_logits"],
@@ -410,6 +437,7 @@ def verify_case(
         "target_count": len(targets),
         "target_ids": targets,
         "candidate_count": len(targets) + 1,
+        "official_masked_vs_fullvalid_max_abs": official_fullvalid_max_abs,
         "pytorch_onnx_max_abs": float(np.max(np.abs(pt_np - ort_out))),
         "alignment_frames": len(official),
     }
@@ -472,6 +500,7 @@ def main() -> None:
         "torch_version": torch.__version__,
         "torchaudio_version": torchaudio.__version__,
         "onnxruntime_version": ort.__version__,
+        "export_runtime_contract": "batch=1, full-valid single stream, ctc_encoder_out_lens[0] == T",
         "onnx_sha256": sha256_file(onnx_path),
         "onnx_size": onnx_path.stat().st_size,
         "onnx_abi": {
