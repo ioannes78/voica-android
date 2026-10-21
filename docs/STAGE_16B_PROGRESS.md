@@ -1,6 +1,6 @@
 # Stage 16B — Local File ASR V2 Progress
 
-Status: **GATE A TECHNICAL PASS / GATE B REAL-DEVICE PASS / PRODUCT MATRIX AUTHORIZED / P2 REAL-DEVICE PASS / P3 TIMING FIREWALL CI PASS / CTC RUNTIME A0+A1+A2 COMPILE/ABI PASS / A3 MODEL EXPORT + PARITY NEXT / FINAL FREEZE BLOCKED**
+Status: **GATE A TECHNICAL PASS / GATE B REAL-DEVICE PASS / PRODUCT MATRIX AUTHORIZED / P2 REAL-DEVICE PASS / P3 TIMING FIREWALL CI PASS / CTC RUNTIME A0+A1+A2 COMPILE/ABI PASS / A3-H1 EXACT CHECKPOINT PASS / H2 EXPORT + PARITY NEXT / FINAL FREEZE BLOCKED**
 
 Repository: `ioannes78/voica-android`
 
@@ -184,26 +184,46 @@ At Android head `01dea605f6a83341d3426e4b95da91961c166381`:
 
 The expensive native Gate is now edge-triggered: prefix PR #35's title with `[CTC]` (or use `workflow_dispatch`) only when a new native runtime checkpoint needs verification. Ordinary pushes do not rebuild sherpa.
 
-### CTC A3 — exact checkpoint / export / parity — NEXT
+### CTC A3-H1 — exact checkpoint audit — PASS
 
-A3 is the first Gate allowed to produce empirical `/2` model assets.
+The older Hugging Face checkpoint at revision `272c57b82523ada6fd87095e955f8e29100979ab` / `model.pt` SHA-256 `55ae0d2fee369f0f11cce0795f6927934ad17cf11b278a7e56a51272074160bb` remains a text-only artifact and is **not** the true-CTC export source.
 
-The provenance rule is corrected here: the older Hugging Face checkpoint at revision `272c57b82523ada6fd87095e955f8e29100979ab` / `model.pt` SHA-256 `55ae0d2fee369f0f11cce0795f6927934ad17cf11b278a7e56a51272074160bb` is a text-only artifact and must **not** be used as the true-CTC export source. Current official Fun-ASR source documentation identifies the ModelScope `FunAudioLLM/Fun-ASR-Nano-2512` checkpoint as the CTC-complete source, including all trained `ctc_decoder.*` / `ctc.*` tensors, and reports `model.pt` SHA-256 `81fec8616083c69377f3ceef36aba3655660ee0ca69a5d4a1e9810cd340ca499`.
+A3-H1 independently audited the current ModelScope source `FunAudioLLM/Fun-ASR-Nano-2512` on runner-local storage before any export. At branch checkpoint `3504e45559e99ee37b43a5c7300ef5c72b9f3af9`, FunASR CTC A3 Heavy Gate #8 **SUCCESS** established:
 
-A3 must still download the selected ModelScope checkpoint itself and independently verify its bytes, tensor completeness and configuration before accepting that reported digest.
+- `model.pt` remote and locally recomputed size: `2,127,426,538` bytes;
+- `model.pt` remote and locally recomputed SHA-256: `81fec8616083c69377f3ceef36aba3655660ee0ca69a5d4a1e9810cd340ca499`;
+- `config.yaml` SHA-256: `daed38ea6484f5650fb32cbd9069b9aa13880acaf2bcb1f0bf4be2712837917c`;
+- `multilingual.tiktoken` SHA-256: `747979631e813193436aabcff7c1c235d37de8097b71c563ec8b63b7a515c718`;
+- checkpoint normalized tensor count: `1347`;
+- exact CTC tensor inventory: `86 = 84 ctc_decoder.* + 2 ctc.*`;
+- decoder blocks: `0..4`;
+- CTC FFN geometry: `[2048,512] -> [512,2048]`;
+- projection weight `[60515,512]`, bias `[60515]`;
+- derived CTC vocabulary size `60515`, blank id `60514`, projection input dimension `512`;
+- all audited CTC tensors finite and required weights non-zero;
+- checkpoint was fully SHA-256 verified **before** `torch.load(weights_only=true, mmap=true)`;
+- the 2.13 GB source and audit assets remained runner-local and were deleted by cleanup; no model artifact was uploaded.
 
-A3 acceptance requires:
+The filtered four-range ModelScope download completed in about `6m41s`, replacing the earlier single-stream H1 attempt that was killed only by its 35-minute workflow timeout.
 
-- freeze the exact CTC-complete source checkpoint/revision and record its locally recomputed SHA-256;
-- verify all required `ctc_decoder.*` and `ctc.*` checkpoint tensors are populated before export;
-- export a real dual-output `encoder_adaptor.int8.onnx` preserving output[0] LLM parity while adding pre-adaptor 512-d state + exact length;
-- export `ctc_compact.int8.onnx` containing the official CTC Transformer decoder plus the model-owned CTC projection/gather, not a direct projection from raw encoder state;
-- copy/hash the exact `multilingual.tiktoken` from the same accepted source package;
-- derive and cross-check actual CTC vocabulary size, blank id, tensor names/types/shapes and 60 ms frame contract from checkpoint/config/export rather than hard-coding test defaults;
-- compare official Python full-vocabulary CTC forced alignment with compact raw-logit Viterbi on controlled fixtures;
-- prove `/1` versus `/2` LLM text parity for the same audio/prompt settings;
-- record SHA-256 for every exported asset and immutable provenance metadata;
-- do not stage `/2` in model-channel or replace the app runtime merely because desktop parity succeeds.
+The same H1 evidence point also had Android PR CI #2188 **SUCCESS** and A3 Provenance Gate #13 **SUCCESS**.
+
+**H1 evidence boundary:** this independently proves that the accepted source checkpoint is CTC-complete and locks the current source bytes/tensor geometry. It does **not** prove exported ONNX numerical parity, `/1` -> `/2` LLM parity, Android execution, real acoustic timestamps, performance or real-device segmentation.
+
+### CTC A3-H2 — dual-output encoder + compact CTC export/parity — NEXT
+
+H2 is now the next Gate. It must:
+
+- export one encoder/adaptor execution that preserves the existing post-adaptor LLM output while also exposing the exact pre-adaptor `[1,T,512]` state and exact length required by A1/A2;
+- prove the dual-output graph preserves `/1` LLM-facing encoder/adaptor numerical behavior under identical inputs;
+- export the official trained five-block CTC Transformer decoder plus model-owned CTC projection/gather as `ctc_compact`, rather than projecting raw encoder state directly;
+- preserve the official CTC scoring semantics while returning only blank + final-text target-position scores to the runtime;
+- validate tensor names/types/shapes, actual vocab `60515`, blank `60514`, tokenizer digest and 60 ms frame contract from the accepted source/export;
+- compare official Python full-vocabulary forced alignment with compact Android/native Viterbi on controlled fixtures;
+- establish FP32 export parity before accepting any INT8 quantization;
+- record SHA-256 and immutable provenance for every exported candidate asset.
+
+No `/2` package is accepted or staged merely because H1 passed.
 
 ## Production-state boundaries
 
@@ -224,10 +244,11 @@ A3 acceptance requires:
 1. **P0–P2: COMPLETE / REAL-DEVICE PASS.**
 2. **P3: IMPLEMENTED / CI PASS.** Synthetic sherpa timing is fail-closed at both token-data and capability layers.
 3. **P4 / CTC A0+A1+A2: COMPILE/ABI PASS.** Keep the patched sherpa runtime isolated; it is not a production dependency.
-4. **P4 / CTC A3: NEXT.** Freeze the exact CTC-complete ModelScope checkpoint, export the real shared encoder + compact CTC scorer/tokenizer assets, verify digests/metadata and official-Python parity.
-5. **P5 / product integration:** only after A3 parity, connect the patched AAR and same-stream align/discard protocol to the `/2` candidate; convert trusted CTC spans to product tokens and canonical sample-index timing with fail-closed fallback.
-6. Re-test sentence segmentation and speaker alignment only after real CTC is present; do not tune CAM++ first.
-7. Measure CTC wall/RTF, total RTF, peak/end PSS, thermal, retries and completeness; preserve the important high-quality target `total RTF < 1.0` where practical.
-8. Run real-device acceptance on the 118-second Hotword OFF/ON case plus at least two longer recordings and verify non-uniform real timing, completeness and boundary quality.
-9. Only after CTC Gate + real-device timeline/segmentation/performance acceptance may revision `/2` / model-channel v10 remain as the candidate for later explicit promotion authorization.
-10. Do not Final Freeze/Handoff, merge either PR, promote model-channel, or start Stage 16C without explicit user authorization.
+4. **P4 / CTC A3-H1: EXACT CHECKPOINT PASS.** Accepted ModelScope bytes and the complete 86-tensor CTC branch are independently verified.
+5. **P4 / CTC A3-H2: NEXT.** Export the real shared dual-output encoder + compact CTC scorer, prove Python/export/tokenizer/digest parity, then evaluate INT8 only after FP32 parity.
+6. **P5 / product integration:** only after A3-H2+ parity, connect the patched AAR and same-stream align/discard protocol to the `/2` candidate; convert trusted CTC spans to product tokens and canonical sample-index timing with fail-closed fallback.
+7. Re-test sentence segmentation and speaker alignment only after real CTC is present; do not tune CAM++ first.
+8. Measure CTC wall/RTF, total RTF, peak/end PSS, thermal, retries and completeness; preserve the important high-quality target `total RTF < 1.0` where practical.
+9. Run real-device acceptance on the 118-second Hotword OFF/ON case plus at least two longer recordings and verify non-uniform real timing, completeness and boundary quality.
+10. Only after CTC Gate + real-device timeline/segmentation/performance acceptance may revision `/2` / model-channel v10 remain as the candidate for later explicit promotion authorization.
+11. Do not Final Freeze/Handoff, merge either PR, promote model-channel, or start Stage 16C without explicit user authorization.
