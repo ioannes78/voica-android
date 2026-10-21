@@ -86,7 +86,7 @@ class FunAsrCtcTokenTimingTest {
         val vocab = createBaseByteVocab()
         try {
             val tokenizer = SenseVoiceCtcTokenizer.fromTiktokenFile(vocab)
-            val ids = tokenizer.encode("A$B")
+            val ids = tokenizer.encode("A\$B")
             val tokens =
                 requireNotNull(
                     buildFunAsrCtcRelativeTokens(
