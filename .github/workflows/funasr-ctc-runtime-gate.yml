@@ -98,8 +98,14 @@ jobs:
         working-directory: sherpa-upstream
         run: |
           set -euo pipefail
-          jni_dir="android/SherpaOnnxAar/sherpa_onnx/src/main/jniLibs/arm64-v8a"
+          jni_root="android/SherpaOnnxAar/sherpa_onnx/src/main/jniLibs"
+          # The upstream AAR project contains prebuilt libraries for several
+          # ABIs. This Gate intentionally packages only the arm64 runtime we
+          # just rebuilt, so remove every other ABI before assembling the AAR.
+          find "$jni_root" -mindepth 1 -maxdepth 1 -type d ! -name arm64-v8a -exec rm -rf {} +
+          jni_dir="$jni_root/arm64-v8a"
           mkdir -p "$jni_dir"
+          rm -f "$jni_dir/libsherpa-onnx-jni.so" "$jni_dir/libonnxruntime.so"
           cp build-android-arm64-v8a/install/lib/libsherpa-onnx-jni.so "$jni_dir/"
           cp build-android-arm64-v8a/install/lib/libonnxruntime.so "$jni_dir/"
           cd android/SherpaOnnxAar
