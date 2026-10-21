@@ -73,6 +73,14 @@ class LocalSpeechSettingsTest {
     }
 
     @Test
+    fun funAsrDefaultsKeepVerifiedItNOnAndHotwordsEmpty() {
+        val funAsr = LocalFunAsrSettings()
+
+        assertEquals(true, funAsr.useInverseTextNormalization)
+        assertEquals("", funAsr.hotwords)
+    }
+
+    @Test
     fun campPlusIsTheOnlyProductSpeakerEmbeddingAndDefault() {
         assertEquals(
             listOf(Stage13ASpeakerEmbeddingModelIds.CAMP_PLUS),
