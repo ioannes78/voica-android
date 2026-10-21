@@ -18,7 +18,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.event.pull_request.title, '[A3-H2]')
-    name: H2a+H2b+H2c export + production INT8 + generation parity
+    name: H2a+H2b+H2c+H2d export + production INT8 + end-to-end parity
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -224,6 +224,31 @@ jobs:
             echo "Only the encoder graph changes between the two runs. Production embedding, LLM and tokenizer assets are SHA-pinned and byte-identical. All assets remain runner-local."
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: H2d quantize compact CTC and prove production-state end-to-end parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/funasr-a3-h2d"
+          python ci/funasr-ctc-a3-h2/verify-h2d-int8-ctc-e2e.py \
+            --h2a-root "${RUNNER_TEMP}/funasr-a3-h2a" \
+            --h2c-root "${RUNNER_TEMP}/funasr-a3-h2c" \
+            --h2c-generation-root "${RUNNER_TEMP}/funasr-a3-h2c-generation" \
+            --exporter-root "${RUNNER_TEMP}/FunASR-nano-onnx" \
+            --funasr-root "${RUNNER_TEMP}/FunASR-reference" \
+            --out "$out"
+          test -s "$out/a3-h2d-int8-ctc-e2e.json"
+          test -s "$out/ctc_compact.int8.onnx"
+          {
+            echo
+            echo "## Stage 16B A3-H2d production INT8 compact CTC end-to-end parity"
+            echo
+            echo '```json'
+            cat "$out/a3-h2d-int8-ctc-e2e.json"
+            echo '```'
+            echo
+            echo "H2d requires exact official->FP32 and FP32->INT8 CTC state-path parity on both real-audio fixtures. Quantized assets remain runner-local."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Remove H2 model/export assets
         if: always()
         shell: bash
@@ -233,6 +258,7 @@ jobs:
             "${RUNNER_TEMP}/funasr-a3-h2b" \
             "${RUNNER_TEMP}/funasr-a3-h2c" \
             "${RUNNER_TEMP}/funasr-a3-h2c-generation" \
+            "${RUNNER_TEMP}/funasr-a3-h2d" \
             "${RUNNER_TEMP}/FunASR-reference" \
             "${RUNNER_TEMP}/FunASR-nano-onnx"
           df -h . "${RUNNER_TEMP}"
