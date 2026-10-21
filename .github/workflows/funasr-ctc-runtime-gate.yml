@@ -12,8 +12,8 @@ permissions:
   contents: read
 
 jobs:
-  runtime-a0:
-    name: Patched sherpa arm64 A0
+  runtime-a1:
+    name: Patched sherpa arm64 A1
     concurrency:
       group: funasr-ctc-runtime-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: true
@@ -67,11 +67,21 @@ jobs:
         run: |
           set -euo pipefail
           python3 ci/funasr-ctc-runtime/apply-a0-config-patch.py sherpa-upstream
+
+      - name: Apply Stage 16B CTC A1 shared-encoder patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ci/funasr-ctc-runtime/apply-a1-shared-encoder-patch.py sherpa-upstream
           git -C sherpa-upstream diff --check
           git -C sherpa-upstream diff -- \
             android/SherpaOnnxAar/sherpa_onnx/src/main/java/com/k2fsa/sherpa/onnx/OfflineRecognizer.kt \
             sherpa-onnx/csrc/offline-funasr-nano-model-config.h \
             sherpa-onnx/csrc/offline-funasr-nano-model-config.cc \
+            sherpa-onnx/csrc/offline-funasr-nano-model.h \
+            sherpa-onnx/csrc/offline-funasr-nano-model.cc \
+            sherpa-onnx/csrc/offline-recognizer-funasr-nano-impl.h \
+            sherpa-onnx/csrc/offline-recognizer-funasr-nano-impl.cc \
             sherpa-onnx/jni/offline-recognizer.cc
 
       - name: Build patched arm64 JNI with ORT 1.28.2
@@ -99,9 +109,6 @@ jobs:
         run: |
           set -euo pipefail
           jni_root="android/SherpaOnnxAar/sherpa_onnx/src/main/jniLibs"
-          # The upstream AAR project contains prebuilt libraries for several
-          # ABIs. This Gate intentionally packages only the arm64 runtime we
-          # just rebuilt, so remove every other ABI before assembling the AAR.
           find "$jni_root" -mindepth 1 -maxdepth 1 -type d ! -name arm64-v8a -exec rm -rf {} +
           jni_dir="$jni_root/arm64-v8a"
           mkdir -p "$jni_dir"
@@ -111,7 +118,7 @@ jobs:
           cd android/SherpaOnnxAar
           ./gradlew :sherpa_onnx:assembleRelease --no-daemon
 
-      - name: Verify patched AAR ABI
+      - name: Verify patched AAR ABI and A1 state boundary
         shell: bash
         working-directory: sherpa-upstream
         run: |
@@ -120,8 +127,6 @@ jobs:
           test -s "$aar"
           zipinfo -1 "$aar" | grep -qx 'jni/arm64-v8a/libsherpa-onnx-jni.so'
           zipinfo -1 "$aar" | grep -qx 'jni/arm64-v8a/libonnxruntime.so'
-          # Check actual native-library entries only. ZIP directory entries such
-          # as `jni/` are metadata, not an ABI, and must not trip this guard.
           unexpected_native_libs="$(
             zipinfo -1 "$aar" |
               grep -E '^jni/[^/]+/[^/]+\.so$' |
@@ -144,5 +149,9 @@ jobs:
           unzip -p "$aar" jni/arm64-v8a/libsherpa-onnx-jni.so > "$work/jni.so"
           readelf -d "$work/jni.so" | grep -Fq 'libonnxruntime.so'
           strings "$work/jni.so" | grep -Fq 'ctcCompact'
+          strings "$work/jni.so" | grep -Fq 'voica.funasr.ctc.command'
+          strings "$work/jni.so" | grep -Fq 'voica.funasr.ctc.state_id'
+          strings "$work/jni.so" | grep -Fq 'ctc_encoder_out_lens'
+          strings "$work/jni.so" | grep -Fq 'A1 align command consumed retained state'
 
-          echo "Patched sherpa A0 ABI verified; no artifact uploaded."
+          echo "Patched sherpa A1 shared-encoder ABI verified; no artifact uploaded."
