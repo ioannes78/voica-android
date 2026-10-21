@@ -38,6 +38,15 @@ internal fun runtimeSupportsNativeTokenTiming(model: ModelDescriptor): Boolean =
                 model.runtimeModelType == SherpaOfflineAsrModelType.FIRE_RED_ASR2_CTC
         )
 
+internal fun runtimeTimestampCapability(model: ModelDescriptor): TimestampCapability =
+    when {
+        runtimeSupportsNativeTokenTiming(model) -> TimestampCapability.TOKEN
+        model.runtimeModelType == SherpaOfflineAsrModelType.FUNASR_NANO &&
+            model.capabilities.timestampCapability == TimestampCapability.TOKEN ->
+            TimestampCapability.NONE
+        else -> model.capabilities.timestampCapability
+    }
+
 data class LargeOfflineAsrSettings(
     val numThreads: Int = SherpaRuntime.DEFAULT_NUM_THREADS,
     val funAsrSystemPrompt: String = "You are a helpful assistant.",
@@ -251,12 +260,7 @@ class SherpaLargeOfflineAsrEngine private constructor(
                 },
             supportsSecondPass = true,
             executionMode = model.capabilities.executionMode,
-            timestampCapability =
-                if (runtimeSupportsTokenTiming) {
-                    TimestampCapability.TOKEN
-                } else {
-                    model.capabilities.timestampCapability
-                },
+            timestampCapability = runtimeTimestampCapability(model),
             supportsLanguageForcing = model.capabilities.supportsLanguageForcing,
             supportsHotwords = model.capabilities.supportsHotwords,
         )
