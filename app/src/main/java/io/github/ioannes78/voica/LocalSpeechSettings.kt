@@ -26,10 +26,11 @@ enum class RealtimeAsrModelChoice {
 object Stage13AOfflineModelIds {
     const val SENSEVOICE = Stage8ModelIds.SECOND_PASS_ASR
     const val FIRERED_ASR2 = "fireredasr2-ctc-zh-en-int8"
+    const val FUNASR_NANO = "funasr-nano-int8"
     const val QWEN3_ASR = "qwen3-asr-0.6b-int8"
 
     /** Product matrix for recording-file offline transcription. */
-    val ALL = listOf(SENSEVOICE, QWEN3_ASR)
+    val ALL = listOf(SENSEVOICE, FUNASR_NANO)
 }
 
 enum class OfflineAsrQualityChoice {
@@ -268,7 +269,7 @@ fun RealtimeAsrModelChoice.preferredModelIds(): List<String> =
         -> listOf(Stage13ARealtimeModelIds.SMALL_BILINGUAL)
     }
 
-/** SenseVoice is the fast/default offline model; Qwen3-ASR is the high-quality model. */
+/** SenseVoice is the balanced/efficiency offline model; FunASR Nano is the high-quality model. */
 fun OfflineAsrQualityChoice.preferredModelIds(): List<String> =
     when (this) {
         OfflineAsrQualityChoice.AUTO,
@@ -276,7 +277,7 @@ fun OfflineAsrQualityChoice.preferredModelIds(): List<String> =
         -> listOf(Stage13AOfflineModelIds.SENSEVOICE)
         OfflineAsrQualityChoice.HIGH_QUALITY,
         OfflineAsrQualityChoice.ULTRA,
-        -> listOf(Stage13AOfflineModelIds.QWEN3_ASR)
+        -> listOf(Stage13AOfflineModelIds.FUNASR_NANO)
     }
 
 fun LocalSpeechSettings.resolvePerformance(

@@ -81,7 +81,7 @@ internal fun LocalSpeechSettingsCard(
             onToggle = { offlineExpanded = !offlineExpanded },
         ) {
             Text(
-                "录音文件只使用这里选择的离线模型。SenseVoice 速度优先，Qwen3-ASR 质量优先。",
+                "录音文件只使用这里选择的离线模型。SenseVoice 均衡/效率优先，FunASR Nano 质量优先。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -97,12 +97,12 @@ internal fun LocalSpeechSettingsCard(
             )
             HorizontalDivider()
             OfflineOption(
-                title = "高质量 · Qwen3-ASR",
-                subtitle = "0.6B INT8 · 更高质量，内存和计算开销更高",
+                title = "高质量 · FunASR Nano",
+                subtitle = "INT8 · 混合语言、专有名词和热词表现更强",
                 selected =
                     settings.offlineAsrQuality == OfflineAsrQualityChoice.HIGH_QUALITY ||
                         settings.offlineAsrQuality == OfflineAsrQualityChoice.ULTRA,
-                status = availabilityStatus(availability[Stage13AOfflineModelIds.QWEN3_ASR]),
+                status = availabilityStatus(availability[Stage13AOfflineModelIds.FUNASR_NANO]),
                 onClick = { store.setOfflineAsrQuality(OfflineAsrQualityChoice.HIGH_QUALITY) },
             )
 
@@ -117,15 +117,11 @@ internal fun LocalSpeechSettingsCard(
                     parameters = supportedParameters[Stage13AOfflineModelIds.SENSEVOICE].orEmpty(),
                 )
             } else {
-                QwenAdvanced(
-                    store = store,
-                    maxTotalLen = settings.qwen.maxTotalLen,
-                    maxNewTokens = settings.qwen.maxNewTokens,
-                    temperature = settings.qwen.temperature,
-                    topP = settings.qwen.topP,
-                    seed = settings.qwen.seed,
-                    hotwords = settings.qwen.hotwords,
-                    parameters = supportedParameters[Stage13AOfflineModelIds.QWEN3_ASR].orEmpty(),
+                Text(
+                    "FunASR Nano 使用 Stage 16B 真机验证参数：AUTO 语言、ITN 开启；热词默认留空。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
             }
         }
@@ -690,7 +686,7 @@ private fun offlineSummary(choice: OfflineAsrQualityChoice): String =
     when (choice) {
         OfflineAsrQualityChoice.HIGH_QUALITY,
         OfflineAsrQualityChoice.ULTRA,
-        -> "高质量 · Qwen3-ASR"
+        -> "高质量 · FunASR Nano"
         else -> "快速 · SenseVoice"
     }
 

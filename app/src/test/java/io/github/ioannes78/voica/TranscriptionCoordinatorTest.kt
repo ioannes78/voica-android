@@ -159,11 +159,11 @@ class TranscriptionCoordinatorTest {
     }
 
     @Test
-    fun highQualityOfflineChoiceUsesQwenInsteadOfFireRed() = runBlocking {
+    fun highQualityOfflineChoiceUsesFunAsrNano() = runBlocking {
         val descriptors =
             listOf(
                 descriptor(Stage8ModelIds.VAD, ModelKind.VAD),
-                descriptor(Stage13AOfflineModelIds.QWEN3_ASR, ModelKind.ASR_LARGE),
+                descriptor(Stage13AOfflineModelIds.FUNASR_NANO, ModelKind.ASR_LARGE),
             )
         val coordinator =
             coordinator(
@@ -178,7 +178,7 @@ class TranscriptionCoordinatorTest {
         val completed = coordinator.state.filterIsInstance<TranscriptionRunState.Completed>().first()
         val persisted = checkNotNull(repository.find(completed.transcriptionId))
 
-        assertEquals(Stage13AOfflineModelIds.QWEN3_ASR, persisted.secondPassAsrModelId)
+        assertEquals(Stage13AOfflineModelIds.FUNASR_NANO, persisted.secondPassAsrModelId)
         assertEquals("测试。", completed.segments.single().finalText)
     }
 
@@ -268,7 +268,7 @@ class TranscriptionCoordinatorTest {
                 FakeOfflineEngine(
                     model = model.descriptor,
                     punctuationCapability =
-                        if (model.descriptor.modelId == Stage13AOfflineModelIds.QWEN3_ASR) {
+                        if (model.descriptor.kind == ModelKind.ASR_LARGE) {
                             PunctuationCapability.RELIABLE
                         } else {
                             PunctuationCapability.NONE

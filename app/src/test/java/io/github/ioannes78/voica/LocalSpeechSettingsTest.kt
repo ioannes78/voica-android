@@ -38,18 +38,18 @@ class LocalSpeechSettingsTest {
     }
 
     @Test
-    fun productOfflineMatrixContainsOnlySenseVoiceAndQwen() {
+    fun productOfflineMatrixContainsOnlySenseVoiceAndFunAsrNano() {
         assertEquals(
             listOf(
                 Stage13AOfflineModelIds.SENSEVOICE,
-                Stage13AOfflineModelIds.QWEN3_ASR,
+                Stage13AOfflineModelIds.FUNASR_NANO,
             ),
             Stage13AOfflineModelIds.ALL,
         )
     }
 
     @Test
-    fun offlineDefaultsToSenseVoiceAndHighQualityUsesQwen() {
+    fun offlineDefaultsToSenseVoiceAndHighQualityUsesFunAsrNano() {
         assertEquals(
             OfflineAsrQualityChoice.BALANCED,
             LocalSpeechSettings().offlineAsrQuality,
@@ -63,11 +63,11 @@ class LocalSpeechSettingsTest {
             OfflineAsrQualityChoice.BALANCED.preferredModelIds(),
         )
         assertEquals(
-            listOf(Stage13AOfflineModelIds.QWEN3_ASR),
+            listOf(Stage13AOfflineModelIds.FUNASR_NANO),
             OfflineAsrQualityChoice.HIGH_QUALITY.preferredModelIds(),
         )
         assertEquals(
-            listOf(Stage13AOfflineModelIds.QWEN3_ASR),
+            listOf(Stage13AOfflineModelIds.FUNASR_NANO),
             OfflineAsrQualityChoice.ULTRA.preferredModelIds(),
         )
     }

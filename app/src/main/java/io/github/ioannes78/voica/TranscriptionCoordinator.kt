@@ -581,7 +581,13 @@ class TranscriptionCoordinator(
                     }
                 }
 
-            if (secondPassSelection?.descriptor?.modelId == Stage13AOfflineModelIds.QWEN3_ASR) {
+            if (
+                secondPassSelection?.descriptor?.modelId in
+                    setOf(
+                        Stage13AOfflineModelIds.FUNASR_NANO,
+                        Stage13AOfflineModelIds.QWEN3_ASR,
+                    )
+            ) {
                 timelineAlignment =
                     modelManager.activeModel(Stage13ARealtimeModelIds.SMALL_BILINGUAL)
                         ?.takeIf {
@@ -595,7 +601,9 @@ class TranscriptionCoordinator(
             when (secondPassSelection?.descriptor?.modelId) {
                 Stage13AOfflineModelIds.SENSEVOICE ->
                     !settings.senseVoice.useInverseTextNormalization
-                Stage13AOfflineModelIds.QWEN3_ASR -> false
+                Stage13AOfflineModelIds.FUNASR_NANO,
+                Stage13AOfflineModelIds.QWEN3_ASR,
+                -> false
                 else -> false
             }
 
@@ -812,7 +820,14 @@ class TranscriptionCoordinator(
             }
             if (
                 mode == TranscriptionMode.HIGH_QUALITY &&
-                models.offlineAsrQualityChoice == OfflineAsrQualityChoice.HIGH_QUALITY
+                models.secondPass?.descriptor?.modelId == Stage13AOfflineModelIds.FUNASR_NANO
+            ) {
+                append(",\"funAsrNano\":")
+                appendFunAsrNanoSnapshot()
+            }
+            if (
+                mode == TranscriptionMode.HIGH_QUALITY &&
+                models.secondPass?.descriptor?.modelId == Stage13AOfflineModelIds.QWEN3_ASR
             ) {
                 append(",\"qwen\":")
                 appendQwenSnapshot(models.qwenSettings)
@@ -886,6 +901,10 @@ class TranscriptionCoordinator(
                 append(",\"senseVoice\":")
                 appendSenseVoiceSnapshot(models.senseVoiceSettings)
             }
+            if (offlineAsrModelId == Stage13AOfflineModelIds.FUNASR_NANO) {
+                append(",\"funAsrNano\":")
+                appendFunAsrNanoSnapshot()
+            }
             if (offlineAsrModelId == Stage13AOfflineModelIds.QWEN3_ASR) {
                 append(",\"qwen\":")
                 appendQwenSnapshot(models.qwenSettings)
@@ -954,6 +973,17 @@ class TranscriptionCoordinator(
         append("{\"decodingMethod\":")
         appendJsonString(settings.decodingMethod.runtimeValue)
         append(",\"maxActivePaths\":").append(settings.maxActivePaths)
+        append('}')
+    }
+
+    private fun StringBuilder.appendFunAsrNanoSnapshot() {
+        append("{\"maxNewTokens\":512")
+        append(",\"temperature\":1.0E-6")
+        append(",\"topP\":0.8")
+        append(",\"seed\":42")
+        append(",\"language\":\"auto\"")
+        append(",\"useInverseTextNormalization\":true")
+        append(",\"hotwords\":\"\"")
         append('}')
     }
 

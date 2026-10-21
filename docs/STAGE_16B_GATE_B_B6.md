@@ -1,68 +1,58 @@
 # Stage 16B Gate B — B6 Finalist Long-File Endurance
 
-Status: **AUTOMATED PASS / REAL-DEVICE NEXT**
+Status: **REAL-DEVICE PASS / PRODUCT DECISION AUTHORIZED**
 
 Date: 2026-10-21
 
-## Objective
-
-B6 is the final expensive Gate B run. It does not repeat the full three-model matrix. B1–B5 already established distinct product roles and isolated runtime cost. B6 only checks long-file endurance for the two candidates still competing for the **high-quality local-file role**:
-
-1. **Fun-ASR-Nano INT8**;
-2. **Qwen3-ASR 0.6B INT8**.
-
-SenseVoice remains the efficiency/balanced baseline and is not eliminated from the Product Matrix.
-
 ## Frozen contract
 
-- exact active `fsmn-vad-int8@1.0.0/1` is mandatory;
-- Silero fallback invalidates formal B6 evidence;
-- common ASR input cap remains **25 seconds**;
-- same recording / canonical SHA / FSMN frozen boundaries are reused for both finalists;
-- canonical `sampleIndex` boundaries remain authoritative;
-- each finalist runs in a fresh lightweight `:model_validator` process instance;
-- B6 candidate dependencies use the read-only model-manager path, excluding WorkManager/durable model-install runtime;
-- no external punctuation, timeline alignment, Room transcript writes, diarization, or production model promotion/removal is included in measured ASR time;
-- one formal run per candidate process; leaving the candidate screen terminates that process before the other finalist starts.
+- exact active `fsmn-vad-int8@1.0.0/1`;
+- common ASR input cap: **25 seconds**;
+- same recording / canonical SHA / FSMN-frozen boundaries for both finalists;
+- `threads=2`, fresh lightweight `:model_validator` process per finalist;
+- one formal run per finalist; no external punctuation, diarization, Room writes or model promotion included in measured ASR time.
 
-## Long-file input
+## Formal real-device input
 
-Preferred formal input is one representative **~30-minute** real recording. The QA harness accepts **9–45 minutes** so an existing ~10-minute mixed recording can be used as an initial endurance run without rebuilding the harness. If the two finalists remain materially ambiguous after a shorter accepted run, repeat B6 formally on a ~30-minute file before the final Product Matrix decision.
+- recording: `badf8d81-4ede-4fb1-b1f7-966d85e2ac78`;
+- canonical SHA-256: `2f611589ba1c48eb0d7f4634340c9e5e4bc81f0c40c635d508464ad797138e878`;
+- recording: `628.3468 s`;
+- frozen speech: `597.7900 s`;
+- frozen inputs: `54`;
+- VAD wall: `5003 ms`.
 
-No 60/120-minute extension is pre-required.
+The accepted B6 window is 9–45 minutes. The ~10.5-minute run did not leave the finalists materially ambiguous, so the preferred ~30-minute extension is not required.
 
-## Measurements
+## Results
 
-For each finalist B6 reports engine-open wall time; ASR and total RTF; calls/blanks; normalized output size; first/last-quarter ASR RTF; thermal slowdown ratio; start/peak/end PSS; Android thermal start/max/end status; and crash/OOM outcome.
+| Metric | FunASR Nano INT8 | Qwen3-ASR 0.6B INT8 |
+| --- | ---: | ---: |
+| engine open | 12.522 s | **8.175 s** |
+| ASR wall | **377.987 s** | 425.601 s |
+| ASR RTF | **0.6323** | 0.7120 |
+| total RTF | **0.6533** | 0.7256 |
+| first-quarter ASR RTF | **0.5836** | 0.7407 |
+| last-quarter ASR RTF | **0.6304** | 0.6546 |
+| thermal slowdown ratio | 1.0801 | **0.8838** |
+| PSS start / peak / end KB | **46540 / 1728929 / 1543305** | 50059 / 2396068 / 2390460 |
+| thermal start / max / end | NONE / NONE / NONE | NONE / NONE / NONE |
+| ASR calls | 54 | 54 |
+| blank calls | **0** | **0** |
+| normalized chars | 1965 | 1920 |
+| crash / OOM | none | none |
 
-PCM is streamed boundary-by-boundary instead of loading the whole long recording into candidate-process memory, so PSS primarily reflects model/runtime cost rather than a full-file PCM buffer.
+Both finalists pass endurance. FunASR keeps materially lower long-run ASR time and memory pressure; Qwen3 opens faster and also shows no thermal instability.
 
-## Launcher cleanup
+## Final Gate B product decision
 
-QA/releaseQa no longer exposes a separate desktop launcher icon for every Stage 16B benchmark. Phase-specific activities remain internal. A single **`Voica Stage 16B QA`** hub is the only Stage 16B QA launcher and routes to B6 plus earlier evidence-recovery tools.
+User authorization after B6 fixes the Local File ASR V2 production roles as:
 
-Production release manifests are unchanged by this QA-only cleanup.
+1. **SenseVoice INT8 — balanced / efficiency role**;
+2. **FunASR Nano INT8 — high-quality role**;
+3. **Qwen3-ASR 0.6B INT8 — removed from the production product matrix and replaced by FunASR Nano**.
 
-## Automated checkpoints
+The decision combines B1–B6 rather than speed alone: FunASR showed the stronger mixed/proper-name tendency, active ITN, strongest controlled hotword A/B, no B6 blanks/crash/OOM, lower B5/B6 runtime cost than Qwen3, and substantially lower B6 peak PSS. Qwen3 historical QA/runtime support may remain in source so prior evidence/transcripts remain interpretable; it is no longer a selectable production Local File ASR role.
 
-Implementation checkpoint: `d5dac92390544202788b8c8a2c420a3674079a6b`.
+## Promotion boundary
 
-- Android PR CI #2072 Fast PR Gate: **PASS**;
-- B6 duration-window / plan-codec / first-vs-last-quarter RTF / blank-call regressions: PASS;
-- Debug compile: PASS;
-- FSMN candidate runtime boundary: PASS.
-
-Final docs/progress head: `4aa20ec372041ccaa271244dd33bf3aaff05bc10`.
-
-- Android PR CI #2074 Fast PR Gate: **PASS**;
-- unit tests / Debug compile: PASS;
-- FSMN candidate runtime boundary: PASS;
-- Production Gate: skipped as expected.
-
-Production-like B6 QA APK is the next checkpoint.
-
-## Decision rule after B6
-
-B6 does not select by speed alone. Final high-quality-role selection combines B1/B2 quality/completeness, B3 capabilities, B4 timing, B5 isolated speed/memory, and B6 long-run crash/blank/thermal/memory stability.
-
-After B6, present the complete Gate B Product Matrix. Do not promote/remove production ASR models, merge PR #35 or model-channel PR #21, or start Stage 16C without explicit user authorization.
+The authorized product-matrix change is staged through Draft model-channel PR #21. Android PR #35 and model-channel PR #21 remain unmerged until explicit merge authorization. Stage 16C remains RESERVED / NOT STARTED.

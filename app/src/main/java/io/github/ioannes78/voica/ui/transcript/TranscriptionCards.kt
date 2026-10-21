@@ -518,6 +518,7 @@ internal fun productTranscriptionFailureMessage(rawMessage: String): String {
 private fun runningModelLabel(modelId: String?): String =
     when (modelId) {
         Stage13AOfflineModelIds.SENSEVOICE -> "SenseVoice"
+        Stage13AOfflineModelIds.FUNASR_NANO -> "FunASR Nano"
         Stage13AOfflineModelIds.QWEN3_ASR -> "Qwen3-ASR"
         Stage13ARealtimeModelIds.SMALL_BILINGUAL -> "Small Bilingual"
         Stage13ARealtimeModelIds.CHINESE_LARGE_CTC -> "Large CTC"
@@ -527,7 +528,8 @@ private fun runningModelLabel(modelId: String?): String =
 private fun sourceModelLabel(modelId: String?): String =
     when (modelId) {
         Stage13AOfflineModelIds.SENSEVOICE -> "SenseVoice · 快速"
-        Stage13AOfflineModelIds.QWEN3_ASR -> "Qwen3-ASR · 高质量"
+        Stage13AOfflineModelIds.FUNASR_NANO -> "FunASR Nano · 高质量"
+        Stage13AOfflineModelIds.QWEN3_ASR -> "Qwen3-ASR · 历史转写"
         Stage13AOfflineModelIds.FIRERED_ASR2 -> "FireRedASR2 · 历史转写"
         Stage13ARealtimeModelIds.SMALL_BILINGUAL -> "Small Bilingual · 历史转写"
         else -> "离线转写"

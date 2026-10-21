@@ -23,10 +23,10 @@ import java.net.URL
 object VoicaModelChannel {
     const val BOOTSTRAP_CATALOG_ASSET = "model-catalog-v1.json"
     const val PRODUCTION_MODEL_CHANNEL_COMMIT =
-        "8f2f94ef7a376f1b0b652072ef67df5e07dd31de"
-    const val PRODUCTION_MANIFEST_VERSION = 8
+        "eeb59214244f392f3e2eecdb90016efbe3a95401"
+    const val PRODUCTION_MANIFEST_VERSION = 9
     const val PRODUCTION_MANIFEST_DIGEST =
-        "05dcd9f205a3383c2bda0704996b85e741384daa9c2e8a63ff132b74b5424d37"
+        "a49da9fdf2dabf2408ba2bb14cf6b5c25c35563052cc6307db8f8095caac0b45"
     const val PRODUCTION_MANIFEST_URL =
         "https://raw.githubusercontent.com/ioannes78/voica-model-channel/" +
             PRODUCTION_MODEL_CHANNEL_COMMIT +
@@ -149,7 +149,7 @@ private val PRODUCT_MODEL_IDS =
         Stage8ModelIds.VAD,
         Stage8ModelIds.PUNCTUATION,
         Stage13AOfflineModelIds.SENSEVOICE,
-        Stage13AOfflineModelIds.QWEN3_ASR,
+        Stage13AOfflineModelIds.FUNASR_NANO,
         Stage13ARealtimeModelIds.SMALL_BILINGUAL,
         Stage13ARealtimeModelIds.CHINESE_LARGE_CTC,
         Stage9ModelIds.SEGMENTATION,
@@ -159,7 +159,6 @@ private val PRODUCT_MODEL_IDS =
 
 private val DEBUG_CANDIDATE_MODEL_IDS =
     setOf(
-        STAGE16B_FUNASR_NANO_CANDIDATE_ID,
         STAGE16B_TEN_VAD_CANDIDATE_ID,
     )
 

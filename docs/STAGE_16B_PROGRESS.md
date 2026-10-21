@@ -1,6 +1,6 @@
 # Stage 16B — Local File ASR V2 Progress
 
-Status: **IN PROGRESS — GATE A TECHNICAL PASS / B0 PASS / B1 PASS / B2 PASS / B3 REAL-DEVICE PASS / B4 REAL-DEVICE PASS / B5 REAL-DEVICE PASS / B6 AUTOMATED PASS / B6 REAL-DEVICE NEXT**
+Status: **GATE A TECHNICAL PASS / GATE B REAL-DEVICE PASS / FINAL PRODUCT MATRIX AUTHORIZED / STAGED, UNMERGED**
 
 Repository: `ioannes78/voica-android`
 
@@ -86,26 +86,24 @@ Formal common input: recording `9ab2ded7-c31c-4048-9342-fd6b54a51cfb`, canonical
 
 All six passes completed with `blankCalls=0` and no crash/OOM. Runtime/memory ordering is unambiguous: **SenseVoice << FunASR < Qwen3**. SenseVoice remains the efficiency/balanced baseline; FunASR and Qwen3 remain the two high-quality-role finalists.
 
-## B6 Finalist Long-file Endurance — AUTOMATED PASS / REAL-DEVICE NEXT
+## B6 Finalist Long-file Endurance — REAL-DEVICE PASS
 
-Finalists only:
+Both finalists completed the same formal B6 input with exact FSMN `1.0.0/1`, `threads=2`, `54` frozen inputs, `597.7900 s` frozen speech and `blankCalls=0`.
 
-1. **FunASR Nano INT8**;
-2. **Qwen3-ASR 0.6B INT8**.
+| Candidate | ASR RTF | Total RTF | First-quarter | Last-quarter | Thermal ratio | Peak PSS KB | End PSS KB |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| **FunASR Nano** | **0.6323** | **0.6533** | **0.5836** | **0.6304** | 1.0801 | **1728929** | **1543305** |
+| Qwen3-ASR | 0.7120 | 0.7256 | 0.7407 | 0.6546 | **0.8838** | 2396068 | 2390460 |
 
-B6 freezes exact FSMN once and reuses the same canonical 25-second inputs across both finalist processes. Each finalist runs exactly once in a fresh lightweight `:model_validator` process using the read-only model-manager path. The runner streams PCM boundary-by-boundary and records engine-open time, ASR/total RTF, first-vs-last-quarter RTF, thermal slowdown ratio, start/peak/end PSS, Android thermal status, calls/blanks and normalized output size.
+Both reported thermal `NONE/NONE/NONE`, no crash/OOM and 54/54 nonblank calls. The accepted ~10.5-minute run leaves no material endurance ambiguity, so the preferred ~30-minute extension is waived.
 
-Preferred formal input is one representative **~30-minute** real recording; the QA harness accepts **9–45 minutes** so an existing ~10-minute mixed recording may be used as an initial endurance pass. If a shorter accepted run leaves the finalists materially ambiguous, repeat formally on ~30 minutes before the Product Matrix decision. No 60/120-minute extension is pre-required.
+Final authorized product roles:
 
-Automated checkpoint:
+- **SenseVoice INT8 = balanced / efficiency**;
+- **FunASR Nano INT8 = high quality**;
+- **Qwen3-ASR 0.6B INT8 = removed from the production product matrix and replaced by FunASR Nano**.
 
-- implementation head `d5dac92390544202788b8c8a2c420a3674079a6b`;
-- Android PR CI #2072 Fast PR Gate: **PASS**;
-- B6 unit tests / Debug compile: PASS;
-- FSMN runtime boundary: PASS;
-- Production Gate: skipped as expected.
-
-QA launcher cleanup is also implemented: B0/B3/B4/B5 phase activities no longer expose separate desktop launcher icons in QA/releaseQa. One **`Voica Stage 16B QA`** hub is the only Stage 16B QA launcher; production release manifests remain unaffected.
+Historical Qwen runtime/evidence may remain for prior-transcript compatibility and QA traceability; it is not a production Local File ASR choice.
 
 Doc: `docs/STAGE_16B_GATE_B_B6.md`.
 
@@ -114,16 +112,18 @@ Doc: `docs/STAGE_16B_GATE_B_B6.md`.
 - Local File VAD: `FSMN primary -> Silero fallback`;
 - formal Gate B VAD: exact active FSMN;
 - realtime VAD: Silero unchanged until Stage 16C.1;
-- SenseVoice/Qwen3 production ASR selection unchanged;
-- Fun-ASR-Nano remains candidate-only;
+- Local File balanced/efficiency ASR: **SenseVoice INT8**;
+- Local File high-quality ASR: **FunASR Nano INT8**;
+- Qwen3-ASR removed from the production product matrix;
+- model-channel staged manifest: v9, digest `a49da9fdf2dabf2408ba2bb14cf6b5c25c35563052cc6307db8f8095caac0b45`, commit `eeb59214244f392f3e2eecdb90016efbe3a95401`;
 - Room remains v14;
 - Android PR #35 remains Draft/unmerged;
 - model-channel PR #21 remains Draft/unmerged;
-- no ASR production promotion/removal is authorized yet.
+- Stage 16C remains `RESERVED / NOT STARTED`.
 
 ## Next planned work
 
-1. Generate the production-like B6 `releaseQa` APK.
-2. Run the same long-file B6 plan once on FunASR Nano and once on Qwen3-ASR.
-3. Present the complete Gate B Product Matrix and a production-role recommendation.
-4. Do not merge/promote/remove models or start Stage 16C until explicitly authorized.
+1. Run final Android CI against the pinned v9 model-channel matrix.
+2. Verify the production-like Local File UI exposes SenseVoice + FunASR Nano and no Qwen3 production choice.
+3. Freeze Stage 16B handoff after CI/QA evidence is green.
+4. Do not merge PR #35 or model-channel PR #21, and do not start Stage 16C, without explicit user authorization.
