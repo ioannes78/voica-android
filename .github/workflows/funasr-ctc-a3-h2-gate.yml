@@ -26,6 +26,12 @@ jobs:
       MODELSCOPE_DOWNLOAD_PARALLEL_THRESHOLD_MB: "500"
       MODELSCOPE_DOWNLOAD_PART_SIZE_MB: "160"
       FUNASR_REFERENCE_COMMIT: "24217c8ff0b81f3d967593f0bf84609306929f99"
+      # Public PyPI does not publish an onnxruntime 1.28.2 wheel. H2 desktop
+      # export/parity therefore uses the closest published 1.28.x wheel only
+      # for numerical export validation. The Android sherpa native boundary
+      # remains independently pinned and proven at ORT 1.28.2 by A0/A1/A2.
+      H2_DESKTOP_ORT_VERSION: "1.28.0"
+      ANDROID_NATIVE_ORT_VERSION: "1.28.2"
 
     steps:
       - name: Checkout Voica
@@ -45,12 +51,13 @@ jobs:
             "tiktoken==0.12.0" \
             "PyYAML==6.0.2" \
             "onnx==1.18.0" \
-            "onnxruntime==1.28.2"
+            "onnxruntime==${H2_DESKTOP_ORT_VERSION}"
           python -m pip install --disable-pip-version-check --no-cache-dir \
             --index-url https://download.pytorch.org/whl/cpu \
             "torch==2.7.1" \
             "torchaudio==2.7.1"
           python - <<'PY'
+          import os
           import onnxruntime as ort
           import torch
           import torchaudio
@@ -66,7 +73,8 @@ jobs:
           assert version("tiktoken") == "0.12.0"
           assert torch.__version__.startswith("2.7.1")
           assert torchaudio.__version__.startswith("2.7.1")
-          assert ort.__version__ == "1.28.2"
+          assert ort.__version__ == os.environ["H2_DESKTOP_ORT_VERSION"]
+          assert os.environ["ANDROID_NATIVE_ORT_VERSION"] == "1.28.2"
           assert DOWNLOAD_PARALLELS == 4
           assert DOWNLOAD_PARALLEL_THRESHOLD == 500 * 1024 * 1024
           assert DOWNLOAD_PART_SIZE == 160 * 1024 * 1024
@@ -74,7 +82,9 @@ jobs:
           print(
               "H2 tooling contract: "
               f"torch={torch.__version__} torchaudio={torchaudio.__version__} "
-              f"ort={ort.__version__} workers={DOWNLOAD_PARALLELS}"
+              f"desktop_ort={ort.__version__} "
+              f"android_native_ort={os.environ['ANDROID_NATIVE_ORT_VERSION']} "
+              f"workers={DOWNLOAD_PARALLELS}"
           )
           PY
 
@@ -109,6 +119,8 @@ jobs:
             echo '```json'
             cat "$out/a3-h2a-ctc-export-parity.json"
             echo '```'
+            echo
+            echo "Desktop export/parity ORT: ${H2_DESKTOP_ORT_VERSION}. Android sherpa native ORT remains independently pinned at ${ANDROID_NATIVE_ORT_VERSION}."
             echo
             echo "The 2.13 GB checkpoint and exported FP32 ONNX remain runner-local; no binary artifact is uploaded."
           } >> "$GITHUB_STEP_SUMMARY"
