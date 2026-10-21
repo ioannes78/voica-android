@@ -49,6 +49,7 @@ jobs:
           import inspect
           from importlib.metadata import version
           from modelscope_hub import HubApi
+          from modelscope_hub._download import DownloadManager
           from modelscope_hub.constants import (
               DOWNLOAD_PARALLEL_THRESHOLD,
               DOWNLOAD_PARALLELS,
@@ -56,7 +57,8 @@ jobs:
           )
 
           assert version("modelscope-hub") == "0.4.6"
-          assert "file_size" in inspect.signature(HubApi.download_file).parameters
+          assert "allow_patterns" in inspect.signature(HubApi.download_repo).parameters
+          assert "file_size" in inspect.signature(DownloadManager.download_file).parameters
           assert DOWNLOAD_PARALLELS == 4, DOWNLOAD_PARALLELS
           assert DOWNLOAD_PARALLEL_THRESHOLD == 500 * 1024 * 1024, DOWNLOAD_PARALLEL_THRESHOLD
           assert DOWNLOAD_PART_SIZE == 160 * 1024 * 1024, DOWNLOAD_PART_SIZE
