@@ -5,6 +5,10 @@ This gate deliberately patches only the optional `ctcCompact` model path through
 Kotlin -> JNI -> C++. Empty keeps stock revision-1 behavior. Shared-encoder state,
 compact scoring and second-decode alignment are layered only after this exact
 runtime/toolchain boundary compiles cleanly.
+
+The patcher intentionally uses short anchors *inside narrowly bounded FunASR
+regions*. This is less brittle than matching large upstream paragraphs while
+still failing closed if the pinned v1.13.8 structure drifts.
 """
 
 from __future__ import annotations
@@ -13,12 +17,76 @@ import argparse
 from pathlib import Path
 
 
-def replace_once(path: Path, old: str, new: str) -> None:
-    text = path.read_text(encoding="utf-8")
-    count = text.count(old)
+def read(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
+def write(path: Path, text: str) -> None:
+    path.write_text(text, encoding="utf-8")
+
+
+def region_bounds(
+    path: Path,
+    text: str,
+    start_marker: str,
+    end_marker: str,
+) -> tuple[int, int]:
+    if text.count(start_marker) != 1:
+        raise SystemExit(
+            f"{path}: region start count={text.count(start_marker)}, expected 1: {start_marker!r}",
+        )
+    if text.count(end_marker) != 1:
+        raise SystemExit(
+            f"{path}: region end count={text.count(end_marker)}, expected 1: {end_marker!r}",
+        )
+    start = text.index(start_marker)
+    end = text.index(end_marker, start + len(start_marker))
+    if end <= start:
+        raise SystemExit(f"{path}: invalid patch region ordering")
+    return start, end
+
+
+def replace_once_in_region(
+    path: Path,
+    start_marker: str,
+    end_marker: str,
+    old: str,
+    new: str,
+) -> None:
+    text = read(path)
+    start, end = region_bounds(path, text, start_marker, end_marker)
+    region = text[start:end]
+    count = region.count(old)
     if count != 1:
-        raise SystemExit(f"{path}: expected exactly one patch anchor, found {count}")
-    path.write_text(text.replace(old, new, 1), encoding="utf-8")
+        raise SystemExit(
+            f"{path}: anchor count={count}, expected 1 inside {start_marker!r}: {old!r}",
+        )
+    region = region.replace(old, new, 1)
+    write(path, text[:start] + region + text[end:])
+
+
+def insert_before_once_in_region(
+    path: Path,
+    start_marker: str,
+    end_marker: str,
+    anchor: str,
+    addition: str,
+) -> None:
+    replace_once_in_region(
+        path=path,
+        start_marker=start_marker,
+        end_marker=end_marker,
+        old=anchor,
+        new=addition + anchor,
+    )
+
+
+def require_exact_count(path: Path, needle: str, expected: int = 1) -> None:
+    count = read(path).count(needle)
+    if count != expected:
+        raise SystemExit(
+            f"{path}: patched marker count={count}, expected {expected}: {needle!r}",
+        )
 
 
 def main() -> None:
@@ -36,54 +104,81 @@ def main() -> None:
         if not path.is_file():
             raise SystemExit(f"missing pinned sherpa source: {path}")
 
-    replace_once(
+    # Kotlin ABI: scope to OfflineFunAsrNanoModelConfig because other model
+    # configs in this file also have a tokenizer field.
+    replace_once_in_region(
         kotlin,
-        '    var tokenizer: String = "",\n    var systemPrompt: String = "You are a helpful assistant.",\n',
-        '    var tokenizer: String = "",\n    // Optional Stage 16B revision-2 compact CTC scorer. Empty preserves stock behavior.\n    var ctcCompact: String = "",\n    var systemPrompt: String = "You are a helpful assistant.",\n',
+        "data class OfflineFunAsrNanoModelConfig(\n",
+        "data class OfflineQwen3AsrModelConfig(\n",
+        '    var tokenizer: String = "",\n',
+        '    var tokenizer: String = "",\n'
+        '    // Optional Stage 16B revision-2 compact CTC scorer. Empty preserves stock behavior.\n'
+        '    var ctcCompact: String = "",\n',
     )
 
-    replace_once(
+    # C++ config ABI.
+    replace_once_in_region(
         header,
-        '  // Path to tokenizer directory (e.g., Qwen3-0.6B)\n  std::string tokenizer;\n\n  // System prompt\n',
-        '  // Path to tokenizer directory (e.g., Qwen3-0.6B)\n  std::string tokenizer;\n\n  // Optional path to Stage 16B compact CTC scorer. Empty preserves revision 1.\n  std::string ctc_compact;\n\n  // System prompt\n',
+        "struct OfflineFunASRNanoModelConfig {\n",
+        "  OfflineFunASRNanoModelConfig() = default;\n",
+        "  std::string tokenizer;\n",
+        "  std::string tokenizer;\n\n"
+        "  // Optional Stage 16B compact CTC scorer. Empty preserves revision 1.\n"
+        "  std::string ctc_compact;\n",
     )
 
-    replace_once(
+    insert_before_once_in_region(
         config_cc,
-        '  po->Register(\n      "funasr-nano-tokenizer", &tokenizer,\n      "Path to tokenizer directory (e.g., Qwen3-0.6B) for FunASR-nano");\n\n  po->Register("funasr-nano-system-prompt", &system_prompt,\n',
-        '  po->Register(\n      "funasr-nano-tokenizer", &tokenizer,\n      "Path to tokenizer directory (e.g., Qwen3-0.6B) for FunASR-nano");\n\n  po->Register("funasr-nano-ctc-compact", &ctc_compact,\n               "Optional compact CTC scorer for FunASR-nano revision 2");\n\n  po->Register("funasr-nano-system-prompt", &system_prompt,\n',
+        "void OfflineFunASRNanoModelConfig::Register(ParseOptions *po) {\n",
+        "bool OfflineFunASRNanoModelConfig::Validate() const {\n",
+        '  po->Register("funasr-nano-system-prompt", &system_prompt,\n',
+        '  po->Register("funasr-nano-ctc-compact", &ctc_compact,\n'
+        '               "Optional compact CTC scorer for FunASR-nano revision 2");\n\n',
     )
 
-    replace_once(
+    # Optional means revision 1 remains valid. Revision 2 app-side validation
+    # requires the file and injects this path before recognizer construction.
+    insert_before_once_in_region(
         config_cc,
-        '  if (!FileExists(embedding)) {\n    SHERPA_ONNX_LOGE("--funasr-nano-embedding: \'%s\' does not exist", embedding.c_str());\n    return false;\n  }\n\n  if (max_new_tokens <= 0) {\n',
-        '  if (!FileExists(embedding)) {\n    SHERPA_ONNX_LOGE("--funasr-nano-embedding: \'%s\' does not exist", embedding.c_str());\n    return false;\n  }\n\n  if (!ctc_compact.empty() && !FileExists(ctc_compact)) {\n    SHERPA_ONNX_LOGE("--funasr-nano-ctc-compact: \'%s\' does not exist",\n                     ctc_compact.c_str());\n    return false;\n  }\n\n  if (max_new_tokens <= 0) {\n',
+        "bool OfflineFunASRNanoModelConfig::Validate() const {\n",
+        "std::string OfflineFunASRNanoModelConfig::ToString() const {\n",
+        "  if (max_new_tokens <= 0) {\n",
+        '  if (!ctc_compact.empty() && !FileExists(ctc_compact)) {\n'
+        '    SHERPA_ONNX_LOGE("--funasr-nano-ctc-compact: \'%s\' does not exist",\n'
+        '                     ctc_compact.c_str());\n'
+        '    return false;\n'
+        '  }\n\n',
     )
 
-    replace_once(
+    insert_before_once_in_region(
         config_cc,
-        '  os << "tokenizer=\\\"" << tokenizer << "\\\", ";\n  os << "system_prompt=\\\"" << system_prompt << "\\\", ";\n',
-        '  os << "tokenizer=\\\"" << tokenizer << "\\\", ";\n  os << "ctc_compact=\\\"" << ctc_compact << "\\\", ";\n  os << "system_prompt=\\\"" << system_prompt << "\\\", ";\n',
+        "std::string OfflineFunASRNanoModelConfig::ToString() const {\n",
+        "}  // namespace sherpa_onnx\n",
+        '  os << "system_prompt=\\\"" << system_prompt << "\\\", ";\n',
+        '  os << "ctc_compact=\\\"" << ctc_compact << "\\\", ";\n',
     )
 
-    replace_once(
+    # JNI: scope to the FunASR block so field reads for other models cannot
+    # satisfy the anchor accidentally.
+    insert_before_once_in_region(
         jni,
-        '  SHERPA_ONNX_JNI_READ_STRING(ans.model_config.funasr_nano.tokenizer, tokenizer,\n                              funasr_nano_config_cls, funasr_nano_config);\n\n  SHERPA_ONNX_JNI_READ_STRING(ans.model_config.funasr_nano.system_prompt,\n',
-        '  SHERPA_ONNX_JNI_READ_STRING(ans.model_config.funasr_nano.tokenizer, tokenizer,\n                              funasr_nano_config_cls, funasr_nano_config);\n\n  SHERPA_ONNX_JNI_READ_STRING(ans.model_config.funasr_nano.ctc_compact, ctcCompact,\n                              funasr_nano_config_cls, funasr_nano_config);\n\n  SHERPA_ONNX_JNI_READ_STRING(ans.model_config.funasr_nano.system_prompt,\n',
+        "  // FunASR Nano\n",
+        "  fid = env->GetFieldID(model_config_cls, \"qwen3Asr\",\n",
+        "  SHERPA_ONNX_JNI_READ_STRING(ans.model_config.funasr_nano.system_prompt,\n",
+        "  SHERPA_ONNX_JNI_READ_STRING(ans.model_config.funasr_nano.ctc_compact,\n"
+        "                              ctcCompact, funasr_nano_config_cls,\n"
+        "                              funasr_nano_config);\n\n",
     )
 
-    # Deterministic postconditions. These are intentionally simple so upstream drift fails closed.
-    checks = {
-        kotlin: ["var ctcCompact: String = \"\""],
-        header: ["std::string ctc_compact;"],
-        config_cc: ["funasr-nano-ctc-compact", "ctc_compact.c_str()"],
-        jni: ["funasr_nano.ctc_compact, ctcCompact"],
-    }
-    for path, needles in checks.items():
-        text = path.read_text(encoding="utf-8")
-        for needle in needles:
-            if needle not in text:
-                raise SystemExit(f"{path}: missing patched ABI marker: {needle}")
+    # Exact deterministic postconditions. A future upstream field or duplicate
+    # patch fails rather than producing an ambiguous ABI.
+    require_exact_count(kotlin, 'var ctcCompact: String = ""')
+    require_exact_count(header, "std::string ctc_compact;")
+    require_exact_count(config_cc, 'po->Register("funasr-nano-ctc-compact"')
+    require_exact_count(config_cc, "!ctc_compact.empty()")
+    require_exact_count(config_cc, 'os << "ctc_compact=\\\""')
+    require_exact_count(jni, "ans.model_config.funasr_nano.ctc_compact")
+    require_exact_count(jni, "ctcCompact, funasr_nano_config_cls")
 
     print("Applied Stage 16B FunASR CTC A0 config ABI patch")
 
