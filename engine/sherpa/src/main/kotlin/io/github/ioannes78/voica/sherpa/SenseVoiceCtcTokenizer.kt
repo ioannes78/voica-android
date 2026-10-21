@@ -98,20 +98,12 @@ internal class SenseVoiceCtcTokenizer private constructor(
                 lines.forEachIndexed { zeroBasedLine, rawLine ->
                     val line = rawLine.trim()
                     if (line.isEmpty()) return@forEachIndexed
-                    val split = line.lastIndexOf(' ')
-                    require(split > 0 && split < line.lastIndex) {
+                    val fields = line.split(WHITESPACE_PATTERN)
+                    require(fields.size == 2) {
                         "Invalid .tiktoken line ${zeroBasedLine + 1}"
                     }
-                    val bytes =
-                        try {
-                            Base64.getDecoder().decode(line.substring(0, split))
-                        } catch (error: IllegalArgumentException) {
-                            throw IllegalArgumentException(
-                                "Invalid base64 in .tiktoken line ${zeroBasedLine + 1}",
-                                error,
-                            )
-                        }
-                    val rank = line.substring(split + 1).toIntOrNull()
+                    val bytes = decodeTiktokenBase64(fields[0], zeroBasedLine + 1)
+                    val rank = fields[1].toIntOrNull()
                         ?: error("Invalid rank in .tiktoken line ${zeroBasedLine + 1}")
                     require(rank >= 0) { "Negative rank in .tiktoken line ${zeroBasedLine + 1}" }
                     val key = ByteKey(bytes)
@@ -127,11 +119,43 @@ internal class SenseVoiceCtcTokenizer private constructor(
             return SenseVoiceCtcTokenizer(rankByBytes, bytesByRank)
         }
 
+        /**
+         * OpenAI tiktoken's loader uses Python base64.b64decode() with validate=false. The pinned
+         * SenseVoice vocabulary contains at least one non-canonical field accepted by that loader,
+         * so Java's strict Basic decoder is not wire-compatible. MIME decoding matches the required
+         * behavior for ignored non-alphabet characters and excess padding; an all-padding/ignored
+         * field is the Python-compatible empty-byte case.
+         */
+        private fun decodeTiktokenBase64(
+            encoded: String,
+            lineNumber: Int,
+        ): ByteArray {
+            val meaningful = encoded.filter(::isBase64MeaningfulChar)
+            if (meaningful.isEmpty() || meaningful.all { it == '=' }) return byteArrayOf()
+            return try {
+                Base64.getMimeDecoder().decode(encoded)
+            } catch (error: IllegalArgumentException) {
+                throw IllegalArgumentException(
+                    "Invalid base64 in .tiktoken line $lineNumber",
+                    error,
+                )
+            }
+        }
+
+        private fun isBase64MeaningfulChar(char: Char): Boolean =
+            char in 'A'..'Z' ||
+                char in 'a'..'z' ||
+                char in '0'..'9' ||
+                char == '+' ||
+                char == '/' ||
+                char == '='
+
         // Exact ordinary-text split pattern used by current SenseVoiceTokenizer/tiktoken encoding.
         private val TOKEN_PATTERN =
             Pattern.compile(
                 "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)|\\s+",
             )
+        private val WHITESPACE_PATTERN = Regex("\\s+")
     }
 }
 

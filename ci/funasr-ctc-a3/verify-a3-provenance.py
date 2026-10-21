@@ -124,6 +124,33 @@ def build_tiktoken(tokenizer_path: Path) -> tuple[tiktoken.Encoding, dict[bytes,
     return encoding, mergeable_ranks
 
 
+def audit_noncanonical_base64(tokenizer_path: Path) -> list[dict[str, int]]:
+    anomalies: list[dict[str, int]] = []
+    for line_number, raw_line in enumerate(tokenizer_path.read_bytes().splitlines(), start=1):
+        if not raw_line:
+            continue
+        fields = raw_line.split()
+        if len(fields) != 2:
+            raise RuntimeError(f"Unexpected tiktoken field count at line {line_number}")
+        token, rank_bytes = fields
+        permissive = base64.b64decode(token)
+        try:
+            strict = base64.b64decode(token, validate=True)
+        except Exception:
+            anomalies.append(
+                {
+                    "line": line_number,
+                    "rank": int(rank_bytes),
+                    "encoded_length": len(token),
+                    "decoded_length": len(permissive),
+                }
+            )
+        else:
+            if strict != permissive:
+                raise RuntimeError(f"Strict/permissive base64 disagree at line {line_number}")
+    return anomalies
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--revision", default=DEFAULT_REVISION)
@@ -232,6 +259,7 @@ def main() -> None:
             f"{tokenizer_sha}"
         )
 
+    noncanonical_base64 = audit_noncanonical_base64(tokenizer_path)
     encoding, mergeable_ranks = build_tiktoken(tokenizer_path)
     ranks = sorted(mergeable_ranks.values())
     if not ranks or ranks[0] != 0 or len(ranks) != len(set(ranks)):
@@ -271,6 +299,7 @@ def main() -> None:
         "config_sha256": sha256_file(config_path),
         "tokenizer_sha256": tokenizer_sha,
         "tokenizer_resolution": tokenizer_resolution,
+        "tokenizer_noncanonical_base64_entries": noncanonical_base64,
         "ctc_decoder": config.get("ctc_decoder"),
         "ctc_tokenizer": dataset_conf.get("ctc_tokenizer"),
         "ctc_vocab_size": vocab_size,

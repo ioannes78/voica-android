@@ -73,6 +73,24 @@ class SenseVoiceCtcTokenizerTest {
     }
 
     @Test
+    fun parsesPythonPermissiveBase64LikeTiktokenLoader() {
+        val lines = baseByteLines().toMutableList()
+        // Python base64.b64decode(validate=false) ignores '-' and decodes this as "BC".
+        lines += "Qk-M= 256"
+        // It also accepts an all-padding field as the empty byte sequence.
+        lines += "= 257"
+        val vocab = writeTempVocab(lines)
+        try {
+            val tokenizer = SenseVoiceCtcTokenizer.fromTiktokenFile(vocab)
+
+            assertArrayEquals(intArrayOf(256), tokenizer.encode("BC"))
+            assertArrayEquals(byteArrayOf(), tokenizer.tokenBytes(257))
+        } finally {
+            vocab.delete()
+        }
+    }
+
+    @Test
     fun matchesPinnedModelscopeTiktokenReferenceWhenProvided() {
         val vocabPath = System.getenv("VOICA_FUNASR_CTC_TIKTOKEN") ?: return
         val vectorsPath =
