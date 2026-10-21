@@ -1,6 +1,7 @@
 package io.github.ioannes78.voica.sherpa
 
 import io.github.ioannes78.voica.audio.CanonicalPcmProfile
+import io.github.ioannes78.voica.model.TimestampCapability
 import io.github.ioannes78.voica.transcript.AsrCapabilities
 import io.github.ioannes78.voica.transcript.AsrHypothesis
 import io.github.ioannes78.voica.transcript.RelativeTimedToken
@@ -367,7 +368,15 @@ internal class FunAsrAdaptiveOfflineAsrEngine(
     private val settings: LargeOfflineAsrSettings,
 ) : SecondPassAsrEngine {
     override val model = delegate.model
-    override val capabilities: AsrCapabilities = delegate.capabilities
+
+    // sherpa-onnx v1.13.8 exposes evenly distributed FunASR timestamps. They remain available on
+    // the private delegate solely for context-budget diagnostics, but are deliberately blocked from
+    // the product contract until real CTC forced alignment is available.
+    override val capabilities: AsrCapabilities =
+        delegate.capabilities.copy(
+            supportsTokenTiming = false,
+            timestampCapability = TimestampCapability.NONE,
+        )
     private var closed = false
 
     init {
@@ -408,14 +417,10 @@ internal class FunAsrAdaptiveOfflineAsrEngine(
         }
 
         val languages = accepted.mapNotNull { it.hypothesis.detectedLanguage }.distinct()
-        val canPreserveTokens =
-            accepted.size == 1 &&
-                !accepted.single().hadRetry &&
-                plan.single().overlapFromPrevious == 0
 
         return AsrHypothesis(
             text = mergedText,
-            tokens = if (canPreserveTokens) accepted.single().hypothesis.tokens else emptyList(),
+            tokens = emptyList(),
             detectedLanguage = languages.singleOrNull(),
             confidence = null,
             punctuationCapability = capabilities.punctuationCapability,
