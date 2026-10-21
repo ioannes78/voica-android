@@ -67,6 +67,18 @@ class FunAsrAdaptiveChunkingTest {
     }
 
     @Test
+    fun plannerKeepsOverlapForLowVolumeContinuousSpeech() {
+        val sampleRate = 16_000
+        val samples = ShortArray(25 * sampleRate) { 80 }
+
+        val plan = planFunAsrChunks(samples, LargeOfflineAsrSettings(), sampleRate)
+
+        assertTrue(plan.size >= 2)
+        assertTrue(plan[1].overlapFromPrevious in (sampleRate * 8 / 10)..(sampleRate * 12 / 10))
+        assertFalse(plan[1].naturalBoundaryBefore)
+    }
+
+    @Test
     fun overlapMergeRemovesExactAndFuzzyDuplicatePrefix() {
         assertEquals(
             "今天讨论 OpenAI 的方案，明天继续。",

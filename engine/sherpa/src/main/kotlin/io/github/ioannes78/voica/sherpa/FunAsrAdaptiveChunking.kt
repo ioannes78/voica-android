@@ -3,7 +3,6 @@ package io.github.ioannes78.voica.sherpa
 import io.github.ioannes78.voica.audio.CanonicalPcmProfile
 import io.github.ioannes78.voica.transcript.AsrCapabilities
 import io.github.ioannes78.voica.transcript.AsrHypothesis
-import io.github.ioannes78.voica.transcript.PunctuationCapability
 import io.github.ioannes78.voica.transcript.RelativeTimedToken
 import io.github.ioannes78.voica.transcript.SecondPassAsrEngine
 import kotlin.math.abs
@@ -263,7 +262,7 @@ private fun findReliableLowEnergyBoundary(
     val sorted = candidates.map { it.second }.sorted()
     val median = sorted[sorted.size / 2]
     val best = candidates.minByOrNull { it.second } ?: return null
-    val threshold = max(ABSOLUTE_SILENCE_MEAN, median * RELATIVE_SILENCE_RATIO)
+    val threshold = min(ABSOLUTE_SILENCE_MEAN, median * RELATIVE_SILENCE_RATIO)
     return best.first.takeIf { best.second <= threshold }
 }
 
