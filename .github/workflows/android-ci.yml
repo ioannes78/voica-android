@@ -242,11 +242,13 @@ jobs:
 
   p5-qa-apk:
     name: P5 patched sherpa + revision-2 QA APK
+    # New workflows in a PR are not registered on the base branch for edited
+    # events. A marked synchronize event uses this head workflow and runs once;
+    # remove the [P5-APK] title marker after the run is created.
     if: >-
       ${{
         github.event_name == 'pull_request' &&
-        github.event.action == 'edited' &&
-        github.event.changes.title.from != null &&
+        github.event.action == 'synchronize' &&
         startsWith(github.event.pull_request.title, '[P5-APK]')
       }}
     concurrency:
