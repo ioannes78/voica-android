@@ -11,7 +11,7 @@ class Stage16BDiarizationRuntimePolicyTest {
             RECOMMENDED_DIARIZATION_CLUSTERING_THRESHOLD,
             LocalDiarizationSettings().clusteringThreshold,
         )
-        assertEquals(0.60F, LocalDiarizationSettings().clusteringThreshold)
+        assertEquals(0.70F, LocalDiarizationSettings().clusteringThreshold)
     }
 
     @Test
@@ -33,24 +33,56 @@ class Stage16BDiarizationRuntimePolicyTest {
     fun autoSpeakerCountPreservesHigherUserClusteringThreshold() {
         val config =
             SpeakerCountChoice.AUTO.toStage16BDiarizationConfig(
-                LocalDiarizationSettings(clusteringThreshold = 0.68F),
+                LocalDiarizationSettings(clusteringThreshold = 0.80F),
             )
 
-        assertEquals(0.68F, config.clusteringThreshold)
+        assertEquals(0.80F, config.clusteringThreshold)
         assertNull(config.expectedSpeakerCount)
     }
 
     @Test
-    fun explicitTwoSpeakerPresetIsIndependentFromAutoClusteringThreshold() {
+    fun fixedOneThroughFourSpeakerPresetsAreIndependentFromAutoClusteringThreshold() {
+        listOf(
+            SpeakerCountChoice.ONE to 1,
+            SpeakerCountChoice.TWO to 2,
+            SpeakerCountChoice.THREE to 3,
+            SpeakerCountChoice.FOUR to 4,
+        ).forEach { (choice, expected) ->
+            val config =
+                choice.toStage16BDiarizationConfig(
+                    LocalDiarizationSettings(clusteringThreshold = 0.20F),
+                )
+
+            assertEquals(expected, config.expectedSpeakerCount)
+            assertEquals(expected, config.minimumGlobalSpeakerCount)
+            assertEquals(expected, config.maximumGlobalSpeakerCount)
+            assertNull(config.clusteringThreshold)
+        }
+    }
+
+    @Test
+    fun fivePlusPresetKeepsItsOwnBoundedPolicyIndependentFromAutoRecommendation() {
         val config =
-            SpeakerCountChoice.TWO.toStage16BDiarizationConfig(
+            SpeakerCountChoice.FIVE_PLUS.toStage16BDiarizationConfig(
                 LocalDiarizationSettings(clusteringThreshold = 0.20F),
             )
 
-        assertEquals(2, config.expectedSpeakerCount)
-        assertEquals(2, config.minimumGlobalSpeakerCount)
-        assertEquals(2, config.maximumGlobalSpeakerCount)
-        assertNull(config.clusteringThreshold)
+        assertEquals(FIVE_PLUS_MINIMUM_SPEAKERS, config.expectedSpeakerCount)
+        assertEquals(FIVE_PLUS_MINIMUM_SPEAKERS, config.minimumGlobalSpeakerCount)
+        assertEquals(FIVE_PLUS_MAXIMUM_SPEAKERS, config.maximumGlobalSpeakerCount)
+        assertEquals(FIVE_PLUS_INITIAL_CLUSTERING_THRESHOLD, config.clusteringThreshold)
+    }
+
+    @Test
+    fun autoNeverInjectsFixedTwoSpeakerCount() {
+        val config =
+            SpeakerCountChoice.AUTO.toStage16BDiarizationConfig(
+                LocalDiarizationSettings(clusteringThreshold = 0.70F),
+            )
+
+        assertNull(config.expectedSpeakerCount)
+        assertNull(config.minimumGlobalSpeakerCount)
+        assertNull(config.maximumGlobalSpeakerCount)
     }
 
     @Test
