@@ -60,6 +60,7 @@ class FunAsrCtcPerformanceDiagnosticsTest {
 
         val text = FunAsrCtcPerformanceDiagnostics.formatForQa()
 
+        assertTrue(text.contains("sameStream=true"))
         assertTrue(text.contains("alignmentSucceeded=false"))
         assertTrue(text.contains("failureStage=PARSE"))
     }
