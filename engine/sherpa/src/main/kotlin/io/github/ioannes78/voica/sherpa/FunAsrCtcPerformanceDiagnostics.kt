@@ -64,6 +64,7 @@ object FunAsrCtcPerformanceDiagnostics {
         val outputTokenCount = current.sumOf { it.targetTokenCount }
 
         return buildString {
+            appendLine(FunAsrQaSessionDiagnostics.formatForQa())
             append("summary chunks=").append(current.size)
             append(" audioMs=").append(audioMs)
             append(" textDecodeMs=").append(textMs)
