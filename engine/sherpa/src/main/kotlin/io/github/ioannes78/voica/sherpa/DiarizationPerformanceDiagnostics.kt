@@ -2,6 +2,29 @@ package io.github.ioannes78.voica.sherpa
 
 import java.util.Locale
 
+/** Actual runtime parameters used by the native diarization path for the latest QA run. */
+data class DiarizationRuntimeConfigDiagnostic(
+    val expectedSpeakerCount: Int?,
+    val clusteringThreshold: Float,
+    val stitchingCosineThreshold: Float,
+    val numThreads: Int,
+    val chunkSizeSamples: Long,
+    val chunkOverlapSamples: Long,
+    val sampleRateHz: Int,
+    val pyannoteWindowShiftRatio: Float,
+) {
+    init {
+        require(expectedSpeakerCount == null || expectedSpeakerCount > 0)
+        require(clusteringThreshold.isFinite())
+        require(stitchingCosineThreshold.isFinite())
+        require(numThreads > 0)
+        require(chunkSizeSamples > 0L)
+        require(chunkOverlapSamples >= 0L)
+        require(sampleRateHz > 0)
+        require(pyannoteWindowShiftRatio > 0F)
+    }
+}
+
 /** Lightweight QA observability for the real offline diarization path. */
 data class DiarizationWindowPerformanceDiagnostic(
     val audioDurationMs: Long,
@@ -33,6 +56,13 @@ object DiarizationPerformanceDiagnostics {
     private val lock = Any()
     private val windows = ArrayDeque<DiarizationWindowPerformanceDiagnostic>()
     private val embeddings = ArrayDeque<SpeakerEmbeddingPerformanceDiagnostic>()
+    private var runtimeConfig: DiarizationRuntimeConfigDiagnostic? = null
+
+    fun recordRuntimeConfig(item: DiarizationRuntimeConfigDiagnostic) {
+        synchronized(lock) {
+            runtimeConfig = item
+        }
+    }
 
     fun recordWindow(item: DiarizationWindowPerformanceDiagnostic) {
         synchronized(lock) {
@@ -50,6 +80,7 @@ object DiarizationPerformanceDiagnostics {
 
     fun clear() {
         synchronized(lock) {
+            runtimeConfig = null
             windows.clear()
             embeddings.clear()
         }
@@ -57,7 +88,7 @@ object DiarizationPerformanceDiagnostics {
 
     fun formatForQa(): String =
         synchronized(lock) {
-            if (windows.isEmpty() && embeddings.isEmpty()) {
+            if (runtimeConfig == null && windows.isEmpty() && embeddings.isEmpty()) {
                 return@synchronized "No diarization performance diagnostics yet."
             }
             val windowAudioMs = windows.sumOf { it.audioDurationMs }
@@ -65,6 +96,22 @@ object DiarizationPerformanceDiagnostics {
             val embeddingAudioMs = embeddings.sumOf { it.audioDurationMs }
             val embeddingMs = embeddings.sumOf { it.computeMs }
             buildString {
+                runtimeConfig?.let { config ->
+                    append("runtime expectedSpeakerCount=")
+                        .append(config.expectedSpeakerCount?.toString() ?: "auto")
+                    append(" clusteringThreshold=")
+                        .append(String.format(Locale.US, "%.2f", config.clusteringThreshold))
+                    append(" stitchingCosineThreshold=")
+                        .append(String.format(Locale.US, "%.2f", config.stitchingCosineThreshold))
+                    append(" numThreads=").append(config.numThreads)
+                    append(" chunkSize=")
+                        .append(String.format(Locale.US, "%.3fs", config.chunkSizeSamples.toDouble() / config.sampleRateHz.toDouble()))
+                    append(" chunkOverlap=")
+                        .append(String.format(Locale.US, "%.3fs", config.chunkOverlapSamples.toDouble() / config.sampleRateHz.toDouble()))
+                    append(" pyannoteWindowShiftRatio=")
+                        .append(String.format(Locale.US, "%.2f", config.pyannoteWindowShiftRatio))
+                    append('\n')
+                }
                 append("summary windows=").append(windows.size)
                 append(" localSpeakerCounts=")
                     .append(windows.joinToString(prefix = "[", postfix = "]") { it.localSpeakerCount.toString() })
