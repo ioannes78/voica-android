@@ -120,7 +120,7 @@ Stage 17 新定位：
 4. **17.4 Offline Q&A + Audio Citation**
 5. **17.5 Local Retrieval / RAG**
 
-首选模型方向为 **Gemma 3n E2B**。具体 LiteRT-LM/runtime/model artifact/revision/quantization 必须在 Stage 17 开始时重新核验并冻结，不以聊天中的临时版本号作为事实源。
+首选模型方向为 **Gemma 4 E2B**。当前 Google AI Edge Gallery 已列出 Android 可部署的 `Gemma-4-E2B-it` LiteRT-LM 模型；具体 LiteRT-LM/runtime/model artifact/revision/quantization 仍必须在 Stage 17 开始时重新核验并冻结，不以聊天中的临时版本号作为事实源。
 
 核心设计原则：
 
