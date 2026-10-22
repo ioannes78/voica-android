@@ -42,6 +42,8 @@ class FunAsrRevision2RecognizerWiringTest {
     }
 
     private fun currentSherpaAbiHasCtcCompactSetter(): Boolean {
+        // Probe the Java ABI without initializing JNI; patched-AAR host tests must never
+        // construct a native recognizer just to distinguish stock from patched classpaths.
         val configClass =
             Class.forName(
                 "com.k2fsa.sherpa.onnx.OfflineFunAsrNanoModelConfig",
