@@ -178,10 +178,7 @@ class TranscriptTimelinePositionMapper(
         }
     private val exactCuesByRowId =
         rows.associate { row ->
-            row.id to
-                row.cues.filter { cue ->
-                    cue.projectionQuality == TextProjectionQuality.EXACT
-                }
+            row.id to row.cues.filter { cue -> cue.projectionQuality == TextProjectionQuality.EXACT }
         }
 
     private var lastPositionSampleIndex: Long? = null
@@ -191,15 +188,9 @@ class TranscriptTimelinePositionMapper(
 
     fun map(positionSampleIndex: Long): TimelinePosition {
         val previousPosition = lastPositionSampleIndex
-        val forward =
-            previousPosition != null &&
-                positionSampleIndex >= previousPosition
+        val forward = previousPosition != null && positionSampleIndex >= previousPosition
 
-        if (
-            positionSampleIndex < 0L ||
-            positionSampleIndex >= totalSampleCount ||
-            rows.isEmpty()
-        ) {
+        if (positionSampleIndex < 0L || positionSampleIndex >= totalSampleCount || rows.isEmpty()) {
             lastPositionSampleIndex = positionSampleIndex
             if (!forward) {
                 rowCandidateIndex = -1
@@ -209,20 +200,15 @@ class TranscriptTimelinePositionMapper(
         }
 
         val row = findActiveRow(positionSampleIndex, forward)
-        val cue =
-            row?.let { activeRow ->
-                findActiveCue(
-                    row = activeRow,
-                    positionSampleIndex = positionSampleIndex,
-                    forward =
-                        forward &&
-                            cueRowId == activeRow.id,
-                )
-            }
-
-        if (row == null) {
-            resetCueCursor()
+        val cue = row?.let { activeRow ->
+            findActiveCue(
+                row = activeRow,
+                positionSampleIndex = positionSampleIndex,
+                forward = forward && cueRowId == activeRow.id,
+            )
         }
+
+        if (row == null) resetCueCursor()
         lastPositionSampleIndex = positionSampleIndex
 
         return if (row == null) {
@@ -237,37 +223,21 @@ class TranscriptTimelinePositionMapper(
         }
     }
 
-    private fun emptyPosition() =
-        TimelinePosition(
-            activeRowId = null,
-            activeCueId = null,
-            speakerId = null,
-            inTranscriptGap = true,
-        )
+    private fun emptyPosition() = TimelinePosition(null, null, null, true)
 
-    private fun findActiveRow(
-        positionSampleIndex: Long,
-        forward: Boolean,
-    ): TranscriptTimelineRow? {
+    private fun findActiveRow(positionSampleIndex: Long, forward: Boolean): TranscriptTimelineRow? {
         val candidate =
             if (forward) {
                 var index = rowCandidateIndex.coerceAtLeast(-1)
-                while (
-                    index + 1 < rows.size &&
-                    rows[index + 1].startSampleIndex <= positionSampleIndex
-                ) {
+                while (index + 1 < rows.size && rows[index + 1].startSampleIndex <= positionSampleIndex) {
                     index += 1
                 }
                 index
             } else {
                 upperBoundRowStart(positionSampleIndex)
             }
-
         rowCandidateIndex = candidate
-        return findContainingRowFromCandidate(
-            candidateIndex = candidate,
-            positionSampleIndex = positionSampleIndex,
-        )
+        return findContainingRowFromCandidate(candidate, positionSampleIndex)
     }
 
     private fun upperBoundRowStart(positionSampleIndex: Long): Int {
@@ -279,84 +249,50 @@ class TranscriptTimelinePositionMapper(
             if (rows[mid].startSampleIndex <= positionSampleIndex) {
                 candidate = mid
                 low = mid + 1
-            } else {
-                high = mid - 1
-            }
+            } else high = mid - 1
         }
         return candidate
     }
 
-    private fun findContainingRowFromCandidate(
-        candidateIndex: Int,
-        positionSampleIndex: Long,
-    ): TranscriptTimelineRow? {
+    private fun findContainingRowFromCandidate(candidateIndex: Int, positionSampleIndex: Long): TranscriptTimelineRow? {
         var index = candidateIndex
         while (index >= 0 && prefixMaxEnd[index] > positionSampleIndex) {
             val row = rows[index]
-            if (
-                positionSampleIndex >= row.startSampleIndex &&
-                positionSampleIndex < row.endSampleIndexExclusive
-            ) {
-                return row
-            }
+            if (positionSampleIndex >= row.startSampleIndex && positionSampleIndex < row.endSampleIndexExclusive) return row
             index -= 1
         }
         return null
     }
 
-    private fun findActiveCue(
-        row: TranscriptTimelineRow,
-        positionSampleIndex: Long,
-        forward: Boolean,
-    ): TimedTextCue? {
+    private fun findActiveCue(row: TranscriptTimelineRow, positionSampleIndex: Long, forward: Boolean): TimedTextCue? {
         val cues = exactCuesByRowId[row.id].orEmpty()
         if (cues.isEmpty()) {
             cueRowId = row.id
             cueCandidateIndex = -1
             return null
         }
-
         if (cueRowId != row.id) {
             cueRowId = row.id
             cueCandidateIndex = -1
         }
-
         val candidate =
             if (forward) {
                 var index = cueCandidateIndex.coerceAtLeast(-1)
-                while (
-                    index + 1 < cues.size &&
-                    cues[index + 1].startSampleIndex <= positionSampleIndex
-                ) {
-                    index += 1
-                }
+                while (index + 1 < cues.size && cues[index + 1].startSampleIndex <= positionSampleIndex) index += 1
                 index
-            } else {
-                upperBoundCueStart(cues, positionSampleIndex)
-            }
+            } else upperBoundCueStart(cues, positionSampleIndex)
         cueCandidateIndex = candidate
-
         var index = candidate
         while (index >= 0) {
             val cue = cues[index]
-            if (
-                positionSampleIndex >= cue.startSampleIndex &&
-                positionSampleIndex < cue.endSampleIndexExclusive
-            ) {
-                return cue
-            }
-            if (cue.endSampleIndexExclusive <= positionSampleIndex) {
-                break
-            }
+            if (positionSampleIndex >= cue.startSampleIndex && positionSampleIndex < cue.endSampleIndexExclusive) return cue
+            if (cue.endSampleIndexExclusive <= positionSampleIndex) break
             index -= 1
         }
         return null
     }
 
-    private fun upperBoundCueStart(
-        cues: List<TimedTextCue>,
-        positionSampleIndex: Long,
-    ): Int {
+    private fun upperBoundCueStart(cues: List<TimedTextCue>, positionSampleIndex: Long): Int {
         var low = 0
         var high = cues.lastIndex
         var candidate = -1
@@ -365,9 +301,7 @@ class TranscriptTimelinePositionMapper(
             if (cues[mid].startSampleIndex <= positionSampleIndex) {
                 candidate = mid
                 low = mid + 1
-            } else {
-                high = mid - 1
-            }
+            } else high = mid - 1
         }
         return candidate
     }
@@ -383,9 +317,7 @@ private data class IndexedTimelineToken(
     val token: TranscriptToken,
 )
 
-private fun buildSegmentRow(
-    source: TimelineTranscriptSegmentInput,
-): TranscriptTimelineRow {
+private fun buildSegmentRow(source: TimelineTranscriptSegmentInput): TranscriptTimelineRow {
     val segment = source.segment
     val rowId = "segment:" + source.id
     val selected = selectTimelineTokens(segment.tokens, preferredSource = null)
@@ -403,29 +335,24 @@ private fun buildSegmentRow(
         assignmentQuality = null,
         overlap = false,
         ambiguous = false,
-        cues =
-            buildCues(
-                rowId = rowId,
-                segment = segment,
-                selected = selected,
-                rowStartSampleIndex = segment.startSampleIndex,
-                rowEndSampleIndexExclusive = segment.endSampleIndexExclusive,
-                rowTextStartOffset = 0,
-                rowTextEndOffsetExclusive = segment.finalText.length,
-                tokenStartIndex = null,
-                tokenEndIndexExclusive = null,
-            ),
+        cues = buildCues(
+            rowId,
+            segment,
+            selected,
+            segment.startSampleIndex,
+            segment.endSampleIndexExclusive,
+            0,
+            segment.finalText.length,
+            null,
+            null,
+        ),
     )
 }
 
-private fun buildSpeakerRow(
-    span: TimelineSpeakerSpanInput,
-    segment: TranscriptSegment,
-): TranscriptTimelineRow {
+private fun buildSpeakerRow(span: TimelineSpeakerSpanInput, segment: TranscriptSegment): TranscriptTimelineRow {
     require(span.finalTextEndOffsetExclusive <= segment.finalText.length)
     require(span.startSampleIndex >= segment.startSampleIndex)
     require(span.endSampleIndexExclusive <= segment.endSampleIndexExclusive)
-
     val rowId = "span:" + span.id
     val selected = selectTimelineTokens(segment.tokens, preferredSource = span.tokenSource)
     return TranscriptTimelineRow(
@@ -435,48 +362,34 @@ private fun buildSpeakerRow(
         speakerSpanId = span.id,
         startSampleIndex = span.startSampleIndex,
         endSampleIndexExclusive = span.endSampleIndexExclusive,
-        text =
-            segment.finalText.substring(
-                span.finalTextStartOffset,
-                span.finalTextEndOffsetExclusive,
-            ),
+        text = segment.finalText.substring(span.finalTextStartOffset, span.finalTextEndOffsetExclusive),
         speakerId = span.speakerId,
         speakerOrdinal = span.speakerOrdinal,
         speakerDisplayName = span.speakerDisplayName,
         assignmentQuality = span.assignmentQuality,
         overlap = span.overlap,
         ambiguous = span.ambiguous,
-        cues =
-            buildCues(
-                rowId = rowId,
-                segment = segment,
-                selected = selected,
-                rowStartSampleIndex = span.startSampleIndex,
-                rowEndSampleIndexExclusive = span.endSampleIndexExclusive,
-                rowTextStartOffset = span.finalTextStartOffset,
-                rowTextEndOffsetExclusive = span.finalTextEndOffsetExclusive,
-                tokenStartIndex = span.tokenStartIndex,
-                tokenEndIndexExclusive = span.tokenEndIndexExclusive,
-            ),
+        cues = buildCues(
+            rowId,
+            segment,
+            selected,
+            span.startSampleIndex,
+            span.endSampleIndexExclusive,
+            span.finalTextStartOffset,
+            span.finalTextEndOffsetExclusive,
+            span.tokenStartIndex,
+            span.tokenEndIndexExclusive,
+        ),
     )
 }
 
-private fun selectTimelineTokens(
-    tokens: List<TranscriptToken>,
-    preferredSource: TokenSource?,
-): List<IndexedTimelineToken> {
+private fun selectTimelineTokens(tokens: List<TranscriptToken>, preferredSource: TokenSource?): List<IndexedTimelineToken> {
     fun source(source: TokenSource): List<IndexedTimelineToken> =
         tokens
             .filter { it.source == source && !isPunctuationOnlyToken(it.text) }
-            .mapIndexed { index, token ->
-                IndexedTimelineToken(
-                    tokenIndex = index,
-                    token = token,
-                )
-            }
+            .mapIndexed { index, token -> IndexedTimelineToken(index, token) }
 
     if (preferredSource != null) return source(preferredSource)
-
     val secondPass = source(TokenSource.SECOND_PASS)
     val firstPass = source(TokenSource.FIRST_PASS)
     return when {
@@ -500,59 +413,40 @@ private fun buildCues(
 ): List<TimedTextCue> {
     if (selected.isEmpty() || segment.finalText.isEmpty()) return emptyList()
 
-    val projection =
-        projectTokensToFinalText(
-            finalText = segment.finalText,
-            tokens = selected.map { it.token.text },
-        )
+    val projection = projectTokensToFinalText(
+        finalText = segment.finalText,
+        tokens = selected.map { it.token.text },
+    )
     val startIndex = tokenStartIndex ?: 0
     val endIndexExclusive = tokenEndIndexExclusive ?: selected.size
 
     return selected.mapIndexedNotNull { position, indexed ->
-        if (indexed.tokenIndex !in startIndex until endIndexExclusive) {
-            return@mapIndexedNotNull null
-        }
-
+        if (indexed.tokenIndex !in startIndex until endIndexExclusive) return@mapIndexedNotNull null
         val rawStart = indexed.token.startSampleIndex ?: return@mapIndexedNotNull null
-        val inferredEnd =
-            indexed.token.endSampleIndexExclusive
-                ?: selected
-                    .drop(position + 1)
-                    .firstNotNullOfOrNull { it.token.startSampleIndex }
-                ?: segment.endSampleIndexExclusive
-
-        val start =
-            rawStart.coerceIn(
-                rowStartSampleIndex,
-                rowEndSampleIndexExclusive,
-            )
-        val end =
-            inferredEnd.coerceIn(
-                start,
-                rowEndSampleIndexExclusive,
-            )
+        val inferredEnd = indexed.token.endSampleIndexExclusive
+            ?: selected.drop(position + 1).firstNotNullOfOrNull { it.token.startSampleIndex }
+            ?: segment.endSampleIndexExclusive
+        val start = rawStart.coerceIn(rowStartSampleIndex, rowEndSampleIndexExclusive)
+        val end = inferredEnd.coerceIn(start, rowEndSampleIndexExclusive)
         if (end <= start) return@mapIndexedNotNull null
 
-        val globalTextStart =
-            projection.boundaries[position]
-                .coerceIn(rowTextStartOffset, rowTextEndOffsetExclusive)
-        val globalTextEnd =
-            projection.boundaries[position + 1]
-                .coerceIn(globalTextStart, rowTextEndOffsetExclusive)
+        val exactTokenProjection = projection.tokenProjections.getOrNull(position)
+            ?.takeIf { it.quality == TextProjectionQuality.EXACT }
+        val rawTextStart = exactTokenProjection?.startOffset ?: projection.boundaries[position]
+        val rawTextEnd = exactTokenProjection?.endOffsetExclusive ?: projection.boundaries[position + 1]
+        val globalTextStart = rawTextStart.coerceIn(rowTextStartOffset, rowTextEndOffsetExclusive)
+        val globalTextEnd = rawTextEnd.coerceIn(globalTextStart, rowTextEndOffsetExclusive)
         if (globalTextEnd <= globalTextStart) return@mapIndexedNotNull null
 
         TimedTextCue(
-            id =
-                rowId + ":" +
-                    indexed.token.source.name + ":" +
-                    indexed.tokenIndex,
+            id = rowId + ":" + indexed.token.source.name + ":" + indexed.tokenIndex,
             tokenSource = indexed.token.source,
             tokenIndex = indexed.tokenIndex,
             startSampleIndex = start,
             endSampleIndexExclusive = end,
             textStartOffset = globalTextStart - rowTextStartOffset,
             textEndOffsetExclusive = globalTextEnd - rowTextStartOffset,
-            projectionQuality = projection.quality,
+            projectionQuality = exactTokenProjection?.quality ?: projection.quality,
         )
     }
 }
