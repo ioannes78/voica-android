@@ -211,12 +211,13 @@ class LocalSpeechSettingsTest {
     }
 
     @Test
-    fun diarizationDefaultsPreserveExistingAutomaticBehavior() {
+    fun diarizationDefaultsUsePublishedRecommendedAutoClusteringThreshold() {
         val tuning = LocalDiarizationSettings()
         val config = SpeakerCountChoice.AUTO.toDiarizationConfig(tuning)
 
         assertEquals(true, tuning.autoAfterTranscription)
-        assertEquals(0.5F, config.clusteringThreshold)
+        assertEquals(RECOMMENDED_DIARIZATION_CLUSTERING_THRESHOLD, config.clusteringThreshold)
+        assertEquals(0.60F, config.clusteringThreshold)
         assertEquals(0.75F, config.stitchingCosineThreshold)
     }
 
