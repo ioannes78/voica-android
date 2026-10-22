@@ -7,25 +7,33 @@ import org.junit.Test
 
 class Stage14V1BaselineContractTest {
     @Test
-    fun v1StartupDoesNotRunPreV1DataRepairs() {
-        val source = appProductionSource("VoicaApplication.kt")
+    fun preReleaseStartupDoesNotRunHistoricalDataRepairs() {
+        val appSource = appProductionSource("VoicaApplication.kt")
+        val databaseSource = databaseProductionSource("VoicaDatabase.kt")
 
         assertFalse(
-            "V1.0 is the first supported install baseline; startup must not scan/import Stage 5 metadata",
-            source.contains("importLegacyStage5IfNeeded()"),
+            "pre-release startup must not scan/import Stage 5 metadata",
+            appSource.contains("importLegacyStage5IfNeeded()"),
         )
         assertFalse(
-            "V1.0 clean baseline must not scan existing recordings for pre-V1 display-name repair",
-            source.contains("normalizeStandardDeviceDisplayNames()"),
+            "pre-release startup must not scan existing recordings for old display-name repair",
+            appSource.contains("normalizeStandardDeviceDisplayNames()"),
+        )
+        assertFalse(
+            "pre-release Room open must not run old phone canonical lineage repair",
+            databaseSource.contains("repairPhoneCanonicalIdentityLineage"),
         )
     }
 
     @Test
-    fun postV1RoomRuntimeRegistersSupported12To14MigrationChain() {
+    fun preReleaseRoomRuntimeUsesCurrentSchemaWithoutHistoricalMigrationChain() {
         val source = databaseProductionSource("VoicaDatabase.kt")
 
         assertTrue(source.contains("version = 14"))
-        assertTrue(source.contains(".addMigrations(MIGRATION_12_13, MIGRATION_13_14)"))
+        assertFalse(
+            "pre-release personal-use baseline must not register historical migrations at runtime",
+            source.contains(".addMigrations("),
+        )
         for (legacyMigration in listOf(
             "MIGRATION_1_2",
             "MIGRATION_2_3",
@@ -38,9 +46,11 @@ class Stage14V1BaselineContractTest {
             "MIGRATION_9_10",
             "MIGRATION_10_11",
             "MIGRATION_11_12",
+            "MIGRATION_12_13",
+            "MIGRATION_13_14",
         )) {
             assertFalse(
-                "pre-V1 migrations remain historical evidence and must not be registered at runtime: $legacyMigration",
+                "historical migration must not be registered at runtime: $legacyMigration",
                 source.contains(legacyMigration),
             )
         }
