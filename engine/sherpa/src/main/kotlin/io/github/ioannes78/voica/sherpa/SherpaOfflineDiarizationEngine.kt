@@ -41,6 +41,7 @@ class SherpaOfflineDiarizationEngine internal constructor(
     override val segmentationModel: ModelDescriptor,
     override val embeddingModel: ModelDescriptor,
     private val native: NativeOfflineDiarizationSession,
+    private val settings: SherpaDiarizationSettings = SherpaDiarizationSettings(),
 ) : DiarizationEngine {
     private var closed = false
 
@@ -69,6 +70,7 @@ class SherpaOfflineDiarizationEngine internal constructor(
                     ),
                 settings = settings,
             ),
+        settings = settings,
     )
 
     init {
@@ -90,6 +92,19 @@ class SherpaOfflineDiarizationEngine internal constructor(
     ): DiarizationChunkResult {
         check(!closed) { "diarization engine is closed" }
         require(window.sampleRateHz == config.sampleRateHz)
+
+        DiarizationPerformanceDiagnostics.recordRuntimeConfig(
+            DiarizationRuntimeConfigDiagnostic(
+                expectedSpeakerCount = config.expectedSpeakerCount,
+                clusteringThreshold = config.clusteringThreshold ?: settings.defaultClusteringThreshold,
+                stitchingCosineThreshold = config.stitchingCosineThreshold,
+                numThreads = settings.numThreads,
+                chunkSizeSamples = config.chunkSizeSamples,
+                chunkOverlapSamples = config.chunkOverlapSamples,
+                sampleRateHz = config.sampleRateHz,
+                pyannoteWindowShiftRatio = settings.pyannoteWindowShiftRatio,
+            ),
+        )
 
         progressListener?.onProgress(
             DiarizationProgress(
