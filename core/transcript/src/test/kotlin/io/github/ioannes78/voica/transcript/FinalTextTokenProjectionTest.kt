@@ -1,6 +1,7 @@
 package io.github.ioannes78.voica.transcript
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class FinalTextTokenProjectionTest {
@@ -14,6 +15,8 @@ class FinalTextTokenProjectionTest {
 
         assertEquals(TextProjectionQuality.EXACT, projection.quality)
         assertEquals(listOf(0, 3, 6), projection.boundaries.toList())
+        assertEquals(TextProjectionQuality.EXACT, projection.tokenProjections[0]?.quality)
+        assertEquals(TextProjectionQuality.EXACT, projection.tokenProjections[1]?.quality)
     }
 
     @Test
@@ -25,11 +28,18 @@ class FinalTextTokenProjectionTest {
             )
 
         assertEquals(TextProjectionQuality.EXACT, projection.quality)
-        assertEquals(finalTextTokenStarts("欢迎收听，今天聊 AI 趋势。", listOf("欢", "迎", "收", "听", "今", "天", "聊", "AI", "趋", "势")), projection.boundaries.toList())
+        assertEquals(
+            finalTextTokenStarts(
+                "欢迎收听，今天聊 AI 趋势。",
+                listOf("欢", "迎", "收", "听", "今", "天", "聊", "AI", "趋", "势"),
+            ),
+            projection.boundaries.toList(),
+        )
+        assertEquals(10, projection.tokenProjections.count { it?.quality == TextProjectionQuality.EXACT })
     }
 
     @Test
-    fun nonMatchingItnFallsBackWithoutClaimingExactness() {
+    fun nonMatchingItnKeepsProvableSuffixExactWithoutInventingItnTiming() {
         val projection =
             projectTokensToFinalText(
                 finalText = "100元。",
@@ -38,10 +48,19 @@ class FinalTextTokenProjectionTest {
 
         assertEquals(TextProjectionQuality.HEURISTIC, projection.quality)
         assertEquals(listOf(0, 3, 5), projection.boundaries.toList())
+        assertNull(projection.tokenProjections[0])
+        assertEquals(
+            TokenTextProjection(
+                startOffset = 3,
+                endOffsetExclusive = 4,
+                quality = TextProjectionQuality.EXACT,
+            ),
+            projection.tokenProjections[1],
+        )
     }
 
     @Test
-    fun lexicalMismatchStillFallsBack() {
+    fun lexicalMismatchKeepsOnlyProvablePrefixExact() {
         val projection =
             projectTokensToFinalText(
                 finalText = "人工智能。",
@@ -49,6 +68,11 @@ class FinalTextTokenProjectionTest {
             )
 
         assertEquals(TextProjectionQuality.HEURISTIC, projection.quality)
+        assertEquals(
+            TokenTextProjection(0, 2, TextProjectionQuality.EXACT),
+            projection.tokenProjections[0],
+        )
+        assertNull(projection.tokenProjections[1])
     }
 
     @Test
@@ -57,6 +81,7 @@ class FinalTextTokenProjectionTest {
 
         assertEquals(TextProjectionQuality.UNAVAILABLE, projection.quality)
         assertEquals(listOf(0), projection.boundaries.toList())
+        assertEquals(emptyList<TokenTextProjection?>(), projection.tokenProjections)
     }
 
     private fun finalTextTokenStarts(
