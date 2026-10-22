@@ -51,6 +51,8 @@ import io.github.ioannes78.voica.ble.RangeProbeDiagnostics
 import io.github.ioannes78.voica.ble.RemoteDeleteDiagnostics
 import io.github.ioannes78.voica.playback.PlaybackOutputDiagnostics
 import io.github.ioannes78.voica.playback.toP8DiagnosticsText
+import io.github.ioannes78.voica.sherpa.DiarizationPerformanceDiagnostics
+import io.github.ioannes78.voica.sherpa.FunAsrCtcPerformanceDiagnostics
 
 private enum class DiagnosticSection {
     CONNECTION,
@@ -192,9 +194,7 @@ fun FullDiagnosticsScreen(
             DiagnosticExpandableSection(
                 title = "Android 音频输入 / P6",
                 expanded = DiagnosticSection.AUDIO_INPUT in expanded,
-                onToggle = {
-                    expanded = expanded.toggle(DiagnosticSection.AUDIO_INPUT)
-                },
+                onToggle = { expanded = expanded.toggle(DiagnosticSection.AUDIO_INPUT) },
             ) {
                 Text(
                     "设备 capability 由 Android AudioDeviceInfo 直接报告；列表没有显式报告 16 kHz 并不等于平台不能转换到 Voica 的 16 kHz canonical PCM。",
@@ -216,9 +216,7 @@ fun FullDiagnosticsScreen(
             DiagnosticExpandableSection(
                 title = "Android 音频输出 / P8",
                 expanded = DiagnosticSection.AUDIO_OUTPUT in expanded,
-                onToggle = {
-                    expanded = expanded.toggle(DiagnosticSection.AUDIO_OUTPUT)
-                },
+                onToggle = { expanded = expanded.toggle(DiagnosticSection.AUDIO_OUTPUT) },
             ) {
                 Text(
                     "实际输出路由以当前 AudioTrack routed device 为准；设备增加或移除只记录环境事件，不等同于 AudioTrack 已完成路由切换。",
@@ -240,9 +238,7 @@ fun FullDiagnosticsScreen(
             DiagnosticExpandableSection(
                 title = "连接与 GATT",
                 expanded = DiagnosticSection.CONNECTION in expanded,
-                onToggle = {
-                    expanded = expanded.toggle(DiagnosticSection.CONNECTION)
-                },
+                onToggle = { expanded = expanded.toggle(DiagnosticSection.CONNECTION) },
             ) {
                 DiagnosticLine("Session", diagnostics.sessionId)
                 DiagnosticLine("GATT", diagnostics.gattStage)
@@ -273,17 +269,10 @@ fun FullDiagnosticsScreen(
                 DiagnosticLine("AE23 CRC", diagnostics.notifications.ae23CrcErrors)
                 DiagnosticLine("AE22 invalid length", diagnostics.notifications.ae22InvalidLengths)
                 DiagnosticLine("AE23 invalid length", diagnostics.notifications.ae23InvalidLengths)
-                DiagnosticLine(
-                    "Unknown notifications",
-                    diagnostics.notifications.unknownCharacteristicNotifications,
-                )
+                DiagnosticLine("Unknown notifications", diagnostics.notifications.unknownCharacteristicNotifications)
                 DiagnosticLine(
                     "Last TX",
-                    listOf(
-                        diagnostics.lastTxType,
-                        diagnostics.lastTxCommand,
-                        diagnostics.lastTxSequence,
-                    ).joinToString("/"),
+                    listOf(diagnostics.lastTxType, diagnostics.lastTxCommand, diagnostics.lastTxSequence).joinToString("/"),
                 )
             }
         }
@@ -292,9 +281,7 @@ fun FullDiagnosticsScreen(
             DiagnosticExpandableSection(
                 title = "录音协议",
                 expanded = DiagnosticSection.RECORDING in expanded,
-                onToggle = {
-                    expanded = expanded.toggle(DiagnosticSection.RECORDING)
-                },
+                onToggle = { expanded = expanded.toggle(DiagnosticSection.RECORDING) },
             ) {
                 val r = diagnostics.recording
                 DiagnosticLine("Recording state", r.statusDecoded)
@@ -305,27 +292,15 @@ fun FullDiagnosticsScreen(
                 DiagnosticLine("Filename", r.filename)
                 DiagnosticLine("Gain", r.gainDecoded)
                 DiagnosticLine("Gain raw", r.gainRaw)
-                DiagnosticLine(
-                    "RX source/cmd",
-                    listOf(r.lastResponseSource, r.lastResponseCommand).joinToString("/"),
-                )
-                DiagnosticLine(
-                    "REQ/RSP seq",
-                    listOf(r.lastRequestSequence, r.lastResponseSequence).joinToString("/"),
-                )
-                DiagnosticLine(
-                    "RX latency",
-                    r.lastResponseLatencyMs?.let { it.toString() + " ms" },
-                )
+                DiagnosticLine("RX source/cmd", listOf(r.lastResponseSource, r.lastResponseCommand).joinToString("/"))
+                DiagnosticLine("REQ/RSP seq", listOf(r.lastRequestSequence, r.lastResponseSequence).joinToString("/"))
+                DiagnosticLine("RX latency", r.lastResponseLatencyMs?.let { it.toString() + " ms" })
                 DiagnosticLine("Last sync", r.lastSyncReason)
                 DiagnosticLine("Command result", r.lastCommandResultCode)
                 DiagnosticLine("Polling", r.pollingActive)
                 DiagnosticLine(
                     "Hardware event",
-                    r.lastHardwareEvent?.let {
-                        it.kind.name + "/" + it.source +
-                            "/cmd=" + it.command + "/seq=" + it.sequence
-                    },
+                    r.lastHardwareEvent?.let { it.kind.name + "/" + it.source + "/cmd=" + it.command + "/seq=" + it.sequence },
                 )
                 DiagnosticLine("Decode error", r.lastDecodeError)
                 DiagnosticLine("Recording error", r.lastOperationError)
@@ -336,19 +311,14 @@ fun FullDiagnosticsScreen(
             DiagnosticExpandableSection(
                 title = "设备文件列表",
                 expanded = DiagnosticSection.FILE_LIST in expanded,
-                onToggle = {
-                    expanded = expanded.toggle(DiagnosticSection.FILE_LIST)
-                },
+                onToggle = { expanded = expanded.toggle(DiagnosticSection.FILE_LIST) },
             ) {
                 val f = diagnostics.fileList
                 DiagnosticLine("File session", f.sessionId)
                 DiagnosticLine("Transport session", f.transportSessionId)
                 DiagnosticLine("File request seq", f.requestSequence)
                 DiagnosticLine("File frames", f.dataFrameCount)
-                DiagnosticLine(
-                    "Declared/parsed",
-                    f.declaredEntryCount.toString() + "/" + f.parsedEntryCount,
-                )
+                DiagnosticLine("Declared/parsed", f.declaredEntryCount.toString() + "/" + f.parsedEntryCount)
                 DiagnosticLine("Data RX source", f.lastDataNotificationSource)
                 DiagnosticLine("Done RX source", f.listDoneNotificationSource)
                 DiagnosticLine("Last data body", f.lastDataBodySize)
@@ -371,9 +341,7 @@ fun FullDiagnosticsScreen(
             DiagnosticExpandableSection(
                 title = "文件传输",
                 expanded = DiagnosticSection.TRANSFER in expanded,
-                onToggle = {
-                    expanded = expanded.toggle(DiagnosticSection.TRANSFER)
-                },
+                onToggle = { expanded = expanded.toggle(DiagnosticSection.TRANSFER) },
             ) {
                 DiagnosticLine("Operation", fileTransfer.operationId)
                 DiagnosticLine("Transport session", fileTransfer.transportSessionId)
@@ -389,19 +357,13 @@ fun FullDiagnosticsScreen(
                 DiagnosticLine("DATA source", fileTransfer.lastDataSource)
                 DiagnosticLine("END source", fileTransfer.endSource)
                 DiagnosticLine("DATA frames", fileTransfer.dataFrameCount)
-                DiagnosticLine(
-                    "Expected/received",
-                    (fileTransfer.expectedBytes?.toString() ?: "--") +
-                        "/" + fileTransfer.receivedBytes,
-                )
+                DiagnosticLine("Expected/received", (fileTransfer.expectedBytes?.toString() ?: "--") + "/" + fileTransfer.receivedBytes)
                 DiagnosticLine("First data", fileTransfer.firstDataPrefixHex)
                 DiagnosticLine("Container", fileTransfer.detectedContainer)
                 DiagnosticLine("Remote status", fileTransfer.remoteStatusCode)
                 DiagnosticLine(
                     "Transfer error",
-                    fileTransfer.lastError?.let {
-                        it.code.name + (it.detail?.let { detail -> ": " + detail } ?: "")
-                    },
+                    fileTransfer.lastError?.let { it.code.name + (it.detail?.let { detail -> ": " + detail } ?: "") },
                 )
             }
         }
@@ -410,9 +372,7 @@ fun FullDiagnosticsScreen(
             DiagnosticExpandableSection(
                 title = "设备删除",
                 expanded = DiagnosticSection.DELETE in expanded,
-                onToggle = {
-                    expanded = expanded.toggle(DiagnosticSection.DELETE)
-                },
+                onToggle = { expanded = expanded.toggle(DiagnosticSection.DELETE) },
             ) {
                 DiagnosticLine("Operation", remoteDelete.operationId)
                 DiagnosticLine("Remote identity", remoteDelete.remoteIdentity)
@@ -421,17 +381,12 @@ fun FullDiagnosticsScreen(
                 DiagnosticLine("Response source", remoteDelete.responseSource)
                 DiagnosticLine("Status", remoteDelete.responseStatusCode)
                 DiagnosticLine("Response body", remoteDelete.responseBodyHex)
-                DiagnosticLine(
-                    "Latency",
-                    remoteDelete.responseLatencyMs?.let { it.toString() + " ms" },
-                )
+                DiagnosticLine("Latency", remoteDelete.responseLatencyMs?.let { it.toString() + " ms" })
                 DiagnosticLine("Verification", remoteDelete.verificationResult)
                 DiagnosticLine("Outcome unknown", remoteDelete.outcomeUnknown)
                 DiagnosticLine(
                     "Delete error",
-                    remoteDelete.lastError?.let {
-                        it.code.name + (it.detail?.let { detail -> ": " + detail } ?: "")
-                    },
+                    remoteDelete.lastError?.let { it.code.name + (it.detail?.let { detail -> ": " + detail } ?: "") },
                 )
             }
         }
@@ -440,22 +395,15 @@ fun FullDiagnosticsScreen(
             DiagnosticExpandableSection(
                 title = "Range Probe",
                 expanded = DiagnosticSection.RANGE in expanded,
-                onToggle = {
-                    expanded = expanded.toggle(DiagnosticSection.RANGE)
-                },
+                onToggle = { expanded = expanded.toggle(DiagnosticSection.RANGE) },
             ) {
                 DiagnosticLine("Operation", rangeProbe.operationId)
                 DiagnosticLine("Remote identity", rangeProbe.remoteIdentity)
                 DiagnosticLine(
                     "Range",
-                    if (rangeProbe.startOffset != null &&
-                        rangeProbe.requestedEnd != null
-                    ) {
-                        rangeProbe.startOffset.toString() +
-                            ".." + rangeProbe.requestedEnd
-                    } else {
-                        null
-                    },
+                    if (rangeProbe.startOffset != null && rangeProbe.requestedEnd != null) {
+                        rangeProbe.startOffset.toString() + ".." + rangeProbe.requestedEnd
+                    } else null,
                 )
                 DiagnosticLine("Received", rangeProbe.receivedBytes)
                 DiagnosticLine("Actual filename", rangeProbe.actualTransferFilename)
@@ -465,9 +413,7 @@ fun FullDiagnosticsScreen(
                 DiagnosticLine("Remote status", rangeProbe.remoteStatusCode)
                 DiagnosticLine(
                     "Range error",
-                    rangeProbe.lastError?.let {
-                        it.code.name + (it.detail?.let { detail -> ": " + detail } ?: "")
-                    },
+                    rangeProbe.lastError?.let { it.code.name + (it.detail?.let { detail -> ": " + detail } ?: "") },
                 )
             }
         }
@@ -476,9 +422,7 @@ fun FullDiagnosticsScreen(
             DiagnosticExpandableSection(
                 title = "Stage 16A 实时性能",
                 expanded = DiagnosticSection.REALTIME in expanded,
-                onToggle = {
-                    expanded = expanded.toggle(DiagnosticSection.REALTIME)
-                },
+                onToggle = { expanded = expanded.toggle(DiagnosticSection.REALTIME) },
             ) {
                 val p = realtimePerformance
                 if (p == null) {
@@ -510,9 +454,7 @@ fun FullDiagnosticsScreen(
             DiagnosticExpandableSection(
                 title = "Stage 15 回归计数",
                 expanded = DiagnosticSection.STAGE15 in expanded,
-                onToggle = {
-                    expanded = expanded.toggle(DiagnosticSection.STAGE15)
-                },
+                onToggle = { expanded = expanded.toggle(DiagnosticSection.STAGE15) },
             ) {
                 val s = stage15Realtime
                 if (s == null) {
@@ -542,15 +484,11 @@ fun FullDiagnosticsScreen(
             DiagnosticExpandableSection(
                 title = "错误与日志",
                 expanded = DiagnosticSection.ERRORS_LOGS in expanded,
-                onToggle = {
-                    expanded = expanded.toggle(DiagnosticSection.ERRORS_LOGS)
-                },
+                onToggle = { expanded = expanded.toggle(DiagnosticSection.ERRORS_LOGS) },
             ) {
                 DiagnosticLine(
                     "Last BLE error",
-                    diagnostics.lastError?.let {
-                        it.code.name + (it.detail?.let { detail -> ": " + detail } ?: "")
-                    },
+                    diagnostics.lastError?.let { it.code.name + (it.detail?.let { detail -> ": " + detail } ?: "") },
                 )
                 if (diagnostics.logs.isEmpty()) {
                     DiagnosticLine("Recent logs", "无")
@@ -573,19 +511,10 @@ private fun DiagnosticExpandableSection(
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         ListItem(
-            headlineContent = {
-                Text(
-                    title,
-                    style = MaterialTheme.typography.titleMedium,
-                )
-            },
+            headlineContent = { Text(title, style = MaterialTheme.typography.titleMedium) },
             trailingContent = {
                 Icon(
-                    if (expanded) {
-                        Icons.Outlined.ExpandLess
-                    } else {
-                        Icons.Outlined.ExpandMore
-                    },
+                    if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
                     contentDescription = null,
                 )
             },
@@ -595,40 +524,26 @@ private fun DiagnosticExpandableSection(
             Column(
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                content()
-            }
+            ) { content() }
         }
         HorizontalDivider()
     }
 }
 
 @Composable
-private fun DiagnosticLine(
-    label: String,
-    value: Any?,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
+private fun DiagnosticLine(label: String, value: Any?) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             label,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),
         )
-        Text(
-            value?.toString() ?: "--",
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.weight(1.35f),
-        )
+        Text(value?.toString() ?: "--", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1.35f))
     }
 }
 
-private fun Set<DiagnosticSection>.toggle(
-    section: DiagnosticSection,
-): Set<DiagnosticSection> =
+private fun Set<DiagnosticSection>.toggle(section: DiagnosticSection): Set<DiagnosticSection> =
     if (section in this) this - section else this + section
 
 private fun buildDiagnosticsText(
@@ -653,28 +568,12 @@ private fun buildDiagnosticsText(
         appendLine("AE21: " + diagnostics.shape.ae21Found + "/" + diagnostics.shape.ae21Properties)
         appendLine("AE22: " + diagnostics.shape.ae22Found + "/" + diagnostics.ae22Subscribed)
         appendLine("AE23: " + diagnostics.shape.ae23Found + "/" + diagnostics.ae23Subscribed)
-        appendLine(
-            "Queue: " + (diagnostics.queue.activeOperation ?: "idle") +
-                " wait=" + diagnostics.queue.waitingCount,
-        )
+        appendLine("Queue: " + (diagnostics.queue.activeOperation ?: "idle") + " wait=" + diagnostics.queue.waitingCount)
         appendLine("Reconnect: " + diagnostics.reconnectAttempt)
         appendLine("Last GATT status: " + (diagnostics.lastGattStatus ?: "--"))
-        appendLine(
-            "AE22 frames/CRC/invalid: " +
-                diagnostics.notifications.ae22Frames + "/" +
-                diagnostics.notifications.ae22CrcErrors + "/" +
-                diagnostics.notifications.ae22InvalidLengths,
-        )
-        appendLine(
-            "AE23 frames/CRC/invalid: " +
-                diagnostics.notifications.ae23Frames + "/" +
-                diagnostics.notifications.ae23CrcErrors + "/" +
-                diagnostics.notifications.ae23InvalidLengths,
-        )
-        appendLine(
-            "Last TX: " + diagnostics.lastTxType + "/" +
-                diagnostics.lastTxCommand + "/" + diagnostics.lastTxSequence,
-        )
+        appendLine("AE22 frames/CRC/invalid: " + diagnostics.notifications.ae22Frames + "/" + diagnostics.notifications.ae22CrcErrors + "/" + diagnostics.notifications.ae22InvalidLengths)
+        appendLine("AE23 frames/CRC/invalid: " + diagnostics.notifications.ae23Frames + "/" + diagnostics.notifications.ae23CrcErrors + "/" + diagnostics.notifications.ae23InvalidLengths)
+        appendLine("Last TX: " + diagnostics.lastTxType + "/" + diagnostics.lastTxCommand + "/" + diagnostics.lastTxSequence)
         appendLine()
         appendLine("[Recording]")
         appendLine(diagnostics.recording.toString())
@@ -704,6 +603,12 @@ private fun buildDiagnosticsText(
             appendLine()
             appendLine(it)
         }
+        appendLine()
+        appendLine("[Stage 16B FunASR CTC]")
+        appendLine(FunAsrCtcPerformanceDiagnostics.formatForQa())
+        appendLine()
+        appendLine("[Stage 16B Diarization]")
+        appendLine(DiarizationPerformanceDiagnostics.formatForQa())
         appendLine()
         appendLine(p6InputDiagnosticsText)
         appendLine()
