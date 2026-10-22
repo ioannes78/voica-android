@@ -34,6 +34,7 @@ class FunAsrCtcPerformanceDiagnosticsTest {
         assertTrue(text.contains("audioSamples=32000"))
         assertTrue(text.contains("textDecodeMs=900"))
         assertTrue(text.contains("ctcAlignmentMs=200"))
+        assertTrue(text.contains("totalMs=1100"))
         assertTrue(text.contains("targetTokens=12"))
         assertTrue(text.contains("alignedTokens=12"))
         assertTrue(text.contains("measuredRtf=0.5500"))
