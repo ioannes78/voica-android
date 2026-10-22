@@ -19,7 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.ioannes78.voica.ble.DeviceRepository
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
-import io.github.ioannes78.voica.ui.VoicaApp
+import io.github.ioannes78.voica.ui.OfflineVoicaApp
 import io.github.ioannes78.voica.ui.annotation.TimelineAnnotationViewModel
 import io.github.ioannes78.voica.ui.phone.LocalPhoneMicrophoneRealtimeRuntime
 import io.github.ioannes78.voica.ui.phone.LocalPhoneMicrophoneRecordingRuntime
@@ -58,9 +58,7 @@ class MainActivity : ComponentActivity() {
             val recordingOpenRequest by AppRecordingNavigation.request.collectAsState()
             val realtimeState by appContainer.stage16ARealtimeRuntime.state.collectAsState()
             val recordingTokenAtRealtimeOpen =
-                remember(realtimeOpenRequest?.token) {
-                    recordingOpenRequest?.token
-                }
+                remember(realtimeOpenRequest?.token) { recordingOpenRequest?.token }
             val phoneUiScope = rememberCoroutineScope()
             val phoneRecordingController =
                 remember(
@@ -144,17 +142,14 @@ class MainActivity : ComponentActivity() {
                 ) {
                     Box(modifier = Modifier.fillMaxSize()) {
                         Stage13B5Qa4GlobalAttentionHost(container = appContainer) {
-                            VoicaApp(
+                            OfflineVoicaApp(
                                 repository = deviceRepository,
                                 recordingLibraryRepository = recordingLibraryRepository,
                                 canonicalAudioCoordinator = canonicalAudioCoordinator,
                                 localAudioImportCoordinator = appContainer.localAudioImportCoordinator,
-                                localRecordingDeleteCoordinator =
-                                    appContainer.localRecordingDeleteCoordinator,
-                                localAudioExportCoordinator =
-                                    appContainer.localAudioExportCoordinator,
-                                storageManagementCoordinator =
-                                    appContainer.storageManagementCoordinator,
+                                localRecordingDeleteCoordinator = appContainer.localRecordingDeleteCoordinator,
+                                localAudioExportCoordinator = appContainer.localAudioExportCoordinator,
+                                storageManagementCoordinator = appContainer.storageManagementCoordinator,
                                 playbackController = appContainer.playbackController,
                                 modelManager = appContainer.modelManager,
                                 modelUpdateController = appContainer.modelUpdateController,
@@ -165,12 +160,7 @@ class MainActivity : ComponentActivity() {
                                 searchIndexRebuilder = appContainer.searchIndexRebuilder,
                                 diarizationCoordinator = appContainer.diarizationCoordinator,
                                 diarizationRepository = appContainer.diarizationRepository,
-                                aiSummaryCoordinator = appContainer.aiSummaryCoordinator,
                                 aiSummaryRepository = appContainer.aiSummaryRepository,
-                                providerProfileStore = appContainer.providerProfileStore,
-                                providerConfigurationRepository =
-                                    appContainer.providerConfigurationRepository,
-                                providerAdapterRegistry = appContainer.providerAdapterRegistry,
                                 themeSettingsStore = appContainer.themeSettingsStore,
                                 localSpeechSettingsStore = appContainer.localSpeechSettingsStore,
                                 speechBenchmarkRunner =
