@@ -375,7 +375,9 @@ class TranscriptionRepository(
                 }
                 if (end != null) {
                     require(start != null)
-                    require(end > start)
+                    // Point-anchored non-acoustic tokens (for example CTC punctuation) intentionally
+                    // use start == end; this matches the core transcript token contract.
+                    require(end >= start)
                     require(end <= segment.endSampleIndexExclusive)
                 }
             }
