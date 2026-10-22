@@ -52,7 +52,6 @@ fun AiSummaryProductCard(
     recordingName: String,
     viewModel: AiSummaryViewModel,
     contentViewModel: AiSummaryContentViewModel,
-    onOpenSettings: () -> Unit,
     onSeekEvidence: (Long) -> Unit,
     showTransientHeader: Boolean = true,
     attentionOverride: AiSummaryEntity? = null,

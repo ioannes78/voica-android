@@ -9,6 +9,7 @@ import io.github.ioannes78.voica.database.SearchDocumentEntity
 internal val LocalAiSummarySearchTarget = compositionLocalOf<SearchDocumentEntity?> { null }
 
 @Composable
+@Suppress("UNUSED_PARAMETER")
 fun AiSummaryProductCard(
     transcriptionId: String,
     recordingName: String,
@@ -28,7 +29,6 @@ fun AiSummaryProductCard(
             recordingName = recordingName,
             viewModel = viewModel,
             contentViewModel = contentViewModel,
-            onOpenSettings = onOpenSettings,
             onSeekEvidence = onSeekEvidence,
             showTransientHeader = showTransientHeader,
             attentionOverride = attentionOverride,
