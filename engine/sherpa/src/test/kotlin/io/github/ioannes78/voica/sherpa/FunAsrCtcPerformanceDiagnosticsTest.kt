@@ -9,10 +9,16 @@ class FunAsrCtcPerformanceDiagnosticsTest {
     @After
     fun tearDown() {
         FunAsrCtcPerformanceDiagnostics.clear()
+        FunAsrRuntimeDiagnostics.clear()
+        FunAsrQaSessionDiagnostics.clear()
     }
 
     @Test
     fun formatsMeasuredDecodeAndAlignmentWithoutInventingEncoderCount() {
+        FunAsrQaSessionDiagnostics.begin(
+            effectiveThreads = 4,
+            hotwordEnabled = true,
+        )
         FunAsrCtcPerformanceDiagnostics.record(
             FunAsrCtcPerformanceDiagnostic(
                 audioSampleCount = 32_000,
@@ -30,7 +36,12 @@ class FunAsrCtcPerformanceDiagnosticsTest {
 
         val text = FunAsrCtcPerformanceDiagnostics.formatForQa()
 
-        assertTrue(text.startsWith("summary chunks=1"))
+        assertTrue(
+            text.startsWith(
+                "runtime effectiveThreads=4 hotword=ON adaptiveRetryCount=0 retryOccurred=false\n" +
+                    "summary chunks=1",
+            ),
+        )
         assertTrue(text.contains("audioMs=2000"))
         assertTrue(text.contains("textDecodeMs=900"))
         assertTrue(text.contains("textDecodeRtf=0.4500"))
@@ -45,6 +56,38 @@ class FunAsrCtcPerformanceDiagnosticsTest {
         assertTrue(text.contains("sameStream=true"))
         assertTrue(text.contains("encoderInvocationCount=not_exposed"))
         assertEquals(1, FunAsrCtcPerformanceDiagnostics.snapshot().size)
+    }
+
+    @Test
+    fun runtimeSummaryCountsAdaptiveRetryAttempts() {
+        FunAsrQaSessionDiagnostics.begin(
+            effectiveThreads = 2,
+            hotwordEnabled = false,
+        )
+        FunAsrRuntimeDiagnostics.record(runtimeDiagnostic(retryDepth = 0))
+        FunAsrRuntimeDiagnostics.record(runtimeDiagnostic(retryDepth = 1))
+        FunAsrRuntimeDiagnostics.record(runtimeDiagnostic(retryDepth = 2))
+        FunAsrCtcPerformanceDiagnostics.record(
+            FunAsrCtcPerformanceDiagnostic(
+                audioSampleCount = 16_000,
+                audioDurationMs = 1_000,
+                textDecodeMs = 500,
+                alignmentMs = 50,
+                totalMs = 550,
+                targetTokenCount = 4,
+                alignedTokenCount = 4,
+                alignmentSucceeded = true,
+                sameStreamAlignment = true,
+                failureStage = null,
+            ),
+        )
+
+        val text = FunAsrCtcPerformanceDiagnostics.formatForQa()
+
+        assertTrue(text.contains("runtime effectiveThreads=2"))
+        assertTrue(text.contains("hotword=OFF"))
+        assertTrue(text.contains("adaptiveRetryCount=2"))
+        assertTrue(text.contains("retryOccurred=true"))
     }
 
     @Test
@@ -104,4 +147,26 @@ class FunAsrCtcPerformanceDiagnosticsTest {
 
         assertTrue(FunAsrCtcPerformanceDiagnostics.snapshot().isEmpty())
     }
+
+    private fun runtimeDiagnostic(retryDepth: Int) =
+        FunAsrRuntimeDiagnostic(
+            maxTotalLen = 512,
+            promptTokens = 10,
+            hotwordPromptTokens = 0,
+            audioTokenLen = 20,
+            contextLen = 30,
+            availableGenerationTokens = 100,
+            requestedMaxNewTokens = 64,
+            generatedTokenCount = 12,
+            eosReached = true,
+            audioTruncated = false,
+            generationHitCapacity = false,
+            chunkStart = 0,
+            chunkEnd = 16_000,
+            chunkDurationMs = 1_000,
+            outputChars = 8,
+            retryDepth = retryDepth,
+            accepted = true,
+            retryReason = null,
+        )
 }
