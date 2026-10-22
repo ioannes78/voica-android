@@ -88,63 +88,6 @@ internal fun buildCanonicalActivityFacts(
     return active + failures
 }
 
-internal fun buildCanonicalGlobalTaskItems(
-    progressByRecording: Map<String, CanonicalGenerationProgress>,
-    recordings: List<RecordingLibraryItem>,
-): List<GlobalTaskItem> {
-    val recordingsById = recordings.associateBy(RecordingLibraryItem::id)
-    val activeIds = progressByRecording.keys
-
-    val active =
-        progressByRecording.values
-            .sortedBy(CanonicalGenerationProgress::startedAtMs)
-            .map { progress ->
-                GlobalTaskItem(
-                    key = "canonical-running-${progress.recordingId}",
-                    recordingId = progress.recordingId,
-                    recordingName = recordingsById[progress.recordingId]?.displayName ?: "录音",
-                    label = "标准 WAV 生成",
-                    progress = canonicalProgressText(progress),
-                    destination = RecordingDetailDestination.PLAYBACK,
-                    terminal = false,
-                )
-            }
-
-    val failures =
-        recordings.mapNotNull { recording ->
-            if (recording.id in activeIds) return@mapNotNull null
-            val derivation = currentCanonicalFailure(recording) ?: return@mapNotNull null
-            GlobalTaskItem(
-                key =
-                    buildString {
-                        append("canonical-failed-")
-                        append(recording.id)
-                        append('-')
-                        append(derivation.sourceSha256)
-                        append('-')
-                        append(derivation.state)
-                        derivation.errorCode?.let {
-                            append('-')
-                            append(it)
-                        }
-                    },
-                recordingId = recording.id,
-                recordingName = recording.displayName,
-                label =
-                    if (derivation.state == AudioDerivationState.FAILED_PERMANENT) {
-                        "标准 WAV 生成失败"
-                    } else {
-                        "标准 WAV 生成中断"
-                    },
-                progress = "查看",
-                destination = RecordingDetailDestination.PLAYBACK,
-                terminal = true,
-            )
-        }
-
-    return active + failures
-}
-
 internal fun canonicalProgressText(progress: CanonicalGenerationProgress): String {
     if (progress.phase == CanonicalGenerationPhase.CANCELLING) return "正在取消"
     progress.fraction?.let { fraction ->
