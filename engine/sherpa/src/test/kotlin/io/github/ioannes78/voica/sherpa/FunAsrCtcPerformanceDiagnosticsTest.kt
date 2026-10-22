@@ -38,6 +38,7 @@ class FunAsrCtcPerformanceDiagnosticsTest {
         assertTrue(text.contains("totalMs=1100"))
         assertTrue(text.contains("targetTokens=12"))
         assertTrue(text.contains("alignedTokens=12"))
+        assertTrue(text.contains("alignmentSucceeded=true"))
         assertTrue(text.contains("measuredRtf=0.5500"))
         assertTrue(text.contains("sameStream=true"))
         assertTrue(text.contains("encoderInvocationCount=not_exposed"))
