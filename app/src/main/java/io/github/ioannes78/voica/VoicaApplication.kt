@@ -4,7 +4,6 @@ import android.app.ActivityManager
 import android.app.Application
 import android.os.Build
 import android.os.Process
-import io.github.ioannes78.voica.ai.AiSummaryEngine
 import io.github.ioannes78.voica.audio.AudioSourceResolver
 import io.github.ioannes78.voica.audio.PcmSourceResolver
 import io.github.ioannes78.voica.ble.DefaultDeviceRepository
@@ -17,15 +16,9 @@ import io.github.ioannes78.voica.database.RealtimeTranscriptPersistenceRepositor
 import io.github.ioannes78.voica.database.SearchIndexRebuilder
 import io.github.ioannes78.voica.database.Stage12CContentRepository
 import io.github.ioannes78.voica.database.Stage13B5Qa4Repository
-import io.github.ioannes78.voica.database.StructuredTranscriptInputBuilder
 import io.github.ioannes78.voica.database.TranscriptionRepository
 import io.github.ioannes78.voica.database.UnifiedSearchRepository
 import io.github.ioannes78.voica.database.VoicaDatabase
-import io.github.ioannes78.voica.llm.AndroidKeystoreCredentialStore
-import io.github.ioannes78.voica.llm.AppPrivateProviderProfileStore
-import io.github.ioannes78.voica.llm.ProviderAdapterRegistry
-import io.github.ioannes78.voica.llm.ProviderConfigurationRepository
-import io.github.ioannes78.voica.llm.UrlConnectionLlmHttpTransport
 import io.github.ioannes78.voica.model.ModelUseRegistry
 import io.github.ioannes78.voica.opus.NativeOpusBackend
 import io.github.ioannes78.voica.playback.AndroidPlaybackController
@@ -177,38 +170,7 @@ class AppContainer(
             transcriptionRepository = transcriptionRepository,
         )
 
-    private val aiSummaryTaskOwnershipStore = AiSummaryTaskOwnershipStore(application)
-    val aiSummaryRepository =
-        AiSummaryRepository(
-            database = recordingDatabase,
-            currentOwnerTaskId = aiSummaryTaskOwnershipStore::currentTaskId,
-            isOwnerTaskActive = aiSummaryTaskOwnershipStore::isTaskActive,
-        )
-    val structuredTranscriptInputBuilder = StructuredTranscriptInputBuilder(recordingDatabase)
-    val providerCredentialStore = AndroidKeystoreCredentialStore(application)
-    val providerProfileStore = AppPrivateProviderProfileStore(application)
-    val providerConfigurationRepository =
-        ProviderConfigurationRepository(
-            profileStore = providerProfileStore,
-            credentialStore = providerCredentialStore,
-        )
-    val providerAdapterRegistry =
-        ProviderAdapterRegistry(
-            transport = UrlConnectionLlmHttpTransport(),
-            credentials = providerCredentialStore,
-        )
-    private val aiSummaryWorkScheduler = AndroidAiSummaryWorkScheduler(application)
-    val aiSummaryCoordinator =
-        AiSummaryCoordinator(
-            scope = applicationScope,
-            repository = aiSummaryRepository,
-            inputBuilder = structuredTranscriptInputBuilder,
-            profileStore = providerProfileStore,
-            providerRegistry = providerAdapterRegistry,
-            workScheduler = aiSummaryWorkScheduler,
-            engine = AiSummaryEngine(),
-            isRecordingActive = recordingLibraryRepository::isRecordingActive,
-        )
+    val aiSummaryRepository = AiSummaryRepository(recordingDatabase)
 
     val transcriptionCoordinator =
         TranscriptionCoordinator(
@@ -256,12 +218,6 @@ class AppContainer(
             diarizationCoordinator = diarizationCoordinator,
             diarizationRepository = diarizationRepository,
             localSpeechSettings = { localSpeechSettingsStore.settings.value },
-        )
-
-    val stage13B5Qa4AttentionReconciler =
-        Stage13B5Qa4AttentionReconciler(
-            scope = applicationScope,
-            aiSummaryRepository = aiSummaryRepository,
         )
 
     val longTaskNotificationController =
@@ -539,7 +495,6 @@ class AppContainer(
             transcriptionCoordinator.reconcileOnStartup()
             diarizationCoordinator.reconcileOnStartup()
             autoDiarizationPostProcessor.recoverPendingOnStartup()
-            recoverAiSummaryWorkOnStartup(aiSummaryRepository, aiSummaryWorkScheduler)
             searchIndexRebuilder.rebuildIfRequired()
         }
     }
