@@ -76,7 +76,6 @@ class LocalSpeechSettingsTest {
     @Test
     fun funAsrDefaultsKeepVerifiedItNOnAndHotwordsEmpty() {
         val funAsr = LocalFunAsrSettings()
-
         assertEquals(true, funAsr.useInverseTextNormalization)
         assertEquals("", funAsr.hotwords)
     }
@@ -117,7 +116,6 @@ class LocalSpeechSettingsTest {
             LocalSpeechSettings(
                 performanceProfile = SpeechPerformanceProfile.AUTO,
             ).resolvePerformance(logicalProcessors = 8)
-
         assertEquals(2, resolved.effectiveThreads)
         assertEquals(8, resolved.logicalProcessors)
     }
@@ -146,7 +144,6 @@ class LocalSpeechSettingsTest {
                 decodingMethod = RealtimeDecodingMethod.MODIFIED_BEAM_SEARCH,
                 maxActivePaths = 8,
             ).resolveFor(setOf("numThreads"))
-
         assertEquals(RealtimeDecodingMethod.GREEDY_SEARCH, defaults.decodingMethod)
         assertEquals(4, defaults.maxActivePaths)
         assertEquals(RealtimeDecodingMethod.GREEDY_SEARCH, unsupported.decodingMethod)
@@ -156,7 +153,6 @@ class LocalSpeechSettingsTest {
     @Test
     fun senseVoiceDefaultsUseAutoLanguageAndStableExternalPunctuation() {
         val senseVoice = LocalSenseVoiceSettings()
-
         assertEquals(SenseVoiceLanguageChoice.AUTO, senseVoice.language)
         assertEquals("", senseVoice.language.runtimeValue)
         assertEquals(false, senseVoice.useInverseTextNormalization)
@@ -167,7 +163,6 @@ class LocalSpeechSettingsTest {
     @Test
     fun qwenDefaultsMatchSherpaRuntimeDefaults() {
         val qwen = LocalQwenAsrSettings()
-
         assertEquals(512, qwen.maxTotalLen)
         assertEquals(128, qwen.maxNewTokens)
         assertEquals(1.0e-6F, qwen.temperature)
@@ -179,7 +174,6 @@ class LocalSpeechSettingsTest {
     @Test
     fun vadDefaultsMatchExistingSherpaBaseline() {
         val vad = LocalVadSettings()
-
         assertEquals(0.5F, vad.threshold)
         assertEquals(0.25F, vad.minSilenceDurationSeconds)
         assertEquals(0.25F, vad.minSpeechDurationSeconds)
@@ -204,7 +198,6 @@ class LocalSpeechSettingsTest {
     @Test
     fun fivePlusStartsAtFiveAndAllowsBoundedGlobalGrowth() {
         val config = SpeakerCountChoice.FIVE_PLUS.toDiarizationConfig()
-
         assertEquals(FIVE_PLUS_MINIMUM_SPEAKERS, config.expectedSpeakerCount)
         assertEquals(FIVE_PLUS_MINIMUM_SPEAKERS, config.minimumGlobalSpeakerCount)
         assertEquals(FIVE_PLUS_MAXIMUM_SPEAKERS, config.maximumGlobalSpeakerCount)
@@ -214,10 +207,9 @@ class LocalSpeechSettingsTest {
     fun diarizationDefaultsUsePublishedRecommendedAutoClusteringThreshold() {
         val tuning = LocalDiarizationSettings()
         val config = SpeakerCountChoice.AUTO.toDiarizationConfig(tuning)
-
         assertEquals(true, tuning.autoAfterTranscription)
         assertEquals(RECOMMENDED_DIARIZATION_CLUSTERING_THRESHOLD, config.clusteringThreshold)
-        assertEquals(0.60F, config.clusteringThreshold)
+        assertEquals(0.70F, config.clusteringThreshold)
         assertEquals(0.75F, config.stitchingCosineThreshold)
     }
 
@@ -229,7 +221,6 @@ class LocalSpeechSettingsTest {
                 stitchingCosineThreshold = 0.82F,
             )
         val config = SpeakerCountChoice.THREE.toDiarizationConfig(tuning)
-
         assertEquals(3, config.expectedSpeakerCount)
         assertEquals(null, config.clusteringThreshold)
         assertEquals(0.82F, config.stitchingCosineThreshold)
