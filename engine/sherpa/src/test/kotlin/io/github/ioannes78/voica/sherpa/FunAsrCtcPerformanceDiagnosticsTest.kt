@@ -32,6 +32,7 @@ class FunAsrCtcPerformanceDiagnosticsTest {
 
         assertTrue(text.contains("textDecodeMs=900"))
         assertTrue(text.contains("ctcAlignmentMs=200"))
+        assertTrue(text.contains("measuredRtf=0.5500"))
         assertTrue(text.contains("sameStream=true"))
         assertTrue(text.contains("encoderInvocationCount=not_exposed"))
         assertEquals(1, FunAsrCtcPerformanceDiagnostics.snapshot().size)
