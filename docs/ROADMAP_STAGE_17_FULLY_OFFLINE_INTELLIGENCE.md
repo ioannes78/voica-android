@@ -33,7 +33,9 @@ Stage 17 位于 Stage 16 Final Freeze/Handoff 之后。
 
 状态：**RESERVED / NOT STARTED**
 
-首选模型方向：**Gemma 3n E2B instruction-tuned**。
+首选模型方向：**Gemma 4 E2B instruction-tuned**。
+
+当前 Google AI Edge Gallery 已列出 Android 可部署的 `Gemma-4-E2B-it` LiteRT-LM 模型。Stage 17 开始时仍必须重新核验并冻结当时实际可用的 artifact/runtime/revision，不把当前聊天或路线文档中的临时版本号直接当作 production contract。
 
 Stage 17 开始时必须重新核验并冻结：
 
@@ -64,7 +66,7 @@ Stage 17 开始时必须重新核验并冻结：
 - diagnostic metrics；
 - corrupted/missing model recovery。
 
-首版不建立多 LLM Provider/多模型矩阵。优先把单一 Gemma 3n E2B 路径做稳。
+首版不建立多 LLM Provider/多模型矩阵。优先把单一 Gemma 4 E2B 路径做稳。
 
 ---
 
