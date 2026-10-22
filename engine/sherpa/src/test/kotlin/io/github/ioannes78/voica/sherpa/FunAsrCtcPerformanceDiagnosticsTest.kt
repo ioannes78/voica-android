@@ -31,6 +31,7 @@ class FunAsrCtcPerformanceDiagnosticsTest {
         val text = FunAsrCtcPerformanceDiagnostics.formatForQa()
 
         assertTrue(text.contains("summary chunks=1"))
+        assertTrue(text.contains("audioMs=2000"))
         assertTrue(text.contains("audioSamples=32000"))
         assertTrue(text.contains("textDecodeMs=900"))
         assertTrue(text.contains("ctcAlignmentMs=200"))
