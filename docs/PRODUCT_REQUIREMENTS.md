@@ -114,7 +114,7 @@ Git 历史、Freeze/Handoff 和 QA 证据仍必须保留。
 
 ## 6. Local AI Intelligence
 
-当前目标模型方向：**Gemma 3n E2B**，具体 Android artifact/runtime/revision 在 Stage 17 开始时重新核验。
+当前目标模型方向：**Gemma 4 E2B**。当前 Google AI Edge Gallery 已列出 Android 可部署的 `Gemma-4-E2B-it` LiteRT-LM 模型；具体 Android artifact/runtime/revision 仍在 Stage 17 开始时重新核验并冻结。
 
 AI 使用结构化 transcript 作为默认输入，不重复承担专业 ASR/VAD/diarization 职责。
 
