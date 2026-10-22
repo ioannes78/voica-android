@@ -286,6 +286,187 @@ class TranscriptSpeakerAlignmentTest {
         assertEquals(segment.finalText, reconstructAlignedFinalText(segment, result.spans))
     }
 
+    @Test
+    fun singleSpeakerOwnershipBridgesVadMicroGaps() {
+        val segment =
+            TranscriptSegment(
+                segmentIndex = 0,
+                startSampleIndex = 0L,
+                endSampleIndexExclusive = 24_000L,
+                firstPassRawText = "欢迎收听",
+                finalText = "欢迎收听",
+                tokens =
+                    listOf(
+                        token("欢", 0L, 9_600L),
+                        token("迎", 9_600L, 10_800L),
+                        token("收听", 10_800L, 24_000L),
+                    ),
+            )
+
+        val result =
+            alignTranscriptSegmentsToSpeakers(
+                segments = listOf(segment),
+                speakerTurns =
+                    listOf(
+                        globalTurn(0, 0L, 9_600L),
+                        globalTurn(0, 10_800L, 24_000L),
+                    ),
+            )
+
+        assertEquals(1, result.spans.size)
+        assertEquals(0, result.spans.single().speakerIndex)
+        assertEquals("欢迎收听", text(segment, result.spans.single()))
+    }
+
+    @Test
+    fun shortUnresolvedRunBetweenSameSpeakerIsBridged() {
+        val segment =
+            TranscriptSegment(
+                segmentIndex = 0,
+                startSampleIndex = 0L,
+                endSampleIndexExclusive = 16_000L,
+                firstPassRawText = "ABC",
+                finalText = "ABC",
+                tokens =
+                    listOf(
+                        token("A", 0L, 8_000L),
+                        token("B", 8_000L, 10_000L),
+                        token("C", 10_000L, 16_000L),
+                    ),
+            )
+
+        val result =
+            alignTranscriptSegmentsToSpeakers(
+                segments = listOf(segment),
+                speakerTurns =
+                    listOf(
+                        globalTurn(0, 0L, 8_000L),
+                        globalTurn(0, 10_000L, 20_000L),
+                        globalTurn(1, 40_000L, 50_000L),
+                    ),
+            )
+
+        assertEquals(1, result.spans.size)
+        assertEquals(0, result.spans.single().speakerIndex)
+        assertEquals("ABC", text(segment, result.spans.single()))
+    }
+
+    @Test
+    fun unresolvedBoundaryBetweenDifferentSpeakersStaysUnresolved() {
+        val segment =
+            TranscriptSegment(
+                segmentIndex = 0,
+                startSampleIndex = 0L,
+                endSampleIndexExclusive = 16_000L,
+                firstPassRawText = "ABC",
+                finalText = "ABC",
+                tokens =
+                    listOf(
+                        token("A", 0L, 8_000L),
+                        token("B", 8_000L, 10_000L),
+                        token("C", 10_000L, 16_000L),
+                    ),
+            )
+
+        val result =
+            alignTranscriptSegmentsToSpeakers(
+                segments = listOf(segment),
+                speakerTurns =
+                    listOf(
+                        globalTurn(0, 0L, 8_000L),
+                        globalTurn(1, 10_000L, 16_000L),
+                    ),
+            )
+
+        assertEquals(3, result.spans.size)
+        assertEquals(0, result.spans[0].speakerIndex)
+        assertNull(result.spans[1].speakerIndex)
+        assertEquals(1, result.spans[2].speakerIndex)
+    }
+
+    @Test
+    fun sameSpeakerSplitsAtSentenceEndingPunctuation() {
+        val segment =
+            TranscriptSegment(
+                segmentIndex = 0,
+                startSampleIndex = 0L,
+                endSampleIndexExclusive = 48_000L,
+                firstPassRawText = "第一句第二句第三句",
+                finalText = "第一句。第二句？第三句！",
+                tokens =
+                    listOf(
+                        token("第一句", 0L, 16_000L),
+                        token("第二句", 16_000L, 32_000L),
+                        token("第三句", 32_000L, 48_000L),
+                    ),
+            )
+
+        val result =
+            alignTranscriptSegmentsToSpeakers(
+                segments = listOf(segment),
+                speakerTurns = listOf(globalTurn(0, 0L, 48_000L)),
+            )
+
+        assertEquals(3, result.spans.size)
+        assertEquals("第一句。", text(segment, result.spans[0]))
+        assertEquals("第二句？", text(segment, result.spans[1]))
+        assertEquals("第三句！", text(segment, result.spans[2]))
+        assertEquals(segment.finalText, reconstructAlignedFinalText(segment, result.spans))
+    }
+
+    @Test
+    fun sameSpeakerSplitsAtLongAcousticGap() {
+        val segment =
+            TranscriptSegment(
+                segmentIndex = 0,
+                startSampleIndex = 0L,
+                endSampleIndexExclusive = 40_000L,
+                firstPassRawText = "前半后半",
+                finalText = "前半后半",
+                tokens =
+                    listOf(
+                        token("前半", 0L, 10_000L),
+                        token("后半", 30_000L, 40_000L),
+                    ),
+            )
+
+        val result =
+            alignTranscriptSegmentsToSpeakers(
+                segments = listOf(segment),
+                speakerTurns = listOf(globalTurn(0, 0L, 40_000L)),
+            )
+
+        assertEquals(2, result.spans.size)
+        assertEquals("前半", text(segment, result.spans[0]))
+        assertEquals("后半", text(segment, result.spans[1]))
+    }
+
+    @Test
+    fun veryLongSameSpeakerTextHasReadableMaximumSpan() {
+        val segment =
+            TranscriptSegment(
+                segmentIndex = 0,
+                startSampleIndex = 0L,
+                endSampleIndexExclusive = 260_000L,
+                firstPassRawText = "前半后半",
+                finalText = "前半后半",
+                tokens =
+                    listOf(
+                        token("前半", 0L, 120_000L),
+                        token("后半", 120_000L, 260_000L),
+                    ),
+            )
+
+        val result =
+            alignTranscriptSegmentsToSpeakers(
+                segments = listOf(segment),
+                speakerTurns = listOf(globalTurn(0, 0L, 260_000L)),
+            )
+
+        assertEquals(2, result.spans.size)
+        assertEquals(segment.finalText, reconstructAlignedFinalText(segment, result.spans))
+    }
+
     private companion object {
         fun token(
             text: String,
