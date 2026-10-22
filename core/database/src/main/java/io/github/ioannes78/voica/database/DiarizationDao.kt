@@ -226,6 +226,23 @@ interface DiarizationDao {
 
     @Query(
         """
+        UPDATE transcript_speaker_spans
+        SET speakerId = :speakerId,
+            assignmentQuality = :assignmentQuality,
+            ambiguous = :ambiguous
+        WHERE id = :spanId AND alignmentId = :alignmentId
+        """,
+    )
+    suspend fun updateSpanSpeakerAssignment(
+        alignmentId: String,
+        spanId: String,
+        speakerId: String?,
+        assignmentQuality: String,
+        ambiguous: Boolean,
+    ): Int
+
+    @Query(
+        """
         UPDATE diarization_runs
         SET state = :state,
             startedAtMs = COALESCE(startedAtMs, :startedAtMs),
