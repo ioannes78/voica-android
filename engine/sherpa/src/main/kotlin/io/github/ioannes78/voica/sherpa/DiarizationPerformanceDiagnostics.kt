@@ -10,7 +10,7 @@ data class DiarizationWindowPerformanceDiagnostic(
     val turnCount: Int,
 ) {
     init {
-        require(audioDurationMs > 0L)
+        require(audioDurationMs >= 0L)
         require(processMs >= 0L)
         require(localSpeakerCount >= 0)
         require(turnCount >= 0)
@@ -22,7 +22,7 @@ data class SpeakerEmbeddingPerformanceDiagnostic(
     val computeMs: Long,
 ) {
     init {
-        require(audioDurationMs > 0L)
+        require(audioDurationMs >= 0L)
         require(computeMs >= 0L)
     }
 }
