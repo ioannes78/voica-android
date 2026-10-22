@@ -171,6 +171,14 @@ private data class NativeLargeOfflineResult(
     val trustedTimedTokens: List<RelativeTimedToken>? = null,
 )
 
+private data class CtcAlignmentOutcome(
+    val tokens: List<RelativeTimedToken>?,
+    val targetTokenCount: Int,
+    val alignmentMs: Long,
+    val succeeded: Boolean,
+    val failureStage: String?,
+)
+
 private interface NativeLargeOfflineRecognizer : AutoCloseable {
     fun transcribe(
         samples: FloatArray,
@@ -192,12 +200,15 @@ private class SherpaNativeLargeOfflineRecognizer(
         sampleRateHz: Int,
     ): NativeLargeOfflineResult {
         check(!closed)
+        val totalStartedNs = System.nanoTime()
         val stream = delegate.createStream()
         try {
             stream.acceptWaveform(samples, sampleRateHz)
+            val textDecodeStartedNs = System.nanoTime()
             delegate.decode(stream)
+            val textDecodeMs = elapsedMs(textDecodeStartedNs)
             val result = delegate.getResult(stream)
-            val trustedTimedTokens =
+            val alignmentOutcome =
                 if (ctcBundle == null || ctcTokenizer == null) {
                     null
                 } else {
@@ -207,12 +218,29 @@ private class SherpaNativeLargeOfflineRecognizer(
                         acceptedSampleCount = samples.size.toLong(),
                     )
                 }
+            if (alignmentOutcome != null) {
+                FunAsrCtcPerformanceDiagnostics.record(
+                    FunAsrCtcPerformanceDiagnostic(
+                        audioSampleCount = samples.size,
+                        audioDurationMs = samples.size.toLong() * 1_000L / sampleRateHz,
+                        textDecodeMs = textDecodeMs,
+                        alignmentMs = alignmentOutcome.alignmentMs,
+                        totalMs = elapsedMs(totalStartedNs),
+                        targetTokenCount = alignmentOutcome.targetTokenCount,
+                        alignedTokenCount =
+                            alignmentOutcome.tokens?.size.takeIf { alignmentOutcome.succeeded },
+                        alignmentSucceeded = alignmentOutcome.succeeded,
+                        sameStreamAlignment = true,
+                        failureStage = alignmentOutcome.failureStage,
+                    ),
+                )
+            }
             return NativeLargeOfflineResult(
                 text = result.text,
                 tokens = result.tokens.toList(),
                 timestampsSeconds = result.timestamps.toList(),
                 language = result.lang,
-                trustedTimedTokens = trustedTimedTokens,
+                trustedTimedTokens = alignmentOutcome?.tokens,
             )
         } finally {
             stream.release()
@@ -223,38 +251,75 @@ private class SherpaNativeLargeOfflineRecognizer(
         stream: OfflineStream,
         text: String,
         acceptedSampleCount: Long,
-    ): List<RelativeTimedToken>? {
-        val bundle = ctcBundle ?: return null
-        val tokenizer = ctcTokenizer ?: return null
-
+    ): CtcAlignmentOutcome {
+        val bundle = checkNotNull(ctcBundle)
+        val tokenizer = checkNotNull(ctcTokenizer)
+        val alignmentStartedNs = System.nanoTime()
         var alignmentDecodeCompleted = false
+        var targetTokenCount = 0
+        var stage = "TOKENIZE"
+
         return try {
             val targetIds = tokenizer.encode(text)
-            if (targetIds.isEmpty()) return emptyList()
+            targetTokenCount = targetIds.size
+            if (targetIds.isEmpty()) {
+                return CtcAlignmentOutcome(
+                    tokens = emptyList(),
+                    targetTokenCount = 0,
+                    alignmentMs = elapsedMs(alignmentStartedNs),
+                    succeeded = true,
+                    failureStage = null,
+                )
+            }
 
+            stage = "REQUEST"
             FunAsrCtcStreamProtocol.requestAlignment(
                 stream = stream,
                 targetIds = targetIds,
                 blankId = bundle.metadata.blankId,
                 vocabSize = bundle.metadata.ctcVocabSize,
             )
+            stage = "DECODE"
             delegate.decode(stream)
             alignmentDecodeCompleted = true
+            stage = "PARSE"
             val alignedResult = delegate.getResult(stream)
             val aligned =
                 FunAsrCtcStreamProtocol.parseAlignmentResult(
                     result = alignedResult,
                     expectedTargetIds = targetIds,
                     acceptedSampleCount = acceptedSampleCount,
-                ) ?: return null
-            buildFunAsrCtcRelativeTokens(
-                tokenizer = tokenizer,
-                targetTokenIds = targetIds,
-                alignment = aligned,
-                acceptedSampleCount = acceptedSampleCount,
+                )
+                    ?: return CtcAlignmentOutcome(
+                        tokens = null,
+                        targetTokenCount = targetTokenCount,
+                        alignmentMs = elapsedMs(alignmentStartedNs),
+                        succeeded = false,
+                        failureStage = "PARSE",
+                    )
+            stage = "RECONSTRUCT"
+            val tokens =
+                buildFunAsrCtcRelativeTokens(
+                    tokenizer = tokenizer,
+                    targetTokenIds = targetIds,
+                    alignment = aligned,
+                    acceptedSampleCount = acceptedSampleCount,
+                )
+            CtcAlignmentOutcome(
+                tokens = tokens,
+                targetTokenCount = targetTokenCount,
+                alignmentMs = elapsedMs(alignmentStartedNs),
+                succeeded = true,
+                failureStage = null,
             )
         } catch (_: Exception) {
-            null
+            CtcAlignmentOutcome(
+                tokens = null,
+                targetTokenCount = targetTokenCount,
+                alignmentMs = elapsedMs(alignmentStartedNs),
+                succeeded = false,
+                failureStage = stage,
+            )
         } finally {
             if (!alignmentDecodeCompleted) {
                 runCatching {
@@ -270,6 +335,9 @@ private class SherpaNativeLargeOfflineRecognizer(
         closed = true
         delegate.release()
     }
+
+    private fun elapsedMs(startedNs: Long): Long =
+        ((System.nanoTime() - startedNs) / 1_000_000L).coerceAtLeast(0L)
 }
 
 class SherpaLargeOfflineAsrEngine private constructor(
