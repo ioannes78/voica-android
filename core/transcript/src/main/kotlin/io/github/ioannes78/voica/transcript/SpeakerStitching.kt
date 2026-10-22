@@ -77,6 +77,10 @@ fun stitchDiarizationChunks(
 
     val states = mutableListOf<GlobalSpeakerState>()
     val mappings = mutableListOf<ChunkSpeakerMapping>()
+    val automaticSpeakerCount =
+        config.expectedSpeakerCount == null &&
+            config.minimumGlobalSpeakerCount == null &&
+            config.maximumGlobalSpeakerCount == null
 
     orderedChunks.forEach { chunk ->
         val anchors = chunk.anchors.associateBy { it.localSpeakerIndex }
@@ -92,10 +96,9 @@ fun stitchDiarizationChunks(
 
         val usedGlobalIndices = mutableSetOf<Int>()
 
-        localGroups.forEach { (localSpeakerIndex, localTurns) ->
+        localGroups.forEach localSpeaker@ { (localSpeakerIndex, localTurns) ->
             val anchor = anchors[localSpeakerIndex]
             val normalizedAnchor = anchor?.embedding?.let(::normalizedCopy)
-            val requestedSpeakerCount = config.expectedSpeakerCount
             val maximumGlobalSpeakerCount = config.maximumGlobalSpeakerCount
             val match =
                 if (maximumGlobalSpeakerCount == 1) {
@@ -109,6 +112,25 @@ fun stitchDiarizationChunks(
                         config = config,
                     )
                 }
+
+            // AUTO must remain free to discover 3+ real speakers, but a third-or-later identity
+            // should not be invented from a fragment that has neither a usable anchor nor one
+            // anchor-window worth of non-overlap speech evidence. Keeping the fragment unmapped
+            // is safer than assigning a false identity; transcript alignment will surface it as
+            // undetermined until stronger speaker evidence exists. Fixed-count modes are unchanged.
+            if (
+                match == null &&
+                automaticSpeakerCount &&
+                states.size >= 2 &&
+                !hasSufficientNewSpeakerEvidence(
+                    localTurns = localTurns,
+                    anchor = anchor,
+                    minimumEvidenceSamples = config.stitchingMinimumAnchorSamples,
+                )
+            ) {
+                return@localSpeaker
+            }
+
             val state =
                 when {
                     match != null -> match
@@ -196,6 +218,21 @@ fun stitchDiarizationChunks(
         mappings = mappings,
         turns = normalizedTurns,
     )
+}
+
+private fun hasSufficientNewSpeakerEvidence(
+    localTurns: List<DiarizationSpeakerTurn>,
+    anchor: SpeakerAnchorEmbedding?,
+    minimumEvidenceSamples: Long,
+): Boolean {
+    if (anchor != null && anchor.anchorSampleCount >= minimumEvidenceSamples) return true
+    var nonOverlapSamples = 0L
+    localTurns.forEach { turn ->
+        if (!turn.overlap) {
+            nonOverlapSamples = Math.addExact(nonOverlapSamples, turn.sampleCount)
+        }
+    }
+    return nonOverlapSamples >= minimumEvidenceSamples
 }
 
 private fun findBestGlobalMatch(
