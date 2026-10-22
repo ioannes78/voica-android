@@ -39,6 +39,29 @@ class FunAsrCtcPerformanceDiagnosticsTest {
     }
 
     @Test
+    fun failedAlignmentKeepsMeasuredStageVisible() {
+        FunAsrCtcPerformanceDiagnostics.record(
+            FunAsrCtcPerformanceDiagnostic(
+                audioSampleCount = 16_000,
+                audioDurationMs = 1_000,
+                textDecodeMs = 450,
+                alignmentMs = 50,
+                totalMs = 500,
+                targetTokenCount = 6,
+                alignedTokenCount = null,
+                alignmentSucceeded = false,
+                sameStreamAlignment = true,
+                failureStage = "PARSE",
+            ),
+        )
+
+        val text = FunAsrCtcPerformanceDiagnostics.formatForQa()
+
+        assertTrue(text.contains("alignmentSucceeded=false"))
+        assertTrue(text.contains("failureStage=PARSE"))
+    }
+
+    @Test
     fun clearRemovesPriorQaRecords() {
         FunAsrCtcPerformanceDiagnostics.record(
             FunAsrCtcPerformanceDiagnostic(
