@@ -9,21 +9,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -40,19 +35,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import io.github.ioannes78.voica.AiSummaryRunState
 import io.github.ioannes78.voica.ContentTextExportCoordinator
 import io.github.ioannes78.voica.TextContentDocument
 import io.github.ioannes78.voica.TextExportFormat
 import io.github.ioannes78.voica.TextShareOutcome
-import io.github.ioannes78.voica.ai.AiSummaryEnginePhase
-import io.github.ioannes78.voica.ai.SummaryTemplateCatalog
 import io.github.ioannes78.voica.database.AiSummaryEntity
 import io.github.ioannes78.voica.database.AiSummaryStateValue
+import java.text.DateFormat
+import java.util.Date
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
+@Suppress("UNUSED_PARAMETER")
 fun AiSummaryProductCard(
     transcriptionId: String,
     recordingName: String,
@@ -65,29 +59,19 @@ fun AiSummaryProductCard(
     dismissedStaleSummaryFingerprint: String? = null,
     onIgnoreStale: (String) -> Unit = {},
 ) {
-    val runState by viewModel.runState.collectAsState()
+    val history by viewModel.history.collectAsState()
     val selected by viewModel.selected.collectAsState()
     val candidateId by viewModel.candidateId.collectAsState()
-    val internalAttention by viewModel.attention.collectAsState()
-    val attention = attentionOverride ?: internalAttention
     val stale by viewModel.stale.collectAsState()
     val staleFingerprint by viewModel.staleFingerprint.collectAsState()
-    val provider by viewModel.provider.collectAsState()
-    val providers by viewModel.providers.collectAsState()
-    val generationModels by viewModel.generationModels.collectAsState()
-    val customTemplates by viewModel.customTemplates.collectAsState()
     val notice by viewModel.notice.collectAsState()
     val contentState by contentViewModel.state.collectAsState()
 
+    var historyExpanded by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     var editorOpen by remember { mutableStateOf(false) }
-    var generationOpen by remember { mutableStateOf(false) }
-    var providerMenuOpen by remember { mutableStateOf(false) }
-    var modelMenuOpen by remember { mutableStateOf(false) }
-    var presetMenuOpen by remember { mutableStateOf(false) }
-    var selectedProviderId by remember { mutableStateOf<String?>(null) }
-    var selectedModel by remember { mutableStateOf("") }
-    var selectedPresetId by remember { mutableStateOf(SummaryTemplateCatalog.GENERIC) }
+    var revisionHistoryOpen by remember { mutableStateOf(false) }
+    var deleteVersionOpen by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -98,39 +82,8 @@ fun AiSummaryProductCard(
     LaunchedEffect(transcriptionId) {
         viewModel.bind(transcriptionId)
     }
-    LaunchedEffect(runState, transcriptionId) {
-        val state = runState
-        if (state is AiSummaryRunState.Completed && state.transcriptionId == transcriptionId) {
-            viewModel.acknowledgeTerminal(state.summaryId)
-        }
-    }
-    LaunchedEffect(Unit) {
-        viewModel.refreshProvider()
-    }
     LaunchedEffect(selected?.entity?.id, selected?.result) {
         contentViewModel.bind(selected?.entity, selected?.result)
-    }
-    LaunchedEffect(generationOpen, providers, provider?.providerProfileId) {
-        if (!generationOpen) return@LaunchedEffect
-        val selectedProvider =
-            providers.firstOrNull { it.providerProfileId == selectedProviderId }
-                ?: provider
-                ?: providers.firstOrNull()
-        if (selectedProvider != null) {
-            selectedProviderId = selectedProvider.providerProfileId
-            selectedModel = selectedProvider.model
-            viewModel.loadGenerationModels(selectedProvider.providerProfileId)
-        }
-    }
-    LaunchedEffect(generationModels, selectedProviderId) {
-        if (!generationOpen) return@LaunchedEffect
-        if (selectedModel.isBlank() || generationModels.none { it.id == selectedModel }) {
-            val configured =
-                providers.firstOrNull { it.providerProfileId == selectedProviderId }?.model
-            selectedModel =
-                configured?.takeIf { it.isNotBlank() }
-                    ?: generationModels.firstOrNull()?.id.orEmpty()
-        }
     }
 
     val txtLauncher =
@@ -175,33 +128,15 @@ fun AiSummaryProductCard(
                 AiSummaryContentExportFormatter.build(
                     recordingName = recordingName,
                     document = document,
-                    providerName = selected?.entity?.providerNameSnapshot,
+                    providerName = null,
                     modelName = selected?.entity?.model,
                 )
             }
-    val running =
-        (runState as? AiSummaryRunState.Running)
-            ?.takeIf { it.transcriptionId == transcriptionId }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        attention?.let { attentionEntity ->
-            AiSummaryAttentionBanner(
-                entity = attentionEntity,
-                actionEnabled = running == null,
-                onPrimaryAction = {
-                    if (attentionEntity.status == AiSummaryStateValue.FAILED) {
-                        generationOpen = true
-                    } else {
-                        viewModel.retryAttention(attentionEntity.id)
-                    }
-                },
-                onIgnore = { viewModel.ignoreAttention(attentionEntity.id) },
-            )
-        }
-
         val visibleStaleFingerprint =
             staleFingerprint?.takeUnless { it == dismissedStaleSummaryFingerprint }
         if (
@@ -215,7 +150,7 @@ fun AiSummaryProductCard(
                 tonalElevation = 1.dp,
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
@@ -224,15 +159,7 @@ fun AiSummaryProductCard(
                         modifier = Modifier.weight(1f),
                         style = MaterialTheme.typography.bodyMedium,
                     )
-                    TextButton(
-                        enabled = running == null,
-                        onClick = { generationOpen = true },
-                    ) {
-                        Text("生成新总结")
-                    }
-                    TextButton(
-                        onClick = { onIgnoreStale(visibleStaleFingerprint) },
-                    ) {
+                    TextButton(onClick = { onIgnoreStale(visibleStaleFingerprint) }) {
                         Text("忽略")
                     }
                 }
@@ -247,12 +174,12 @@ fun AiSummaryProductCard(
                     tonalElevation = 1.dp,
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         Text(
-                            "新的总结结果已生成",
+                            "存在尚未采用的总结版本",
                             modifier = Modifier.weight(1f),
                             style = MaterialTheme.typography.bodyMedium,
                         )
@@ -260,7 +187,7 @@ fun AiSummaryProductCard(
                             Text("查看")
                         }
                         Button(onClick = { viewModel.adoptSummaryResult(newSummaryId) }) {
-                            Text("使用新结果")
+                            Text("使用")
                         }
                     }
                 }
@@ -281,17 +208,15 @@ fun AiSummaryProductCard(
                         ?: "总结",
                     style = MaterialTheme.typography.titleLarge,
                 )
-                val entity = selected?.entity
-                val providerModel =
-                    entity?.let { it.providerNameSnapshot + " · " + it.model }
-                        ?: provider?.let { it.displayName + " · " + it.model }
-                providerModel?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                selected?.entity?.model
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { model ->
+                        Text(
+                            model,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 if (contentState.currentRevisionId != null) {
                     Text(
                         "已编辑",
@@ -300,12 +225,45 @@ fun AiSummaryProductCard(
                     )
                 }
             }
+
+            if (history.isNotEmpty()) {
+                Box {
+                    OutlinedButton(onClick = { historyExpanded = true }) {
+                        Text("版本 ${history.size}")
+                    }
+                    DropdownMenu(
+                        expanded = historyExpanded,
+                        onDismissRequest = { historyExpanded = false },
+                    ) {
+                        history.forEach { summary ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        summaryHistoryLabel(
+                                            summary = summary,
+                                            selected = selected?.entity?.id == summary.id,
+                                        ),
+                                    )
+                                },
+                                onClick = {
+                                    historyExpanded = false
+                                    viewModel.selectSummary(summary.id)
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+
             Button(
-                enabled = contentState.document != null && selected?.entity?.status == AiSummaryStateValue.COMPLETED,
+                enabled =
+                    contentState.document != null &&
+                        selected?.entity?.status == AiSummaryStateValue.COMPLETED,
                 onClick = { editorOpen = true },
             ) {
                 Text("编辑")
             }
+
             Box {
                 IconButton(onClick = { menuExpanded = true }) {
                     Icon(Icons.Outlined.MoreVert, contentDescription = "更多总结操作")
@@ -338,7 +296,11 @@ fun AiSummaryProductCard(
                             exportDocument?.let { document ->
                                 scope.launch {
                                     when (
-                                        val result = textExport.prepareShare(document, TextExportFormat.TXT)
+                                        val result =
+                                            textExport.prepareShare(
+                                                document,
+                                                TextExportFormat.TXT,
+                                            )
                                     ) {
                                         is TextShareOutcome.Ready -> context.startActivity(result.intent)
                                         is TextShareOutcome.Failed ->
@@ -360,16 +322,26 @@ fun AiSummaryProductCard(
                             exportDocument?.let { document ->
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                                     scope.launch {
-                                        val result = textExport.exportToDownloads(document, TextExportFormat.TXT)
+                                        val result =
+                                            textExport.exportToDownloads(
+                                                document,
+                                                TextExportFormat.TXT,
+                                            )
                                         Toast.makeText(
                                             context,
-                                            if (result.exported) "已导出到 Downloads/Voica" else result.error ?: "导出失败",
+                                            if (result.exported) {
+                                                "已导出到 Downloads/Voica"
+                                            } else {
+                                                result.error ?: "导出失败"
+                                            },
                                             Toast.LENGTH_SHORT,
                                         ).show()
                                     }
                                 } else {
                                     pendingTxt = document
-                                    txtLauncher.launch(document.baseName + TextExportFormat.TXT.extension)
+                                    txtLauncher.launch(
+                                        document.baseName + TextExportFormat.TXT.extension,
+                                    )
                                 }
                             }
                         },
@@ -382,31 +354,41 @@ fun AiSummaryProductCard(
                             exportDocument?.let { document ->
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                                     scope.launch {
-                                        val result = textExport.exportToDownloads(document, TextExportFormat.MARKDOWN)
+                                        val result =
+                                            textExport.exportToDownloads(
+                                                document,
+                                                TextExportFormat.MARKDOWN,
+                                            )
                                         Toast.makeText(
                                             context,
-                                            if (result.exported) "已导出到 Downloads/Voica" else result.error ?: "导出失败",
+                                            if (result.exported) {
+                                                "已导出到 Downloads/Voica"
+                                            } else {
+                                                result.error ?: "导出失败"
+                                            },
                                             Toast.LENGTH_SHORT,
                                         ).show()
                                     }
                                 } else {
                                     pendingMarkdown = document
-                                    markdownLauncher.launch(document.baseName + TextExportFormat.MARKDOWN.extension)
+                                    markdownLauncher.launch(
+                                        document.baseName + TextExportFormat.MARKDOWN.extension,
+                                    )
                                 }
                             }
                         },
                     )
                     HorizontalDivider()
                     DropdownMenuItem(
-                        text = { Text("生成新总结") },
-                        enabled = running == null,
+                        text = { Text("修订历史") },
+                        enabled = selected != null,
                         onClick = {
                             menuExpanded = false
-                            generationOpen = true
+                            revisionHistoryOpen = true
                         },
                     )
                     DropdownMenuItem(
-                        text = { Text("恢复 AI 原始结果") },
+                        text = { Text("恢复原始结果") },
                         enabled = contentState.currentRevisionId != null,
                         onClick = {
                             menuExpanded = false
@@ -414,40 +396,25 @@ fun AiSummaryProductCard(
                         },
                     )
                     DropdownMenuItem(
-                        text = { Text("AI 服务设置") },
+                        text = { Text("删除当前版本") },
+                        enabled = selected != null,
                         onClick = {
                             menuExpanded = false
-                            onOpenSettings()
+                            deleteVersionOpen = true
                         },
                     )
                 }
             }
         }
 
-        if (provider == null && selected == null) {
-            Text("尚未配置 AI 服务。", style = MaterialTheme.typography.bodyMedium)
-            OutlinedButton(onClick = onOpenSettings) { Text("前往 AI 设置") }
-        }
-
-        if (showTransientHeader && running != null) {
+        val current = selected
+        if (current == null) {
             Text(
-                productProgressText(running),
-                style = MaterialTheme.typography.bodySmall,
+                "暂无总结。当前版本不提供在线总结。",
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            TextButton(onClick = viewModel::cancel) { Text("取消生成") }
-        }
-
-        val current = selected
-        if (current == null && running == null && providers.isNotEmpty()) {
-            Button(
-                enabled = providers.any { it.model.isNotBlank() },
-                onClick = { generationOpen = true },
-            ) {
-                Text("生成总结")
-            }
-        } else if (current != null) {
+        } else {
             when {
                 contentState.summaryId == current.entity.id && contentState.document != null ->
                     AiSummaryRevisionBody(
@@ -459,20 +426,10 @@ fun AiSummaryProductCard(
                 !current.entity.displayText.isNullOrBlank() ->
                     Text(current.entity.displayText.orEmpty())
 
-                current.entity.status == AiSummaryStateValue.INTERRUPTED -> {
-                    if (attention?.id != current.entity.id) {
-                        Text("上次生成已中断，可继续生成。")
-                        Button(
-                            enabled = running == null,
-                            onClick = { viewModel.resumeSelected() },
-                        ) { Text("继续生成") }
-                    }
-                }
-
-                !current.entity.sanitizedErrorMessage.isNullOrBlank() ->
+                else ->
                     Text(
-                        current.entity.sanitizedErrorMessage.orEmpty(),
-                        color = MaterialTheme.colorScheme.error,
+                        "该总结版本没有可显示的内容。",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
             }
         }
@@ -506,261 +463,48 @@ fun AiSummaryProductCard(
         }
     }
 
-    if (generationOpen) {
-        ModalBottomSheet(onDismissRequest = { generationOpen = false }) {
-            Column(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 20.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Text("生成总结", style = MaterialTheme.typography.headlineSmall)
-                val selectedProvider =
-                    providers.firstOrNull { it.providerProfileId == selectedProviderId }
+    if (revisionHistoryOpen) {
+        AiSummaryRevisionHistoryDialog(
+            state = contentState,
+            onDismiss = { revisionHistoryOpen = false },
+            onSelect = contentViewModel::selectRevision,
+            onDelete = contentViewModel::deleteRevision,
+        )
+    }
 
-                Text("AI 服务", style = MaterialTheme.typography.titleSmall)
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    OutlinedButton(
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = providers.isNotEmpty(),
-                        onClick = { providerMenuOpen = true },
-                    ) {
-                        Text(selectedProvider?.displayName ?: "选择 AI 服务")
-                    }
-                    DropdownMenu(
-                        expanded = providerMenuOpen,
-                        onDismissRequest = { providerMenuOpen = false },
-                    ) {
-                        providers.forEach { option ->
-                            DropdownMenuItem(
-                                text = { Text(option.displayName + " · " + option.model) },
-                                onClick = {
-                                    providerMenuOpen = false
-                                    selectedProviderId = option.providerProfileId
-                                    selectedModel = option.model
-                                    viewModel.loadGenerationModels(option.providerProfileId)
-                                },
-                            )
-                        }
-                    }
-                }
-
-                Text("模型", style = MaterialTheme.typography.titleSmall)
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    OutlinedButton(
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = selectedProvider != null && generationModels.isNotEmpty(),
-                        onClick = { modelMenuOpen = true },
-                    ) {
-                        Text(selectedModel.ifBlank { selectedProvider?.model ?: "选择模型" })
-                    }
-                    DropdownMenu(
-                        expanded = modelMenuOpen,
-                        onDismissRequest = { modelMenuOpen = false },
-                    ) {
-                        generationModels.forEach { model ->
-                            DropdownMenuItem(
-                                text = { Text(model.displayName.ifBlank { model.id }) },
-                                onClick = {
-                                    modelMenuOpen = false
-                                    selectedModel = model.id
-                                },
-                            )
-                        }
-                    }
-                }
-
-                Button(
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = selectedProviderId != null && selectedModel.isNotBlank(),
+    if (deleteVersionOpen) {
+        AlertDialog(
+            onDismissRequest = { deleteVersionOpen = false },
+            title = { Text("删除总结版本？") },
+            text = { Text("该操作只删除当前总结版本及其修订，不会删除录音或转写。") },
+            confirmButton = {
+                TextButton(
                     onClick = {
-                        generationOpen = false
-                        viewModel.generateSmart(selectedProviderId, selectedModel)
+                        deleteVersionOpen = false
+                        contentViewModel.deleteVersion {
+                            viewModel.bind(transcriptionId)
+                        }
                     },
-                ) { Text("智能总结") }
-
-                HorizontalDivider()
-                Text("预设模板", style = MaterialTheme.typography.titleSmall)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Box(modifier = Modifier.weight(1f)) {
-                        OutlinedButton(
-                            modifier = Modifier.fillMaxWidth(),
-                            onClick = { presetMenuOpen = true },
-                        ) {
-                            Text(SummaryTemplateCatalog.find(selectedPresetId)?.name ?: "选择模板")
-                        }
-                        DropdownMenu(
-                            expanded = presetMenuOpen,
-                            onDismissRequest = { presetMenuOpen = false },
-                        ) {
-                            SummaryTemplateCatalog.all().forEach { template ->
-                                DropdownMenuItem(
-                                    text = { Text(template.name) },
-                                    onClick = {
-                                        selectedPresetId = template.id ?: SummaryTemplateCatalog.GENERIC
-                                        presetMenuOpen = false
-                                    },
-                                )
-                            }
-                        }
-                    }
-                    Button(
-                        enabled = selectedProviderId != null && selectedModel.isNotBlank(),
-                        onClick = {
-                            generationOpen = false
-                            viewModel.generatePreset(
-                                selectedPresetId,
-                                selectedProviderId,
-                                selectedModel,
-                            )
-                        },
-                    ) { Text("生成") }
+                    Text("删除")
                 }
-
-                if (customTemplates.isNotEmpty()) {
-                    HorizontalDivider()
-                    Text("自定义模板", style = MaterialTheme.typography.titleSmall)
-                    customTemplates.forEach { template ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(template.name, modifier = Modifier.weight(1f))
-                            TextButton(
-                                enabled = selectedProviderId != null && selectedModel.isNotBlank(),
-                                onClick = {
-                                    generationOpen = false
-                                    viewModel.generateCustom(
-                                        template.id,
-                                        selectedProviderId,
-                                        selectedModel,
-                                    )
-                                },
-                            ) { Text("生成") }
-                        }
-                    }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteVersionOpen = false }) {
+                    Text("取消")
                 }
-
-                Text(
-                    "发送的是生成开始时冻结的当前有效转写文本；不会因生成过程中切换内容而改变输入。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 24.dp),
-                )
-            }
-        }
+            },
+        )
     }
 }
 
-@Composable
-private fun AiSummaryAttentionBanner(
-    entity: AiSummaryEntity,
-    actionEnabled: Boolean,
-    onPrimaryAction: () -> Unit,
-    onIgnore: () -> Unit,
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        tonalElevation = 2.dp,
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Text(
-                aiSummaryAttentionTitle(entity),
-                style = MaterialTheme.typography.titleSmall,
-            )
-            Text(
-                aiSummaryAttentionMessage(entity),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            aiSummaryAttentionDiagnostic(entity)?.let { diagnostic ->
-                Text(
-                    diagnostic,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Button(
-                    enabled = actionEnabled,
-                    onClick = onPrimaryAction,
-                ) {
-                    Text(
-                        when (entity.status) {
-                            AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT -> "手动重试"
-                            AiSummaryStateValue.INTERRUPTED -> "继续生成"
-                            else -> "生成新总结"
-                        },
-                    )
-                }
-                TextButton(onClick = onIgnore) {
-                    Text("忽略")
-                }
-            }
-        }
-    }
+private fun summaryHistoryLabel(
+    summary: AiSummaryEntity,
+    selected: Boolean,
+): String {
+    val prefix = if (selected) "✓ " else ""
+    val time =
+        DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+            .format(Date(summary.createdAtMs))
+    return prefix + time
 }
-
-internal fun aiSummaryAttentionTitle(entity: AiSummaryEntity): String =
-    when (entity.status) {
-        AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT -> "上一次总结请求状态无法确认"
-        AiSummaryStateValue.INTERRUPTED -> "AI 总结已中断"
-        else -> "AI 总结生成失败"
-    }
-
-internal fun aiSummaryAttentionMessage(entity: AiSummaryEntity): String =
-    when (entity.status) {
-        AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT ->
-            "为避免重复生成或重复计费，Voica 不会自动重新发送该请求。"
-        AiSummaryStateValue.INTERRUPTED ->
-            "上次生成在远端请求确认前中断，可以继续生成或忽略本次提醒。"
-        else ->
-            "AI 服务请求失败，请选择 AI 服务或模型重新生成。"
-    }
-
-internal fun aiSummaryAttentionDiagnostic(entity: AiSummaryEntity): String? {
-    val raw = listOfNotNull(entity.sanitizedErrorMessage, entity.errorCode).joinToString(" ")
-    val httpStatus = Regex("""HTTP\s*\d{3}""", RegexOption.IGNORE_CASE).find(raw)?.value?.uppercase()
-    val technical =
-        when {
-            httpStatus != null -> httpStatus
-            entity.status == AiSummaryStateValue.FAILED -> entity.errorCode
-            else -> null
-        }
-    return listOfNotNull(
-        entity.providerNameSnapshot.takeIf { it.isNotBlank() },
-        entity.model.takeIf { it.isNotBlank() },
-        technical?.takeIf { it.isNotBlank() },
-    ).takeIf { it.isNotEmpty() }?.joinToString(" · ")
-}
-
-private fun productProgressText(state: AiSummaryRunState.Running): String =
-    when (state.phase) {
-        AiSummaryEnginePhase.PREPARING -> "正在准备当前转写…"
-        AiSummaryEnginePhase.ANALYZING -> "正在分析内容…"
-        AiSummaryEnginePhase.MAPPING ->
-            if (state.totalUnits > 0) {
-                "正在总结 ${state.completedUnits}/${state.totalUnits}…"
-            } else {
-                "正在总结…"
-            }
-        AiSummaryEnginePhase.REDUCING ->
-            if (state.totalUnits > 0) {
-                "正在合并 ${state.completedUnits}/${state.totalUnits}…"
-            } else {
-                "正在合并…"
-            }
-        AiSummaryEnginePhase.VALIDATING -> "正在校验结果…"
-    }
