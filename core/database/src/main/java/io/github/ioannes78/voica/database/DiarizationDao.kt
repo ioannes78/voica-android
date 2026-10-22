@@ -224,6 +224,9 @@ interface DiarizationDao {
     )
     suspend fun loadSpans(alignmentId: String): List<TranscriptSpeakerSpanEntity>
 
+    @Query("SELECT * FROM transcript_speaker_spans WHERE id = :spanId LIMIT 1")
+    suspend fun findSpan(spanId: String): TranscriptSpeakerSpanEntity?
+
     @Query(
         """
         UPDATE transcript_speaker_spans
