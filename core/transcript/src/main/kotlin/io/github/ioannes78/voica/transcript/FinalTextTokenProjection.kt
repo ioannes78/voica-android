@@ -8,12 +8,25 @@ enum class TextProjectionQuality {
     UNAVAILABLE,
 }
 
-data class FinalTextTokenProjection(
-    val boundaries: IntArray,
+data class TokenTextProjection(
+    val startOffset: Int,
+    val endOffsetExclusive: Int,
     val quality: TextProjectionQuality,
 ) {
     init {
+        require(startOffset >= 0)
+        require(endOffsetExclusive > startOffset)
+    }
+}
+
+data class FinalTextTokenProjection(
+    val boundaries: IntArray,
+    val quality: TextProjectionQuality,
+    val tokenProjections: List<TokenTextProjection?> = emptyList(),
+) {
+    init {
         require(boundaries.isNotEmpty())
+        require(tokenProjections.isEmpty() || tokenProjections.size == boundaries.size - 1)
     }
 }
 
@@ -49,6 +62,16 @@ fun projectTokensToFinalText(
         return FinalTextTokenProjection(
             boundaries = boundaries,
             quality = TextProjectionQuality.EXACT,
+            tokenProjections =
+                List(tokens.size) { index ->
+                    val start = boundaries[index]
+                    val end = boundaries[index + 1]
+                    if (end > start) {
+                        TokenTextProjection(start, end, TextProjectionQuality.EXACT)
+                    } else {
+                        null
+                    }
+                },
         )
     }
 
@@ -70,17 +93,14 @@ fun projectTokensToFinalText(
     return FinalTextTokenProjection(
         boundaries = boundaries,
         quality = TextProjectionQuality.HEURISTIC,
+        tokenProjections = partialExactTokenProjections(finalText, tokens),
     )
 }
 
 /**
  * Maps native ASR token text to the product text without inventing lexical equivalence.
- *
- * The product finalizer may add punctuation/spacing, and some tokenizers expose a leading U+2581
- * word-boundary marker. ASCII case can also be normalized by a downstream text formatter. Those
- * presentation-only differences are safe to ignore because the underlying lexical characters are
- * unchanged. Content-changing transforms (for example ITN: "一百" -> "100") still fail this path
- * and therefore remain HEURISTIC rather than claiming exact timing.
+ * Presentation-only differences (punctuation, whitespace, tokenizer U+2581 boundaries, width and
+ * ASCII case) are ignored. Content-changing transforms still fail the whole-exact path.
  */
 private fun exactTokenTextBoundaries(
     finalText: String,
@@ -114,6 +134,73 @@ private fun exactTokenTextBoundaries(
 
     if (finalIndex != finalUnits.size) return null
     return boundaries
+}
+
+/**
+ * When one lexical transform prevents a whole-segment exact projection, preserve only the provably
+ * unchanged prefix and suffix tokens. We deliberately do not search across the ambiguous middle:
+ * repeated Chinese characters could otherwise be attached to the wrong occurrence and create a
+ * false word timestamp.
+ */
+private fun partialExactTokenProjections(
+    finalText: String,
+    tokens: List<String>,
+): List<TokenTextProjection?> {
+    val finalUnits = lexicalUnits(finalText, keepOriginalOffsets = true)
+    val tokenUnits = tokens.map { lexicalUnits(it, keepOriginalOffsets = false) }
+    if (finalUnits.isEmpty() || tokenUnits.any { it.isEmpty() }) {
+        return List(tokens.size) { null }
+    }
+
+    val output = MutableList<TokenTextProjection?>(tokens.size) { null }
+    var finalPrefixIndex = 0
+    var firstUnmatchedToken = tokens.size
+    for (tokenIndex in tokens.indices) {
+        val units = tokenUnits[tokenIndex]
+        if (!matchesAt(finalUnits, finalPrefixIndex, units)) {
+            firstUnmatchedToken = tokenIndex
+            break
+        }
+        val startIndex = finalPrefixIndex
+        finalPrefixIndex += units.size
+        output[tokenIndex] = exactRange(finalUnits, startIndex, finalPrefixIndex)
+    }
+    if (firstUnmatchedToken == tokens.size) return output
+
+    var finalSuffixExclusive = finalUnits.size
+    for (tokenIndex in tokens.lastIndex downTo firstUnmatchedToken) {
+        val units = tokenUnits[tokenIndex]
+        val startIndex = finalSuffixExclusive - units.size
+        if (startIndex < finalPrefixIndex || !matchesAt(finalUnits, startIndex, units)) break
+        output[tokenIndex] = exactRange(finalUnits, startIndex, finalSuffixExclusive)
+        finalSuffixExclusive = startIndex
+    }
+    return output
+}
+
+private fun matchesAt(
+    finalUnits: List<LexicalUnit>,
+    startIndex: Int,
+    tokenUnits: List<LexicalUnit>,
+): Boolean {
+    if (startIndex < 0 || startIndex + tokenUnits.size > finalUnits.size) return false
+    return tokenUnits.indices.all { offset ->
+        tokenUnits[offset].normalized == finalUnits[startIndex + offset].normalized
+    }
+}
+
+private fun exactRange(
+    finalUnits: List<LexicalUnit>,
+    startIndex: Int,
+    endIndexExclusive: Int,
+): TokenTextProjection {
+    val start = finalUnits[startIndex].originalOffset
+    val end = finalUnits[endIndexExclusive - 1].originalOffset + 1
+    return TokenTextProjection(
+        startOffset = start,
+        endOffsetExclusive = end,
+        quality = TextProjectionQuality.EXACT,
+    )
 }
 
 private data class LexicalUnit(
