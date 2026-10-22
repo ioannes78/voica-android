@@ -103,6 +103,7 @@ class SherpaOfflineDiarizationEngine internal constructor(
                 window.samples[index] / 32768.0F
             }
 
+        val processStartedNs = System.nanoTime()
         val nativeSegments =
             native.process(
                 samples = normalized,
@@ -110,6 +111,7 @@ class SherpaOfflineDiarizationEngine internal constructor(
                 expectedSpeakerCount = config.expectedSpeakerCount,
                 clusteringThreshold = config.clusteringThreshold,
             )
+        val processMs = elapsedMillis(processStartedNs)
 
         val mapped =
             nativeSegments
@@ -140,6 +142,16 @@ class SherpaOfflineDiarizationEngine internal constructor(
                         },
                 )
             }
+        val localSpeakerCount = withOverlap.maxOfOrNull { it.speakerIndex + 1 } ?: 0
+        DiarizationPerformanceDiagnostics.recordWindow(
+            DiarizationWindowPerformanceDiagnostic(
+                audioDurationMs =
+                    (window.samples.size.toLong() * 1_000L) / window.sampleRateHz.toLong(),
+                processMs = processMs,
+                localSpeakerCount = localSpeakerCount,
+                turnCount = withOverlap.size,
+            ),
+        )
 
         progressListener?.onProgress(
             DiarizationProgress(
@@ -150,8 +162,7 @@ class SherpaOfflineDiarizationEngine internal constructor(
         )
 
         return DiarizationChunkResult(
-            speakerCount =
-                withOverlap.maxOfOrNull { it.speakerIndex + 1 } ?: 0,
+            speakerCount = localSpeakerCount,
             turns = withOverlap,
         )
     }
@@ -197,6 +208,9 @@ class SherpaOfflineDiarizationEngine internal constructor(
     }
 
     private companion object {
+        fun elapsedMillis(startedNs: Long): Long =
+            ((System.nanoTime() - startedNs).coerceAtLeast(0L) / 1_000_000L)
+
         fun rangesOverlap(
             left: DiarizationSpeakerTurn,
             right: DiarizationSpeakerTurn,
