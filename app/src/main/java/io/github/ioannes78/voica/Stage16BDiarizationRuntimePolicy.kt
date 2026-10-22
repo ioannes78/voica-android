@@ -4,25 +4,17 @@ import io.github.ioannes78.voica.transcript.DiarizationConfig
 import kotlin.math.min
 
 /**
- * Stage 16B P5-R4 product candidate policy.
+ * Stage 16B P5-R5 product runtime policy.
  *
- * AUTO speaker count previously over-split the fixed two-speaker QA recording to five speakers.
- * Keep explicit speaker counts and user tuning intact, but apply a conservative floor to AUTO's
- * clustering threshold so window-local clustering is less eager to create extra speakers.
- * Cross-window stitching remains unchanged at this stage so the R4 diagnostics can distinguish the
- * two sources of over-splitting.
+ * Speaker-count tuning is resolved by LocalDiarizationSettings and then passed to native without a
+ * hidden AUTO-only threshold override. This keeps the settings UI, persisted preference, runtime,
+ * and diagnostics on the same effective clustering threshold.
+ *
+ * Cross-window stitching remains unchanged while R5 isolates window-local clustering quality.
  */
 internal fun SpeakerCountChoice.toStage16BDiarizationConfig(
     tuning: LocalDiarizationSettings,
-): DiarizationConfig {
-    val base = toDiarizationConfig(tuning)
-    if (this != SpeakerCountChoice.AUTO) return base
-    return base.copy(
-        clusteringThreshold =
-            checkNotNull(base.clusteringThreshold)
-                .coerceAtLeast(AUTO_CLUSTERING_THRESHOLD_FLOOR),
-    )
-}
+): DiarizationConfig = toDiarizationConfig(tuning)
 
 /**
  * Diarization is a separate post-ASR task. On AUTO performance, let the pyannote/CAM++ path use up
@@ -41,5 +33,4 @@ internal fun LocalSpeechSettings.resolveStage16BDiarizationPerformance(
     )
 }
 
-internal const val AUTO_CLUSTERING_THRESHOLD_FLOOR = 0.60F
-private const val AUTO_DIARIZATION_THREADS = 4
+internal const val AUTO_DIARIZATION_THREADS = 4
