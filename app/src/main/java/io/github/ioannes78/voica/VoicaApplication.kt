@@ -271,8 +271,6 @@ class AppContainer(
             recordingRepository = recordingLibraryRepository,
             transcriptionCoordinator = transcriptionCoordinator,
             diarizationCoordinator = diarizationCoordinator,
-            aiSummaryCoordinator = aiSummaryCoordinator,
-            aiSummaryRepository = aiSummaryRepository,
             stage12CContentRepository = stage12CContentRepository,
             stage13B5Qa4Repository = stage13B5Qa4Repository,
             taskCompletionNoticeStore = taskCompletionNoticeStore,
@@ -308,7 +306,6 @@ class AppContainer(
                     canonicalAudioCoordinator = canonicalAudioCoordinator,
                     transcriptionCoordinator = transcriptionCoordinator,
                     diarizationCoordinator = diarizationCoordinator,
-                    aiSummaryCoordinator = aiSummaryCoordinator,
                 ),
             annotationAttachmentCleanup =
                 timelineAnnotationAttachmentStore::deleteAttachmentsForRecording,
