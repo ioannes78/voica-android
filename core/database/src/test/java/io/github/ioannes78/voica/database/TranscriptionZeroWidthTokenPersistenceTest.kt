@@ -100,6 +100,8 @@ class TranscriptionZeroWidthTokenPersistenceTest {
                                         endSampleIndexExclusive = 800,
                                         source = TranscriptTokenSourceValue.SECOND_PASS,
                                     ),
+                                    // FunASR revision-2 anchors sentence punctuation to the preceding
+                                    // spoken boundary without inventing an acoustic duration.
                                     TranscriptTokenWrite(
                                         text = "，",
                                         startSampleIndex = 800,
@@ -125,6 +127,7 @@ class TranscriptionZeroWidthTokenPersistenceTest {
             val punctuation = repository.loadTokens(segment.id).single { it.text == "，" }
             assertEquals(800L, punctuation.startSampleIndex)
             assertEquals(800L, punctuation.endSampleIndexExclusive)
+            assertEquals(TranscriptTokenSourceValue.SECOND_PASS, punctuation.source)
         } finally {
             database.close()
         }
