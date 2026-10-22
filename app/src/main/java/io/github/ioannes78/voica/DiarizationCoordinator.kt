@@ -351,16 +351,24 @@ class DiarizationCoordinator(
     }
 
     suspend fun cancelAndAwait(recordingId: String) {
-        val snapshot = synchronized(lock) { currentJob to currentTarget }
+        val snapshot =
+            synchronized(lock) {
+                currentJob to currentTarget
+            }
         val job = snapshot.first ?: return
         val target = snapshot.second ?: return
         val matches =
             when (target) {
-                is OperationTarget.Recording -> target.recordingId == recordingId
+                is OperationTarget.Recording ->
+                    target.recordingId == recordingId
+
                 is OperationTarget.Alignment -> {
-                    val transcriptionRecordingId = transcriptionRepository.find(target.transcriptionId)?.recordingId
-                    val diarizationRecordingId = diarizationRepository.findRun(target.diarizationRunId)?.recordingId
-                    transcriptionRecordingId == recordingId || diarizationRecordingId == recordingId
+                    val transcriptionRecordingId =
+                        transcriptionRepository.find(target.transcriptionId)?.recordingId
+                    val diarizationRecordingId =
+                        diarizationRepository.findRun(target.diarizationRunId)?.recordingId
+                    transcriptionRecordingId == recordingId ||
+                        diarizationRecordingId == recordingId
                 }
             }
         if (!matches) return
@@ -368,9 +376,13 @@ class DiarizationCoordinator(
         runCatching { job.join() }
     }
 
-    suspend fun reconcileOnStartup() = diarizationRepository.reconcileInterruptedOnStartup()
+    suspend fun reconcileOnStartup() =
+        diarizationRepository.reconcileInterruptedOnStartup()
 
-    private fun installCurrentJob(job: Job, target: OperationTarget) {
+    private fun installCurrentJob(
+        job: Job,
+        target: OperationTarget,
+    ) {
         currentJob = job
         currentTarget = target
         job.invokeOnCompletion {
@@ -401,131 +413,270 @@ class DiarizationCoordinator(
     ) {
         var runId: String? = null
         var leases: List<ModelLease> = emptyList()
+
         try {
             if (!isRecordingActive(recordingId)) return
-            mutableState.value = DiarizationRunState.Running(recordingId, null, DiarizationProgress(DiarizationPhase.PREPARING))
 
-            val lineage = loadCanonicalLineage(recordingId, CanonicalPcmProfile.PROFILE_ID)
-                ?: error("verified canonical PCM is not ready")
-            val totalSampleCount = pcmSourceResolver.resolvePcmSource(recordingId)?.use { source ->
-                require(source.sampleRateHz == CanonicalPcmProfile.SAMPLE_RATE_HZ)
-                require(source.channelCount == CanonicalPcmProfile.CHANNEL_COUNT)
-                source.totalSampleCount
-            } ?: error("canonical PCM source is unavailable")
+            mutableState.value =
+                DiarizationRunState.Running(
+                    recordingId = recordingId,
+                    runId = null,
+                    progress = DiarizationProgress(DiarizationPhase.PREPARING),
+                )
+
+            val lineage =
+                loadCanonicalLineage(
+                    recordingId,
+                    CanonicalPcmProfile.PROFILE_ID,
+                ) ?: error("verified canonical PCM is not ready")
+
+            val totalSampleCount =
+                pcmSourceResolver.resolvePcmSource(recordingId)?.use { source ->
+                    require(source.sampleRateHz == CanonicalPcmProfile.SAMPLE_RATE_HZ)
+                    require(source.channelCount == CanonicalPcmProfile.CHANNEL_COUNT)
+                    source.totalSampleCount
+                } ?: error("canonical PCM source is unavailable")
 
             val singleSpeakerFastPath = requestedSpeakerCount == SpeakerCountChoice.ONE
-            val models = resolveActiveModels(speakerEmbeddingModel = speechSettings.speakerEmbeddingModel)
+            val models =
+                resolveActiveModels(
+                    speakerEmbeddingModel = speechSettings.speakerEmbeddingModel,
+                )
             val performance = speechSettings.resolveStage16BDiarizationPerformance()
             val leasedModels = if (singleSpeakerFastPath) listOf(models.vad) else models.all
-            leases = leasedModels.map { active ->
-                modelUseRegistry.acquire(active.descriptor.modelId, active.descriptor.version, active.descriptor.revision)
-            }
-            if (!singleSpeakerFastPath) {
-                engineProvider.validateBundle(models.segmentation, models.embedding)
-            }
-            if (!isRecordingActive(recordingId)) throw CancellationException("recording is being deleted")
+            leases =
+                leasedModels.map { active ->
+                    modelUseRegistry.acquire(
+                        modelId = active.descriptor.modelId,
+                        version = active.descriptor.version,
+                        revision = active.descriptor.revision,
+                    )
+                }
 
-            val createdRunId = diarizationRepository.createRun(
-                NewDiarizationRunRequest(
-                    recordingId = recordingId,
-                    sourceCanonicalAssetId = lineage.canonicalAssetId,
-                    sourceCanonicalSha256 = lineage.canonicalSha256,
-                    canonicalProfileId = lineage.canonicalProfileId,
-                    totalSampleCount = totalSampleCount,
-                    pipelineVersion = DIARIZATION_PIPELINE_VERSION,
-                    runtimeId = SherpaRuntime.RUNTIME_ID,
-                    runtimeVersion = SherpaRuntime.RUNTIME_VERSION,
-                    vadModelId = models.vad.descriptor.modelId,
-                    vadModelVersion = models.vad.descriptor.version,
-                    vadModelRevision = models.vad.descriptor.revision,
-                    segmentationModelId = models.segmentation.descriptor.modelId,
-                    segmentationModelVersion = models.segmentation.descriptor.version,
-                    segmentationModelRevision = models.segmentation.descriptor.revision,
-                    embeddingModelId = models.embedding.descriptor.modelId,
-                    embeddingModelVersion = models.embedding.descriptor.version,
-                    embeddingModelRevision = models.embedding.descriptor.revision,
-                    modelManifestDigest = lineageDigest(models.all),
-                    configSnapshot = configSnapshot(
-                        config,
-                        models.all,
-                        speechSettings.vad,
-                        performance,
-                        requestedSpeakerCount,
-                        speechSettings.speakerEmbeddingModel,
-                        singleSpeakerFastPath,
+            if (!singleSpeakerFastPath) {
+                engineProvider.validateBundle(
+                    segmentation = models.segmentation,
+                    embedding = models.embedding,
+                )
+            }
+
+            if (!isRecordingActive(recordingId)) {
+                throw CancellationException("recording is being deleted")
+            }
+
+            val createdRunId =
+                diarizationRepository.createRun(
+                    NewDiarizationRunRequest(
+                        recordingId = recordingId,
+                        sourceCanonicalAssetId = lineage.canonicalAssetId,
+                        sourceCanonicalSha256 = lineage.canonicalSha256,
+                        canonicalProfileId = lineage.canonicalProfileId,
+                        totalSampleCount = totalSampleCount,
+                        pipelineVersion = DIARIZATION_PIPELINE_VERSION,
+                        runtimeId = SherpaRuntime.RUNTIME_ID,
+                        runtimeVersion = SherpaRuntime.RUNTIME_VERSION,
+                        vadModelId = models.vad.descriptor.modelId,
+                        vadModelVersion = models.vad.descriptor.version,
+                        vadModelRevision = models.vad.descriptor.revision,
+                        segmentationModelId = models.segmentation.descriptor.modelId,
+                        segmentationModelVersion = models.segmentation.descriptor.version,
+                        segmentationModelRevision = models.segmentation.descriptor.revision,
+                        embeddingModelId = models.embedding.descriptor.modelId,
+                        embeddingModelVersion = models.embedding.descriptor.version,
+                        embeddingModelRevision = models.embedding.descriptor.revision,
+                        modelManifestDigest = lineageDigest(models.all),
+                        configSnapshot =
+                            configSnapshot(
+                                config = config,
+                                models = models.all,
+                                vadSettings = speechSettings.vad,
+                                performance = performance,
+                                requestedSpeakerCount = requestedSpeakerCount,
+                                requestedEmbeddingModel =
+                                    speechSettings.speakerEmbeddingModel,
+                                singleSpeakerFastPath = singleSpeakerFastPath,
+                            ),
                     ),
-                ),
-            )
+                )
             runId = createdRunId
-            val speechSegments = runVad(recordingId, createdRunId, models.vad, performance.effectiveThreads, speechSettings.vad)
+
+            val speechSegments =
+                runVad(
+                    recordingId = recordingId,
+                    runId = createdRunId,
+                    model = models.vad,
+                    numThreads = performance.effectiveThreads,
+                    vadSettings = speechSettings.vad,
+                )
 
             if (singleSpeakerFastPath) {
                 currentCoroutineContext().ensureActive()
-                val turns = speechSegments.map { segment ->
-                    GlobalSpeakerTurn(0, segment.startSampleIndex, segment.endSampleIndexExclusive, null, false)
-                }
-                publishProgress(recordingId, createdRunId, DiarizationPhase.PERSISTING)
+                val turns =
+                    speechSegments.map { segment ->
+                        GlobalSpeakerTurn(
+                            globalSpeakerIndex = 0,
+                            startSampleIndex = segment.startSampleIndex,
+                            endSampleIndexExclusive = segment.endSampleIndexExclusive,
+                            confidence = null,
+                            overlap = false,
+                        )
+                    }
+                publishProgress(
+                    recordingId = recordingId,
+                    runId = createdRunId,
+                    phase = DiarizationPhase.PERSISTING,
+                )
                 diarizationRepository.persistCompletedRun(
-                    createdRunId,
-                    if (turns.isEmpty()) 0 else 1,
-                    turns.map { SpeakerTurnWrite(it.globalSpeakerIndex, it.startSampleIndex, it.endSampleIndexExclusive, it.confidence, it.overlap) },
+                    runId = createdRunId,
+                    speakerCount = if (turns.isEmpty()) 0 else 1,
+                    turns =
+                        turns.map { turn ->
+                            SpeakerTurnWrite(
+                                speakerIndex = turn.globalSpeakerIndex,
+                                startSampleIndex = turn.startSampleIndex,
+                                endSampleIndexExclusive = turn.endSampleIndexExclusive,
+                                confidence = turn.confidence,
+                                overlap = turn.overlap,
+                            )
+                        },
                 )
                 leases = releaseLeases(leases)
                 releaseOperationSlot()
-                mutableState.value = DiarizationRunState.Completed(recordingId, createdRunId, if (turns.isEmpty()) 0 else 1, turns)
+                mutableState.value =
+                    DiarizationRunState.Completed(
+                        recordingId = recordingId,
+                        runId = createdRunId,
+                        speakerCount = if (turns.isEmpty()) 0 else 1,
+                        turns = turns,
+                    )
                 return
             }
 
-            val ranges = planDiarizationWindows(speechSegments, totalSampleCount, config)
+            val ranges =
+                planDiarizationWindows(
+                    speechSegments = speechSegments,
+                    totalSampleCount = totalSampleCount,
+                    config = config,
+                )
+
             if (ranges.isEmpty()) {
-                publishProgress(recordingId, createdRunId, DiarizationPhase.PERSISTING)
-                diarizationRepository.persistCompletedRun(createdRunId, 0, emptyList())
+                publishProgress(
+                    recordingId = recordingId,
+                    runId = createdRunId,
+                    phase = DiarizationPhase.PERSISTING,
+                )
+                diarizationRepository.persistCompletedRun(
+                    runId = createdRunId,
+                    speakerCount = 0,
+                    turns = emptyList(),
+                )
                 leases = releaseLeases(leases)
                 releaseOperationSlot()
-                mutableState.value = DiarizationRunState.Completed(recordingId, createdRunId, 0, emptyList())
+                mutableState.value =
+                    DiarizationRunState.Completed(
+                        recordingId = recordingId,
+                        runId = createdRunId,
+                        speakerCount = 0,
+                        turns = emptyList(),
+                    )
                 return
             }
 
-            diarizationRepository.transitionRun(createdRunId, DiarizationStateValue.DIARIZING)
-            val chunks = runWindowedDiarization(
-                recordingId,
+            diarizationRepository.transitionRun(
                 createdRunId,
-                ranges,
-                totalSampleCount,
-                models,
-                config,
-                performance.effectiveThreads,
+                DiarizationStateValue.DIARIZING,
             )
+            val chunks =
+                runWindowedDiarization(
+                    recordingId = recordingId,
+                    runId = createdRunId,
+                    ranges = ranges,
+                    totalSampleCount = totalSampleCount,
+                    models = models,
+                    config = config,
+                    numThreads = performance.effectiveThreads,
+                )
+
             currentCoroutineContext().ensureActive()
-            diarizationRepository.transitionRun(createdRunId, DiarizationStateValue.STITCHING)
-            publishProgress(recordingId, createdRunId, DiarizationPhase.STITCHING)
+            diarizationRepository.transitionRun(
+                createdRunId,
+                DiarizationStateValue.STITCHING,
+            )
+            publishProgress(
+                recordingId = recordingId,
+                runId = createdRunId,
+                phase = DiarizationPhase.STITCHING,
+            )
             val stitched = stitchDiarizationChunks(chunks, config)
+
             currentCoroutineContext().ensureActive()
-            publishProgress(recordingId, createdRunId, DiarizationPhase.PERSISTING)
-            diarizationRepository.persistCompletedRun(
-                createdRunId,
-                stitched.speakerCount,
-                stitched.turns.map { SpeakerTurnWrite(it.globalSpeakerIndex, it.startSampleIndex, it.endSampleIndexExclusive, it.confidence, it.overlap) },
+            publishProgress(
+                recordingId = recordingId,
+                runId = createdRunId,
+                phase = DiarizationPhase.PERSISTING,
             )
+            diarizationRepository.persistCompletedRun(
+                runId = createdRunId,
+                speakerCount = stitched.speakerCount,
+                turns =
+                    stitched.turns.map { turn ->
+                        SpeakerTurnWrite(
+                            speakerIndex = turn.globalSpeakerIndex,
+                            startSampleIndex = turn.startSampleIndex,
+                            endSampleIndexExclusive = turn.endSampleIndexExclusive,
+                            confidence = turn.confidence,
+                            overlap = turn.overlap,
+                        )
+                    },
+            )
+
             leases = releaseLeases(leases)
             releaseOperationSlot()
-            mutableState.value = DiarizationRunState.Completed(recordingId, createdRunId, stitched.speakerCount, stitched.turns)
+            mutableState.value =
+                DiarizationRunState.Completed(
+                    recordingId = recordingId,
+                    runId = createdRunId,
+                    speakerCount = stitched.speakerCount,
+                    turns = stitched.turns,
+                )
         } catch (cancelled: CancellationException) {
-            runId?.let { id -> withContext(NonCancellable) { runCatching { diarizationRepository.cancelRun(id) } } }
+            runId?.let { id ->
+                withContext(NonCancellable) {
+                    runCatching { diarizationRepository.cancelRun(id) }
+                }
+            }
             leases = releaseLeases(leases)
             releaseOperationSlot()
-            mutableState.value = DiarizationRunState.Cancelled(recordingId)
+            mutableState.value =
+                DiarizationRunState.Cancelled(recordingId)
         } catch (missing: MissingDiarizationModelsException) {
             leases = releaseLeases(leases)
             releaseOperationSlot()
-            mutableState.value = DiarizationRunState.Failed(recordingId, "请先在设置中下载并启用说话人分离模型", missing.modelIds)
+            mutableState.value =
+                DiarizationRunState.Failed(
+                    recordingId = recordingId,
+                    message = "请先在设置中下载并启用说话人分离模型",
+                    missingModelIds = missing.modelIds,
+                )
         } catch (error: Throwable) {
-            runId?.let { id -> withContext(NonCancellable) {
-                runCatching { diarizationRepository.failRunRecoverable(id, "DIARIZATION_FAILED", error.message) }
-            } }
+            runId?.let { id ->
+                withContext(NonCancellable) {
+                    runCatching {
+                        diarizationRepository.failRunRecoverable(
+                            runId = id,
+                            errorCode = "DIARIZATION_FAILED",
+                            errorMessage = error.message,
+                        )
+                    }
+                }
+            }
             leases = releaseLeases(leases)
             releaseOperationSlot()
-            mutableState.value = DiarizationRunState.Failed(recordingId, error.message ?: error::class.java.simpleName)
+            mutableState.value =
+                DiarizationRunState.Failed(
+                    recordingId = recordingId,
+                    message = error.message ?: error::class.java.simpleName,
+                )
         } finally {
             releaseLeases(leases)
         }
@@ -537,24 +688,40 @@ class DiarizationCoordinator(
         model: ActiveModel,
         numThreads: Int,
         vadSettings: LocalVadSettings,
-    ) = engineProvider.vadFactory(model, numThreads, vadSettings).open().use { vad ->
-        diarizationRepository.transitionRun(runId, DiarizationStateValue.VAD_ANALYZING)
-        val source = pcmSourceResolver.resolvePcmSource(recordingId)
-            ?: error("canonical PCM source disappeared before VAD")
-        source.use {
-            vad.analyze(
-                it,
-                ProgressListener { progress ->
-                    require(progress.phase == TranscriptionPhase.VAD)
-                    mutableState.value = DiarizationRunState.Running(
-                        recordingId,
-                        runId,
-                        DiarizationProgress(DiarizationPhase.VAD, progress.processedUnits, progress.totalUnits),
-                    )
-                },
+    ) =
+        engineProvider.vadFactory(
+            model = model,
+            numThreads = numThreads,
+            vadSettings = vadSettings,
+        ).open().use { vad ->
+            diarizationRepository.transitionRun(
+                runId,
+                DiarizationStateValue.VAD_ANALYZING,
             )
+            val source =
+                pcmSourceResolver.resolvePcmSource(recordingId)
+                    ?: error("canonical PCM source disappeared before VAD")
+            source.use {
+                vad.analyze(
+                    source = it,
+                    progressListener =
+                        ProgressListener { progress ->
+                            require(progress.phase == TranscriptionPhase.VAD)
+                            mutableState.value =
+                                DiarizationRunState.Running(
+                                    recordingId = recordingId,
+                                    runId = runId,
+                                    progress =
+                                        DiarizationProgress(
+                                            phase = DiarizationPhase.VAD,
+                                            processedSamples = progress.processedUnits,
+                                            totalSamples = progress.totalUnits,
+                                        ),
+                                )
+                        },
+                )
+            }
         }
-    }
 
     private suspend fun runWindowedDiarization(
         recordingId: String,
@@ -565,33 +732,74 @@ class DiarizationCoordinator(
         config: DiarizationConfig,
         numThreads: Int,
     ): List<DiarizationChunkStitchInput> {
-        val totalWindowSamples = ranges.fold(0L) { total, range -> Math.addExact(total, range.sampleCount) }
+        val totalWindowSamples =
+            ranges.fold(0L) { total, range ->
+                Math.addExact(total, range.sampleCount)
+            }
         var processedWindowSamples = 0L
         val chunks = ArrayList<DiarizationChunkStitchInput>(ranges.size)
-        val source = pcmSourceResolver.resolvePcmSource(recordingId)
-            ?: error("canonical PCM source disappeared before diarization")
-        require(source.totalSampleCount == totalSampleCount) { "canonical PCM sample count changed during diarization" }
-        val diarizationEngine = engineProvider.diarizationEngine(models.segmentation, models.embedding, numThreads)
-        val embeddingEngine = engineProvider.embeddingEngine(models.embedding, numThreads)
+
+        val source =
+            pcmSourceResolver.resolvePcmSource(recordingId)
+                ?: error("canonical PCM source disappeared before diarization")
+        require(source.totalSampleCount == totalSampleCount) {
+            "canonical PCM sample count changed during diarization"
+        }
+
+        val diarizationEngine =
+            engineProvider.diarizationEngine(
+                segmentation = models.segmentation,
+                embedding = models.embedding,
+                numThreads = numThreads,
+            )
+        val embeddingEngine =
+            engineProvider.embeddingEngine(
+                model = models.embedding,
+                numThreads = numThreads,
+            )
+
         try {
             source.use {
-                consumeDiarizationWindowsSequentially(it, ranges) { index, window ->
+                consumeDiarizationWindowsSequentially(
+                    source = it,
+                    ranges = ranges,
+                ) { index, window ->
                     currentCoroutineContext().ensureActive()
-                    val result = diarizationEngine.diarize(window, config)
-                    val anchors = buildSpeakerAnchorEmbeddings(
-                        window.startSampleIndex,
-                        window.samples,
-                        result.turns,
-                        embeddingEngine,
-                        config,
-                    )
-                    chunks += DiarizationChunkStitchInput(index, result.turns, anchors)
-                    processedWindowSamples = Math.addExact(processedWindowSamples, ranges[index].sampleCount)
-                    mutableState.value = DiarizationRunState.Running(
-                        recordingId,
-                        runId,
-                        DiarizationProgress(DiarizationPhase.DIARIZATION, processedWindowSamples, totalWindowSamples),
-                    )
+                    val result =
+                        diarizationEngine.diarize(
+                            window = window,
+                            config = config,
+                        )
+                    val anchors =
+                        buildSpeakerAnchorEmbeddings(
+                            windowStartSampleIndex = window.startSampleIndex,
+                            windowSamples = window.samples,
+                            turns = result.turns,
+                            embeddingEngine = embeddingEngine,
+                            config = config,
+                        )
+                    chunks +=
+                        DiarizationChunkStitchInput(
+                            chunkIndex = index,
+                            turns = result.turns,
+                            anchors = anchors,
+                        )
+                    processedWindowSamples =
+                        Math.addExact(
+                            processedWindowSamples,
+                            ranges[index].sampleCount,
+                        )
+                    mutableState.value =
+                        DiarizationRunState.Running(
+                            recordingId = recordingId,
+                            runId = runId,
+                            progress =
+                                DiarizationProgress(
+                                    phase = DiarizationPhase.DIARIZATION,
+                                    processedSamples = processedWindowSamples,
+                                    totalSamples = totalWindowSamples,
+                                ),
+                        )
                 }
             }
         } finally {
@@ -601,133 +809,256 @@ class DiarizationCoordinator(
         return chunks
     }
 
-    private suspend fun runAlignment(transcriptionId: String, diarizationRunId: String) {
+    private suspend fun runAlignment(
+        transcriptionId: String,
+        diarizationRunId: String,
+    ) {
         var alignmentId: String? = null
         try {
-            val transcription = transcriptionRepository.find(transcriptionId) ?: error("transcription not found")
-            val diarizationRun = diarizationRepository.findRun(diarizationRunId) ?: error("diarization run not found")
-            require(transcription.recordingId == diarizationRun.recordingId) { "alignment inputs belong to different recordings" }
+            val transcription =
+                transcriptionRepository.find(transcriptionId)
+                    ?: error("transcription not found")
+            val diarizationRun =
+                diarizationRepository.findRun(diarizationRunId)
+                    ?: error("diarization run not found")
+            require(transcription.recordingId == diarizationRun.recordingId) {
+                "alignment inputs belong to different recordings"
+            }
             if (!isRecordingActive(transcription.recordingId)) return
-            mutableAlignmentState.value = SpeakerAlignmentRunState.Running(transcriptionId, diarizationRunId, null)
-            if (!isRecordingActive(transcription.recordingId)) throw CancellationException("recording is being deleted")
-            val createdAlignmentId = diarizationRepository.createAlignment(
-                NewTranscriptSpeakerAlignmentRequest(
-                    transcriptionId,
-                    diarizationRunId,
-                    ALIGNMENT_VERSION,
-                    "{\"algorithm\":\"token-interval-v1\",\"overlap\":\"ambiguous\"}",
-                ),
-            )
+
+            mutableAlignmentState.value =
+                SpeakerAlignmentRunState.Running(
+                    transcriptionId = transcriptionId,
+                    diarizationRunId = diarizationRunId,
+                    alignmentId = null,
+                )
+
+            if (!isRecordingActive(transcription.recordingId)) {
+                throw CancellationException("recording is being deleted")
+            }
+
+            val createdAlignmentId =
+                diarizationRepository.createAlignment(
+                    NewTranscriptSpeakerAlignmentRequest(
+                        transcriptionId = transcriptionId,
+                        diarizationRunId = diarizationRunId,
+                        alignmentVersion = ALIGNMENT_VERSION,
+                        configSnapshot =
+                            "{\"algorithm\":\"token-interval-v1\",\"overlap\":\"ambiguous\"}",
+                    ),
+                )
             alignmentId = createdAlignmentId
-            diarizationRepository.transitionAlignment(createdAlignmentId, TranscriptSpeakerAlignmentStateValue.ALIGNING)
-            mutableAlignmentState.value = SpeakerAlignmentRunState.Running(transcriptionId, diarizationRunId, createdAlignmentId)
+            diarizationRepository.transitionAlignment(
+                createdAlignmentId,
+                TranscriptSpeakerAlignmentStateValue.ALIGNING,
+            )
+            mutableAlignmentState.value =
+                SpeakerAlignmentRunState.Running(
+                    transcriptionId = transcriptionId,
+                    diarizationRunId = diarizationRunId,
+                    alignmentId = createdAlignmentId,
+                )
+
             val transcriptSegments = loadTranscriptDomain(transcriptionId)
             val globalTurns = loadGlobalSpeakerTurns(diarizationRunId)
             currentCoroutineContext().ensureActive()
-            val result = alignTranscriptSegmentsToSpeakers(transcriptSegments, globalTurns)
+            val result =
+                alignTranscriptSegmentsToSpeakers(
+                    segments = transcriptSegments,
+                    speakerTurns = globalTurns,
+                )
+
             currentCoroutineContext().ensureActive()
-            diarizationRepository.persistCompletedAlignment(createdAlignmentId, result.spans.map(::toSpanWrite))
+            diarizationRepository.persistCompletedAlignment(
+                alignmentId = createdAlignmentId,
+                spans = result.spans.map(::toSpanWrite),
+            )
+
             releaseOperationSlot()
-            mutableAlignmentState.value = SpeakerAlignmentRunState.Completed(transcriptionId, diarizationRunId, createdAlignmentId, result.spans.size)
+            mutableAlignmentState.value =
+                SpeakerAlignmentRunState.Completed(
+                    transcriptionId = transcriptionId,
+                    diarizationRunId = diarizationRunId,
+                    alignmentId = createdAlignmentId,
+                    spanCount = result.spans.size,
+                )
         } catch (cancelled: CancellationException) {
-            alignmentId?.let { id -> withContext(NonCancellable) { runCatching { diarizationRepository.cancelAlignment(id) } } }
+            alignmentId?.let { id ->
+                withContext(NonCancellable) {
+                    runCatching { diarizationRepository.cancelAlignment(id) }
+                }
+            }
             releaseOperationSlot()
-            mutableAlignmentState.value = SpeakerAlignmentRunState.Cancelled(transcriptionId, diarizationRunId)
+            mutableAlignmentState.value =
+                SpeakerAlignmentRunState.Cancelled(
+                    transcriptionId = transcriptionId,
+                    diarizationRunId = diarizationRunId,
+                )
         } catch (error: Throwable) {
-            alignmentId?.let { id -> withContext(NonCancellable) {
-                runCatching { diarizationRepository.failAlignmentRecoverable(id, "SPEAKER_ALIGNMENT_FAILED", error.message) }
-            } }
+            alignmentId?.let { id ->
+                withContext(NonCancellable) {
+                    runCatching {
+                        diarizationRepository.failAlignmentRecoverable(
+                            alignmentId = id,
+                            errorCode = "SPEAKER_ALIGNMENT_FAILED",
+                            errorMessage = error.message,
+                        )
+                    }
+                }
+            }
             releaseOperationSlot()
-            mutableAlignmentState.value = SpeakerAlignmentRunState.Failed(transcriptionId, diarizationRunId, error.message ?: error::class.java.simpleName)
+            mutableAlignmentState.value =
+                SpeakerAlignmentRunState.Failed(
+                    transcriptionId = transcriptionId,
+                    diarizationRunId = diarizationRunId,
+                    message = error.message ?: error::class.java.simpleName,
+                )
         }
     }
 
-    private suspend fun loadTranscriptDomain(transcriptionId: String): List<TranscriptSegment> =
+    private suspend fun loadTranscriptDomain(
+        transcriptionId: String,
+    ): List<TranscriptSegment> =
         transcriptionRepository.loadSegments(transcriptionId).map { segment ->
-            val tokens = transcriptionRepository.loadTokens(segment.id).map { token ->
-                TranscriptToken(
-                    token.text,
-                    token.startSampleIndex,
-                    token.endSampleIndexExclusive,
-                    when (token.source) {
-                        TranscriptTokenSourceValue.FIRST_PASS -> TokenSource.FIRST_PASS
-                        TranscriptTokenSourceValue.SECOND_PASS -> TokenSource.SECOND_PASS
-                        else -> error("unknown transcript token source: " + token.source)
-                    },
+            val tokens =
+                transcriptionRepository.loadTokens(segment.id).map { token ->
+                    TranscriptToken(
+                        text = token.text,
+                        startSampleIndex = token.startSampleIndex,
+                        endSampleIndexExclusive = token.endSampleIndexExclusive,
+                        source =
+                            when (token.source) {
+                                TranscriptTokenSourceValue.FIRST_PASS -> TokenSource.FIRST_PASS
+                                TranscriptTokenSourceValue.SECOND_PASS -> TokenSource.SECOND_PASS
+                                else -> error("unknown transcript token source: " + token.source)
+                            },
+                    )
+                }
+            TranscriptSegment(
+                segmentIndex = segment.segmentIndex,
+                startSampleIndex = segment.startSampleIndex,
+                endSampleIndexExclusive = segment.endSampleIndexExclusive,
+                firstPassRawText = segment.firstPassRawText,
+                secondPassRawText = segment.secondPassRawText,
+                finalText = segment.finalText,
+                detectedLanguage = segment.detectedLanguage,
+                confidence = segment.confidence,
+                tokens = tokens,
+            )
+        }
+
+    private suspend fun loadGlobalSpeakerTurns(
+        diarizationRunId: String,
+    ): List<GlobalSpeakerTurn> {
+        val speakerIndexById =
+            diarizationRepository
+                .loadSpeakers(diarizationRunId)
+                .associate { speaker ->
+                    speaker.id to (speaker.speakerOrdinal - 1)
+                }
+        return diarizationRepository
+            .loadTurns(diarizationRunId)
+            .map { turn ->
+                GlobalSpeakerTurn(
+                    globalSpeakerIndex =
+                        checkNotNull(speakerIndexById[turn.speakerId]) {
+                            "speaker turn references unknown speaker"
+                        },
+                    startSampleIndex = turn.startSampleIndex,
+                    endSampleIndexExclusive = turn.endSampleIndexExclusive,
+                    confidence = turn.confidence,
+                    overlap = turn.overlap,
                 )
             }
-            TranscriptSegment(
-                segment.segmentIndex,
-                segment.startSampleIndex,
-                segment.endSampleIndexExclusive,
-                segment.firstPassRawText,
-                segment.secondPassRawText,
-                segment.finalText,
-                segment.detectedLanguage,
-                segment.confidence,
-                tokens,
-            )
-        }
-
-    private suspend fun loadGlobalSpeakerTurns(diarizationRunId: String): List<GlobalSpeakerTurn> {
-        val speakerIndexById = diarizationRepository.loadSpeakers(diarizationRunId)
-            .associate { speaker -> speaker.id to (speaker.speakerOrdinal - 1) }
-        return diarizationRepository.loadTurns(diarizationRunId).map { turn ->
-            GlobalSpeakerTurn(
-                checkNotNull(speakerIndexById[turn.speakerId]) { "speaker turn references unknown speaker" },
-                turn.startSampleIndex,
-                turn.endSampleIndexExclusive,
-                turn.confidence,
-                turn.overlap,
-            )
-        }
     }
 
-    private suspend fun resolveActiveModels(speakerEmbeddingModel: SpeakerEmbeddingModelChoice): ActiveDiarizationModels {
+    private suspend fun resolveActiveModels(
+        speakerEmbeddingModel: SpeakerEmbeddingModelChoice,
+    ): ActiveDiarizationModels {
         val embeddingModelId = speakerEmbeddingModel.modelId()
-        val requiredIds = listOf(Stage8ModelIds.VAD, Stage9ModelIds.SEGMENTATION, embeddingModelId)
-        val active = requiredIds.associateWith { modelId -> modelManager.activeModel(modelId) }
-        val missing = active.filterValues { it == null }.keys.sorted()
-        if (missing.isNotEmpty()) throw MissingDiarizationModelsException(missing)
+        val requiredIds =
+            listOf(
+                Stage8ModelIds.VAD,
+                Stage9ModelIds.SEGMENTATION,
+                embeddingModelId,
+            )
+        val active =
+            requiredIds.associateWith { modelId ->
+                modelManager.activeModel(modelId)
+            }
+        val missing =
+            active
+                .filterValues { it == null }
+                .keys
+                .sorted()
+        if (missing.isNotEmpty()) {
+            throw MissingDiarizationModelsException(missing)
+        }
+
         val vad = checkNotNull(active[Stage8ModelIds.VAD])
         val segmentation = checkNotNull(active[Stage9ModelIds.SEGMENTATION])
         val embedding = checkNotNull(active[embeddingModelId])
+
         require(vad.descriptor.kind == ModelKind.VAD)
         require(segmentation.descriptor.kind == ModelKind.SPEAKER)
-        require(segmentation.descriptor.speakerRole == SpeakerModelRole.DIARIZATION_SEGMENTATION)
+        require(
+            segmentation.descriptor.speakerRole ==
+                SpeakerModelRole.DIARIZATION_SEGMENTATION,
+        )
         require(embedding.descriptor.kind == ModelKind.SPEAKER)
         require(embedding.descriptor.speakerRole == SpeakerModelRole.EMBEDDING)
-        return ActiveDiarizationModels(vad, segmentation, embedding)
+
+        return ActiveDiarizationModels(
+            vad = vad,
+            segmentation = segmentation,
+            embedding = embedding,
+        )
     }
 
-    private fun publishProgress(recordingId: String, runId: String, phase: DiarizationPhase) {
-        mutableState.value = DiarizationRunState.Running(recordingId, runId, DiarizationProgress(phase))
+    private fun publishProgress(
+        recordingId: String,
+        runId: String,
+        phase: DiarizationPhase,
+    ) {
+        mutableState.value =
+            DiarizationRunState.Running(
+                recordingId = recordingId,
+                runId = runId,
+                progress = DiarizationProgress(phase),
+            )
     }
 
-    private fun toSpanWrite(span: SpeakerAlignedTextSpan) = TranscriptSpeakerSpanWrite(
-        spanIndex = span.spanIndex,
-        sourceSegmentIndex = span.sourceSegmentIndex,
-        speakerIndex = span.speakerIndex,
-        startSampleIndex = span.startSampleIndex,
-        endSampleIndexExclusive = span.endSampleIndexExclusive,
-        tokenSource = when (span.tokenSource) {
-            TokenSource.FIRST_PASS -> TranscriptTokenSourceValue.FIRST_PASS
-            TokenSource.SECOND_PASS -> TranscriptTokenSourceValue.SECOND_PASS
-            null -> null
-        },
-        tokenStartIndex = span.tokenStartIndex,
-        tokenEndIndexExclusive = span.tokenEndIndexExclusive,
-        finalTextStartOffset = span.finalTextStartOffset,
-        finalTextEndOffsetExclusive = span.finalTextEndOffsetExclusive,
-        assignmentQuality = when (span.assignmentQuality) {
-            SpeakerAssignmentQuality.ASSIGNED -> SpeakerAssignmentQualityValue.ASSIGNED
-            SpeakerAssignmentQuality.ASSIGNED_WITH_OVERLAP -> SpeakerAssignmentQualityValue.ASSIGNED_WITH_OVERLAP
-            SpeakerAssignmentQuality.OVERLAP_AMBIGUOUS -> SpeakerAssignmentQualityValue.OVERLAP_AMBIGUOUS
-            SpeakerAssignmentQuality.UNRESOLVED -> SpeakerAssignmentQualityValue.UNRESOLVED
-        },
-        overlap = span.overlap,
-        ambiguous = span.ambiguous,
-    )
+    private fun toSpanWrite(span: SpeakerAlignedTextSpan) =
+        TranscriptSpeakerSpanWrite(
+            spanIndex = span.spanIndex,
+            sourceSegmentIndex = span.sourceSegmentIndex,
+            speakerIndex = span.speakerIndex,
+            startSampleIndex = span.startSampleIndex,
+            endSampleIndexExclusive = span.endSampleIndexExclusive,
+            tokenSource =
+                when (span.tokenSource) {
+                    TokenSource.FIRST_PASS -> TranscriptTokenSourceValue.FIRST_PASS
+                    TokenSource.SECOND_PASS -> TranscriptTokenSourceValue.SECOND_PASS
+                    null -> null
+                },
+            tokenStartIndex = span.tokenStartIndex,
+            tokenEndIndexExclusive = span.tokenEndIndexExclusive,
+            finalTextStartOffset = span.finalTextStartOffset,
+            finalTextEndOffsetExclusive = span.finalTextEndOffsetExclusive,
+            assignmentQuality =
+                when (span.assignmentQuality) {
+                    SpeakerAssignmentQuality.ASSIGNED ->
+                        SpeakerAssignmentQualityValue.ASSIGNED
+                    SpeakerAssignmentQuality.ASSIGNED_WITH_OVERLAP ->
+                        SpeakerAssignmentQualityValue.ASSIGNED_WITH_OVERLAP
+                    SpeakerAssignmentQuality.OVERLAP_AMBIGUOUS ->
+                        SpeakerAssignmentQualityValue.OVERLAP_AMBIGUOUS
+                    SpeakerAssignmentQuality.UNRESOLVED ->
+                        SpeakerAssignmentQualityValue.UNRESOLVED
+                },
+            overlap = span.overlap,
+            ambiguous = span.ambiguous,
+        )
 
     private fun configSnapshot(
         config: DiarizationConfig,
@@ -737,64 +1068,93 @@ class DiarizationCoordinator(
         requestedSpeakerCount: SpeakerCountChoice?,
         requestedEmbeddingModel: SpeakerEmbeddingModelChoice,
         singleSpeakerFastPath: Boolean,
-    ): String = buildString {
-        append("{\"schemaVersion\":2")
-        append(",\"pipelineVersion\":").append(DIARIZATION_PIPELINE_VERSION)
-        append(",\"stitchingAlgorithmVersion\":").append(STITCHING_ALGORITHM_VERSION)
-        append(",\"anchorStrategy\":\"").append(ANCHOR_STRATEGY).append("\"")
-        append(",\"singleSpeakerFastPath\":").append(singleSpeakerFastPath)
-        append(",\"sampleRateHz\":").append(config.sampleRateHz)
-        append(",\"chunkSizeSamples\":").append(config.chunkSizeSamples)
-        append(",\"chunkOverlapSamples\":").append(config.chunkOverlapSamples)
-        append(",\"vadContextPaddingSamples\":").append(config.vadContextPaddingSamples)
-        append(",\"speakerCountPreset\":\"").append(requestedSpeakerCount?.name ?: "CUSTOM").append("\"")
-        append(",\"speakerEmbeddingModelPreset\":\"").append(requestedEmbeddingModel.name).append("\"")
-        append(",\"expectedSpeakerCount\":").append(config.expectedSpeakerCount?.toString() ?: "null")
-        append(",\"minimumGlobalSpeakerCount\":").append(config.minimumGlobalSpeakerCount?.toString() ?: "null")
-        append(",\"maximumGlobalSpeakerCount\":").append(config.maximumGlobalSpeakerCount?.toString() ?: "null")
-        append(",\"clusteringThreshold\":").append(config.clusteringThreshold?.toString() ?: "null")
-        append(",\"stitchingCosineThreshold\":").append(config.stitchingCosineThreshold)
-        append(",\"stitchingMinimumOverlapSamples\":").append(config.stitchingMinimumOverlapSamples)
-        append(",\"stitchingMinimumAnchorSamples\":").append(config.stitchingMinimumAnchorSamples)
-        append(",\"stitchingMaxAnchorsPerSpeaker\":").append(config.stitchingMaxAnchorsPerSpeaker)
-        append(",\"performanceProfile\":\"").append(performance.profile.name).append("\"")
-        append(",\"requestedThreads\":").append(performance.requestedThreads?.toString() ?: "null")
-        append(",\"effectiveThreads\":").append(performance.effectiveThreads)
-        append(",\"vad\":{")
-        append("\"threshold\":").append(vadSettings.threshold)
-        append(",\"minSilenceDurationSeconds\":").append(vadSettings.minSilenceDurationSeconds)
-        append(",\"minSpeechDurationSeconds\":").append(vadSettings.minSpeechDurationSeconds)
-        append(",\"maxSpeechDurationSeconds\":").append(vadSettings.maxSpeechDurationSeconds)
-        append(",\"windowSizeSamples\":512}")
-        append(",\"sherpaDefaults\":{")
-        append("\"numThreads\":").append(performance.effectiveThreads)
-        append(",\"pyannoteWindowShiftRatio\":0.1")
-        append(",\"minDurationOnSeconds\":0.2")
-        append(",\"minDurationOffSeconds\":0.5")
-        append(",\"defaultClusteringThreshold\":0.5")
-        append(",\"computeConfidence\":true}")
-        append(",\"models\":[")
-        models.forEachIndexed { index, model ->
-            if (index > 0) append(',')
-            append("{\"id\":\"").append(model.descriptor.modelId)
-                .append("\",\"version\":\"").append(model.descriptor.version)
-                .append("\",\"revision\":").append(model.descriptor.revision)
-                .append(",\"manifestDigest\":\"").append(model.manifestDigest).append("\"}")
+    ): String =
+        buildString {
+            append("{\"schemaVersion\":2")
+            append(",\"pipelineVersion\":").append(DIARIZATION_PIPELINE_VERSION)
+            append(",\"stitchingAlgorithmVersion\":").append(STITCHING_ALGORITHM_VERSION)
+            append(",\"anchorStrategy\":\"").append(ANCHOR_STRATEGY).append("\"")
+            append(",\"singleSpeakerFastPath\":").append(singleSpeakerFastPath)
+            append(",\"sampleRateHz\":").append(config.sampleRateHz)
+            append(",\"chunkSizeSamples\":").append(config.chunkSizeSamples)
+            append(",\"chunkOverlapSamples\":").append(config.chunkOverlapSamples)
+            append(",\"vadContextPaddingSamples\":").append(config.vadContextPaddingSamples)
+            append(",\"speakerCountPreset\":\"")
+                .append(requestedSpeakerCount?.name ?: "CUSTOM")
+                .append("\"")
+            append(",\"speakerEmbeddingModelPreset\":\"")
+                .append(requestedEmbeddingModel.name)
+                .append("\"")
+            append(",\"expectedSpeakerCount\":")
+                .append(config.expectedSpeakerCount?.toString() ?: "null")
+            append(",\"minimumGlobalSpeakerCount\":")
+                .append(config.minimumGlobalSpeakerCount?.toString() ?: "null")
+            append(",\"maximumGlobalSpeakerCount\":")
+                .append(config.maximumGlobalSpeakerCount?.toString() ?: "null")
+            append(",\"clusteringThreshold\":")
+                .append(config.clusteringThreshold?.toString() ?: "null")
+            append(",\"stitchingCosineThreshold\":").append(config.stitchingCosineThreshold)
+            append(",\"stitchingMinimumOverlapSamples\":")
+                .append(config.stitchingMinimumOverlapSamples)
+            append(",\"stitchingMinimumAnchorSamples\":")
+                .append(config.stitchingMinimumAnchorSamples)
+            append(",\"stitchingMaxAnchorsPerSpeaker\":")
+                .append(config.stitchingMaxAnchorsPerSpeaker)
+            append(",\"performanceProfile\":\"").append(performance.profile.name).append("\"")
+            append(",\"requestedThreads\":")
+                .append(performance.requestedThreads?.toString() ?: "null")
+            append(",\"effectiveThreads\":").append(performance.effectiveThreads)
+            append(",\"vad\":{")
+            append("\"threshold\":").append(vadSettings.threshold)
+            append(",\"minSilenceDurationSeconds\":").append(vadSettings.minSilenceDurationSeconds)
+            append(",\"minSpeechDurationSeconds\":").append(vadSettings.minSpeechDurationSeconds)
+            append(",\"maxSpeechDurationSeconds\":").append(vadSettings.maxSpeechDurationSeconds)
+            append(",\"windowSizeSamples\":512}")
+            append(",\"sherpaDefaults\":{")
+            append("\"numThreads\":").append(performance.effectiveThreads)
+            append(",\"pyannoteWindowShiftRatio\":0.1")
+            append(",\"minDurationOnSeconds\":0.2")
+            append(",\"minDurationOffSeconds\":0.5")
+            append(",\"defaultClusteringThreshold\":0.5")
+            append(",\"computeConfidence\":true}")
+            append(",\"models\":[")
+            models.forEachIndexed { index, model ->
+                if (index > 0) append(',')
+                append("{\"id\":\"")
+                    .append(model.descriptor.modelId)
+                    .append("\",\"version\":\"")
+                    .append(model.descriptor.version)
+                    .append("\",\"revision\":")
+                    .append(model.descriptor.revision)
+                    .append(",\"manifestDigest\":\"")
+                    .append(model.manifestDigest)
+                    .append("\"}")
+            }
+            append("]}")
         }
-        append("]}")
-    }
 
     private fun lineageDigest(models: List<ActiveModel>): String {
-        val canonical = models.sortedBy { it.descriptor.modelId }.joinToString("\n") { model ->
-            model.descriptor.modelId + "|" + model.descriptor.version + "|" + model.descriptor.revision + "|" + model.manifestDigest
-        }
-        return MessageDigest.getInstance("SHA-256")
+        val canonical =
+            models
+                .sortedBy { it.descriptor.modelId }
+                .joinToString("\n") { model ->
+                    model.descriptor.modelId + "|" +
+                        model.descriptor.version + "|" +
+                        model.descriptor.revision + "|" +
+                        model.manifestDigest
+                }
+        return MessageDigest
+            .getInstance("SHA-256")
             .digest(canonical.toByteArray(Charsets.UTF_8))
-            .joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') }
+            .joinToString("") {
+                (it.toInt() and 0xFF).toString(16).padStart(2, '0')
+            }
     }
 
     private fun releaseLeases(leases: List<ModelLease>): List<ModelLease> {
-        leases.asReversed().forEach { lease -> runCatching { lease.close() } }
+        leases.asReversed().forEach { lease ->
+            runCatching { lease.close() }
+        }
         return emptyList()
     }
 
@@ -803,7 +1163,8 @@ class DiarizationCoordinator(
         val segmentation: ActiveModel,
         val embedding: ActiveModel,
     ) {
-        val all: List<ActiveModel> get() = listOf(vad, segmentation, embedding)
+        val all: List<ActiveModel>
+            get() = listOf(vad, segmentation, embedding)
     }
 
     private companion object {
