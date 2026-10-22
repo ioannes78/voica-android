@@ -71,28 +71,22 @@ class DiarizationRepository(
     private val dao = database.diarizationDao()
     private val transcriptionDao = database.transcriptionDao()
 
-    fun observeRuns(recordingId: String): Flow<List<DiarizationRunEntity>> =
-        dao.observeRuns(recordingId)
-
-    fun observeLatestCompletedRun(recordingId: String): Flow<DiarizationRunEntity?> =
-        dao.observeLatestCompletedRun(recordingId)
-
-    fun observeAlignments(transcriptionId: String): Flow<List<TranscriptSpeakerAlignmentEntity>> =
-        dao.observeAlignments(transcriptionId)
-
+    fun observeRuns(recordingId: String): Flow<List<DiarizationRunEntity>> = dao.observeRuns(recordingId)
+    fun observeLatestCompletedRun(recordingId: String): Flow<DiarizationRunEntity?> = dao.observeLatestCompletedRun(recordingId)
+    fun observeAlignments(transcriptionId: String): Flow<List<TranscriptSpeakerAlignmentEntity>> = dao.observeAlignments(transcriptionId)
     suspend fun findRun(runId: String): DiarizationRunEntity? = dao.findRun(runId)
+    suspend fun findAlignment(alignmentId: String): TranscriptSpeakerAlignmentEntity? = dao.findAlignment(alignmentId)
+    suspend fun findSpan(spanId: String): TranscriptSpeakerSpanEntity? = dao.findSpan(spanId)
+    suspend fun loadSpeakers(runId: String): List<DiarizationSpeakerEntity> = dao.loadSpeakers(runId)
+    suspend fun loadTurns(runId: String): List<SpeakerTurnEntity> = dao.loadTurns(runId)
+    suspend fun loadSpans(alignmentId: String): List<TranscriptSpeakerSpanEntity> = dao.loadSpans(alignmentId)
 
-    suspend fun findAlignment(alignmentId: String): TranscriptSpeakerAlignmentEntity? =
-        dao.findAlignment(alignmentId)
-
-    suspend fun loadSpeakers(runId: String): List<DiarizationSpeakerEntity> =
-        dao.loadSpeakers(runId)
-
-    suspend fun loadTurns(runId: String): List<SpeakerTurnEntity> =
-        dao.loadTurns(runId)
-
-    suspend fun loadSpans(alignmentId: String): List<TranscriptSpeakerSpanEntity> =
-        dao.loadSpans(alignmentId)
+    suspend fun loadSpeakersForSpan(spanId: String): List<DiarizationSpeakerEntity> {
+        val span = dao.findSpan(spanId) ?: return emptyList()
+        val alignment = dao.findAlignment(span.alignmentId) ?: return emptyList()
+        if (alignment.state != TranscriptSpeakerAlignmentStateValue.COMPLETED) return emptyList()
+        return dao.loadSpeakers(alignment.diarizationRunId)
+    }
 
     suspend fun createRun(request: NewDiarizationRunRequest): String {
         validateRunRequest(request)
@@ -153,54 +147,27 @@ class DiarizationRepository(
     }
 
     suspend fun cancelRun(runId: String) {
-        terminateRun(
-            runId = runId,
-            state = DiarizationStateValue.CANCELLED,
-            errorCode = "USER_CANCELLED",
-            errorMessage = "diarization cancelled by user",
-        )
+        terminateRun(runId, DiarizationStateValue.CANCELLED, "USER_CANCELLED", "diarization cancelled by user")
     }
 
-    suspend fun failRunRecoverable(
-        runId: String,
-        errorCode: String,
-        errorMessage: String?,
-    ) {
-        terminateRun(
-            runId = runId,
-            state = DiarizationStateValue.FAILED_RECOVERABLE,
-            errorCode = errorCode,
-            errorMessage = errorMessage,
-        )
+    suspend fun failRunRecoverable(runId: String, errorCode: String, errorMessage: String?) {
+        terminateRun(runId, DiarizationStateValue.FAILED_RECOVERABLE, errorCode, errorMessage)
     }
 
-    suspend fun persistCompletedRun(
-        runId: String,
-        speakerCount: Int,
-        turns: List<SpeakerTurnWrite>,
-    ) {
+    suspend fun persistCompletedRun(runId: String, speakerCount: Int, turns: List<SpeakerTurnWrite>) {
         require(speakerCount >= 0)
         val before = dao.findRun(runId) ?: error("diarization run not found")
-        if (before.state != DiarizationStateValue.PERSISTING) {
-            transitionRun(runId, DiarizationStateValue.PERSISTING)
-        }
+        if (before.state != DiarizationStateValue.PERSISTING) transitionRun(runId, DiarizationStateValue.PERSISTING)
         val run = dao.findRun(runId) ?: error("diarization run not found")
         require(run.state == DiarizationStateValue.PERSISTING)
         validateTurns(speakerCount, turns, run.totalSampleCount)
-
         val speakerIds = List(speakerCount) { newId() }
         val now = nowMs()
-
         database.withTransaction {
             if (speakerCount > 0) {
                 dao.insertSpeakers(
                     speakerIds.mapIndexed { index, speakerId ->
-                        DiarizationSpeakerEntity(
-                            id = speakerId,
-                            diarizationRunId = runId,
-                            speakerOrdinal = index + 1,
-                            displayName = null,
-                        )
+                        DiarizationSpeakerEntity(speakerId, runId, index + 1, null)
                     },
                 )
             }
@@ -221,52 +188,28 @@ class DiarizationRepository(
                     },
                 )
             }
-            check(
-                dao.updateRunState(
-                    runId = runId,
-                    state = DiarizationStateValue.COMPLETED,
-                    startedAtMs = run.startedAtMs ?: run.createdAtMs,
-                    updatedAtMs = now,
-                    completedAtMs = now,
-                    errorCode = null,
-                    errorMessage = null,
-                ) == 1,
-            )
+            check(dao.updateRunState(runId, DiarizationStateValue.COMPLETED, run.startedAtMs ?: run.createdAtMs, now, now, null, null) == 1)
         }
     }
 
     suspend fun createAlignment(request: NewTranscriptSpeakerAlignmentRequest): String {
         require(request.alignmentVersion >= 1)
         require(request.configSnapshot.isNotBlank())
-        val transcription =
-            transcriptionDao.findTranscription(request.transcriptionId)
-                ?: error("transcription not found")
-        val run =
-            dao.findRun(request.diarizationRunId)
-                ?: error("diarization run not found")
-
+        val transcription = transcriptionDao.findTranscription(request.transcriptionId) ?: error("transcription not found")
+        val run = dao.findRun(request.diarizationRunId) ?: error("diarization run not found")
         require(transcription.state == TranscriptionStateValue.COMPLETED)
         require(run.state == DiarizationStateValue.COMPLETED)
         require(transcription.recordingId == run.recordingId)
         require(transcription.sourceCanonicalSha256 == run.sourceCanonicalSha256)
         require(transcription.canonicalProfileId == run.canonicalProfileId)
         require(transcription.totalSampleCount == run.totalSampleCount)
-
         val id = newId()
         val now = nowMs()
         dao.insertAlignment(
             TranscriptSpeakerAlignmentEntity(
-                id = id,
-                transcriptionId = request.transcriptionId,
-                diarizationRunId = request.diarizationRunId,
-                alignmentVersion = request.alignmentVersion,
-                configSnapshot = request.configSnapshot,
-                state = TranscriptSpeakerAlignmentStateValue.PREPARING,
-                createdAtMs = now,
-                updatedAtMs = now,
-                completedAtMs = null,
-                errorCode = null,
-                errorMessage = null,
+                id, request.transcriptionId, request.diarizationRunId, request.alignmentVersion,
+                request.configSnapshot, TranscriptSpeakerAlignmentStateValue.PREPARING,
+                now, now, null, null, null,
             ),
         )
         return id
@@ -275,63 +218,30 @@ class DiarizationRepository(
     suspend fun transitionAlignment(alignmentId: String, state: String) {
         val current = dao.findAlignment(alignmentId) ?: error("speaker alignment not found")
         if (current.state == state) return
-        require(isAllowedAlignmentTransition(current.state, state)) {
-            "invalid alignment state transition: ${current.state} -> $state"
-        }
+        require(isAllowedAlignmentTransition(current.state, state))
         val now = nowMs()
-        check(
-            dao.updateAlignmentState(
-                alignmentId = alignmentId,
-                state = state,
-                updatedAtMs = now,
-                completedAtMs =
-                    if (state == TranscriptSpeakerAlignmentStateValue.COMPLETED) now else null,
-                errorCode = null,
-                errorMessage = null,
-            ) == 1,
-        )
+        check(dao.updateAlignmentState(alignmentId, state, now, if (state == TranscriptSpeakerAlignmentStateValue.COMPLETED) now else null, null, null) == 1)
     }
 
     suspend fun cancelAlignment(alignmentId: String) {
-        terminateAlignment(
-            alignmentId = alignmentId,
-            state = TranscriptSpeakerAlignmentStateValue.CANCELLED,
-            errorCode = "USER_CANCELLED",
-            errorMessage = "speaker alignment cancelled by user",
-        )
+        terminateAlignment(alignmentId, TranscriptSpeakerAlignmentStateValue.CANCELLED, "USER_CANCELLED", "speaker alignment cancelled by user")
     }
 
-    suspend fun failAlignmentRecoverable(
-        alignmentId: String,
-        errorCode: String,
-        errorMessage: String?,
-    ) {
-        terminateAlignment(
-            alignmentId = alignmentId,
-            state = TranscriptSpeakerAlignmentStateValue.FAILED_RECOVERABLE,
-            errorCode = errorCode,
-            errorMessage = errorMessage,
-        )
+    suspend fun failAlignmentRecoverable(alignmentId: String, errorCode: String, errorMessage: String?) {
+        terminateAlignment(alignmentId, TranscriptSpeakerAlignmentStateValue.FAILED_RECOVERABLE, errorCode, errorMessage)
     }
 
-    suspend fun persistCompletedAlignment(
-        alignmentId: String,
-        spans: List<TranscriptSpeakerSpanWrite>,
-    ) {
+    suspend fun persistCompletedAlignment(alignmentId: String, spans: List<TranscriptSpeakerSpanWrite>) {
         val before = dao.findAlignment(alignmentId) ?: error("speaker alignment not found")
-        if (before.state != TranscriptSpeakerAlignmentStateValue.PERSISTING) {
-            transitionAlignment(alignmentId, TranscriptSpeakerAlignmentStateValue.PERSISTING)
-        }
+        if (before.state != TranscriptSpeakerAlignmentStateValue.PERSISTING) transitionAlignment(alignmentId, TranscriptSpeakerAlignmentStateValue.PERSISTING)
         val alignment = dao.findAlignment(alignmentId) ?: error("speaker alignment not found")
         val run = dao.findRun(alignment.diarizationRunId) ?: error("diarization run not found")
         val segments = transcriptionDao.loadSegments(alignment.transcriptionId)
         val speakers = dao.loadSpeakers(alignment.diarizationRunId)
         validateSpans(spans, segments, speakers, run.totalSampleCount)
-
         val segmentsByIndex = segments.associateBy { it.segmentIndex }
         val speakersByIndex = speakers.associateBy { it.speakerOrdinal - 1 }
         val now = nowMs()
-
         database.withTransaction {
             if (spans.isNotEmpty()) {
                 dao.insertSpans(
@@ -340,12 +250,8 @@ class DiarizationRepository(
                             id = newId(),
                             alignmentId = alignmentId,
                             spanIndex = span.spanIndex,
-                            sourceTranscriptSegmentId =
-                                checkNotNull(segmentsByIndex[span.sourceSegmentIndex]).id,
-                            speakerId =
-                                span.speakerIndex?.let {
-                                    checkNotNull(speakersByIndex[it]).id
-                                },
+                            sourceTranscriptSegmentId = checkNotNull(segmentsByIndex[span.sourceSegmentIndex]).id,
+                            speakerId = span.speakerIndex?.let { checkNotNull(speakersByIndex[it]).id },
                             startSampleIndex = span.startSampleIndex,
                             endSampleIndexExclusive = span.endSampleIndexExclusive,
                             tokenSource = span.tokenSource,
@@ -360,146 +266,69 @@ class DiarizationRepository(
                     },
                 )
             }
-            check(
-                dao.updateAlignmentState(
-                    alignmentId = alignmentId,
-                    state = TranscriptSpeakerAlignmentStateValue.COMPLETED,
-                    updatedAtMs = now,
-                    completedAtMs = now,
-                    errorCode = null,
-                    errorMessage = null,
-                ) == 1,
-            )
+            check(dao.updateAlignmentState(alignmentId, TranscriptSpeakerAlignmentStateValue.COMPLETED, now, now, null, null) == 1)
         }
     }
 
-    suspend fun renameSpeaker(
-        speakerId: String,
-        requestedName: String?,
-    ): Boolean {
-        val name =
-            requestedName
-                ?.replace('\u0000', '_')
-                ?.map { if (it.isISOControl()) '_' else it }
-                ?.joinToString("")
-                ?.trim()
-                ?.take(MAX_DISPLAY_NAME)
-                ?.takeIf { it.isNotBlank() }
+    suspend fun renameSpeaker(speakerId: String, requestedName: String?): Boolean {
+        val name = requestedName?.replace('\u0000', '_')?.map { if (it.isISOControl()) '_' else it }?.joinToString("")?.trim()?.take(MAX_DISPLAY_NAME)?.takeIf { it.isNotBlank() }
         return dao.updateSpeakerDisplayName(speakerId, name) == 1
     }
 
-    suspend fun assignSpeakerToSpan(
-        alignmentId: String,
-        spanId: String,
-        speakerId: String,
-    ): Boolean {
+    suspend fun assignSpeakerToSpan(spanId: String, speakerId: String): Boolean {
+        require(spanId.isNotBlank())
+        val span = dao.findSpan(spanId) ?: return false
+        return assignSpeakerToSpan(span.alignmentId, spanId, speakerId)
+    }
+
+    suspend fun assignSpeakerToSpan(alignmentId: String, spanId: String, speakerId: String): Boolean {
         require(alignmentId.isNotBlank())
         require(spanId.isNotBlank())
         require(speakerId.isNotBlank())
         val alignment = dao.findAlignment(alignmentId) ?: return false
         if (alignment.state != TranscriptSpeakerAlignmentStateValue.COMPLETED) return false
-        val span = dao.loadSpans(alignmentId).firstOrNull { it.id == spanId } ?: return false
-        val speaker =
-            dao.loadSpeakers(alignment.diarizationRunId)
-                .firstOrNull { it.id == speakerId }
-                ?: return false
-        val quality =
-            if (span.overlap) {
-                SpeakerAssignmentQualityValue.ASSIGNED_WITH_OVERLAP
-            } else {
-                SpeakerAssignmentQualityValue.ASSIGNED
-            }
-        return dao.updateSpanSpeakerAssignment(
-            alignmentId = alignmentId,
-            spanId = spanId,
-            speakerId = speaker.id,
-            assignmentQuality = quality,
-            ambiguous = false,
-        ) == 1
+        val span = dao.findSpan(spanId)?.takeIf { it.alignmentId == alignmentId } ?: return false
+        val speaker = dao.loadSpeakers(alignment.diarizationRunId).firstOrNull { it.id == speakerId } ?: return false
+        val quality = if (span.overlap) SpeakerAssignmentQualityValue.ASSIGNED_WITH_OVERLAP else SpeakerAssignmentQualityValue.ASSIGNED
+        return dao.updateSpanSpeakerAssignment(alignmentId, spanId, speaker.id, quality, false) == 1
     }
 
-    suspend fun restoreAmbiguousOverlapSpan(
-        alignmentId: String,
-        spanId: String,
-    ): Boolean {
+    suspend fun restoreAmbiguousOverlapSpan(spanId: String): Boolean {
+        val span = dao.findSpan(spanId) ?: return false
+        return restoreAmbiguousOverlapSpan(span.alignmentId, spanId)
+    }
+
+    suspend fun restoreAmbiguousOverlapSpan(alignmentId: String, spanId: String): Boolean {
         require(alignmentId.isNotBlank())
         require(spanId.isNotBlank())
         val alignment = dao.findAlignment(alignmentId) ?: return false
         if (alignment.state != TranscriptSpeakerAlignmentStateValue.COMPLETED) return false
-        val span = dao.loadSpans(alignmentId).firstOrNull { it.id == spanId } ?: return false
+        val span = dao.findSpan(spanId)?.takeIf { it.alignmentId == alignmentId } ?: return false
         if (!span.overlap) return false
-        return dao.updateSpanSpeakerAssignment(
-            alignmentId = alignmentId,
-            spanId = spanId,
-            speakerId = null,
-            assignmentQuality = SpeakerAssignmentQualityValue.OVERLAP_AMBIGUOUS,
-            ambiguous = true,
-        ) == 1
+        return dao.updateSpanSpeakerAssignment(alignmentId, spanId, null, SpeakerAssignmentQualityValue.OVERLAP_AMBIGUOUS, true) == 1
     }
 
-    suspend fun reconcileInterruptedOnStartup(): StartupDiarizationReconciliation =
-        StartupDiarizationReconciliation(
-            interruptedRuns =
-                dao.markActiveRunsInterrupted(
-                    activeStates = DiarizationStateValue.ACTIVE,
-                    nowMs = nowMs(),
-                ),
-            interruptedAlignments =
-                dao.markActiveAlignmentsInterrupted(
-                    activeStates = TranscriptSpeakerAlignmentStateValue.ACTIVE,
-                    nowMs = nowMs(),
-                ),
-        )
+    suspend fun reconcileInterruptedOnStartup(): StartupDiarizationReconciliation = StartupDiarizationReconciliation(
+        interruptedRuns = dao.markActiveRunsInterrupted(DiarizationStateValue.ACTIVE, nowMs()),
+        interruptedAlignments = dao.markActiveAlignmentsInterrupted(TranscriptSpeakerAlignmentStateValue.ACTIVE, nowMs()),
+    )
 
-    private suspend fun terminateRun(
-        runId: String,
-        state: String,
-        errorCode: String,
-        errorMessage: String?,
-    ) {
+    private suspend fun terminateRun(runId: String, state: String, errorCode: String, errorMessage: String?) {
         require(state in RUN_FAILURE_STATES)
         val current = dao.findRun(runId) ?: error("diarization run not found")
         if (current.state == state) return
-        require(current.state in DiarizationStateValue.ACTIVE) {
-            "terminal diarization transition requires an active run"
-        }
+        require(current.state in DiarizationStateValue.ACTIVE)
         val now = nowMs()
-        check(
-            dao.updateRunState(
-                runId = runId,
-                state = state,
-                startedAtMs = current.startedAtMs ?: now,
-                updatedAtMs = now,
-                completedAtMs = now,
-                errorCode = errorCode,
-                errorMessage = errorMessage,
-            ) == 1,
-        )
+        check(dao.updateRunState(runId, state, current.startedAtMs ?: now, now, now, errorCode, errorMessage) == 1)
     }
 
-    private suspend fun terminateAlignment(
-        alignmentId: String,
-        state: String,
-        errorCode: String,
-        errorMessage: String?,
-    ) {
+    private suspend fun terminateAlignment(alignmentId: String, state: String, errorCode: String, errorMessage: String?) {
         require(state in ALIGNMENT_FAILURE_STATES)
         val current = dao.findAlignment(alignmentId) ?: error("speaker alignment not found")
         if (current.state == state) return
-        require(current.state in TranscriptSpeakerAlignmentStateValue.ACTIVE) {
-            "terminal alignment transition requires an active alignment"
-        }
+        require(current.state in TranscriptSpeakerAlignmentStateValue.ACTIVE)
         val now = nowMs()
-        check(
-            dao.updateAlignmentState(
-                alignmentId = alignmentId,
-                state = state,
-                updatedAtMs = now,
-                completedAtMs = now,
-                errorCode = errorCode,
-                errorMessage = errorMessage,
-            ) == 1,
-        )
+        check(dao.updateAlignmentState(alignmentId, state, now, now, errorCode, errorMessage) == 1)
     }
 
     private fun validateRunRequest(request: NewDiarizationRunRequest) {
@@ -524,11 +353,7 @@ class DiarizationRepository(
         require(request.configSnapshot.isNotBlank())
     }
 
-    private fun validateTurns(
-        speakerCount: Int,
-        turns: List<SpeakerTurnWrite>,
-        totalSampleCount: Long,
-    ) {
+    private fun validateTurns(speakerCount: Int, turns: List<SpeakerTurnWrite>, totalSampleCount: Long) {
         var previousStart = -1L
         turns.forEach { turn ->
             require(turn.speakerIndex in 0 until speakerCount)
@@ -536,28 +361,17 @@ class DiarizationRepository(
             require(turn.startSampleIndex >= previousStart)
             require(turn.endSampleIndexExclusive > turn.startSampleIndex)
             require(turn.endSampleIndexExclusive <= totalSampleCount)
-            require(
-                turn.confidence == null ||
-                    (turn.confidence.isFinite() && turn.confidence in -1F..1F),
-            )
+            require(turn.confidence == null || (turn.confidence.isFinite() && turn.confidence in -1F..1F))
             previousStart = turn.startSampleIndex
         }
     }
 
-    private fun validateSpans(
-        spans: List<TranscriptSpeakerSpanWrite>,
-        segments: List<TranscriptSegmentEntity>,
-        speakers: List<DiarizationSpeakerEntity>,
-        totalSampleCount: Long,
-    ) {
+    private fun validateSpans(spans: List<TranscriptSpeakerSpanWrite>, segments: List<TranscriptSegmentEntity>, speakers: List<DiarizationSpeakerEntity>, totalSampleCount: Long) {
         val segmentsByIndex = segments.associateBy { it.segmentIndex }
         val speakerIndices = speakers.map { it.speakerOrdinal - 1 }.toSet()
-
         spans.forEachIndexed { expectedIndex, span ->
             require(span.spanIndex == expectedIndex)
-            val segment =
-                segmentsByIndex[span.sourceSegmentIndex]
-                    ?: error("speaker span references unknown transcript segment")
+            val segment = segmentsByIndex[span.sourceSegmentIndex] ?: error("speaker span references unknown transcript segment")
             require(span.speakerIndex == null || span.speakerIndex in speakerIndices)
             require(span.startSampleIndex >= segment.startSampleIndex)
             require(span.endSampleIndexExclusive > span.startSampleIndex)
@@ -570,44 +384,24 @@ class DiarizationRepository(
             if (span.tokenStartIndex != null) {
                 require(span.tokenStartIndex >= 0)
                 require(span.tokenEndIndexExclusive!! > span.tokenStartIndex)
-                require(
-                    span.tokenSource == TranscriptTokenSourceValue.FIRST_PASS ||
-                        span.tokenSource == TranscriptTokenSourceValue.SECOND_PASS,
-                )
+                require(span.tokenSource == TranscriptTokenSourceValue.FIRST_PASS || span.tokenSource == TranscriptTokenSourceValue.SECOND_PASS)
             }
             when (span.assignmentQuality) {
-                SpeakerAssignmentQualityValue.ASSIGNED,
-                SpeakerAssignmentQualityValue.ASSIGNED_WITH_OVERLAP,
-                -> require(span.speakerIndex != null)
-
-                SpeakerAssignmentQualityValue.OVERLAP_AMBIGUOUS,
-                SpeakerAssignmentQualityValue.UNRESOLVED,
-                -> require(span.speakerIndex == null)
-
+                SpeakerAssignmentQualityValue.ASSIGNED, SpeakerAssignmentQualityValue.ASSIGNED_WITH_OVERLAP -> require(span.speakerIndex != null)
+                SpeakerAssignmentQualityValue.OVERLAP_AMBIGUOUS, SpeakerAssignmentQualityValue.UNRESOLVED -> require(span.speakerIndex == null)
                 else -> error("unknown speaker assignment quality")
             }
-            require(
-                !span.ambiguous ||
-                    span.assignmentQuality == SpeakerAssignmentQualityValue.OVERLAP_AMBIGUOUS,
-            )
+            require(!span.ambiguous || span.assignmentQuality == SpeakerAssignmentQualityValue.OVERLAP_AMBIGUOUS)
         }
-
         val bySegment = spans.groupBy { it.sourceSegmentIndex }
         segments.filter { it.finalText.isNotEmpty() }.forEach { segment ->
-            val segmentSpans =
-                bySegment[segment.segmentIndex]
-                    ?.sortedBy { it.finalTextStartOffset }
-                    ?: error("non-empty transcript segment has no speaker spans")
+            val segmentSpans = bySegment[segment.segmentIndex]?.sortedBy { it.finalTextStartOffset } ?: error("non-empty transcript segment has no speaker spans")
             var cursor = 0
             segmentSpans.forEach { span ->
-                require(span.finalTextStartOffset == cursor) {
-                    "speaker spans must cover finalText without gaps or overlap"
-                }
+                require(span.finalTextStartOffset == cursor) { "speaker spans must cover finalText without gaps or overlap" }
                 cursor = span.finalTextEndOffsetExclusive
             }
-            require(cursor == segment.finalText.length) {
-                "speaker spans must cover the complete finalText"
-            }
+            require(cursor == segment.finalText.length) { "speaker spans must cover the complete finalText" }
         }
     }
 
@@ -616,15 +410,9 @@ class DiarizationRepository(
         if (to in RUN_FAILURE_STATES) return true
         return when (from) {
             DiarizationStateValue.PREPARING -> to == DiarizationStateValue.VAD_ANALYZING
-            DiarizationStateValue.VAD_ANALYZING ->
-                to == DiarizationStateValue.DIARIZING ||
-                    to == DiarizationStateValue.PERSISTING
-            DiarizationStateValue.DIARIZING ->
-                to == DiarizationStateValue.STITCHING ||
-                    to == DiarizationStateValue.PERSISTING
-            DiarizationStateValue.STITCHING,
-            DiarizationStateValue.ALIGNING,
-            -> to == DiarizationStateValue.PERSISTING
+            DiarizationStateValue.VAD_ANALYZING -> to == DiarizationStateValue.DIARIZING || to == DiarizationStateValue.PERSISTING
+            DiarizationStateValue.DIARIZING -> to == DiarizationStateValue.STITCHING || to == DiarizationStateValue.PERSISTING
+            DiarizationStateValue.STITCHING, DiarizationStateValue.ALIGNING -> to == DiarizationStateValue.PERSISTING
             DiarizationStateValue.PERSISTING -> to == DiarizationStateValue.COMPLETED
             else -> false
         }
@@ -634,36 +422,19 @@ class DiarizationRepository(
         if (from !in TranscriptSpeakerAlignmentStateValue.ACTIVE) return false
         if (to in ALIGNMENT_FAILURE_STATES) return true
         return when (from) {
-            TranscriptSpeakerAlignmentStateValue.PREPARING ->
-                to == TranscriptSpeakerAlignmentStateValue.ALIGNING ||
-                    to == TranscriptSpeakerAlignmentStateValue.PERSISTING
-            TranscriptSpeakerAlignmentStateValue.ALIGNING ->
-                to == TranscriptSpeakerAlignmentStateValue.PERSISTING
-            TranscriptSpeakerAlignmentStateValue.PERSISTING ->
-                to == TranscriptSpeakerAlignmentStateValue.COMPLETED
+            TranscriptSpeakerAlignmentStateValue.PREPARING -> to == TranscriptSpeakerAlignmentStateValue.ALIGNING || to == TranscriptSpeakerAlignmentStateValue.PERSISTING
+            TranscriptSpeakerAlignmentStateValue.ALIGNING -> to == TranscriptSpeakerAlignmentStateValue.PERSISTING
+            TranscriptSpeakerAlignmentStateValue.PERSISTING -> to == TranscriptSpeakerAlignmentStateValue.COMPLETED
             else -> false
         }
     }
 
-    private fun newId(): String =
-        idFactory().also { require(it.isNotBlank()) }
+    private fun newId(): String = idFactory().also { require(it.isNotBlank()) }
 
     private companion object {
         const val MAX_DISPLAY_NAME = 80
         val SHA256 = Regex("^[0-9a-fA-F]{64}$")
-        val RUN_FAILURE_STATES =
-            setOf(
-                DiarizationStateValue.CANCELLED,
-                DiarizationStateValue.INTERRUPTED,
-                DiarizationStateValue.FAILED_RECOVERABLE,
-                DiarizationStateValue.FAILED_PERMANENT,
-            )
-        val ALIGNMENT_FAILURE_STATES =
-            setOf(
-                TranscriptSpeakerAlignmentStateValue.CANCELLED,
-                TranscriptSpeakerAlignmentStateValue.INTERRUPTED,
-                TranscriptSpeakerAlignmentStateValue.FAILED_RECOVERABLE,
-                TranscriptSpeakerAlignmentStateValue.FAILED_PERMANENT,
-            )
+        val RUN_FAILURE_STATES = setOf(DiarizationStateValue.CANCELLED, DiarizationStateValue.INTERRUPTED, DiarizationStateValue.FAILED_RECOVERABLE, DiarizationStateValue.FAILED_PERMANENT)
+        val ALIGNMENT_FAILURE_STATES = setOf(TranscriptSpeakerAlignmentStateValue.CANCELLED, TranscriptSpeakerAlignmentStateValue.INTERRUPTED, TranscriptSpeakerAlignmentStateValue.FAILED_RECOVERABLE, TranscriptSpeakerAlignmentStateValue.FAILED_PERMANENT)
     }
 }
