@@ -388,6 +388,55 @@ class DiarizationRepository(
         return dao.updateSpeakerDisplayName(speakerId, name) == 1
     }
 
+    suspend fun assignSpeakerToSpan(
+        alignmentId: String,
+        spanId: String,
+        speakerId: String,
+    ): Boolean {
+        require(alignmentId.isNotBlank())
+        require(spanId.isNotBlank())
+        require(speakerId.isNotBlank())
+        val alignment = dao.findAlignment(alignmentId) ?: return false
+        if (alignment.state != TranscriptSpeakerAlignmentStateValue.COMPLETED) return false
+        val span = dao.loadSpans(alignmentId).firstOrNull { it.id == spanId } ?: return false
+        val speaker =
+            dao.loadSpeakers(alignment.diarizationRunId)
+                .firstOrNull { it.id == speakerId }
+                ?: return false
+        val quality =
+            if (span.overlap) {
+                SpeakerAssignmentQualityValue.ASSIGNED_WITH_OVERLAP
+            } else {
+                SpeakerAssignmentQualityValue.ASSIGNED
+            }
+        return dao.updateSpanSpeakerAssignment(
+            alignmentId = alignmentId,
+            spanId = spanId,
+            speakerId = speaker.id,
+            assignmentQuality = quality,
+            ambiguous = false,
+        ) == 1
+    }
+
+    suspend fun restoreAmbiguousOverlapSpan(
+        alignmentId: String,
+        spanId: String,
+    ): Boolean {
+        require(alignmentId.isNotBlank())
+        require(spanId.isNotBlank())
+        val alignment = dao.findAlignment(alignmentId) ?: return false
+        if (alignment.state != TranscriptSpeakerAlignmentStateValue.COMPLETED) return false
+        val span = dao.loadSpans(alignmentId).firstOrNull { it.id == spanId } ?: return false
+        if (!span.overlap) return false
+        return dao.updateSpanSpeakerAssignment(
+            alignmentId = alignmentId,
+            spanId = spanId,
+            speakerId = null,
+            assignmentQuality = SpeakerAssignmentQualityValue.OVERLAP_AMBIGUOUS,
+            ambiguous = true,
+        ) == 1
+    }
+
     suspend fun reconcileInterruptedOnStartup(): StartupDiarizationReconciliation =
         StartupDiarizationReconciliation(
             interruptedRuns =
