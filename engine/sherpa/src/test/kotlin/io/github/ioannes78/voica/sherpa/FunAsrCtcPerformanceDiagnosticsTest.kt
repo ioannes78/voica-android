@@ -62,6 +62,14 @@ class FunAsrCtcPerformanceDiagnosticsTest {
     }
 
     @Test
+    fun emptyStateIsExplicitForQa() {
+        assertEquals(
+            "No FunASR CTC performance diagnostics yet.",
+            FunAsrCtcPerformanceDiagnostics.formatForQa(),
+        )
+    }
+
+    @Test
     fun clearRemovesPriorQaRecords() {
         FunAsrCtcPerformanceDiagnostics.record(
             FunAsrCtcPerformanceDiagnostic(
