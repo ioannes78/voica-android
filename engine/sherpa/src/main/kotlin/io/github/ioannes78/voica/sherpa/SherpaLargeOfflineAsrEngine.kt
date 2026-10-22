@@ -459,6 +459,13 @@ fun createSherpaLargeOfflineAsrEngine(
             settings = settings,
         )
     return if (model.runtimeModelType == SherpaOfflineAsrModelType.FUNASR_NANO) {
+        FunAsrCtcPerformanceDiagnostics.clear()
+        FunAsrRuntimeDiagnostics.clear()
+        FunAsrQaSessionDiagnostics.clear()
+        FunAsrQaSessionDiagnostics.begin(
+            effectiveThreads = settings.numThreads,
+            hotwordEnabled = settings.funAsrHotwords.isNotBlank(),
+        )
         FunAsrAdaptiveOfflineAsrEngine(
             delegate = base,
             settings = settings,
