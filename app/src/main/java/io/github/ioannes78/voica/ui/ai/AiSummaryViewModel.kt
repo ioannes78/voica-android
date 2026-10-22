@@ -3,8 +3,6 @@ package io.github.ioannes78.voica.ui.ai
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import io.github.ioannes78.voica.AiSummaryCoordinator
-import io.github.ioannes78.voica.AiSummaryRunState
 import io.github.ioannes78.voica.ai.AiSummaryResult
 import io.github.ioannes78.voica.ai.SummaryResultCodec
 import io.github.ioannes78.voica.database.AiSummaryEntity
@@ -12,8 +10,6 @@ import io.github.ioannes78.voica.database.AiSummaryEvidenceEntity
 import io.github.ioannes78.voica.database.AiSummaryRepository
 import io.github.ioannes78.voica.database.AiSummaryStateValue
 import io.github.ioannes78.voica.database.Stage12CContentRepository
-import io.github.ioannes78.voica.llm.ProviderAdapterRegistry
-import io.github.ioannes78.voica.llm.ProviderProfileStore
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -42,9 +38,6 @@ class AiSummaryViewModel(
     private val repository: AiSummaryRepository,
     private val contentRepository: Stage12CContentRepository,
 ) : ViewModel() {
-    private val idleRunState = MutableStateFlow<AiSummaryRunState>(AiSummaryRunState.Idle)
-    val runState: StateFlow<AiSummaryRunState> = idleRunState.asStateFlow()
-
     private val mutableHistory = MutableStateFlow<List<AiSummaryEntity>>(emptyList())
     val history: StateFlow<List<AiSummaryEntity>> =
         mutableHistory
@@ -140,9 +133,6 @@ class AiSummaryViewModel(
         }
     }
 
-    /** Transitional until the legacy detail header is removed. */
-    fun cancel() = Unit
-
     fun clearNotice() {
         mutableNotice.value = null
     }
@@ -223,15 +213,6 @@ class AiSummaryViewModel(
         private val repository: AiSummaryRepository,
         private val contentRepository: Stage12CContentRepository,
     ) : ViewModelProvider.Factory {
-        @Deprecated("Online provider dependencies are being removed in Stage 16 Finalization")
-        constructor(
-            @Suppress("UNUSED_PARAMETER") coordinator: AiSummaryCoordinator?,
-            repository: AiSummaryRepository,
-            @Suppress("UNUSED_PARAMETER") profileStore: ProviderProfileStore?,
-            @Suppress("UNUSED_PARAMETER") providerRegistry: ProviderAdapterRegistry?,
-            contentRepository: Stage12CContentRepository,
-        ) : this(repository, contentRepository)
-
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
             AiSummaryViewModel(repository = repository, contentRepository = contentRepository) as T
