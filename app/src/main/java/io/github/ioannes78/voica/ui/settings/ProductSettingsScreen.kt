@@ -50,7 +50,6 @@ import io.github.ioannes78.voica.stage159QaEntryVisible
 import io.github.ioannes78.voica.stage16A16AudioCalibrationEntryVisible
 import io.github.ioannes78.voica.model.ModelManager
 import io.github.ioannes78.voica.sherpa.SherpaRuntime
-import io.github.ioannes78.voica.ui.ai.ProviderSettingsViewModel
 import io.github.ioannes78.voica.ui.model.ModelManagerCard
 import io.github.ioannes78.voica.ui.theme.ThemeSettingsCard
 import io.github.ioannes78.voica.ui.theme.ThemeSettingsStore
@@ -74,13 +73,10 @@ fun ProductSettingsScreen(
     modelManager: ModelManager,
     modelUpdateController: ModelUpdateController,
     storageManagementCoordinator: StorageManagementCoordinator,
-    providerSettingsViewModel: ProviderSettingsViewModel,
     themeSettingsStore: ThemeSettingsStore,
     localSpeechSettingsStore: LocalSpeechSettingsStore,
     onSecondaryPageChanged: (Boolean) -> Unit,
 ) {
-    @Suppress("UNUSED_VARIABLE")
-    val onlineAiSettingsRemoved = providerSettingsViewModel
     var page by rememberSaveable { mutableStateOf(SettingsPage.HOME) }
     val storageViewModel: StorageManagementViewModel =
         viewModel(
