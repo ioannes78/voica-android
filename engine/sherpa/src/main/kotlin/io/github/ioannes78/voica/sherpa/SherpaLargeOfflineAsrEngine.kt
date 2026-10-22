@@ -226,11 +226,12 @@ private class SherpaNativeLargeOfflineRecognizer(
     ): List<RelativeTimedToken>? {
         val bundle = ctcBundle ?: return null
         val tokenizer = ctcTokenizer ?: return null
-        val targetIds = tokenizer.encode(text)
-        if (targetIds.isEmpty()) return emptyList()
 
         var alignmentDecodeCompleted = false
         return try {
+            val targetIds = tokenizer.encode(text)
+            if (targetIds.isEmpty()) return emptyList()
+
             FunAsrCtcStreamProtocol.requestAlignment(
                 stream = stream,
                 targetIds = targetIds,
