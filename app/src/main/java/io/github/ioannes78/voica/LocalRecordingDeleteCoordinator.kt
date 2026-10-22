@@ -27,7 +27,6 @@ interface RecordingDeletionHooks {
     suspend fun cancelCanonicalAndAwait(recordingId: String)
     suspend fun cancelTranscriptionAndAwait(recordingId: String)
     suspend fun cancelDiarizationAndAwait(recordingId: String)
-    suspend fun cancelAiSummaryAndAwait(recordingId: String)
 }
 
 class DefaultRecordingDeletionHooks(
@@ -35,7 +34,6 @@ class DefaultRecordingDeletionHooks(
     private val canonicalAudioCoordinator: CanonicalAudioCoordinator,
     private val transcriptionCoordinator: TranscriptionCoordinator,
     private val diarizationCoordinator: DiarizationCoordinator,
-    private val aiSummaryCoordinator: AiSummaryCoordinator,
 ) : RecordingDeletionHooks {
     override suspend fun stopPlaybackIfTarget(recordingId: String) {
         if (playbackController.snapshot.value.recordingId == recordingId) {
@@ -53,10 +51,6 @@ class DefaultRecordingDeletionHooks(
 
     override suspend fun cancelDiarizationAndAwait(recordingId: String) {
         diarizationCoordinator.cancelAndAwait(recordingId)
-    }
-
-    override suspend fun cancelAiSummaryAndAwait(recordingId: String) {
-        aiSummaryCoordinator.cancelAndAwait(recordingId)
     }
 }
 
@@ -86,7 +80,6 @@ class LocalRecordingDeleteCoordinator(
                 hooks.cancelCanonicalAndAwait(recordingId)
                 hooks.cancelTranscriptionAndAwait(recordingId)
                 hooks.cancelDiarizationAndAwait(recordingId)
-                hooks.cancelAiSummaryAndAwait(recordingId)
             }.exceptionOrNull()
 
         if (lifecycleFailure != null) {
