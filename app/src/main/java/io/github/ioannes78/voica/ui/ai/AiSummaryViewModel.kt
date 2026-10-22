@@ -225,10 +225,10 @@ class AiSummaryViewModel(
     ) : ViewModelProvider.Factory {
         @Deprecated("Online provider dependencies are being removed in Stage 16 Finalization")
         constructor(
-            @Suppress("UNUSED_PARAMETER") coordinator: AiSummaryCoordinator,
+            @Suppress("UNUSED_PARAMETER") coordinator: AiSummaryCoordinator?,
             repository: AiSummaryRepository,
-            @Suppress("UNUSED_PARAMETER") profileStore: ProviderProfileStore,
-            @Suppress("UNUSED_PARAMETER") providerRegistry: ProviderAdapterRegistry,
+            @Suppress("UNUSED_PARAMETER") profileStore: ProviderProfileStore?,
+            @Suppress("UNUSED_PARAMETER") providerRegistry: ProviderAdapterRegistry?,
             contentRepository: Stage12CContentRepository,
         ) : this(repository, contentRepository)
 
