@@ -36,6 +36,7 @@ import io.github.ioannes78.voica.Stage13AOfflineModelIds
 import io.github.ioannes78.voica.Stage13ARealtimeModelIds
 import io.github.ioannes78.voica.Stage13ASpeakerEmbeddingModelIds
 import io.github.ioannes78.voica.resolvePerformance
+import io.github.ioannes78.voica.resolveStage16BDiarizationPerformance
 import io.github.ioannes78.voica.model.ModelAvailability
 import io.github.ioannes78.voica.model.ModelManager
 import io.github.ioannes78.voica.model.ModelState
@@ -227,7 +228,9 @@ internal fun LocalSpeechSettingsCard(
                 ParameterStepper(
                     title = "自动聚类阈值",
                     value = formatFloat(settings.diarization.clusteringThreshold),
-                    hint = "仅自动估算人数时使用",
+                    hint =
+                        "仅影响自动估算说话人数。值越高，越倾向把相似声音归为同一人；" +
+                            "过高可能把不同人错误合并。\n当前生效值：${formatFloat(settings.diarization.clusteringThreshold)}",
                     onDecrease = {
                         store.setDiarizationSettings(
                             settings.diarization.copy(
@@ -250,7 +253,9 @@ internal fun LocalSpeechSettingsCard(
                 ParameterStepper(
                     title = "跨分块相似度阈值",
                     value = formatFloat(settings.diarization.stitchingCosineThreshold),
-                    hint = "值越高越严格；过高可能增加说话人碎片",
+                    hint =
+                        "控制不同时间窗口中的说话人是否视为同一个人。值越高越严格；" +
+                            "过高可能把同一个人拆成多个说话人。",
                     onDecrease = {
                         store.setDiarizationSettings(
                             settings.diarization.copy(
@@ -279,17 +284,33 @@ internal fun LocalSpeechSettingsCard(
             }
         }
 
+        val asrPerformance = settings.resolvePerformance()
+        val diarizationPerformance = settings.resolveStage16BDiarizationPerformance()
         SpeechSection(
             title = "性能与语音检测",
-            summary = performanceSummary(settings.performanceProfile, settings.resolvePerformance().effectiveThreads),
+            summary =
+                "ASR ${performanceSummary(settings.performanceProfile, asrPerformance.effectiveThreads)} · " +
+                    "分离 ${performanceSummary(settings.performanceProfile, diarizationPerformance.effectiveThreads)}",
             expanded = performanceExpanded,
             onToggle = { performanceExpanded = !performanceExpanded },
         ) {
             Text(
-                "线程数会应用于本地 ASR、VAD、标点和说话人分离。",
+                "自动模式下 ASR 与说话人分离可使用不同的推荐线程数；手动指定线程数后两者使用同一值。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+            Text(
+                "ASR：${performanceSummary(settings.performanceProfile, asrPerformance.effectiveThreads)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+            )
+            Text(
+                "说话人分离：${performanceSummary(settings.performanceProfile, diarizationPerformance.effectiveThreads)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
             )
             Text(
                 "性能模式",
@@ -319,14 +340,16 @@ internal fun LocalSpeechSettingsCard(
             ParameterStepper(
                 title = "CPU 线程数",
                 value = settings.requestedThreads?.toString() ?: "自动",
-                hint = "当前有效 ${settings.resolvePerformance().effectiveThreads} 线程 · 设备最多 $maxThreads",
+                hint =
+                    "ASR ${asrPerformance.effectiveThreads} 线程 · " +
+                        "说话人分离 ${diarizationPerformance.effectiveThreads} 线程 · 设备最多 $maxThreads",
                 onDecrease = {
-                    val current = settings.requestedThreads ?: settings.resolvePerformance().effectiveThreads
+                    val current = settings.requestedThreads ?: asrPerformance.effectiveThreads
                     val next = (current - 1).coerceAtLeast(1)
                     store.setRequestedThreads(next)
                 },
                 onIncrease = {
-                    val current = settings.requestedThreads ?: settings.resolvePerformance().effectiveThreads
+                    val current = settings.requestedThreads ?: asrPerformance.effectiveThreads
                     val next = (current + 1).coerceAtMost(maxThreads)
                     store.setRequestedThreads(next)
                 },
