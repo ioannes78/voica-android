@@ -251,10 +251,7 @@ fun OfflineVoicaApp(
             factory =
                 remember(aiSummaryRepository, stage12CContentRepository) {
                     AiSummaryViewModel.Factory(
-                        coordinator = null,
                         repository = aiSummaryRepository,
-                        profileStore = null,
-                        providerRegistry = null,
                         contentRepository = stage12CContentRepository,
                     )
                 },
