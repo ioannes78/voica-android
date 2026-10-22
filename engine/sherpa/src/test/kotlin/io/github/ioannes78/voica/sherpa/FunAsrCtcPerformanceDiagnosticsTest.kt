@@ -67,10 +67,10 @@ class FunAsrCtcPerformanceDiagnosticsTest {
 
     @Test
     fun emptyStateIsExplicitForQa() {
-        assertEquals(
-            "No FunASR CTC performance diagnostics yet.",
-            FunAsrCtcPerformanceDiagnostics.formatForQa(),
-        )
+        val text = FunAsrCtcPerformanceDiagnostics.formatForQa()
+
+        assertEquals("No FunASR CTC performance diagnostics yet.", text)
+        assertTrue(FunAsrCtcPerformanceDiagnostics.snapshot().isEmpty())
     }
 
     @Test
