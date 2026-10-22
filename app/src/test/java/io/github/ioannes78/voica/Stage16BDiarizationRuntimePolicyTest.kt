@@ -1,22 +1,32 @@
 package io.github.ioannes78.voica
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class Stage16BDiarizationRuntimePolicyTest {
     @Test
-    fun autoSpeakerCountUsesConservativeClusteringFloorWithoutChangingStitching() {
+    fun recommendedAutoClusteringThresholdIsThePersistedSettingsDefault() {
+        assertEquals(
+            RECOMMENDED_DIARIZATION_CLUSTERING_THRESHOLD,
+            LocalDiarizationSettings().clusteringThreshold,
+        )
+        assertEquals(0.60F, LocalDiarizationSettings().clusteringThreshold)
+    }
+
+    @Test
+    fun autoSpeakerCountUsesExactUserClusteringThresholdWithoutHiddenFloor() {
         val config =
             SpeakerCountChoice.AUTO.toStage16BDiarizationConfig(
                 LocalDiarizationSettings(
-                    clusteringThreshold = 0.5F,
+                    clusteringThreshold = 0.50F,
                     stitchingCosineThreshold = 0.75F,
                 ),
             )
 
-        assertEquals(0.60F, config.clusteringThreshold)
+        assertEquals(0.50F, config.clusteringThreshold)
         assertEquals(0.75F, config.stitchingCosineThreshold)
-        assertEquals(null, config.expectedSpeakerCount)
+        assertNull(config.expectedSpeakerCount)
     }
 
     @Test
@@ -27,19 +37,20 @@ class Stage16BDiarizationRuntimePolicyTest {
             )
 
         assertEquals(0.68F, config.clusteringThreshold)
+        assertNull(config.expectedSpeakerCount)
     }
 
     @Test
-    fun explicitTwoSpeakerPresetIsNotChangedByAutoFloor() {
+    fun explicitTwoSpeakerPresetIsIndependentFromAutoClusteringThreshold() {
         val config =
             SpeakerCountChoice.TWO.toStage16BDiarizationConfig(
-                LocalDiarizationSettings(clusteringThreshold = 0.2F),
+                LocalDiarizationSettings(clusteringThreshold = 0.20F),
             )
 
         assertEquals(2, config.expectedSpeakerCount)
         assertEquals(2, config.minimumGlobalSpeakerCount)
         assertEquals(2, config.maximumGlobalSpeakerCount)
-        assertEquals(null, config.clusteringThreshold)
+        assertNull(config.clusteringThreshold)
     }
 
     @Test
