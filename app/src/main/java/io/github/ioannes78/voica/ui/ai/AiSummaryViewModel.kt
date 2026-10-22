@@ -34,17 +34,10 @@ data class AiSummaryDocument(
     val result: AiSummaryResult?,
     val evidence: List<AiSummaryEvidenceEntity>,
 ) {
-    val evidenceByRef: Map<String, AiSummaryEvidenceEntity> =
-        evidence.associateBy { it.sourceRef }
+    val evidenceByRef: Map<String, AiSummaryEvidenceEntity> = evidence.associateBy { it.sourceRef }
 }
 
-/**
- * Provider-neutral summary reader/editor state.
- *
- * Stage 16 Finalization removes remote summary generation. Existing summary rows remain readable so
- * their generic version/revision/evidence UI can be reused by Stage 17 without keeping a cloud
- * provider runtime alive.
- */
+/** Provider-neutral summary reader/editor state. */
 class AiSummaryViewModel(
     private val repository: AiSummaryRepository,
     private val contentRepository: Stage12CContentRepository,
@@ -84,9 +77,7 @@ class AiSummaryViewModel(
 
     fun bind(transcriptionId: String?) {
         if (boundTranscriptionId == transcriptionId) {
-            if (transcriptionId != null) {
-                viewModelScope.launch { refreshCurrentSelection() }
-            }
+            if (transcriptionId != null) viewModelScope.launch { refreshCurrentSelection() }
             return
         }
         boundTranscriptionId = transcriptionId
@@ -109,8 +100,7 @@ class AiSummaryViewModel(
                 viewModelScope.launch {
                     repository.observeForRecording(recordingId).collectLatest { summaries ->
                         mutableHistory.value = summaries
-                        mutableCandidateId.value =
-                            contentRepository.resolveAiSummaryCandidateId(recordingId)
+                        mutableCandidateId.value = contentRepository.resolveAiSummaryCandidateId(recordingId)
                         refreshCurrentSelection()
                     }
                 }
@@ -150,7 +140,7 @@ class AiSummaryViewModel(
         }
     }
 
-    /** Transitional no-op until the old online task plumbing is removed from the product shell. */
+    /** Transitional until the legacy detail header is removed. */
     fun cancel() = Unit
 
     fun clearNotice() {
@@ -194,8 +184,7 @@ class AiSummaryViewModel(
                 effective = effective,
             )
         mutableStale.value = stale
-        mutableStaleFingerprint.value =
-            if (stale) summaryStaleFingerprint(summary.id, effective) else null
+        mutableStaleFingerprint.value = if (stale) summaryStaleFingerprint(summary.id, effective) else null
     }
 
     private fun parseSummaryLineage(raw: String): SummaryLineageRef =
@@ -222,12 +211,7 @@ class AiSummaryViewModel(
                     )
                 }.getOrNull()
             }
-        mutableSelected.value =
-            AiSummaryDocument(
-                entity = entity,
-                result = result,
-                evidence = evidence,
-            )
+        mutableSelected.value = AiSummaryDocument(entity = entity, result = result, evidence = evidence)
     }
 
     private data class SummaryLineageRef(
@@ -236,17 +220,20 @@ class AiSummaryViewModel(
     )
 
     class Factory(
-        @Suppress("UNUSED_PARAMETER") coordinator: AiSummaryCoordinator,
         private val repository: AiSummaryRepository,
-        @Suppress("UNUSED_PARAMETER") profileStore: ProviderProfileStore,
-        @Suppress("UNUSED_PARAMETER") providerRegistry: ProviderAdapterRegistry,
         private val contentRepository: Stage12CContentRepository,
     ) : ViewModelProvider.Factory {
+        @Deprecated("Online provider dependencies are being removed in Stage 16 Finalization")
+        constructor(
+            @Suppress("UNUSED_PARAMETER") coordinator: AiSummaryCoordinator,
+            repository: AiSummaryRepository,
+            @Suppress("UNUSED_PARAMETER") profileStore: ProviderProfileStore,
+            @Suppress("UNUSED_PARAMETER") providerRegistry: ProviderAdapterRegistry,
+            contentRepository: Stage12CContentRepository,
+        ) : this(repository, contentRepository)
+
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            AiSummaryViewModel(
-                repository = repository,
-                contentRepository = contentRepository,
-            ) as T
+            AiSummaryViewModel(repository = repository, contentRepository = contentRepository) as T
     }
 }
