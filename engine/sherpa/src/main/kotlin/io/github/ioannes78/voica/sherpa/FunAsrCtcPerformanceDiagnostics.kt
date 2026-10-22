@@ -59,26 +59,37 @@ object FunAsrCtcPerformanceDiagnostics {
         val textMs = current.sumOf { it.textDecodeMs }
         val alignmentMs = current.sumOf { it.alignmentMs ?: 0L }
         val totalMs = current.sumOf { it.totalMs }
-        val rtf = if (audioMs > 0L) totalMs.toDouble() / audioMs.toDouble() else 0.0
+        val textDecodeRtf = if (audioMs > 0L) textMs.toDouble() / audioMs.toDouble() else 0.0
+        val measuredRtf = if (audioMs > 0L) totalMs.toDouble() / audioMs.toDouble() else 0.0
+        val outputTokenCount = current.sumOf { it.targetTokenCount }
 
         return buildString {
             append("summary chunks=").append(current.size)
             append(" audioMs=").append(audioMs)
             append(" textDecodeMs=").append(textMs)
+            append(" textDecodeRtf=").append("%.4f".format(java.util.Locale.US, textDecodeRtf))
             append(" ctcAlignmentMs=").append(alignmentMs)
             append(" totalMs=").append(totalMs)
-            append(" measuredRtf=").append("%.4f".format(java.util.Locale.US, rtf))
+            append(" measuredRtf=").append("%.4f".format(java.util.Locale.US, measuredRtf))
+            append(" outputTokenCount=").append(outputTokenCount)
             append(" sameStream=true")
             append(" encoderInvocationCount=not_exposed")
             append('\n')
             current.forEachIndexed { index, item ->
+                val chunkDecodeRtf =
+                    if (item.audioDurationMs > 0L) {
+                        item.textDecodeMs.toDouble() / item.audioDurationMs.toDouble()
+                    } else {
+                        0.0
+                    }
                 append('#').append(index + 1)
                 append(" audioSamples=").append(item.audioSampleCount)
                 append(" audioMs=").append(item.audioDurationMs)
                 append(" textDecodeMs=").append(item.textDecodeMs)
+                append(" textDecodeRtf=").append("%.4f".format(java.util.Locale.US, chunkDecodeRtf))
                 append(" ctcAlignmentMs=").append(item.alignmentMs?.toString() ?: "n/a")
                 append(" totalMs=").append(item.totalMs)
-                append(" targetTokens=").append(item.targetTokenCount)
+                append(" outputTokens=").append(item.targetTokenCount)
                 append(" alignedTokens=").append(item.alignedTokenCount?.toString() ?: "n/a")
                 append(" alignmentSucceeded=").append(item.alignmentSucceeded)
                 append(" sameStream=").append(item.sameStreamAlignment)
