@@ -239,6 +239,5 @@ class TimelineAnnotationAttachmentLifecycleTest {
         override suspend fun cancelCanonicalAndAwait(recordingId: String) = Unit
         override suspend fun cancelTranscriptionAndAwait(recordingId: String) = Unit
         override suspend fun cancelDiarizationAndAwait(recordingId: String) = Unit
-        override suspend fun cancelAiSummaryAndAwait(recordingId: String) = Unit
     }
 }
