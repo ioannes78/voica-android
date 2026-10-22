@@ -49,7 +49,16 @@ class SherpaSpeakerEmbeddingEngine internal constructor(
             FloatArray(samples.size) { index ->
                 samples[index] / 32768.0F
             }
+        val startedNs = System.nanoTime()
         val embedding = native.compute(normalized, sampleRateHz)
+        val computeMs = ((System.nanoTime() - startedNs).coerceAtLeast(0L) / 1_000_000L)
+        DiarizationPerformanceDiagnostics.recordEmbedding(
+            SpeakerEmbeddingPerformanceDiagnostic(
+                audioDurationMs =
+                    (samples.size.toLong() * 1_000L) / sampleRateHz.toLong(),
+                computeMs = computeMs,
+            ),
+        )
         require(embedding.isNotEmpty()) { "speaker embedding is empty" }
         require(embedding.all { it.isFinite() }) {
             "speaker embedding contains non-finite values"
