@@ -210,7 +210,7 @@ data class LocalQwenAsrSettings(
 
 data class LocalDiarizationSettings(
     val autoAfterTranscription: Boolean = true,
-    val clusteringThreshold: Float = 0.5F,
+    val clusteringThreshold: Float = RECOMMENDED_DIARIZATION_CLUSTERING_THRESHOLD,
     val stitchingCosineThreshold: Float = 0.75F,
 ) {
     init {
@@ -643,7 +643,10 @@ class SharedPreferencesLocalSpeechSettingsStore(
                     autoAfterTranscription =
                         preferences.getBoolean(KEY_DIARIZATION_AUTO_AFTER_TRANSCRIPTION, true),
                     clusteringThreshold =
-                        preferences.getFloat(KEY_DIARIZATION_CLUSTERING_THRESHOLD, 0.5F),
+                        preferences.getFloat(
+                            KEY_DIARIZATION_CLUSTERING_THRESHOLD,
+                            RECOMMENDED_DIARIZATION_CLUSTERING_THRESHOLD,
+                        ),
                     stitchingCosineThreshold =
                         preferences.getFloat(KEY_DIARIZATION_STITCHING_COSINE_THRESHOLD, 0.75F),
                 )
@@ -661,4 +664,5 @@ class SharedPreferencesLocalSpeechSettingsStore(
     }
 }
 
+const val RECOMMENDED_DIARIZATION_CLUSTERING_THRESHOLD = 0.60F
 const val MAX_CONFIGURABLE_THREADS = 8
