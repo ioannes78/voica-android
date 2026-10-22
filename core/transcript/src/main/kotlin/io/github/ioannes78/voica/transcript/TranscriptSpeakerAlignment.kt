@@ -94,7 +94,7 @@ fun alignTranscriptSegmentsToSpeakers(
                 tokens = selected.map { it.token.text },
             ).boundaries
 
-        val pieces =
+        val rawPieces =
             selected.mapIndexedNotNull { position, indexed ->
                 val textStart = textBoundaries[position]
                 val textEnd = textBoundaries[position + 1]
@@ -126,7 +126,7 @@ fun alignTranscriptSegmentsToSpeakers(
                 )
             }
 
-        if (pieces.isEmpty()) {
+        if (rawPieces.isEmpty()) {
             val fallback = assignWholeSegment(segment, orderedTurns)
             output +=
                 SpeakerAlignedTextSpan(
@@ -147,10 +147,18 @@ fun alignTranscriptSegmentsToSpeakers(
             return@forEach
         }
 
+        val pieces = bridgeShortUnresolvedRuns(rawPieces, orderedTurns)
         val groups = mutableListOf<MutableList<TokenPiece>>()
         pieces.forEach { piece ->
             val current = groups.lastOrNull()
-            if (current == null || !sameAssignment(current.last(), piece)) {
+            if (
+                current == null ||
+                shouldStartNewDisplayGroup(
+                    finalText = segment.finalText,
+                    current = current,
+                    next = piece,
+                )
+            ) {
                 groups += mutableListOf(piece)
             } else {
                 current += piece
@@ -361,6 +369,120 @@ private fun assignWholeSegment(
     return SpeakerAssignment.assigned(covering.single().globalSpeakerIndex)
 }
 
+private fun bridgeShortUnresolvedRuns(
+    pieces: List<TokenPiece>,
+    speakerTurns: List<GlobalSpeakerTurn>,
+): List<TokenPiece> {
+    if (pieces.isEmpty()) return pieces
+    val distinctSpeakers = speakerTurns.map { it.globalSpeakerIndex }.toSet()
+    if (distinctSpeakers.size == 1) {
+        val speaker = distinctSpeakers.single()
+        return pieces.map { piece ->
+            if (piece.assignment.quality == SpeakerAssignmentQuality.UNRESOLVED) {
+                piece.copy(assignment = SpeakerAssignment.assigned(speaker))
+            } else {
+                piece
+            }
+        }
+    }
+
+    val output = pieces.toMutableList()
+    var index = 0
+    while (index < output.size) {
+        if (output[index].assignment.quality != SpeakerAssignmentQuality.UNRESOLVED) {
+            index += 1
+            continue
+        }
+
+        val runStart = index
+        var runEnd = index
+        while (
+            runEnd + 1 < output.size &&
+            output[runEnd + 1].assignment.quality == SpeakerAssignmentQuality.UNRESOLVED
+        ) {
+            runEnd += 1
+        }
+
+        val previousSpeaker = output.getOrNull(runStart - 1)?.assignment?.speakerIndex
+        val nextSpeaker = output.getOrNull(runEnd + 1)?.assignment?.speakerIndex
+        val runDuration = unresolvedRunDuration(output, runStart, runEnd)
+        if (
+            previousSpeaker != null &&
+            previousSpeaker == nextSpeaker &&
+            runDuration != null &&
+            runDuration <= MAX_BRIDGED_UNRESOLVED_SAMPLES
+        ) {
+            for (position in runStart..runEnd) {
+                output[position] =
+                    output[position].copy(
+                        assignment = SpeakerAssignment.assigned(previousSpeaker),
+                    )
+            }
+        }
+        index = runEnd + 1
+    }
+    return output
+}
+
+private fun unresolvedRunDuration(
+    pieces: List<TokenPiece>,
+    start: Int,
+    end: Int,
+): Long? {
+    val starts = pieces.subList(start, end + 1).mapNotNull { it.startSampleIndex }
+    val ends = pieces.subList(start, end + 1).mapNotNull { it.endSampleIndexExclusive }
+    if (starts.size != end - start + 1 || ends.size != end - start + 1) return null
+    val first = starts.minOrNull() ?: return null
+    val last = ends.maxOrNull() ?: return null
+    return (last - first).coerceAtLeast(0L)
+}
+
+private fun shouldStartNewDisplayGroup(
+    finalText: String,
+    current: List<TokenPiece>,
+    next: TokenPiece,
+): Boolean {
+    val previous = current.last()
+    if (!sameAssignment(previous, next)) return true
+    if (endsSentence(finalText, previous)) return true
+
+    val previousEnd = previous.endSampleIndexExclusive
+    val nextStart = next.startSampleIndex
+    if (
+        previousEnd != null &&
+        nextStart != null &&
+        nextStart - previousEnd >= LONG_SILENCE_GAP_SAMPLES
+    ) {
+        return true
+    }
+
+    val groupStart = current.firstNotNullOfOrNull { it.startSampleIndex }
+    val nextEnd = next.endSampleIndexExclusive
+    if (
+        groupStart != null &&
+        nextEnd != null &&
+        nextEnd - groupStart > MAX_DISPLAY_SPAN_SAMPLES
+    ) {
+        return true
+    }
+    return false
+}
+
+private fun endsSentence(
+    finalText: String,
+    piece: TokenPiece,
+): Boolean {
+    if (piece.finalTextEndOffsetExclusive <= piece.finalTextStartOffset) return false
+    var index = piece.finalTextEndOffsetExclusive - 1
+    while (
+        index >= piece.finalTextStartOffset &&
+        finalText[index] in SENTENCE_CLOSING_CHARACTERS
+    ) {
+        index -= 1
+    }
+    return index >= piece.finalTextStartOffset && finalText[index] in SENTENCE_TERMINATORS
+}
+
 private fun sameAssignment(
     left: TokenPiece,
     right: TokenPiece,
@@ -368,3 +490,9 @@ private fun sameAssignment(
     left.assignment == right.assignment &&
         left.tokenSource == right.tokenSource &&
         left.finalTextEndOffsetExclusive == right.finalTextStartOffset
+
+private const val MAX_BRIDGED_UNRESOLVED_SAMPLES = 5_600L // 350 ms at canonical 16 kHz.
+private const val LONG_SILENCE_GAP_SAMPLES = 12_800L // 800 ms at canonical 16 kHz.
+private const val MAX_DISPLAY_SPAN_SAMPLES = 240_000L // 15 s at canonical 16 kHz.
+private val SENTENCE_TERMINATORS = setOf('。', '！', '？', '!', '?')
+private val SENTENCE_CLOSING_CHARACTERS = setOf('”', '’', '"', '\'', '）', ')', '】', ']', '》', '」', '』')
