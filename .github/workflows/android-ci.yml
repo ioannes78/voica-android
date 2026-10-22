@@ -260,7 +260,7 @@ jobs:
       VOICA_BUILD_GIT_SHA: ${{ github.event.pull_request.head.sha }}
       P5_CANDIDATE_MANIFEST: https://github.com/ioannes78/voica-model-channel/releases/download/candidate-stage16b-funasr-ctc-p5-r1/production.json
       P5_CANDIDATE_TAG: candidate-stage16b-funasr-ctc-p5-r1
-      P5_SHERPA_VERSION: v1.13.8-p5-ctc-r1
+      P5_SHERPA_VERSION: v1.13.8-p5-ctc-r2
       P5_SHERPA_REPOSITORY: /tmp/voica-p5-sherpa-maven
 
     steps:
@@ -360,7 +360,7 @@ jobs:
           BUILD_SHARED_LIBS: ON
           SHERPA_ONNX_ONNXRUNTIME_VERSION: "1.28.2"
           SHERPA_ONNX_ENABLE_TTS: OFF
-          SHERPA_ONNX_ENABLE_SPEAKER_DIARIZATION: OFF
+          SHERPA_ONNX_ENABLE_SPEAKER_DIARIZATION: ON
           SHERPA_ONNX_ENABLE_BINARY: OFF
           SHERPA_ONNX_ENABLE_C_API: OFF
           SHERPA_ONNX_ENABLE_JNI: ON
@@ -391,7 +391,7 @@ jobs:
           test -s "$aar"
           echo "aar=$aar" >> "$GITHUB_OUTPUT"
 
-      - name: Verify patched AAR ABI and native CTC protocol
+      - name: Verify patched AAR ABI, diarization JNI and native CTC protocol
         shell: bash
         env:
           PATCHED_AAR: ${{ steps.patched_aar.outputs.aar }}
@@ -414,6 +414,9 @@ jobs:
           strings "$work/jni.so" | grep -Fq 'voica.funasr.ctc.vocab_size'
           strings "$work/jni.so" | grep -Fq 'candidate_logits'
           strings "$work/jni.so" | grep -Fq 'ForwardCompactCtc'
+          nm -D "$work/jni.so" | grep -Fq 'Java_com_k2fsa_sherpa_onnx_OfflineSpeakerDiarization_newFromFile'
+          nm -D "$work/jni.so" | grep -Fq 'Java_com_k2fsa_sherpa_onnx_OfflineSpeakerDiarization_process'
+          nm -D "$work/jni.so" | grep -Fq 'Java_com_k2fsa_sherpa_onnx_OfflineSpeakerDiarization_delete'
 
       - name: Publish patched AAR into isolated local Maven repository
         shell: bash
@@ -474,6 +477,7 @@ jobs:
         run: |
           set -euo pipefail
           gradle \
+            :core:transcript:test \
             :engine:sherpa:testDebugUnitTest \
             :app:testDebugUnitTest \
             -Pvoica.patchedSherpaRepository="$P5_SHERPA_REPOSITORY" \
@@ -511,6 +515,8 @@ jobs:
           unzip -p "$apk" lib/arm64-v8a/libsherpa-onnx-jni.so > "${RUNNER_TEMP}/apk-sherpa-jni.so"
           strings "${RUNNER_TEMP}/apk-sherpa-jni.so" | grep -Fq 'voica.funasr.ctc.command'
           strings "${RUNNER_TEMP}/apk-sherpa-jni.so" | grep -Fq 'ForwardCompactCtc'
+          nm -D "${RUNNER_TEMP}/apk-sherpa-jni.so" | grep -Fq 'Java_com_k2fsa_sherpa_onnx_OfflineSpeakerDiarization_newFromFile'
+          nm -D "${RUNNER_TEMP}/apk-sherpa-jni.so" | grep -Fq 'Java_com_k2fsa_sherpa_onnx_OfflineSpeakerDiarization_process'
           if zipinfo -1 "$apk" | grep -E '^lib/(armeabi|armeabi-v7a|x86|x86_64)/' >/dev/null; then
             echo "::error::P5 QA APK contains unexpected non-arm64 native ABI"
             exit 1
@@ -520,7 +526,7 @@ jobs:
       - name: Upload P5 real-device QA APK
         uses: actions/upload-artifact@v4
         with:
-          name: Voica-P5-CTC-revision2-releaseQa-apk
+          name: Voica-P5-CTC-revision2-r3-releaseQa-apk
           path: app/build/outputs/apk/releaseQa/app-releaseQa.apk
           if-no-files-found: error
           retention-days: 1
