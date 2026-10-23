@@ -38,7 +38,7 @@ object VoicaModelChannel {
         "/ioannes78/voica-model-channel/releases/download/"
 
     /**
-     * Legacy developer-tooling gate. It is true for normal debuggable builds and for the
+     * Developer-tooling gate. It is true for normal debuggable builds and for the
      * explicitly non-production releaseQa variant, whose BuildConfig flag is false in release.
      */
     fun isDebuggable(application: Application): Boolean =
@@ -61,10 +61,6 @@ object VoicaModelChannel {
                 ?.trim()
                 ?.takeIf { it.isNotEmpty() }
                 ?: return null
-        if (isPromotedStage13aDebugManifestUrl(configured)) {
-            preferences.edit().remove(KEY_DEBUG_MANIFEST_URL).apply()
-            return null
-        }
         return configured.takeIf(::isAllowedDebugManifestUrl)
     }
 
@@ -137,22 +133,6 @@ internal fun candidateModelChannelAllowed(
     isDebuggable: Boolean,
     buildAllowsCandidateChannel: Boolean,
 ): Boolean = isDebuggable || buildAllowsCandidateChannel
-
-internal fun isPromotedStage13aDebugManifestUrl(value: String): Boolean =
-    runCatching {
-        val url = URL(value)
-        url.protocol.equals("https", ignoreCase = true) &&
-            url.host.equals("github.com", ignoreCase = true) &&
-            url.query.isNullOrEmpty() &&
-            url.ref.isNullOrEmpty() &&
-            url.path in PROMOTED_STAGE13A_CANDIDATE_PATHS
-    }.getOrDefault(false)
-
-private val PROMOTED_STAGE13A_CANDIDATE_PATHS =
-    setOf(
-        "/ioannes78/voica-model-channel/releases/download/candidate-stage13a-all-r1/production.json",
-        "/ioannes78/voica-model-channel/releases/download/candidate-stage13a-streaming-asr-r1/production.json",
-    )
 
 internal const val STAGE16B_FUNASR_NANO_CANDIDATE_ID = "funasr-nano-int8"
 internal const val STAGE16B_FSMN_VAD_CANDIDATE_ID = "fsmn-vad-int8"
