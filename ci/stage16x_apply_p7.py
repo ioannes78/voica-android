@@ -4,11 +4,11 @@ from pathlib import Path
 def replace_required(path: str, old: str, new: str) -> None:
     target = Path(path)
     text = target.read_text()
-    if new in text and old not in text:
-        return
     count = text.count(old)
+    if count == 0:
+        return
     if count != 1:
-        raise SystemExit(f"{path}: expected exactly one match, got {count}: {old!r}")
+        raise SystemExit(f"{path}: expected at most one match, got {count}: {old!r}")
     target.write_text(text.replace(old, new, 1))
 
 
