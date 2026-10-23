@@ -23,23 +23,51 @@ class ThemeSettingsStoreTest {
     }
 
     @Test
-    fun defaultsToSystemAndMint() {
+    fun defaultsToSystemAndWenzhiInkWhenNoExplicitPaletteExists() {
         val store = SharedPreferencesThemeSettingsStore(application)
 
         assertEquals(VoicaThemeMode.SYSTEM, store.settings.value.mode)
-        assertEquals(VoicaColorPreset.MINT, store.settings.value.preset)
+        assertEquals(VoicaColorPreset.WENZHI_INK, store.settings.value.preset)
     }
 
     @Test
-    fun persistsModeAndPreset() {
-        val first = SharedPreferencesThemeSettingsStore(application)
-        first.setMode(VoicaThemeMode.DARK)
-        first.setPreset(VoicaColorPreset.PURPLE)
+    fun preservesExplicitLegacyModeAndPreset() {
+        application
+            .getSharedPreferences("voica-theme", Application.MODE_PRIVATE)
+            .edit()
+            .putString("mode", VoicaThemeMode.DARK.name)
+            .putString("preset", VoicaColorPreset.PURPLE.name)
+            .commit()
 
         val restored = SharedPreferencesThemeSettingsStore(application)
 
         assertEquals(VoicaThemeMode.DARK, restored.settings.value.mode)
         assertEquals(VoicaColorPreset.PURPLE, restored.settings.value.preset)
+    }
+
+    @Test
+    fun persistsNewModeAndPresetSelections() {
+        val first = SharedPreferencesThemeSettingsStore(application)
+        first.setMode(VoicaThemeMode.LIGHT)
+        first.setPreset(VoicaColorPreset.MINT)
+
+        val restored = SharedPreferencesThemeSettingsStore(application)
+
+        assertEquals(VoicaThemeMode.LIGHT, restored.settings.value.mode)
+        assertEquals(VoicaColorPreset.MINT, restored.settings.value.preset)
+    }
+
+    @Test
+    fun invalidOrUnknownStoredPresetFallsBackToWenzhiInk() {
+        application
+            .getSharedPreferences("voica-theme", Application.MODE_PRIVATE)
+            .edit()
+            .putString("preset", "REMOVED_LEGACY_THEME")
+            .commit()
+
+        val restored = SharedPreferencesThemeSettingsStore(application)
+
+        assertEquals(VoicaColorPreset.WENZHI_INK, restored.settings.value.preset)
     }
 
     @Test
