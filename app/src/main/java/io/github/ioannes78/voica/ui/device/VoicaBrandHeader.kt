@@ -46,7 +46,7 @@ internal fun VoicaBrandHeader(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Image(
-                painter = painterResource(R.drawable.wenzhi_logo_master),
+                painter = painterResource(R.drawable.ic_launcher_foreground),
                 contentDescription = "闻知 WENZHI",
                 modifier = Modifier.size(44.dp),
             )
