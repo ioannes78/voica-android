@@ -225,10 +225,13 @@ jobs:
           test -s "$patch"
           head_ref="${{ github.event.pull_request.head.ref }}"
           head_sha="${{ github.event.pull_request.head.sha }}"
+          git reset --hard
+          git clean -fd
           git fetch origin "$head_ref"
+          git fetch origin 7f8192abf5c647a466a58b94fe2d65a5ad03649f
           git checkout -B "$head_ref" "$head_sha"
           git apply "$patch"
-          git checkout "${head_sha}^" -- .github/workflows/android-ci.yml
+          git checkout 7f8192abf5c647a466a58b94fe2d65a5ad03649f -- .github/workflows/android-ci.yml
           git diff --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
