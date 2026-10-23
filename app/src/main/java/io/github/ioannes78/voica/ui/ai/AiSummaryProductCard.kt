@@ -326,7 +326,7 @@ fun AiSummaryProductCard(
                                         Toast.makeText(
                                             context,
                                             if (result.exported) {
-                                                "已导出到 Downloads/Voica"
+                                                "已导出到 Downloads/WENZHI"
                                             } else {
                                                 result.error ?: "导出失败"
                                             },
@@ -358,7 +358,7 @@ fun AiSummaryProductCard(
                                         Toast.makeText(
                                             context,
                                             if (result.exported) {
-                                                "已导出到 Downloads/Voica"
+                                                "已导出到 Downloads/WENZHI"
                                             } else {
                                                 result.error ?: "导出失败"
                                             },

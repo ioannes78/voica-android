@@ -13,7 +13,7 @@ object TranscriptContentExportFormatter {
     ): TextContentDocument {
         val title =
             buildString {
-                append(recordingName.ifBlank { "Voica 转写" })
+                append(recordingName.ifBlank { "闻知转写" })
                 versionName?.takeIf { it.isNotBlank() }?.let {
                     append(" · ")
                     append(it)

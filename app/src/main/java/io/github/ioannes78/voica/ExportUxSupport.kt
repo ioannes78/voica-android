@@ -148,8 +148,8 @@ class ExportDestinationStore(context: Context) {
     }
 
     companion object {
-        const val DEFAULT_DISPLAY_LABEL = "系统下载 / Voica"
-        const val DEFAULT_SHORT_LABEL = "下载/Voica"
+        const val DEFAULT_DISPLAY_LABEL = "系统下载 / WENZHI"
+        const val DEFAULT_SHORT_LABEL = "下载/WENZHI"
         private const val CUSTOM_FALLBACK_LABEL = "自定义文件夹"
         private const val PREFERENCES_NAME = "export-destination"
         private const val KEY_TREE_URI = "tree-uri"

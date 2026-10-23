@@ -315,7 +315,7 @@ class ContentTextExportCoordinator(
 
     private fun allocateDownloadName(requested: String): String {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return requested
-        val relativePath = Environment.DIRECTORY_DOWNLOADS + "/Voica/"
+        val relativePath = Environment.DIRECTORY_DOWNLOADS + "/WENZHI/"
         val used = linkedSetOf<String>()
         runCatching {
             resolver.query(

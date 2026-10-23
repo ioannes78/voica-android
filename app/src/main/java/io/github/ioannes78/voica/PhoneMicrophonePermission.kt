@@ -64,7 +64,7 @@ internal object PhoneMicrophonePermissionPolicy {
             shouldShowRationale ->
                 PhoneMicrophonePermissionDecision(
                     action = PhoneMicrophonePermissionAction.SHOW_RATIONALE_AND_REQUEST,
-                    message = "手机录音需要麦克风权限，Voica 只会在你主动开始录音时使用麦克风",
+                    message = "手机录音需要麦克风权限，闻知只会在你主动开始录音时使用麦克风",
                 )
 
             requestedBefore ->

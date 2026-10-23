@@ -545,7 +545,7 @@ private fun OfflineLocalFilesScreen(
                 val item = result.items.firstOrNull()
                 Toast.makeText(
                     context,
-                    if (item?.exported == true) "已导出到 Downloads/Voica" else item?.error ?: "导出失败",
+                    if (item?.exported == true) "已导出到 Downloads/WENZHI" else item?.error ?: "导出失败",
                     Toast.LENGTH_SHORT,
                 ).show()
             } else {

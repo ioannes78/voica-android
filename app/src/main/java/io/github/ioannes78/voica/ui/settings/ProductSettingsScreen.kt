@@ -230,7 +230,7 @@ private fun SettingsHome(
                     HorizontalDivider()
                     SettingsRow(
                         title = "主题与显示",
-                        subtitle = "Voica 青绿 · 跟随系统",
+                        subtitle = "闻知墨韵 · 可选经典配色",
                         icon = { Icon(Icons.Outlined.Palette, contentDescription = null) },
                         onClick = { onOpen(SettingsPage.THEME) },
                     )

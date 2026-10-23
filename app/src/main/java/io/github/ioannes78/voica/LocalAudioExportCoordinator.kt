@@ -496,7 +496,7 @@ class LocalAudioExportCoordinator(
     private fun loadExistingDownloadNames(): MutableSet<String> {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return mutableSetOf()
         val names = linkedSetOf<String>()
-        val relativePath = Environment.DIRECTORY_DOWNLOADS + "/Voica/"
+        val relativePath = Environment.DIRECTORY_DOWNLOADS + "/WENZHI/"
         runCatching {
             resolver.query(
                 MediaStore.Downloads.EXTERNAL_CONTENT_URI,

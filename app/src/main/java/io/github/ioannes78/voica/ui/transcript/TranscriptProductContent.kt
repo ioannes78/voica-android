@@ -208,7 +208,7 @@ fun TranscriptProductActionBar(
                                     val result = textExport.exportToDownloads(document, TextExportFormat.TXT)
                                     Toast.makeText(
                                         context,
-                                        if (result.exported) "已导出到 Downloads/Voica" else result.error ?: "导出失败",
+                                        if (result.exported) "已导出到 Downloads/WENZHI" else result.error ?: "导出失败",
                                         Toast.LENGTH_SHORT,
                                     ).show()
                                 }
@@ -228,7 +228,7 @@ fun TranscriptProductActionBar(
                                     val result = textExport.exportToDownloads(document, TextExportFormat.MARKDOWN)
                                     Toast.makeText(
                                         context,
-                                        if (result.exported) "已导出到 Downloads/Voica" else result.error ?: "导出失败",
+                                        if (result.exported) "已导出到 Downloads/WENZHI" else result.error ?: "导出失败",
                                         Toast.LENGTH_SHORT,
                                     ).show()
                                 }
