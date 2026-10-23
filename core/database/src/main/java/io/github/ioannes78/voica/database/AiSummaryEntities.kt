@@ -11,8 +11,6 @@ object AiSummaryInputModeValue {
 
 object AiSummaryModeValue {
     const val SMART = "SMART"
-    const val PRESET = "PRESET"
-    const val CUSTOM = "CUSTOM"
 }
 
 object AiSummaryStateValue {

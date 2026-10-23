@@ -46,7 +46,6 @@ import java.util.Date
 import kotlinx.coroutines.launch
 
 @Composable
-@Suppress("UNUSED_PARAMETER")
 fun AiSummaryProductCard(
     transcriptionId: String,
     recordingName: String,
@@ -54,7 +53,6 @@ fun AiSummaryProductCard(
     contentViewModel: AiSummaryContentViewModel,
     onSeekEvidence: (Long) -> Unit,
     showTransientHeader: Boolean = true,
-    attentionOverride: AiSummaryEntity? = null,
     dismissedStaleSummaryFingerprint: String? = null,
     onIgnoreStale: (String) -> Unit = {},
 ) {
