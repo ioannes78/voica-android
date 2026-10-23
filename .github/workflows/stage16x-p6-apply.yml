@@ -1,8 +1,9 @@
 name: Stage 16X P6 deterministic patch
 
 on:
-  push:
-    branches: [ stage16x-wenzhi-brand-theme ]
+  pull_request:
+    branches: [ main ]
+    types: [ opened ]
     paths:
       - ".github/workflows/stage16x-p6-apply.yml"
 
@@ -11,6 +12,7 @@ permissions:
 
 jobs:
   apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'stage16x-wenzhi-brand-theme'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
