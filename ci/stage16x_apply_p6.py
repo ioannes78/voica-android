@@ -1,6 +1,20 @@
 from pathlib import Path
 
 
+cards = "app/src/main/java/io/github/ioannes78/voica/ui/transcript/TranscriptionCards.kt"
+
+
+def already_applied() -> bool:
+    text = Path(cards).read_text()
+    return (
+        "VoicaThemeTokens.colors" in text
+        and "Animatable(0f)" in text
+        and "fontWeight = FontWeight.Medium" in text
+        and "transcriptActiveLineBar" in text
+        and "val tokenHighlightColor = MaterialTheme.colorScheme.primaryContainer" not in text
+    )
+
+
 def replace_once(path: str, old: str, new: str) -> None:
     target = Path(path)
     text = target.read_text()
@@ -10,7 +24,10 @@ def replace_once(path: str, old: str, new: str) -> None:
     target.write_text(text.replace(old, new, 1))
 
 
-cards = "app/src/main/java/io/github/ioannes78/voica/ui/transcript/TranscriptionCards.kt"
+if already_applied():
+    print("Stage 16X P6 already applied; no-op")
+    raise SystemExit(0)
+
 replace_once(
     cards,
     "import androidx.compose.foundation.background\n",
@@ -60,13 +77,13 @@ old_highlight = '''    val displayText = segment.text.ifBlank { stringResource(R
 '''
 new_highlight = '''    val transcriptColors = VoicaThemeTokens.colors
     val displayText = segment.text.ifBlank { stringResource(R.string.transcript_empty_segment) }
-    val highlightAlpha = remember(segment.stableId) { Animatable(1f) }
+    val highlightAlpha = remember(segment.stableId) { Animatable(0f) }
     LaunchedEffect(activeCueId) {
-        if (activeCue != null) {
-            highlightAlpha.snapTo(0.62f)
-            highlightAlpha.animateTo(1f, animationSpec = tween(durationMillis = 150))
+        if (activeCueId == null) {
+            highlightAlpha.snapTo(0f)
         } else {
-            highlightAlpha.snapTo(1f)
+            highlightAlpha.snapTo(0.42f)
+            highlightAlpha.animateTo(0.72f, animationSpec = tween(durationMillis = 150))
         }
     }
     val tokenHighlightColor = transcriptColors.transcriptCurrentWordBg.copy(alpha = highlightAlpha.value)
@@ -132,7 +149,7 @@ new_column = '''    val canEditSpeakerAssignment = spanId != null && repository 
             targetValue =
                 when {
                     searchHighlighted -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
-                    isActive -> transcriptColors.transcriptActiveParagraphBg
+                    isActive -> transcriptColors.transcriptActiveParagraphBg.copy(alpha = 0.52f)
                     else -> transcriptColors.surface
                 },
             animationSpec = tween(durationMillis = 150),
@@ -172,17 +189,6 @@ replace_once(
     "            style = MaterialTheme.typography.bodyMedium,\n            color = transcriptColors.textPrimary,\n            onTextLayout = { textLayout = it },\n",
 )
 
-theme = "app/src/main/java/io/github/ioannes78/voica/ui/theme/Theme.kt"
-for old, new in [
-    ("            transcriptCurrentWordBg = WenzhiDarkAccent,\n", "            transcriptCurrentWordBg = WenzhiDarkAccentContainer,\n"),
-    ("            transcriptCurrentWordText = WenzhiDarkBackground,\n", "            transcriptCurrentWordText = WenzhiDarkPrimaryText,\n"),
-    ("            transcriptActiveParagraphBg = WenzhiDarkAccentContainer.copy(alpha = 0.76f),\n", "            transcriptActiveParagraphBg = WenzhiDarkAccentContainer.copy(alpha = 0.52f),\n"),
-    ("            transcriptCurrentWordBg = WenzhiAccent,\n", "            transcriptCurrentWordBg = WenzhiAccentContainer,\n"),
-    ("            transcriptCurrentWordText = Color.White,\n", "            transcriptCurrentWordText = WenzhiInk,\n"),
-    ("            transcriptActiveParagraphBg = WenzhiAccentContainer.copy(alpha = 0.72f),\n", "            transcriptActiveParagraphBg = WenzhiAccentContainer.copy(alpha = 0.48f),\n"),
-]:
-    replace_once(theme, old, new)
-
 replace_once(
     "app/src/main/res/values/strings.xml",
     '    <string name="app_name">Voica</string>\n',
@@ -192,7 +198,7 @@ replace_once(
 cards_text = Path(cards).read_text()
 required = [
     "VoicaThemeTokens.colors",
-    "Animatable(1f)",
+    "Animatable(0f)",
     "tween(durationMillis = 150)",
     "transcriptCurrentWordBg",
     "transcriptUpcomingText",
