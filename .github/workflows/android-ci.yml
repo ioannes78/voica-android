@@ -31,41 +31,6 @@ permissions:
   actions: write
 
 jobs:
-  stage16x-p7-apply:
-    name: Stage 16X P7 exact cleanup
-    if: >-
-      ${{
-        github.event_name == 'pull_request' &&
-        github.event.action == 'synchronize' &&
-        github.head_ref == 'stage16x-wenzhi-brand-theme' &&
-        github.event.pull_request.head.repo.full_name == github.repository
-      }}
-    permissions:
-      contents: write
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - name: Checkout Stage 16X branch
-        uses: actions/checkout@v5
-        with:
-          ref: stage16x-wenzhi-brand-theme
-      - name: Apply exact P7 cleanup
-        run: python3 ci/stage16x_apply_p7.py
-      - name: Commit P7 when changed
-        shell: bash
-        run: |
-          set -euo pipefail
-          git add -A app/src
-          if git diff --cached --quiet; then
-            echo "P7 already applied; no commit required."
-            exit 0
-          fi
-          git diff --cached --check
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Stage 16X: clean user-visible Voica brand residues"
-          git push origin HEAD:stage16x-wenzhi-brand-theme
-
   fast-gate:
     name: Fast PR Gate
     if: >-
@@ -79,10 +44,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
+      # Keep fast validation build identity stable so commit churn does not invalidate
+      # Gradle Configuration Cache. QA/production artifacts receive the real source SHA.
       VOICA_BUILD_GIT_SHA: ci-fast
+
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
       - name: Cheap repository contracts
         shell: bash
         run: |
@@ -93,15 +62,18 @@ jobs:
             echo "::error::Production model catalog must not track mutable main."
             exit 1
           fi
+
       - name: Setup JDK 17
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
+
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
         with:
           packages: platform-tools
+
       - name: Install Android build and native toolchains
         shell: bash
         run: |
@@ -110,20 +82,25 @@ jobs:
             "build-tools;36.0.0" \
             "ndk;28.2.13676358" \
             "cmake;3.22.1"
+
       - name: Setup Gradle 9.6
         uses: gradle/actions/setup-gradle@v5.0.2
         with:
           gradle-version: "9.6.0"
+          # Same-repository jobs may refresh Gradle state; external forks remain read-only.
           cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+
       - name: Restore pinned Opus 1.6.1 source
         uses: actions/cache@v5
         with:
           path: ${{ runner.temp }}/voica-deps/opus-1.6.1.tar.gz
           key: voica-opus-${{ runner.os }}-1.6.1-6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1
+
       - name: Prefetch and verify Opus 1.6.1 source
         shell: bash
         run: bash ci/prepare-opus-source.sh
+
       - name: Unit tests and debug compile gate
         shell: bash
         run: |
@@ -148,12 +125,16 @@ jobs:
             :app:testDebugUnitTest \
             --configuration-cache \
             --stacktrace
+
       - name: Verify FSMN candidate runtime boundary
         shell: bash
         run: bash ci/verify-fsmn-candidate-runtime.sh debug
 
   qa-apk:
     name: QA APK Gate
+    # QA APK generation is edge-triggered: add the [APK] prefix to the PR title
+    # when the stage enters a real-device QA handoff. Keeping [APK] in the title
+    # does not rebuild an APK on later synchronize/push events.
     if: >-
       ${{
         (github.event_name == 'pull_request' &&
@@ -169,9 +150,11 @@ jobs:
     timeout-minutes: 15
     env:
       VOICA_BUILD_GIT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
       - name: Cheap repository contracts and version identity
         shell: bash
         run: |
@@ -184,15 +167,18 @@ jobs:
           echo "VOICA_VERSION_CODE=$version_code" >> "$GITHUB_ENV"
           echo "VOICA_RELEASE_VERSION=$release_version" >> "$GITHUB_ENV"
           echo "VOICA_RELEASEQA_VERSION=${release_version}-export-qa" >> "$GITHUB_ENV"
+
       - name: Setup JDK 17
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
+
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
         with:
           packages: platform-tools
+
       - name: Install Android build and native toolchains
         shell: bash
         run: |
@@ -201,20 +187,24 @@ jobs:
             "build-tools;36.0.0" \
             "ndk;28.2.13676358" \
             "cmake;3.22.1"
+
       - name: Setup Gradle 9.6
         uses: gradle/actions/setup-gradle@v5.0.2
         with:
           gradle-version: "9.6.0"
           cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+
       - name: Restore pinned Opus 1.6.1 source
         uses: actions/cache@v5
         with:
           path: ${{ runner.temp }}/voica-deps/opus-1.6.1.tar.gz
           key: voica-opus-${{ runner.os }}-1.6.1-6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1
+
       - name: Prefetch and verify Opus 1.6.1 source
         shell: bash
         run: bash ci/prepare-opus-source.sh
+
       - name: Build production-like QA APK only
         shell: bash
         run: |
@@ -223,6 +213,7 @@ jobs:
             :app:assembleReleaseQa \
             --configuration-cache \
             --stacktrace
+
       - name: Verify QA APK
         shell: bash
         run: |
@@ -237,6 +228,7 @@ jobs:
             qa
           bash ci/verify-release-security.sh "$apk"
           bash ci/verify-sherpa-package.sh apk "$apk"
+
       - name: Upload QA APK
         uses: actions/upload-artifact@v4
         with:
