@@ -1,84 +1,39 @@
 from pathlib import Path
 
-
-cards = "app/src/main/java/io/github/ioannes78/voica/ui/transcript/TranscriptionCards.kt"
-
-
-def already_applied() -> bool:
-    text = Path(cards).read_text()
-    return (
-        "VoicaThemeTokens.colors" in text
-        and "Animatable(0f)" in text
-        and "fontWeight = FontWeight.Medium" in text
-        and "transcriptActiveLineBar" in text
-        and "val tokenHighlightColor = MaterialTheme.colorScheme.primaryContainer" not in text
-    )
+cards = Path("app/src/main/java/io/github/ioannes78/voica/ui/transcript/TranscriptionCards.kt")
+strings = Path("app/src/main/res/values/strings.xml")
 
 
-def replace_once(path: str, old: str, new: str) -> None:
-    target = Path(path)
-    text = target.read_text()
+def replace_once(path: Path, old: str, new: str) -> None:
+    text = path.read_text()
     count = text.count(old)
     if count != 1:
-        raise SystemExit(f"{path}: expected exactly one match, got {count}: {old[:80]!r}")
-    target.write_text(text.replace(old, new, 1))
+        raise SystemExit(f"{path}: expected exactly one match, got {count}: {old[:100]!r}")
+    path.write_text(text.replace(old, new, 1))
 
 
-if already_applied():
-    print("Stage 16X P6 already applied; no-op")
-    raise SystemExit(0)
+text = cards.read_text()
+if "VoicaThemeTokens.colors" not in text:
+    raise SystemExit("P6 base visual implementation is missing; refusing non-deterministic patch")
 
-replace_once(
-    cards,
-    "import androidx.compose.foundation.background\n",
-    "import androidx.compose.animation.animateColorAsState\n"
-    "import androidx.compose.animation.core.Animatable\n"
-    "import androidx.compose.animation.core.tween\n"
-    "import androidx.compose.foundation.background\n",
-)
-replace_once(
-    cards,
-    "import androidx.compose.runtime.Composable\n",
-    "import androidx.compose.runtime.Composable\nimport androidx.compose.runtime.LaunchedEffect\n",
-)
-replace_once(
-    cards,
-    "import androidx.compose.ui.Modifier\n",
-    "import androidx.compose.ui.Modifier\n"
-    "import androidx.compose.ui.draw.drawBehind\n"
-    "import androidx.compose.ui.geometry.Offset\n",
-)
-replace_once(
-    cards,
-    "import androidx.compose.ui.text.TextLayoutResult\n",
-    "import androidx.compose.ui.text.TextLayoutResult\nimport androidx.compose.ui.text.font.FontWeight\n",
-)
-replace_once(
-    cards,
-    "import io.github.ioannes78.voica.database.DiarizationSpeakerEntity\n",
-    "import io.github.ioannes78.voica.database.DiarizationSpeakerEntity\n"
-    "import io.github.ioannes78.voica.ui.theme.VoicaThemeTokens\n",
-)
-
-old_highlight = '''    val displayText = segment.text.ifBlank { stringResource(R.string.transcript_empty_segment) }
-    val tokenHighlightColor = MaterialTheme.colorScheme.primaryContainer
-    val annotatedText = buildAnnotatedString {
-        append(displayText)
-        if (
-            segment.text.isNotBlank() && activeCue != null &&
-            activeCue.textStartOffset in 0..segment.text.length &&
-            activeCue.textEndOffsetExclusive in 0..segment.text.length &&
-            activeCue.textEndOffsetExclusive > activeCue.textStartOffset
-        ) {
-            addStyle(SpanStyle(background = tokenHighlightColor), activeCue.textStartOffset, activeCue.textEndOffsetExclusive)
+if "Animatable(1f)" in text:
+    replace_once(
+        cards,
+        "    val highlightAlpha = remember(segment.stableId) { Animatable(1f) }\n",
+        "    val highlightAlpha = remember(segment.stableId) { Animatable(0f) }\n",
+    )
+    replace_once(
+        cards,
+        '''    LaunchedEffect(activeCueId) {
+        if (activeCue != null) {
+            highlightAlpha.snapTo(0.62f)
+            highlightAlpha.animateTo(1f, animationSpec = tween(durationMillis = 150))
+        } else {
+            highlightAlpha.snapTo(1f)
         }
     }
-    var textLayout by remember(segment.stableId) { mutableStateOf<TextLayoutResult?>(null) }
-'''
-new_highlight = '''    val transcriptColors = VoicaThemeTokens.colors
-    val displayText = segment.text.ifBlank { stringResource(R.string.transcript_empty_segment) }
-    val highlightAlpha = remember(segment.stableId) { Animatable(0f) }
-    LaunchedEffect(activeCueId) {
+''',
+        '''    LaunchedEffect(activeCueId) {
         if (activeCueId == null) {
             highlightAlpha.snapTo(0f)
         } else {
@@ -86,130 +41,48 @@ new_highlight = '''    val transcriptColors = VoicaThemeTokens.colors
             highlightAlpha.animateTo(0.72f, animationSpec = tween(durationMillis = 150))
         }
     }
-    val tokenHighlightColor = transcriptColors.transcriptCurrentWordBg.copy(alpha = highlightAlpha.value)
-    val annotatedText = buildAnnotatedString {
-        append(displayText)
-        if (
-            segment.text.isNotBlank() && activeCue != null &&
-            activeCue.textStartOffset in 0..segment.text.length &&
-            activeCue.textEndOffsetExclusive in 0..segment.text.length &&
-            activeCue.textEndOffsetExclusive > activeCue.textStartOffset
-        ) {
-            if (activeCue.textStartOffset > 0) {
-                addStyle(
-                    SpanStyle(color = transcriptColors.transcriptPlayedText),
-                    0,
-                    activeCue.textStartOffset,
-                )
-            }
-            addStyle(
-                SpanStyle(
-                    background = tokenHighlightColor,
-                    color = transcriptColors.transcriptCurrentWordText,
-                    fontWeight = FontWeight.Medium,
-                ),
-                activeCue.textStartOffset,
-                activeCue.textEndOffsetExclusive,
-            )
-            if (activeCue.textEndOffsetExclusive < segment.text.length) {
-                addStyle(
-                    SpanStyle(color = transcriptColors.transcriptUpcomingText),
-                    activeCue.textEndOffsetExclusive,
-                    segment.text.length,
-                )
-            }
-        }
-    }
-    var textLayout by remember(segment.stableId) { mutableStateOf<TextLayoutResult?>(null) }
-'''
-replace_once(cards, old_highlight, new_highlight)
+''',
+    )
+elif "Animatable(0f)" not in text:
+    raise SystemExit("Unexpected P6 highlight state")
 
-old_column = '''    val canEditSpeakerAssignment = spanId != null && repository != null && segment.speakerAssignmentAvailable
+text = cards.read_text()
+if "isActive -> transcriptColors.transcriptActiveParagraphBg\n" in text:
+    replace_once(
+        cards,
+        "                    isActive -> transcriptColors.transcriptActiveParagraphBg\n",
+        "                    isActive -> transcriptColors.transcriptActiveParagraphBg.copy(alpha = 0.52f)\n",
+    )
+elif "isActive -> transcriptColors.transcriptActiveParagraphBg.copy(alpha = 0.52f)\n" not in text:
+    raise SystemExit("Unexpected P6 paragraph state")
 
-    Column(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .background(
-                    when {
-                        searchHighlighted -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
-                        isActive -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
-                        else -> MaterialTheme.colorScheme.surface
-                    },
-                    RoundedCornerShape(8.dp),
-                )
-                .clickable(enabled = syncEnabled, onClick = { onSeek(segment.startSampleIndex) })
-                .padding(horizontal = 10.dp, vertical = 7.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-'''
-new_column = '''    val canEditSpeakerAssignment = spanId != null && repository != null && segment.speakerAssignmentAvailable
-    val paragraphBackground by
-        animateColorAsState(
-            targetValue =
-                when {
-                    searchHighlighted -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
-                    isActive -> transcriptColors.transcriptActiveParagraphBg.copy(alpha = 0.52f)
-                    else -> transcriptColors.surface
-                },
-            animationSpec = tween(durationMillis = 150),
-            label = "transcriptParagraphBackground",
-        )
+string_text = strings.read_text()
+if '<string name="app_name">Voica</string>' in string_text:
+    replace_once(
+        strings,
+        '    <string name="app_name">Voica</string>\n',
+        '    <string name="app_name">闻知</string>\n',
+    )
+elif '<string name="app_name">闻知</string>' not in string_text:
+    raise SystemExit("Unexpected app_name state")
 
-    Column(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .background(paragraphBackground, RoundedCornerShape(8.dp))
-                .drawBehind {
-                    if (isActive) {
-                        val strokeWidth = 2.dp.toPx()
-                        drawLine(
-                            color = transcriptColors.transcriptActiveLineBar,
-                            start = Offset(strokeWidth / 2f, 6.dp.toPx()),
-                            end = Offset(strokeWidth / 2f, size.height - 6.dp.toPx()),
-                            strokeWidth = strokeWidth,
-                        )
-                    }
-                }
-                .clickable(enabled = syncEnabled, onClick = { onSeek(segment.startSampleIndex) })
-                .padding(start = 13.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-'''
-replace_once(cards, old_column, new_column)
-replace_once(
-    cards,
-    "                    color = if (isActive || searchHighlighted || canEditSpeakerAssignment) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,\n",
-    "                    color = if (isActive || searchHighlighted || canEditSpeakerAssignment) transcriptColors.accent else transcriptColors.textSecondary,\n",
-)
-replace_once(
-    cards,
-    "            style = MaterialTheme.typography.bodyMedium,\n            onTextLayout = { textLayout = it },\n",
-    "            style = MaterialTheme.typography.bodyMedium,\n            color = transcriptColors.textPrimary,\n            onTextLayout = { textLayout = it },\n",
-)
-
-replace_once(
-    "app/src/main/res/values/strings.xml",
-    '    <string name="app_name">Voica</string>\n',
-    '    <string name="app_name">闻知</string>\n',
-)
-
-cards_text = Path(cards).read_text()
+final = cards.read_text()
 required = [
     "VoicaThemeTokens.colors",
     "Animatable(0f)",
-    "tween(durationMillis = 150)",
+    "highlightAlpha.snapTo(0.42f)",
+    "highlightAlpha.animateTo(0.72f, animationSpec = tween(durationMillis = 150))",
     "transcriptCurrentWordBg",
     "transcriptUpcomingText",
     "transcriptPlayedText",
     "transcriptActiveLineBar",
+    "transcriptActiveParagraphBg.copy(alpha = 0.52f)",
     "fontWeight = FontWeight.Medium",
 ]
-missing = [item for item in required if item not in cards_text]
+missing = [item for item in required if item not in final]
 if missing:
     raise SystemExit(f"P6 postcondition missing: {missing}")
-if "val tokenHighlightColor = MaterialTheme.colorScheme.primaryContainer" in cards_text:
+if "val tokenHighlightColor = MaterialTheme.colorScheme.primaryContainer" in final:
     raise SystemExit("legacy hard-coded transcript highlight remains")
 
-print("Stage 16X P6 deterministic patch applied")
+print("Stage 16X P6 gentle-reading refinement verified")
