@@ -273,13 +273,13 @@ fun TranscriptSegmentCard(
     }
     val transcriptColors = VoicaThemeTokens.colors
     val displayText = segment.text.ifBlank { stringResource(R.string.transcript_empty_segment) }
-    val highlightAlpha = remember(segment.stableId) { Animatable(1f) }
+    val highlightAlpha = remember(segment.stableId) { Animatable(0f) }
     LaunchedEffect(activeCueId) {
-        if (activeCue != null) {
-            highlightAlpha.snapTo(0.62f)
-            highlightAlpha.animateTo(1f, animationSpec = tween(durationMillis = 150))
+        if (activeCueId == null) {
+            highlightAlpha.snapTo(0f)
         } else {
-            highlightAlpha.snapTo(1f)
+            highlightAlpha.snapTo(0.42f)
+            highlightAlpha.animateTo(0.72f, animationSpec = tween(durationMillis = 150))
         }
     }
     val tokenHighlightColor = transcriptColors.transcriptCurrentWordBg.copy(alpha = highlightAlpha.value)
@@ -352,7 +352,7 @@ fun TranscriptSegmentCard(
             targetValue =
                 when {
                     searchHighlighted -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
-                    isActive -> transcriptColors.transcriptActiveParagraphBg
+                    isActive -> transcriptColors.transcriptActiveParagraphBg.copy(alpha = 0.52f)
                     else -> transcriptColors.surface
                 },
             animationSpec = tween(durationMillis = 150),
