@@ -1,12 +1,17 @@
 # Stage 16 Finalization — Pre-release Cleanup & Regression Record
 
-状态：**CLEANUP IMPLEMENTED / AUTOMATED REGRESSION PASS / REAL-DEVICE REGRESSION PASS / FINAL FREEZE NOT PERFORMED**
+状态：**CLEANUP IMPLEMENTED / AUTOMATED REGRESSION PASS / REAL-DEVICE REGRESSION PASS / FINAL FREEZE & HANDOFF COMPLETE**
 
 修订日期：2026-10-24
 
 归属：**Stage 16 — Finalization**
 
-本记录取代本文件此前的 `APPROVED DIRECTION / PLANNED / NOT IMPLEMENTED` 状态。Stage 16 Finalization 的实际代码清理、自动化回归和真机回归已经完成；本记录不自动授权 Final Freeze/Handoff、PR merge 或 model-channel promotion。
+本记录取代本文件此前的 `APPROVED DIRECTION / PLANNED / NOT IMPLEMENTED` 与 `FINAL FREEZE NOT PERFORMED` 状态。Stage 16 Finalization 的实际代码清理、自动化回归、真机回归以及用户明确授权的 Final Freeze/Handoff 均已完成。PR merge 与 model-channel promotion 仍不包含在本次授权内。
+
+正式冻结/交接文档：
+
+- `docs/STAGE_16_FINAL_FREEZE.md`
+- `docs/STAGE_16_FINAL_HANDOFF.md`
 
 ---
 
@@ -14,13 +19,13 @@
 
 - `main` 仍保持 Stage 16A.2 已冻结基线；Stage 16B / Finalization 尚未合并。
 - Android PR #35 仍为 **Draft / Open / Unmerged**。
-- Finalization 当前开发分支：`stage16b-local-file-asr-v2`。
-- Finalization 真机回归所验证的当前 runtime/source head：`ef753e8b624f9acfa397775f26ffbfb3e59c1937`。
-- 随后的提交仅更新本 Finalization 记录，不改变已真机验证的 runtime/source。
+- Finalization 开发分支：`stage16b-local-file-asr-v2`。
+- Finalization 真机回归所验证的 runtime/source head：`ef753e8b624f9acfa397775f26ffbfb3e59c1937`。
+- 随后的提交仅更新 Finalization / Freeze / Handoff 文档，不改变已真机验证的 runtime/source。
 - Room 当前版本：**v16**。
 - P5 revision-5：**CLOSED / REAL-DEVICE PASS**。
 - SenseVoice Rich Audio Metadata：**CANCELLED / NOT IMPLEMENTED**。
-- Stage 16 Final Freeze/Handoff：**NOT PERFORMED**。
+- Stage 16 Final Freeze/Handoff：**COMPLETE**。
 - Stage 17 / Stage 18 implementation：**NOT STARTED**。
 
 ---
@@ -210,7 +215,7 @@ Finalization runtime/source head 的 CTC Finalization QA run `39981192114`：**S
 
 ## 9. Production model-channel 边界
 
-Finalization 没有自动执行任何 model promotion。
+Finalization 与 Final Freeze/Handoff 没有自动执行任何 model promotion。
 
 当前边界：
 
@@ -218,7 +223,7 @@ Finalization 没有自动执行任何 model promotion。
 - PR #21 head：`eeb59214244f392f3e2eecdb90016efbe3a95401`；
 - model-channel `main/manifests/production.json` 仍是 manifest **v7**；
 - Android production model binding 仍 pin 到 immutable commit `eeb59214244f392f3e2eecdb90016efbe3a95401`、manifest **v9**、固定 digest；
-- FunASR revision-2 CTC bundle 仍作为 QA/candidate runtime 使用，**未因 Finalization 自动进行 model-channel promotion**；
+- FunASR revision-2 CTC bundle 仍作为 QA/candidate runtime 使用，**未因 Finalization 或 Freeze/Handoff 自动进行 model-channel promotion**；
 - 不 merge model-channel PR #21；
 - 不修改 mutable `main` production manifest。
 
@@ -226,9 +231,9 @@ Finalization 没有自动执行任何 model promotion。
 
 ---
 
-## 10. Stage 16 stop point
+## 10. Stage 16 final state
 
-截至本记录：
+最终流程：
 
 `P5 R5 CLOSED`
 → `SenseVoice Rich Metadata CANCELLED`
@@ -237,13 +242,17 @@ Finalization 没有自动执行任何 model promotion。
 → `Room v16 Baseline DONE`
 → `Automated Regression PASS`
 → `Real-device Regression PASS`
-→ **`WAITING FOR EXPLICIT USER AUTHORIZATION`**
-→ `Stage 16 Final Freeze/Handoff NOT PERFORMED`
+→ `USER FINAL FREEZE/HANDOFF AUTHORIZATION RECEIVED`
+→ **`Stage 16 FINAL FREEZE COMPLETE`**
+→ **`Stage 16 FINAL HANDOFF COMPLETE`**
 
-不得因为本记录已通过自动化/真机回归而自动：
+Stage 16 到此封存。
+
+仍不得因为 Freeze/Handoff 完成而自动：
 
 - merge Android PR #35；
 - merge model-channel PR #21；
 - promote revision-2 / model-channel；
-- 执行 Stage 16 Final Freeze/Handoff；
 - 开始 Stage 17 / Stage 18 implementation。
+
+下一步若进入 Stage 17，必须重新核验 GitHub 并重新完成 Stage 17 requirements/development-plan Gate。
