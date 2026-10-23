@@ -12,6 +12,7 @@ enum class VoicaThemeMode {
 }
 
 enum class VoicaColorPreset {
+    WENZHI_INK,
     MINT,
     BLUE,
     PURPLE,
@@ -20,7 +21,7 @@ enum class VoicaColorPreset {
 
 data class VoicaThemeSettings(
     val mode: VoicaThemeMode = VoicaThemeMode.SYSTEM,
-    val preset: VoicaColorPreset = VoicaColorPreset.MINT,
+    val preset: VoicaColorPreset = VoicaColorPreset.WENZHI_INK,
     val customAccentArgb: Int = DEFAULT_CUSTOM_ACCENT,
 ) {
     companion object {
@@ -57,7 +58,7 @@ class SharedPreferencesThemeSettingsStore(
                 preset =
                     preferences.getString(KEY_PRESET, null)
                         ?.let { runCatching { VoicaColorPreset.valueOf(it) }.getOrNull() }
-                        ?: VoicaColorPreset.MINT,
+                        ?: VoicaColorPreset.WENZHI_INK,
                 customAccentArgb =
                     preferences.getInt(
                         KEY_CUSTOM_ACCENT,
