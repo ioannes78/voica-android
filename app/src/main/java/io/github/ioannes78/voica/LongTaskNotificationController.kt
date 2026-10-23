@@ -270,24 +270,15 @@ class LongTaskNotificationController(
         notificationId: Int,
         logicalKey: String,
     ): Notification {
-        val destination =
-            when (notice.kind) {
-                TaskCompletionKind.TRANSCRIPTION,
-                TaskCompletionKind.DIARIZATION,
-                -> RecordingDetailDestination.TRANSCRIPT
-                TaskCompletionKind.AI_SUMMARY -> RecordingDetailDestination.SUMMARY
-            }
         val title =
             when (notice.kind) {
                 TaskCompletionKind.TRANSCRIPTION -> "转写已完成"
                 TaskCompletionKind.DIARIZATION -> "说话人分离已完成"
-                TaskCompletionKind.AI_SUMMARY -> "总结已完成"
             }
         val text =
             when (notice.kind) {
                 TaskCompletionKind.TRANSCRIPTION -> "转写结果已生成"
                 TaskCompletionKind.DIARIZATION -> "说话人识别结果已生成"
-                TaskCompletionKind.AI_SUMMARY -> "总结结果已生成"
             }
         return Notification.Builder(context, VoicaNotificationChannels.TASK_RESULT)
             .setSmallIcon(R.drawable.ic_stat_voica)
@@ -299,7 +290,7 @@ class LongTaskNotificationController(
                     context = context,
                     requestCode = notificationId,
                     recordingId = notice.recordingId,
-                    destination = destination,
+                    destination = RecordingDetailDestination.TRANSCRIPT,
                     completionKind = notice.kind,
                     completionTaskId = notice.taskId,
                 ),
@@ -348,7 +339,6 @@ class LongTaskNotificationController(
         internal const val TRANSCRIPTION_ATTENTION_BASE = 140_000_000
         internal const val TRANSCRIPTION_COMPLETION_BASE = 180_000_000
         internal const val DIARIZATION_COMPLETION_BASE = 190_000_000
-        internal const val AI_SUMMARY_COMPLETION_BASE = 200_000_000
     }
 }
 
@@ -434,7 +424,6 @@ private fun completionNotificationId(notice: TaskCompletionNotice): Int =
     when (notice.kind) {
         TaskCompletionKind.TRANSCRIPTION -> LongTaskNotificationController.TRANSCRIPTION_COMPLETION_BASE
         TaskCompletionKind.DIARIZATION -> LongTaskNotificationController.DIARIZATION_COMPLETION_BASE
-        TaskCompletionKind.AI_SUMMARY -> LongTaskNotificationController.AI_SUMMARY_COMPLETION_BASE
     } + stableNotificationOffset(notice.taskId)
 
 private fun stableNotificationOffset(id: String): Int =

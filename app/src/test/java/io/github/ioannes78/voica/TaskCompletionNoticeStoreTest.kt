@@ -47,41 +47,34 @@ class TaskCompletionNoticeStoreTest {
     }
 
     @Test
-    fun visibleTranscriptAcknowledgesTranscriptionAndDiarizationOnly() {
+    fun visibleTranscriptAcknowledgesTranscriptionAndDiarizationForSameRecording() {
         val store = TaskCompletionNoticeStore(context, nowMs = { clock++ })
         store.publish(TaskCompletionKind.TRANSCRIPTION, "tx-1", "recording-a")
         store.publish(TaskCompletionKind.DIARIZATION, "dia-1", "recording-a")
-        store.publish(TaskCompletionKind.AI_SUMMARY, "sum-1", "recording-a")
         store.publish(TaskCompletionKind.TRANSCRIPTION, "tx-other", "recording-b")
 
         store.acknowledgeVisible(
             recordingId = "recording-a",
             includeTranscriptResults = true,
-            includeSummaryResults = false,
         )
 
         assertEquals(
-            setOf("sum-1", "tx-other"),
-            store.pending.value.map { it.taskId }.toSet(),
+            listOf("tx-other"),
+            store.pending.value.map { it.taskId },
         )
     }
 
     @Test
-    fun visibleSummaryAcknowledgesOnlySummaryForSameRecording() {
+    fun nonTranscriptDestinationDoesNotAcknowledgeResults() {
         val store = TaskCompletionNoticeStore(context, nowMs = { clock++ })
         store.publish(TaskCompletionKind.TRANSCRIPTION, "tx-1", "recording-a")
-        store.publish(TaskCompletionKind.AI_SUMMARY, "sum-1", "recording-a")
 
         store.acknowledgeVisible(
             recordingId = "recording-a",
             includeTranscriptResults = false,
-            includeSummaryResults = true,
         )
 
-        assertEquals(
-            listOf("tx-1"),
-            store.pending.value.map { it.taskId },
-        )
+        assertEquals(listOf("tx-1"), store.pending.value.map { it.taskId })
     }
 
     private fun clearStore() {

@@ -21,7 +21,6 @@ class Stage13B5Qa4CandidateNotificationController(
     private val notificationManager = context.getSystemService(NotificationManager::class.java)
     private val presentationStore = NotificationPresentationStore(context)
     private var transcriptionNotificationIds: Set<Int> = emptySet()
-    private var aiSummaryNotificationIds: Set<Int> = emptySet()
 
     init {
         createChannel()
@@ -53,36 +52,6 @@ class Stage13B5Qa4CandidateNotificationController(
                     }
                     (transcriptionNotificationIds - nextIds).forEach(notificationManager::cancel)
                     transcriptionNotificationIds = nextIds
-                }
-        }
-        scope.launch {
-            combine(
-                qa4Repository.observeAiSummaryCandidates(),
-                recordingRepository.recordings,
-            ) { candidates, recordings -> candidates to recordings }
-                .collect { (candidates, recordings) ->
-                    val nextIds = mutableSetOf<Int>()
-                    candidates.forEach { candidate ->
-                        val notificationId = aiSummaryCandidateNotificationId(candidate.id)
-                        val logicalKey = aiSummaryCandidatePresentationKey(candidate.id)
-                        if (!presentationStore.isSystemDismissed(logicalKey)) {
-                            nextIds += notificationId
-                            notificationManager.notify(
-                                notificationId,
-                                buildNotification(
-                                    notificationId = notificationId,
-                                    logicalKey = logicalKey,
-                                    title = "AI 总结已完成",
-                                    text = "新的总结结果已生成",
-                                    recordingId = candidate.recordingId,
-                                    recordingName = recordingName(recordings, candidate.recordingId),
-                                    destination = RecordingDetailDestination.SUMMARY,
-                                ),
-                            )
-                        }
-                    }
-                    (aiSummaryNotificationIds - nextIds).forEach(notificationManager::cancel)
-                    aiSummaryNotificationIds = nextIds
                 }
         }
     }
@@ -129,7 +98,7 @@ class Stage13B5Qa4CandidateNotificationController(
                 "任务结果",
                 NotificationManager.IMPORTANCE_LOW,
             ).apply {
-                description = "转写或 AI 总结生成新结果时提醒"
+                description = "转写生成新结果时提醒"
                 setShowBadge(true)
             },
         )
@@ -142,16 +111,9 @@ class Stage13B5Qa4CandidateNotificationController(
 internal fun transcriptionCandidatePresentationKey(id: String): String =
     "candidate:transcription:$id"
 
-internal fun aiSummaryCandidatePresentationKey(id: String): String =
-    "candidate:summary:$id"
-
 internal fun transcriptionCandidateNotificationId(id: String): Int =
     TRANSCRIPTION_CANDIDATE_BASE + candidateStableOffset(id)
-
-internal fun aiSummaryCandidateNotificationId(id: String): Int =
-    AI_SUMMARY_CANDIDATE_BASE + candidateStableOffset(id)
 
 private fun candidateStableOffset(id: String): Int = id.hashCode() and 0x000f_ffff
 
 private const val TRANSCRIPTION_CANDIDATE_BASE = 160_000_000
-private const val AI_SUMMARY_CANDIDATE_BASE = 170_000_000

@@ -6,7 +6,7 @@ import org.junit.Test
 
 class Stage13CCompletionNoticePolicyTest {
     @Test
-    fun ordinaryCompletionItemsKeepTaskIdentityAndOpenCorrectDestination() {
+    fun ordinaryCompletionItemsKeepTaskIdentityAndOpenTranscriptDestination() {
         val items =
             buildCompletionAttentionItems(
                 notices =
@@ -23,30 +23,23 @@ class Stage13CCompletionNoticePolicyTest {
                             recordingId = "recording-a",
                             publishedAtMs = 2L,
                         ),
-                        TaskCompletionNotice(
-                            kind = TaskCompletionKind.AI_SUMMARY,
-                            taskId = "sum-1",
-                            recordingId = "recording-a",
-                            publishedAtMs = 1L,
-                        ),
                     ),
                 recordings = emptyList(),
             )
 
         assertEquals(
-            listOf("转写完成", "说话人分离完成", "AI 总结完成"),
+            listOf("转写完成", "说话人分离完成"),
             items.map { it.label },
         )
         assertEquals(
             listOf(
                 RecordingDetailDestination.TRANSCRIPT,
                 RecordingDetailDestination.TRANSCRIPT,
-                RecordingDetailDestination.SUMMARY,
             ),
             items.map { it.destination },
         )
         assertEquals(
-            listOf("tx-1", "dia-1", "sum-1"),
+            listOf("tx-1", "dia-1"),
             items.map { it.completionTaskId },
         )
     }
