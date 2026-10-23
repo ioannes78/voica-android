@@ -239,7 +239,7 @@ class LongTaskNotificationController(
         logicalKey: String,
     ): Notification =
         Notification.Builder(context, VoicaNotificationChannels.TASK_ATTENTION)
-            .setSmallIcon(R.drawable.ic_stat_voica)
+            .setSmallIcon(R.drawable.ic_stat_wenzhi)
             .setContentTitle(title)
             .setContentText(text)
             .setSubText(recordingName)
@@ -281,7 +281,7 @@ class LongTaskNotificationController(
                 TaskCompletionKind.DIARIZATION -> "说话人识别结果已生成"
             }
         return Notification.Builder(context, VoicaNotificationChannels.TASK_RESULT)
-            .setSmallIcon(R.drawable.ic_stat_voica)
+            .setSmallIcon(R.drawable.ic_stat_wenzhi)
             .setContentTitle(title)
             .setContentText(text)
             .setSubText(recordingName)
@@ -408,7 +408,7 @@ internal fun transcriptionAttentionTitle(entity: TranscriptionEntity): String =
 internal fun transcriptionAttentionText(entity: TranscriptionEntity): String =
     when (entity.state) {
         TranscriptionStateValue.INTERRUPTED -> "上一次转写未完成，请重新进行转写"
-        else -> "上一次转写没有完成，请返回 Voica 重新转写"
+        else -> "上一次转写没有完成，请返回闻知重新转写"
     }
 
 internal fun transcriptionAttentionPresentationKey(entity: TranscriptionEntity): String =
