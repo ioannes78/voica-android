@@ -1,0 +1,59 @@
+name: Room v16 Schema Capture
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [opened, synchronize, reopened]
+    paths:
+      - "core/database/**"
+      - ".github/workflows/room-v16-schema-capture.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    name: Capture Room v16 schema
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+
+      - name: Install Android platform
+        shell: bash
+        run: sdkmanager "platforms;android-37.1" "build-tools;36.0.0"
+
+      - name: Setup Gradle 9.6
+        uses: gradle/actions/setup-gradle@v5.0.2
+        with:
+          gradle-version: "9.6.0"
+          cache-read-only: true
+
+      - name: Generate Room v16 schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          schema="core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/16.json"
+          rm -f "$schema"
+          gradle :core:database:kspDebugKotlin --rerun-tasks --no-configuration-cache --stacktrace
+          test -f "$schema"
+
+      - name: Upload Room v16 schema
+        uses: actions/upload-artifact@v4
+        with:
+          name: room-schema-v16
+          path: core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/16.json
+          if-no-files-found: error
+          retention-days: 1

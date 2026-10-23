@@ -10,8 +10,6 @@ import androidx.room.RoomDatabase
         RecordingEntity::class,
         AudioAssetEntity::class,
         AudioDerivationEntity::class,
-        LibraryMetaEntity::class,
-        MigrationDiagnosticEntity::class,
         RecordingImportProvenanceEntity::class,
         FolderEntity::class,
         RecordingUserMetadataEntity::class,
@@ -44,7 +42,7 @@ import androidx.room.RoomDatabase
         TimelineAnnotationEntity::class,
         TimelineAnnotationAttachmentEntity::class,
     ],
-    version = 15,
+    version = 16,
     exportSchema = true,
 )
 abstract class VoicaDatabase : RoomDatabase() {

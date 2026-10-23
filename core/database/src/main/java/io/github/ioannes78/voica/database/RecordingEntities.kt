@@ -156,25 +156,6 @@ data class AudioDerivationEntity(
     val errorDetail: String?,
 )
 
-@Entity(tableName = "library_meta")
-data class LibraryMetaEntity(
-    @PrimaryKey val key: String,
-    val value: String,
-    val updatedAtMs: Long,
-)
-
-@Entity(
-    tableName = "migration_diagnostics",
-    indices = [Index(value = ["sourcePath", "code"], unique = true)],
-)
-data class MigrationDiagnosticEntity(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val sourcePath: String,
-    val code: String,
-    val detail: String?,
-    val observedAtMs: Long,
-)
-
 data class RecordingWithAssets(
     @Embedded val recording: RecordingEntity,
     @Relation(
