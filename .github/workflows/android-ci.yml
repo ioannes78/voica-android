@@ -126,6 +126,15 @@ jobs:
             --configuration-cache \
             --stacktrace
 
+      - name: Force Room v15 schema export
+        shell: bash
+        run: |
+          set -euo pipefail
+          schema="core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/15.json"
+          rm -f "$schema"
+          gradle :core:database:kspDebugKotlin --rerun-tasks --no-configuration-cache --stacktrace
+          test -f "$schema"
+
       - name: Upload generated Room v15 schema
         uses: actions/upload-artifact@v4
         with:
