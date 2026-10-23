@@ -5,12 +5,6 @@ enum class AiInputMode {
     DIRECT_AUDIO,
 }
 
-enum class AiSummaryMode {
-    SMART,
-    PRESET,
-    CUSTOM,
-}
-
 enum class AiContentType {
     MEETING,
     INTERVIEW,
@@ -42,20 +36,6 @@ enum class AiEpistemicStatus {
     TRANSCRIPT_STATED,
     AI_SYNTHESIS,
     UNCONFIRMED,
-}
-
-enum class AiGenerationStatus {
-    CREATED,
-    PREPARING,
-    ANALYZING,
-    PLANNING,
-    MAPPING,
-    REDUCING,
-    VALIDATING,
-    COMPLETED,
-    FAILED,
-    CANCELLED,
-    INTERRUPTED,
 }
 
 enum class TranscriptEvidenceSourceKind {
