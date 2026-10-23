@@ -77,10 +77,20 @@ fun ThemeSettingsCard(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 FilterChip(
+                    selected = settings.preset == VoicaColorPreset.WENZHI_INK,
+                    onClick = { store.setPreset(VoicaColorPreset.WENZHI_INK) },
+                    label = { Text(stringResource(R.string.theme_palette_wenzhi)) },
+                )
+                FilterChip(
                     selected = settings.preset == VoicaColorPreset.MINT,
                     onClick = { store.setPreset(VoicaColorPreset.MINT) },
                     label = { Text(stringResource(R.string.theme_palette_mint)) },
                 )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 FilterChip(
                     selected = settings.preset == VoicaColorPreset.BLUE,
                     onClick = { store.setPreset(VoicaColorPreset.BLUE) },
@@ -91,12 +101,12 @@ fun ThemeSettingsCard(
                     onClick = { store.setPreset(VoicaColorPreset.PURPLE) },
                     label = { Text(stringResource(R.string.theme_palette_purple)) },
                 )
+                FilterChip(
+                    selected = settings.preset == VoicaColorPreset.CUSTOM,
+                    onClick = { store.setPreset(VoicaColorPreset.CUSTOM) },
+                    label = { Text(stringResource(R.string.theme_palette_custom)) },
+                )
             }
-            FilterChip(
-                selected = settings.preset == VoicaColorPreset.CUSTOM,
-                onClick = { store.setPreset(VoicaColorPreset.CUSTOM) },
-                label = { Text("自定义") },
-            )
 
             if (settings.preset == VoicaColorPreset.CUSTOM) {
                 OutlinedTextField(
@@ -130,6 +140,12 @@ fun ThemeSettingsCard(
                     Text(stringResource(R.string.theme_custom_accent_apply))
                 }
             }
+
+            Text(
+                stringResource(R.string.theme_settings_note),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
