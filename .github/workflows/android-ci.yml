@@ -127,7 +127,7 @@ jobs:
               "insertMigrationDiagnostic(",
           )
           leftovers = []
-          for base in (Path("app/src"), Path("core/database/src")):
+          for base in (Path("app/src/main"), Path("core/database/src/main")):
               for path in base.rglob("*.kt"):
                   content = path.read_text()
                   for token in forbidden:
