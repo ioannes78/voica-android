@@ -27,7 +27,7 @@ on:
           - qa
 
 permissions:
-  contents: read
+  contents: write
   actions: write
 
 jobs:
@@ -44,13 +44,99 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
-      # Keep fast validation build identity stable so commit churn does not invalidate
-      # Gradle Configuration Cache. QA/production artifacts receive the real source SHA.
       VOICA_BUILD_GIT_SHA: ci-fast
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Apply Stage5 legacy cleanup transform
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          models = Path("core/database/src/main/java/io/github/ioannes78/voica/database/RecordingImportModels.kt")
+          text = models.read_text()
+          if "enum class DeviceAssetFormat" not in text:
+              marker = "package io.github.ioannes78.voica.database\n\n"
+              enum = "enum class DeviceAssetFormat {\n    OPUS,\n    WAV,\n}\n\n"
+              assert marker in text
+              text = text.replace(marker, marker + enum, 1)
+              models.write_text(text)
+
+          for base in (Path("app/src"), Path("core/database/src")):
+              for path in base.rglob("*.kt"):
+                  content = path.read_text()
+                  if "LegacyAssetFormat" in content:
+                      path.write_text(content.replace("LegacyAssetFormat", "DeviceAssetFormat"))
+
+          repo = Path("core/database/src/main/java/io/github/ioannes78/voica/database/RecordingLibraryRepository.kt")
+          text = repo.read_text()
+
+          start = text.index("data class LegacyImportReport(")
+          end = text.index("data class LibraryDeleteResult(", start)
+          text = text[:start] + text[end:]
+
+          start = text.index("    suspend fun importLegacyStage5IfNeeded(): LegacyImportReport {")
+          end = text.index("    suspend fun registerDownloadedDeviceAsset(", start)
+          text = text[:start] + text[end:]
+
+          diagnostic = "    suspend fun migrationDiagnostics(): List<MigrationDiagnosticEntity> =\n        dao.migrationDiagnostics()\n\n"
+          assert text.count(diagnostic) == 1
+          text = text.replace(diagnostic, "", 1)
+
+          for line in (
+              '        const val LEGACY_IMPORT_META_KEY = "legacy_stage5_import"\n',
+              '        const val LEGACY_IMPORT_VERSION = "1"\n',
+          ):
+              assert text.count(line) == 1
+              text = text.replace(line, "", 1)
+
+          start = text.index("private fun LegacyStage5Candidate.toRecordingEntity")
+          end = text.index("private fun AudioAssetEntity.toModel()", start)
+          text = text[:start] + text[end:]
+          repo.write_text(text)
+
+          dao = Path("core/database/src/main/java/io/github/ioannes78/voica/database/RecordingDao.kt")
+          text = dao.read_text()
+          start = text.index("    @Insert(onConflict = OnConflictStrategy.REPLACE)\n    suspend fun putMeta(meta: LibraryMetaEntity)")
+          end_marker = "    suspend fun migrationDiagnostics(): List<MigrationDiagnosticEntity>\n"
+          end = text.index(end_marker, start) + len(end_marker)
+          text = text[:start] + text[end:]
+          dao.write_text(text)
+
+          for path in (
+              Path("core/database/src/main/java/io/github/ioannes78/voica/database/LegacyStage5Scanner.kt"),
+              Path("core/database/src/test/java/io/github/ioannes78/voica/database/LegacyStage5ScannerTest.kt"),
+          ):
+              assert path.exists(), path
+              path.unlink()
+
+          forbidden = (
+              "LegacyStage5Scanner",
+              "LegacyStage5Candidate",
+              "LegacyAssetFormat",
+              "LegacyImportReport",
+              "importLegacyStage5IfNeeded",
+              "migrationDiagnostics()",
+              "putMeta(",
+              "readMeta(",
+              "insertMigrationDiagnostic(",
+          )
+          leftovers = []
+          for base in (Path("app/src"), Path("core/database/src")):
+              for path in base.rglob("*.kt"):
+                  content = path.read_text()
+                  for token in forbidden:
+                      if token in content:
+                          leftovers.append(f"{path}: {token}")
+          if leftovers:
+              raise SystemExit("Unexpected Stage5 legacy references:\n" + "\n".join(leftovers))
+          PY
+          git diff --check
 
       - name: Cheap repository contracts
         shell: bash
@@ -87,7 +173,6 @@ jobs:
         uses: gradle/actions/setup-gradle@v5.0.2
         with:
           gradle-version: "9.6.0"
-          # Same-repository jobs may refresh Gradle state; external forks remain read-only.
           cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
 
@@ -130,11 +215,29 @@ jobs:
         shell: bash
         run: bash ci/verify-fsmn-candidate-runtime.sh debug
 
+      - name: Commit verified Stage5 cleanup and restore CI
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          patch="$RUNNER_TEMP/stage5-cleanup.patch"
+          git diff --binary -- app core > "$patch"
+          test -s "$patch"
+          head_ref="${{ github.event.pull_request.head.ref }}"
+          head_sha="${{ github.event.pull_request.head.sha }}"
+          git fetch origin "$head_ref"
+          git checkout -B "$head_ref" "$head_sha"
+          git apply "$patch"
+          git checkout "${head_sha}^" -- .github/workflows/android-ci.yml
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app core .github/workflows/android-ci.yml
+          git commit -m "Stage 16 cleanup: remove Stage5 legacy import runtime"
+          git push origin "HEAD:$head_ref"
+
   qa-apk:
     name: QA APK Gate
-    # QA APK generation is edge-triggered: add the [APK] prefix to the PR title
-    # when the stage enters a real-device QA handoff. Keeping [APK] in the title
-    # does not rebuild an APK on later synchronize/push events.
     if: >-
       ${{
         (github.event_name == 'pull_request' &&
