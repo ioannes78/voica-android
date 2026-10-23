@@ -141,11 +141,17 @@ jobs:
           if [ -z "$(git status --porcelain --untracked-files=all -- "$schema")" ]; then
             exit 0
           fi
+          cp "$schema" "$RUNNER_TEMP/voica-room-v15.json"
+          branch="${{ github.event.pull_request.head.ref }}"
+          git fetch origin "$branch"
+          git checkout -B "$branch" "origin/$branch"
+          mkdir -p "$(dirname "$schema")"
+          cp "$RUNNER_TEMP/voica-room-v15.json" "$schema"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "$schema"
           git commit -m "Commit Room v15 schema"
-          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
+          git push origin "HEAD:$branch"
 
       - name: Upload generated Room v15 schema
         uses: actions/upload-artifact@v4
