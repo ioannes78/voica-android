@@ -1,5 +1,10 @@
 package io.github.ioannes78.voica.database
 
+enum class DeviceAssetFormat {
+    OPUS,
+    WAV,
+}
+
 data class AudioDuplicateMatch(
     val recordingId: String,
     val displayName: String,

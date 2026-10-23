@@ -7,13 +7,6 @@ import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-data class LegacyImportReport(
-    val skippedBecauseAlreadyImported: Boolean,
-    val importedRecordings: Int,
-    val importedAssets: Int,
-    val diagnostics: Int,
-)
-
 data class LibraryDeleteResult(
     val deleted: Boolean,
     val failedPaths: List<String> = emptyList(),
@@ -73,7 +66,7 @@ data class CanonicalTranscriptionLineage(
 data class DownloadedDeviceAsset(
     val sourceRemoteIdentity: String,
     val sourceDeviceAddress: String,
-    val sourceFormat: LegacyAssetFormat,
+    val sourceFormat: DeviceAssetFormat,
     val displayFilename: String,
     val relativePath: String,
     val recordedAtLocalIso: String?,
@@ -308,86 +301,17 @@ class RecordingLibraryRepository(
         return deleted
     }
 
-    suspend fun importLegacyStage5IfNeeded(): LegacyImportReport {
-        if (dao.readMeta(LEGACY_IMPORT_META_KEY) == LEGACY_IMPORT_VERSION) {
-            return LegacyImportReport(
-                skippedBecauseAlreadyImported = true,
-                importedRecordings = 0,
-                importedAssets = 0,
-                diagnostics = 0,
-            )
-        }
-
-        val scan = LegacyStage5Scanner(recordingsRoot).scan()
-        var insertedRecordings = 0
-        var insertedAssets = 0
-        val now = nowMs()
-
-        database.withTransaction {
-            scan.candidates
-                .groupBy { it.recordingId }
-                .forEach { (_, assets) ->
-                    val preferred = assets.firstOrNull {
-                        it.sourceFormat == LegacyAssetFormat.OPUS
-                    } ?: assets.first()
-                    val recording = preferred.toRecordingEntity(now)
-                    if (dao.insertRecordingIgnore(recording) != -1L) {
-                        insertedRecordings += 1
-                    }
-                    dao.insertUserMetadataIgnore(
-                        RecordingUserMetadataEntity(
-                            recordingId = recording.id,
-                            folderId = null,
-                            isFavorite = false,
-                            updatedAtMs = now,
-                        ),
-                    )
-                    assets.forEach { candidate ->
-                        if (dao.insertAssetIgnore(candidate.toAssetEntity(now)) != -1L) {
-                            insertedAssets += 1
-                        }
-                    }
-                }
-
-            scan.issues.forEach { issue ->
-                dao.insertMigrationDiagnostic(
-                    MigrationDiagnosticEntity(
-                        sourcePath = issue.sourcePath,
-                        code = issue.code,
-                        detail = issue.detail,
-                        observedAtMs = now,
-                    ),
-                )
-            }
-
-            dao.putMeta(
-                LibraryMetaEntity(
-                    key = LEGACY_IMPORT_META_KEY,
-                    value = LEGACY_IMPORT_VERSION,
-                    updatedAtMs = now,
-                ),
-            )
-        }
-
-        return LegacyImportReport(
-            skippedBecauseAlreadyImported = false,
-            importedRecordings = insertedRecordings,
-            importedAssets = insertedAssets,
-            diagnostics = scan.issues.size,
-        )
-    }
-
     suspend fun registerDownloadedDeviceAsset(asset: DownloadedDeviceAsset): String {
         require(asset.sizeBytes >= 0L) { "sizeBytes must be non-negative" }
         require(SHA256.matches(asset.sha256.lowercase())) { "invalid SHA-256" }
         val recordingId = stableRecordingId(asset.sourceRemoteIdentity)
         val role = when (asset.sourceFormat) {
-            LegacyAssetFormat.OPUS -> AudioAssetRole.DEVICE_OPUS
-            LegacyAssetFormat.WAV -> AudioAssetRole.DEVICE_WAV
+            DeviceAssetFormat.OPUS -> AudioAssetRole.DEVICE_OPUS
+            DeviceAssetFormat.WAV -> AudioAssetRole.DEVICE_WAV
         }
         val assetId = when (asset.sourceFormat) {
-            LegacyAssetFormat.OPUS -> recordingId
-            LegacyAssetFormat.WAV -> stableRecordingId(asset.sourceRemoteIdentity + "|format=WAV")
+            DeviceAssetFormat.OPUS -> recordingId
+            DeviceAssetFormat.WAV -> stableRecordingId(asset.sourceRemoteIdentity + "|format=WAV")
         }
         val now = nowMs()
 
@@ -425,7 +349,7 @@ class RecordingLibraryRepository(
                     role = role,
                     relativePath = asset.relativePath,
                     container = asset.container,
-                    codec = if (asset.sourceFormat == LegacyAssetFormat.OPUS) "OPUS" else null,
+                    codec = if (asset.sourceFormat == DeviceAssetFormat.OPUS) "OPUS" else null,
                     sampleFormat = null,
                     sampleRateHz = null,
                     channelCount = null,
@@ -444,12 +368,12 @@ class RecordingLibraryRepository(
 
     suspend fun findDeviceAsset(
         remoteIdentity: String,
-        format: LegacyAssetFormat,
+        format: DeviceAssetFormat,
     ): RecordingAsset? {
         val recordingId = stableRecordingId(remoteIdentity)
         val role = when (format) {
-            LegacyAssetFormat.OPUS -> AudioAssetRole.DEVICE_OPUS
-            LegacyAssetFormat.WAV -> AudioAssetRole.DEVICE_WAV
+            DeviceAssetFormat.OPUS -> AudioAssetRole.DEVICE_OPUS
+            DeviceAssetFormat.WAV -> AudioAssetRole.DEVICE_WAV
         }
         val asset = dao.findAsset(recordingId, role) ?: return null
         if (asset.integrityState != AudioIntegrityState.VERIFIED) return null
@@ -471,7 +395,7 @@ class RecordingLibraryRepository(
 
     suspend fun isDeviceAssetAvailable(
         remoteIdentity: String,
-        format: LegacyAssetFormat,
+        format: DeviceAssetFormat,
     ): Boolean {
         val asset = findDeviceAsset(remoteIdentity, format) ?: return false
         val file = File(recordingsRoot, asset.relativePath)
@@ -936,9 +860,6 @@ class RecordingLibraryRepository(
         return updated
     }
 
-    suspend fun migrationDiagnostics(): List<MigrationDiagnosticEntity> =
-        dao.migrationDiagnostics()
-
     private fun sanitizeDisplayName(value: String): String? {
         val cleaned = value
             .replace(' ', '_')
@@ -1017,8 +938,6 @@ class RecordingLibraryRepository(
     }
 
     private companion object {
-        const val LEGACY_IMPORT_META_KEY = "legacy_stage5_import"
-        const val LEGACY_IMPORT_VERSION = "1"
         const val MAX_DISPLAY_NAME = 160
         val SHA256 = Regex("^[0-9a-f]{64}$")
         val ACTIVE_DERIVATION_STATES = listOf(
@@ -1031,45 +950,6 @@ class RecordingLibraryRepository(
         )
     }
 }
-
-private fun LegacyStage5Candidate.toRecordingEntity(now: Long): RecordingEntity =
-    RecordingEntity(
-        id = recordingId,
-        sourceType = RecordingSourceType.DEVICE_DOWNLOAD,
-        sourceRemoteIdentity = sourceRemoteIdentity,
-        sourceDeviceAddress = sourceDeviceAddress,
-        originalFilename = displayFilename,
-        displayName =
-            RecordingDisplayNamePolicy.defaultDisplayName(displayFilename),
-        recordedAtLocalIso = recordedAtLocalIso,
-        deviceReportedDurationMs = deviceReportedDurationMs,
-        downloadedAtMs = downloadedAtMs,
-        createdAtMs = downloadedAtMs,
-        updatedAtMs = now,
-    )
-
-private fun LegacyStage5Candidate.toAssetEntity(now: Long): AudioAssetEntity =
-    AudioAssetEntity(
-        assetId = legacyAssetId,
-        recordingId = recordingId,
-        role = when (sourceFormat) {
-            LegacyAssetFormat.OPUS -> AudioAssetRole.DEVICE_OPUS
-            LegacyAssetFormat.WAV -> AudioAssetRole.DEVICE_WAV
-        },
-        relativePath = relativePath,
-        container = legacyContainerHint,
-        codec = if (sourceFormat == LegacyAssetFormat.OPUS) "OPUS" else null,
-        sampleFormat = null,
-        sampleRateHz = null,
-        channelCount = null,
-        sizeBytes = sizeBytes,
-        sha256 = sha256,
-        integrityState = AudioIntegrityState.VERIFIED,
-        formatValidationState = AudioValidationState.LEGACY_HINT,
-        createdAtMs = downloadedAtMs,
-        verifiedAtMs = now,
-    )
-
 
 private fun AudioAssetEntity.toModel(): RecordingAsset =
     RecordingAsset(

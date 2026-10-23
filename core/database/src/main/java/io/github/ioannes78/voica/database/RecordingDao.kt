@@ -286,15 +286,4 @@ interface RecordingDao {
     @Query("SELECT * FROM recordings WHERE state = :state")
     suspend fun findByState(state: String): List<RecordingWithAssets>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun putMeta(meta: LibraryMetaEntity)
-
-    @Query("SELECT value FROM library_meta WHERE key = :key LIMIT 1")
-    suspend fun readMeta(key: String): String?
-
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insertMigrationDiagnostic(diagnostic: MigrationDiagnosticEntity): Long
-
-    @Query("SELECT * FROM migration_diagnostics ORDER BY observedAtMs DESC")
-    suspend fun migrationDiagnostics(): List<MigrationDiagnosticEntity>
 }
