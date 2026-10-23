@@ -1,27 +1,26 @@
-# Stage 16B Finalization — Pre-release Cleanup Plan
+# Stage 16 Finalization — Pre-release Cleanup & Regression Record
 
-状态：**APPROVED DIRECTION / PLANNED / NOT IMPLEMENTED / FINAL FREEZE NOT PERFORMED**
+状态：**CLEANUP IMPLEMENTED / AUTOMATED REGRESSION PASS / REAL-DEVICE REGRESSION PASS / FINAL FREEZE NOT PERFORMED**
 
-修订日期：2026-10-23
+修订日期：2026-10-24
 
 归属：**Stage 16 — Finalization**
 
-当前基线：P5 revision-5 已 `CLOSED / REAL-DEVICE PASS`。本文件只定义 Stage 16 最终收尾和清理方向，不表示清理源码已经完成，也不自动授权 Final Freeze/Handoff、PR merge 或 production model promotion。
+本记录取代本文件此前的 `APPROVED DIRECTION / PLANNED / NOT IMPLEMENTED` 状态。Stage 16 Finalization 的实际代码清理、自动化回归和真机回归已经完成；本记录不自动授权 Final Freeze/Handoff、PR merge 或 model-channel promotion。
 
 ---
 
-## 1. 收尾目标
+## 1. 当前事实基线
 
-在进入 Stage 17 Fully Offline Intelligence 前，将当前开发仓库收敛为一个尽可能干净的 pre-release baseline：
-
-- 不继续实现 SenseVoice Rich Audio Metadata；
-- 删除 Online AI Summary 与只为在线 AI 服务的产品/网络路径；
-- 移除没有继续价值的 pre-release compatibility debt；
-- 压平/整理 Room 与 data contract；
-- 删除 dead code、dead resources、dead dependencies 和 obsolete config；
-- 保护当前已通过的本地录音/ASR/CTC/diarization/timeline 能力；
-- 完成 final regression；
-- 最后由用户明确授权 Stage 16 Final Freeze/Handoff。
+- `main` 仍保持 Stage 16A.2 已冻结基线；Stage 16B / Finalization 尚未合并。
+- Android PR #35 仍为 **Draft / Open / Unmerged**。
+- Finalization 当前开发分支：`stage16b-local-file-asr-v2`。
+- Finalization 真机回归所验证的当前源码头：`ef753e8b624f9acfa397775f26ffbfb3e59c1937`。
+- Room 当前版本：**v16**。
+- P5 revision-5：**CLOSED / REAL-DEVICE PASS**。
+- SenseVoice Rich Audio Metadata：**CANCELLED / NOT IMPLEMENTED**。
+- Stage 16 Final Freeze/Handoff：**NOT PERFORMED**。
+- Stage 17 / Stage 18 implementation：**NOT STARTED**。
 
 ---
 
@@ -29,7 +28,7 @@
 
 结论：**CANCELLED / NOT REQUIRED FOR STAGE 16 CLOSURE**。
 
-不实施：
+未实施：
 
 - emotion persistence；
 - audio-event persistence；
@@ -38,178 +37,212 @@
 - rich metadata AI input；
 - 为上述功能新增 Room schema。
 
-保留现有 SenseVoice 正文 ASR 能力，不因取消 Rich Metadata 删除 SenseVoice 本身。
+SenseVoice 正文 ASR 能力保留，并已完成 Finalization 真机回归。
 
 ---
 
-## 3. Online AI Summary 直接移除
+## 3. Online AI Summary 清理结果
 
-Stage 16 收尾直接删除当前在线 AI 总结实现，不采用“先并存、离线稳定后再删除”的过渡策略。
+Stage 16 已按 fully-offline 产品方向移除现役 Online AI Summary 产品/runtime 路径。
 
-实施审查至少覆盖：
+清理覆盖：
 
-- Online LLM provider interface/implementation；
-- OpenAI-compatible endpoint 支持；
-- Base URL / API Key / remote model 设置；
-- online summary HTTP client / DTO / serializer；
-- remote retry / timeout / connectivity handling；
-- cloud fallback；
-- provider/model selector UI；
-- 只为在线总结存在的 strings/resources；
-- 只为在线总结存在的 network dependency / permission / R8 keep rule；
-- 对应 Unit/UI tests；
-- architecture/requirements/docs 中的在线 AI 产品承诺。
+- 在线 Provider/runtime 调用路径；
+- OpenAI-compatible endpoint / Base URL / API Key / remote model 产品配置；
+- provider/model selector 产品入口；
+- online summary 网络调用、重试/超时/云端 fallback 相关现役路径；
+- 仅服务于在线 AI 的设置/兼容代码；
+- 退役 direct-audio summary mode；
+- 退役 provider export metadata。
 
-可以保留：
+允许并实际保留的通用层：
 
-- 与 provider 无关、仍适合 Stage 17 复用的总结展示 UI；
-- 与 provider 无关的 Summary domain/entity（若结构合理）；
-- 用户创建/删除/查看总结版本的通用交互（若不依赖云端 contract）。
+- provider 无关的 summary 展示/历史结构；
+- 可供 Stage 17 本地智能复用的通用 summary domain/history/evidence/revision 数据结构；
+- 不依赖网络 provider contract 的通用交互。
 
-是否保留上述通用层必须按真实调用图决定，不为“可能以后有用”保留无调用抽象。
+Finalization 设置审计确认：当前设置 UI 不再暴露 OpenAI / OpenRouter / 火山 / Grok / Google / 硅基流动等 Provider，也不再暴露 API Key、Base URL、云端模型选择或在线 AI 总结入口。
+
+`INTERNET` 权限仍保留，因为现役 model catalog / model download 需要网络；该权限不能因为 Online AI 移除而删除。
 
 ---
 
-## 4. Pre-release Compatibility Cleanup
-
-Voica 当前未发布且仅开发者自用。Stage 16 finalization 明确允许删除只为旧开发版本升级兼容存在的代码和 schema。
-
-审查并清理：
+## 4. Pre-release Compatibility / Room / Preferences 清理结果
 
 ### 4.1 Room / database
 
-- 已不需要的旧表；
-- 已不需要的旧字段；
-- obsolete index / relation；
-- historical-only DAO/query；
-- 只为旧 app version 服务的 migration chain；
-- old-data backfill；
-- migration-only converter/mapper；
-- historical migration fixture/test；
-- 已废弃 enum/status value。
+- 当前 Room baseline 已收敛到 **v16**。
+- exported schema 只保留当前 pre-release baseline 所需版本。
+- 已增加 current-create regression，验证 clean database 可直接创建当前 v16 schema，并可访问全部当前 DAO。
+- 旧开发版本长期迁移兼容不再作为 pre-release 发布约束。
+- Stage 5 legacy import runtime / historical-only writeback 已移除。
 
-允许建立新的 pre-release schema baseline。开发机/真机旧数据允许通过清除 App 数据或卸载重装处理。
+### 4.2 Model-channel compatibility
 
-不要求：
+- 旧 model-channel migration compatibility 已移除。
+- 当前 production pin 保持不可变 commit + manifest version + digest 校验。
+- QA/debug candidate override 仍受限于显式 QA/debug 边界。
 
-- v1 → ... → v14 的长期升级兼容；
-- 历史测试数据无损迁移；
-- 旧转写/旧总结 backfill。
+### 4.3 Preferences / settings
 
-具体 baseline Room version 在实施时根据当前 schema 和 KSP 输出决定；不为了“看起来干净”机械重置成 version 1。
+已审计当前 Preferences 与设置树：
 
-### 4.2 Preferences / settings
+- 保留现役本地 ASR / VAD / diarization / playback / export / diagnostics / model management 配置；
+- Online AI provider / API / remote-model 配置已不在现役设置 UI；
+- 未为“清理得更彻底”而冒险删除已经通过真机验证、仍可能承担本地语音兼容职责的历史 enum/config value。
 
-清理：
+### 4.4 有界残留
 
-- 已废弃 SharedPreferences/DataStore key；
-- legacy key migration；
-- 已不用的 feature flag；
-- 已废弃 provider/model setting；
-- 双格式 config parser；
-- old-default compatibility shim。
-
-### 4.3 Domain / repository / adapters
-
-清理：
-
-- deprecated adapter/mapper；
-- 旧 pipeline compatibility branch；
-- 永远不会再进入的 fallback；
-- 无调用 use case/repository/service；
-- 旧 JSON/data format compatibility；
-- cloud-only abstraction；
-- obsolete model capability/config fields。
-
-### 4.4 Resources / dependencies / native glue
-
-清理：
-
-- 无引用 drawable/string/raw/assets；
-- 无用 Gradle dependency；
-- 无用 permission；
-- 无用 R8/ProGuard keep rule；
-- 无现役调用的 JNI/native glue；
-- 已不使用的 model asset/catalog reference。
+Finalization 有意保留少量不影响产品路径的 cosmetic/dead residual，例如历史字符串或大调用文件中的低价值未使用参数；这些残留不构成在线 AI 产品暴露，也不值得在最终真机通过后用高风险大文件改写继续扩大变更面。
 
 ---
 
-## 5. 明确禁止误删的能力
+## 5. Protected capability 结果
 
-清理不能因为“历史较久”而删除仍承担真实职责的代码。
+以下能力在 Finalization 后仍受保护并完成相应自动化或真机回归：
 
-至少保护：
-
-- Silero VAD 当前有效 fallback；
-- FSMN Local File VAD primary；
-- Zipformer realtime ASR；
+- BLE 设备连接 / 录音 / 文件列表 / 下载；
+- 本地播放 / seek / duration；
+- realtime ASR；
+- Local File FSMN VAD primary；
+- Silero VAD fallback contract 保留；
 - SenseVoice file ASR；
 - FunASR Nano high-quality file ASR；
-- P5 R5 same-stream CTC 路径；
-- current diarization/stitching/AUTO/fixed speaker logic；
-- overlap/manual speaker assignment；
-- canonical sample-index timeline；
-- Timeline Annotation；
-- Stage 18 明确需要复用的 streaming engine contracts；
-- QA/Freeze/Handoff evidence docs。
-
----
-
-## 6. Production model channel 边界
-
-本清理计划不自动：
-
-- merge model-channel PR #21；
-- promotion FunASR revision-2；
-- 修改 production manifest；
-- 删除仍被 production manifest 引用的模型；
-- 改变当前 production model binding。
-
-任何 model-channel 变更必须独立核验和授权。
-
----
-
-## 7. 回归门禁
-
-清理完成后至少执行：
-
-1. compile / lint / static checks；
-2. Unit tests；
-3. Room schema/current-create test；
-4. Instrumented tests（适用时）；
-5. releaseQa / R8 build；
-6. model/catalog verification；
-7. 关键真机回归。
-
-真机至少保护：
-
-- 设备连接/录音/下载；
-- 本地播放；
-- realtime ASR；
-- Local File FSMN primary / Silero fallback；
-- SenseVoice file ASR；
-- FunASR file ASR；
-- CTC 时间轴；
+- P5 R5 same-stream CTC；
 - AUTO / fixed2 diarization；
-- overlap/manual assignment；
-- transcript edit/export；
-- app clean-install / clean-database baseline。
-
-在线 AI 不再属于回归通过条件，因为其目标状态是删除。
+- overlap/manual speaker assignment；
+- transcript edit / persistence；
+- timeline annotation；
+- export；
+- local/device delete separation；
+- reconnect / refresh；
+- clean-install / clean-database baseline；
+- background task / result persistence。
 
 ---
 
-## 8. Stage 16 最终顺序
+## 6. Finalization QA build issue and closure
+
+Finalization 初次普通 `[APK]` QA 包暴露出一个构建链问题：普通 `QA APK Gate` 只执行 stock `releaseQa`，没有带入 P5 R5 已验证的 patched sherpa + FunASR revision-2 CTC runtime。
+
+真机症状：
+
+- FunASR 只出现粗粒度长时间段；
+- 播放无逐字/细粒度 CTC 同步；
+- diarization native 计算存在，但 transcript speaker mapping 大量/全部显示“说话人未确定”；
+- diagnostics 显示 `No FunASR CTC performance diagnostics yet.`。
+
+隔离验证：重新生成已知 P5 baseline 的 patched sherpa + revision-2 QA APK 后，同一 118 秒双人样本恢复正常：
+
+- 9/9 chunks `alignmentSucceeded=true`；
+- `sameStream=true`；
+- `outputTokenCount=569`；
+- 569/569 token 对齐；
+- AUTO diarization `localSpeakerCounts=[3, 3, 2]`，产品层两位主要说话人结果正常。
+
+为防止再次产出“能编译但缺真实 CTC runtime”的 QA 包，Finalization 新增专用 **Stage 16B CTC Finalization QA Gate**：
+
+- 使用当前 Android HEAD；
+- 校验 immutable revision-2 candidate manifest；
+- pin sherpa-onnx v1.13.8；
+- 应用 A0/A1/A2 native CTC patch；
+- 构建 patched arm64 JNI / AAR；
+- 校验 CTC protocol 与 diarization JNI；
+- 通过 isolated Maven repository 注入标准依赖图；
+- 在 patched sherpa 下运行核心单测；
+- 构建当前 HEAD production-like `releaseQa`；
+- 最终 APK 再校验 CTC native symbol、diarization JNI、R8、安全性与 ABI；
+- artifact retention 保持 1 天。
+
+当前 HEAD 专用 Gate run `39981192114`：**SUCCESS**。
+
+当前 HEAD 真机复测：**PASS**。
+
+因此该问题已闭环为 **QA build-chain defect corrected / protected runtime verified on current Finalization HEAD**，不是 FunASR CTC 核心算法或 diarization 算法回归。
+
+---
+
+## 7. Real-device Finalization regression matrix
+
+最终真机回归结果：
+
+| QA | 范围 | 结果 |
+| --- | --- | --- |
+| QA1 | clean install / first launch / current Room baseline | **PASS** |
+| QA2 | QS668/CB08 connect / record / refresh / download | **PASS** |
+| QA3 | local playback / pause / seek / duration | **PASS** |
+| QA4 | realtime ASR | **PASS** |
+| QA5-A | P5 known-good FunASR revision-2 + CTC + diarization isolation | **PASS** |
+| QA5-B | current Finalization HEAD FunASR + CTC + diarization | **PASS** |
+| QA6 | SenseVoice + AUTO / fixed2 diarization + normal FSMN VAD path | **PASS** |
+| QA7 | transcript edit / manual speaker assignment / annotation / export / persistence | **PASS** |
+| QA8 | local delete vs device delete / re-download / reconnect refresh | **PASS** |
+| QA9 | model management / local settings / offline boundary / restart persistence | **PASS** |
+| QA10 | background task lifecycle / completion / persistence / restart stability | **PASS** |
+
+Finalization 真机回归结论：**PASS**。
+
+Silero fallback 在 Finalization 阶段未通过人为破坏 FSMN 环境强制触发；其现役 fallback contract 保留，未因最终清理被删除。P5 R5 已通过的深度 FunASR/hotword/threads/retry/CTC/diarization 测试不在 Finalization 中重复扩大测试范围。
+
+---
+
+## 8. Automated regression evidence
+
+Finalization 自动化门禁已经覆盖并通过：
+
+- Fast PR Gate；
+- core / engine / app unit tests；
+- Room schema/current-create regression；
+- FSMN candidate runtime boundary；
+- FunASR CTC provenance checks；
+- patched sherpa dependency graph；
+- patched-sherpa core unit tests；
+- production-like `releaseQa`；
+- R8 output verification；
+- release artifact/security verification；
+- sherpa package verification；
+- current-head CTC / diarization native symbol verification。
+
+Finalization 当前 HEAD 的 CTC Finalization QA run `39981192114`：**SUCCESS**。
+
+---
+
+## 9. Production model-channel 边界
+
+Finalization 没有自动执行任何 model promotion。
+
+当前边界：
+
+- model-channel PR #21：**Draft / Open / Unmerged**；
+- PR #21 head：`eeb59214244f392f3e2eecdb90016efbe3a95401`；
+- model-channel `main/manifests/production.json` 仍是 manifest **v7**；
+- Android production model binding 仍 pin 到 immutable commit `eeb59214244f392f3e2eecdb90016efbe3a95401`、manifest **v9**、固定 digest；
+- FunASR revision-2 CTC bundle 仍作为 QA/candidate runtime 使用，**未因 Finalization 自动进行 model-channel promotion**；
+- 不 merge model-channel PR #21；
+- 不修改 mutable `main` production manifest。
+
+任何最终 model-channel merge/promotion 仍需独立授权。
+
+---
+
+## 10. Stage 16 stop point
+
+截至本记录：
 
 `P5 R5 CLOSED`
-→ `Cancel SenseVoice Rich Metadata`
-→ `Remove Online AI Summary`
-→ `Pre-release Compatibility Cleanup`
-→ `Room/Data Schema Consolidation`
-→ `Dead Code/Dependency/Resource Cleanup`
-→ `Automated Regression`
-→ `Real-device Regression`
-→ `User approval`
-→ `Stage 16 Final Freeze/Handoff`
+→ `SenseVoice Rich Metadata CANCELLED`
+→ `Online AI Runtime/Settings Cleanup DONE`
+→ `Pre-release Compatibility Cleanup DONE`
+→ `Room v16 Baseline DONE`
+→ `Automated Regression PASS`
+→ `Real-device Regression PASS`
+→ **`WAITING FOR EXPLICIT USER AUTHORIZATION`**
+→ `Stage 16 Final Freeze/Handoff NOT PERFORMED`
 
-Stage 17 不得在上述流程完成前开始 implementation。
+不得因为本记录已通过自动化/真机回归而自动：
+
+- merge Android PR #35；
+- merge model-channel PR #21；
+- promote revision-2 / model-channel；
+- 执行 Stage 16 Final Freeze/Handoff；
+- 开始 Stage 17 / Stage 18 implementation。
