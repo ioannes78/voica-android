@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- Stage 16X temporary compile bridge. Remove after all notification sources use ic_stat_wenzhi. -->
-    <item name="ic_stat_voica" type="drawable">@drawable/ic_stat_wenzhi</item>
-</resources>
