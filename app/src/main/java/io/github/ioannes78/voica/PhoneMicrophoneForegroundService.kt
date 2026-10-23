@@ -166,11 +166,11 @@ class PhoneMicrophoneForegroundService : Service() {
         target: PhoneMicrophoneProductTarget,
     ): Notification =
         Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_stat_voica)
+            .setSmallIcon(R.drawable.ic_stat_wenzhi)
             .setContentTitle(
                 when (target) {
-                    PhoneMicrophoneProductTarget.RECORDING -> "Voica 手机录音"
-                    PhoneMicrophoneProductTarget.REALTIME -> "Voica 手机实时转写"
+                    PhoneMicrophoneProductTarget.RECORDING -> "闻知 · 手机录音"
+                    PhoneMicrophoneProductTarget.REALTIME -> "闻知 · 手机实时转写"
                 },
             )
             .setContentText(label)
