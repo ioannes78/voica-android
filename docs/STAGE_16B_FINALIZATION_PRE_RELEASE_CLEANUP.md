@@ -15,8 +15,8 @@
 - `main` 仍保持 Stage 16A.2 已冻结基线；Stage 16B / Finalization 尚未合并。
 - Android PR #35 仍为 **Draft / Open / Unmerged**。
 - Finalization 当前开发分支：`stage16b-local-file-asr-v2`。
-- Finalization 真机回归所验证的当前源码头：`ef753e8b624f9acfa397775f26ffbfb3e59c1937`。
-- 本记录文档写回 commit：`52ed069db75788f2bc697e3546146a66ababee72`；该 commit 只修改本记录，不改变已真机验证的 runtime/source。
+- Finalization 真机回归所验证的当前 runtime/source head：`ef753e8b624f9acfa397775f26ffbfb3e59c1937`。
+- 随后的提交仅更新本 Finalization 记录，不改变已真机验证的 runtime/source。
 - Room 当前版本：**v16**。
 - P5 revision-5：**CLOSED / REAL-DEVICE PASS**。
 - SenseVoice Rich Audio Metadata：**CANCELLED / NOT IMPLEMENTED**。
@@ -155,11 +155,11 @@ Finalization 初次普通 `[APK]` QA 包暴露出一个构建链问题：普通 
 - 最终 APK 再校验 CTC native symbol、diarization JNI、R8、安全性与 ABI；
 - artifact retention 保持 1 天。
 
-当前 HEAD 专用 Gate run `39981192114`：**SUCCESS**。
+当前 runtime/source head 专用 Gate run `39981192114`：**SUCCESS**。
 
-当前 HEAD 真机复测：**PASS**。
+当前 runtime/source head 真机复测：**PASS**。
 
-因此该问题已闭环为 **QA build-chain defect corrected / protected runtime verified on current Finalization HEAD**，不是 FunASR CTC 核心算法或 diarization 算法回归。
+因此该问题已闭环为 **QA build-chain defect corrected / protected runtime verified on current Finalization runtime head**，不是 FunASR CTC 核心算法或 diarization 算法回归。
 
 ---
 
@@ -174,7 +174,7 @@ Finalization 初次普通 `[APK]` QA 包暴露出一个构建链问题：普通 
 | QA3 | local playback / pause / seek / duration | **PASS** |
 | QA4 | realtime ASR | **PASS** |
 | QA5-A | P5 known-good FunASR revision-2 + CTC + diarization isolation | **PASS** |
-| QA5-B | current Finalization HEAD FunASR + CTC + diarization | **PASS** |
+| QA5-B | current Finalization runtime head FunASR + CTC + diarization | **PASS** |
 | QA6 | SenseVoice + AUTO / fixed2 diarization + normal FSMN VAD path | **PASS** |
 | QA7 | transcript edit / manual speaker assignment / annotation / export / persistence | **PASS** |
 | QA8 | local delete vs device delete / re-download / reconnect refresh | **PASS** |
@@ -202,9 +202,9 @@ Finalization 自动化门禁已经覆盖并通过：
 - R8 output verification；
 - release artifact/security verification；
 - sherpa package verification；
-- current-head CTC / diarization native symbol verification。
+- current-runtime-head CTC / diarization native symbol verification。
 
-Finalization 当前 HEAD 的 CTC Finalization QA run `39981192114`：**SUCCESS**。
+Finalization runtime/source head 的 CTC Finalization QA run `39981192114`：**SUCCESS**。
 
 ---
 
