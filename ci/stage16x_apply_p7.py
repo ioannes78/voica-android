@@ -14,18 +14,18 @@ def replace_required(path: str, old: str, new: str) -> None:
 replacements = [
     (
         "app/src/main/java/io/github/ioannes78/voica/PhoneMicrophonePermission.kt",
-        "Voica 只会在你明确选择「手机麦克风」并开始录音时使用麦克风。",
-        "闻知只会在你明确选择「手机麦克风」并开始录音时使用麦克风。",
+        "Voica 只会",
+        "闻知只会",
     ),
     (
         "app/src/main/java/io/github/ioannes78/voica/ui/device/HomePhoneMicrophonePermissionGate.kt",
-        "Voica 只会在你选择手机麦克风并开始录音或实时转写时使用麦克风。",
-        "闻知只会在你选择手机麦克风并开始录音或实时转写时使用麦克风。",
+        "Voica 只会",
+        "闻知只会",
     ),
     (
         "app/src/main/java/io/github/ioannes78/voica/ui/phone/PhoneMicrophoneProductUi.kt",
-        "Voica 只会在你明确开始录音或实时转写时使用麦克风。",
-        "闻知只会在你明确开始录音或实时转写时使用麦克风。",
+        "Voica 只会",
+        "闻知只会",
     ),
     (
         "app/src/main/java/io/github/ioannes78/voica/ui/settings/StorageManagementScreen.kt",
@@ -43,14 +43,14 @@ replacements = [
         "闻知墨韵 · 可选经典配色",
     ),
     (
-        "app/src/main/java/io/github/ioannes78/voica/IsolatedModelValidationService.kt",
-        "；Voica 主进程未受影响",
-        "；闻知主进程未受影响",
+        "app/src/main/java/io/github/ioannes78/voica/IsolatedModelValidation.kt",
+        "Voica 主进程",
+        "闻知主进程",
     ),
     (
-        "app/src/main/java/io/github/ioannes78/voica/TranscriptContentExportFormatter.kt",
-        'val title = recordingName.trim().ifEmpty { "Voica 转写" }',
-        'val title = recordingName.trim().ifEmpty { "闻知转写" }',
+        "app/src/main/java/io/github/ioannes78/voica/ui/transcript/TranscriptContentExportFormatter.kt",
+        "Voica 转写",
+        "闻知转写",
     ),
     (
         "app/src/main/java/io/github/ioannes78/voica/ExportUxSupport.kt",
