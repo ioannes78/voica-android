@@ -8,7 +8,6 @@ object AiSummaryContentExportFormatter {
     fun build(
         recordingName: String,
         document: AiSummaryRevisionDocument,
-        providerName: String?,
         modelName: String?,
     ): TextContentDocument {
         val title =
@@ -19,7 +18,7 @@ object AiSummaryContentExportFormatter {
         val plain =
             buildString {
                 appendLine(title)
-                providerLine(providerName, modelName)?.let {
+                modelLine(modelName)?.let {
                     appendLine(it)
                 }
                 if (document.overview.isNotBlank()) {
@@ -49,7 +48,7 @@ object AiSummaryContentExportFormatter {
             buildString {
                 append("# ")
                 appendLine(escapeMarkdown(title))
-                providerLine(providerName, modelName)?.let {
+                modelLine(modelName)?.let {
                     appendLine()
                     append("_")
                     append(escapeMarkdown(it))
@@ -87,19 +86,8 @@ object AiSummaryContentExportFormatter {
         )
     }
 
-    private fun providerLine(
-        providerName: String?,
-        modelName: String?,
-    ): String? {
-        val provider = providerName?.takeIf { it.isNotBlank() }
-        val model = modelName?.takeIf { it.isNotBlank() }
-        return when {
-            provider != null && model != null -> "AI：$provider · $model"
-            provider != null -> "AI：$provider"
-            model != null -> "模型：$model"
-            else -> null
-        }
-    }
+    private fun modelLine(modelName: String?): String? =
+        modelName?.takeIf { it.isNotBlank() }?.let { "模型：$it" }
 
     private fun escapeMarkdown(value: String): String =
         value.replace("\\", "\\\\").replace("*", "\\*").replace("_", "\\_")

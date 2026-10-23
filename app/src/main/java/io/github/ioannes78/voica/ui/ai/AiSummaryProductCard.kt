@@ -125,7 +125,6 @@ fun AiSummaryProductCard(
                 AiSummaryContentExportFormatter.build(
                     recordingName = recordingName,
                     document = document,
-                    providerName = null,
                     modelName = selected?.entity?.model,
                 )
             }
@@ -407,7 +406,7 @@ fun AiSummaryProductCard(
         val current = selected
         if (current == null) {
             Text(
-                "暂无总结。当前版本不提供在线总结。",
+                "暂无总结。",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
