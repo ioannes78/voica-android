@@ -17,7 +17,6 @@ import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Psychology
-import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Button
@@ -51,8 +50,6 @@ import io.github.ioannes78.voica.stage159QaEntryVisible
 import io.github.ioannes78.voica.stage16A16AudioCalibrationEntryVisible
 import io.github.ioannes78.voica.model.ModelManager
 import io.github.ioannes78.voica.sherpa.SherpaRuntime
-import io.github.ioannes78.voica.ui.ai.ProviderSettingsCard
-import io.github.ioannes78.voica.ui.ai.ProviderSettingsViewModel
 import io.github.ioannes78.voica.ui.model.ModelManagerCard
 import io.github.ioannes78.voica.ui.theme.ThemeSettingsCard
 import io.github.ioannes78.voica.ui.theme.ThemeSettingsStore
@@ -62,7 +59,6 @@ import kotlinx.coroutines.withContext
 
 private enum class SettingsPage {
     HOME,
-    AI,
     MODELS,
     SPEECH,
     STORAGE,
@@ -77,7 +73,6 @@ fun ProductSettingsScreen(
     modelManager: ModelManager,
     modelUpdateController: ModelUpdateController,
     storageManagementCoordinator: StorageManagementCoordinator,
-    providerSettingsViewModel: ProviderSettingsViewModel,
     themeSettingsStore: ThemeSettingsStore,
     localSpeechSettingsStore: LocalSpeechSettingsStore,
     onSecondaryPageChanged: (Boolean) -> Unit,
@@ -105,17 +100,6 @@ fun ProductSettingsScreen(
                 padding = padding,
                 onOpen = { page = it },
             )
-
-        SettingsPage.AI ->
-            SettingsSubpage(
-                padding = padding,
-                title = "AI 智能",
-                onBack = { page = SettingsPage.HOME },
-            ) {
-                item {
-                    ProviderSettingsCard(viewModel = providerSettingsViewModel)
-                }
-            }
 
         SettingsPage.MODELS ->
             SettingsSubpage(
@@ -223,13 +207,6 @@ private fun SettingsHome(
         item {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column {
-                    SettingsRow(
-                        title = "AI 智能",
-                        subtitle = "Provider、模型与智能总结",
-                        icon = { Icon(Icons.Outlined.SmartToy, contentDescription = null) },
-                        onClick = { onOpen(SettingsPage.AI) },
-                    )
-                    HorizontalDivider()
                     SettingsRow(
                         title = "本地模型",
                         subtitle = "下载、更新、激活与回滚模型",

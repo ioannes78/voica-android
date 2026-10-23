@@ -1,0 +1,291 @@
+name: Stage 16B CTC Finalization QA
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [edited]
+
+permissions:
+  contents: read
+
+jobs:
+  ctc-finalization-qa:
+    name: Current HEAD patched sherpa + FunASR revision-2 QA APK
+    if: >-
+      ${{
+        github.event.changes.title.from != null &&
+        startsWith(github.event.pull_request.title, '[CTC-APK]')
+      }}
+    concurrency:
+      group: stage16b-ctc-finalization-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      VOICA_BUILD_GIT_SHA: ${{ github.event.pull_request.head.sha }}
+      P5_CANDIDATE_MANIFEST: https://github.com/ioannes78/voica-model-channel/releases/download/candidate-stage16b-funasr-ctc-p5-r1/production.json
+      P5_SHERPA_VERSION: v1.13.8-p5-ctc-r2
+      P5_SHERPA_REPOSITORY: /tmp/voica-p5-sherpa-maven
+
+    steps:
+      - name: Checkout current Voica HEAD
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.VOICA_BUILD_GIT_SHA }}
+
+      - name: Checkout pinned sherpa-onnx v1.13.8
+        uses: actions/checkout@v5
+        with:
+          repository: k2-fsa/sherpa-onnx
+          ref: v1.13.8
+          path: sherpa-upstream
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+
+      - name: Install Android build and native toolchains
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager \
+            "platforms;android-34" \
+            "platforms;android-37.1" \
+            "build-tools;34.0.0" \
+            "build-tools;36.0.0" \
+            "ndk;28.2.13676358" \
+            "cmake;3.22.1"
+
+      - name: Setup Gradle 9.6
+        uses: gradle/actions/setup-gradle@v5.0.2
+        with:
+          gradle-version: "9.6.0"
+          cache-read-only: false
+          cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+
+      - name: Verify immutable revision-2 candidate manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="${RUNNER_TEMP}/p5-production.json"
+          curl --fail --location --retry 4 "$P5_CANDIDATE_MANIFEST" -o "$manifest"
+          python3 - "$manifest" <<'PY'
+          import json, sys
+          data = json.load(open(sys.argv[1], encoding='utf-8'))
+          assert data['manifestVersion'] == 10, data['manifestVersion']
+          matches = [m for m in data['models'] if m.get('modelId') == 'funasr-nano-int8']
+          assert len(matches) == 1
+          model = matches[0]
+          assert model['revision'] == 2
+          assert model['runtimeModelType'] == 'funasr-nano'
+          assert model['capabilities']['supportsTokenTiming'] is True
+          assert model['capabilities']['timestampCapability'] == 'TOKEN'
+          files = {f['relativePath']: f for f in model['files']}
+          assert files['encoder_adaptor.int8.onnx']['sha256'] == 'd5bb172a133fc4f996ede12cab43c0b9b4bcbb2922c1f967794505b9549b6d85'
+          assert files['encoder_adaptor.int8.onnx']['sizeBytes'] == 238277774
+          assert files['ctc_compact.int8.onnx']['sha256'] == 'db93af357c1d5ba78e9516950fd8931ead11666ffa00b1928e2fda9e8003bc38'
+          assert files['ctc_compact.int8.onnx']['sizeBytes'] == 54235091
+          assert files['multilingual.tiktoken']['sha256'] == '747979631e813193436aabcff7c1c235d37de8097b71c563ec8b63b7a515c718'
+          assert 'ctc-alignment.properties' in files
+          print('FunASR revision-2 candidate manifest verified')
+          PY
+
+      - name: Verify upstream runtime pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C sherpa-upstream describe --tags --exact-match HEAD)" = "v1.13.8"
+          grep -Fq 'onnxruntime_version=${SHERPA_ONNX_ONNXRUNTIME_VERSION:-1.28.2}' \
+            sherpa-upstream/build-android-arm64-v8a.sh
+          grep -Fq 'var hotwords: String = ""' \
+            sherpa-upstream/android/SherpaOnnxAar/sherpa_onnx/src/main/java/com/k2fsa/sherpa/onnx/OfflineRecognizer.kt
+
+      - name: Apply Stage 16B native CTC runtime patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ci/funasr-ctc-runtime/apply-a0-config-patch.py sherpa-upstream
+          python3 ci/funasr-ctc-runtime/apply-a1-shared-encoder-patch.py sherpa-upstream
+          python3 ci/funasr-ctc-runtime/apply-a2-compact-ctc-patch.py sherpa-upstream
+          git -C sherpa-upstream diff --check
+
+      - name: Build patched arm64 JNI with ORT 1.28.2
+        shell: bash
+        working-directory: sherpa-upstream
+        env:
+          BUILD_SHARED_LIBS: ON
+          SHERPA_ONNX_ONNXRUNTIME_VERSION: "1.28.2"
+          SHERPA_ONNX_ENABLE_TTS: OFF
+          SHERPA_ONNX_ENABLE_SPEAKER_DIARIZATION: ON
+          SHERPA_ONNX_ENABLE_BINARY: OFF
+          SHERPA_ONNX_ENABLE_C_API: OFF
+          SHERPA_ONNX_ENABLE_JNI: ON
+          SHERPA_ONNX_ANDROID_PLATFORM: android-21
+        run: |
+          set -euo pipefail
+          export ANDROID_NDK="$ANDROID_SDK_ROOT/ndk/28.2.13676358"
+          bash build-android-arm64-v8a.sh
+          test -s build-android-arm64-v8a/install/lib/libsherpa-onnx-jni.so
+          test -s build-android-arm64-v8a/install/lib/libonnxruntime.so
+
+      - name: Package patched arm64 AAR
+        id: patched_aar
+        shell: bash
+        working-directory: sherpa-upstream
+        run: |
+          set -euo pipefail
+          jni_root="android/SherpaOnnxAar/sherpa_onnx/src/main/jniLibs"
+          find "$jni_root" -mindepth 1 -maxdepth 1 -type d ! -name arm64-v8a -exec rm -rf {} +
+          jni_dir="$jni_root/arm64-v8a"
+          mkdir -p "$jni_dir"
+          rm -f "$jni_dir/libsherpa-onnx-jni.so" "$jni_dir/libonnxruntime.so"
+          cp build-android-arm64-v8a/install/lib/libsherpa-onnx-jni.so "$jni_dir/"
+          cp build-android-arm64-v8a/install/lib/libonnxruntime.so "$jni_dir/"
+          cd android/SherpaOnnxAar
+          ./gradlew :sherpa_onnx:assembleRelease --no-daemon
+          aar="$PWD/sherpa_onnx/build/outputs/aar/sherpa_onnx-release.aar"
+          test -s "$aar"
+          echo "aar=$aar" >> "$GITHUB_OUTPUT"
+
+      - name: Verify patched AAR CTC and diarization JNI
+        shell: bash
+        env:
+          PATCHED_AAR: ${{ steps.patched_aar.outputs.aar }}
+        run: |
+          set -euo pipefail
+          zipinfo -1 "$PATCHED_AAR" | grep -qx 'jni/arm64-v8a/libsherpa-onnx-jni.so'
+          zipinfo -1 "$PATCHED_AAR" | grep -qx 'jni/arm64-v8a/libonnxruntime.so'
+          unexpected="$(zipinfo -1 "$PATCHED_AAR" | grep -E '^jni/[^/]+/[^/]+\.so$' | grep -Ev '^jni/arm64-v8a/' || true)"
+          test -z "$unexpected"
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          unzip -p "$PATCHED_AAR" classes.jar > "$work/classes.jar"
+          javap -classpath "$work/classes.jar" com.k2fsa.sherpa.onnx.OfflineFunAsrNanoModelConfig > "$work/config.txt"
+          grep -Fq 'getCtcCompact' "$work/config.txt"
+          grep -Fq 'setCtcCompact' "$work/config.txt"
+          unzip -p "$PATCHED_AAR" jni/arm64-v8a/libsherpa-onnx-jni.so > "$work/jni.so"
+          strings "$work/jni.so" | grep -Fq 'voica.funasr.ctc.command'
+          strings "$work/jni.so" | grep -Fq 'voica.funasr.ctc.target_ids'
+          strings "$work/jni.so" | grep -Fq 'candidate_logits'
+          strings "$work/jni.so" | grep -Fq 'ForwardCompactCtc'
+          nm -D "$work/jni.so" | grep -Fq 'Java_com_k2fsa_sherpa_onnx_OfflineSpeakerDiarization_newFromFile'
+          nm -D "$work/jni.so" | grep -Fq 'Java_com_k2fsa_sherpa_onnx_OfflineSpeakerDiarization_process'
+
+      - name: Publish patched AAR into isolated local Maven repository
+        shell: bash
+        env:
+          PATCHED_AAR: ${{ steps.patched_aar.outputs.aar }}
+        run: |
+          set -euo pipefail
+          artifact_dir="$P5_SHERPA_REPOSITORY/com/github/k2-fsa/sherpa-onnx/sherpa-onnx/$P5_SHERPA_VERSION"
+          mkdir -p "$artifact_dir"
+          cp "$PATCHED_AAR" "$artifact_dir/sherpa-onnx-$P5_SHERPA_VERSION.aar"
+          cat > "$artifact_dir/sherpa-onnx-$P5_SHERPA_VERSION.pom" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <project xmlns="http://maven.apache.org/POM/4.0.0"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+            <modelVersion>4.0.0</modelVersion>
+            <groupId>com.github.k2-fsa.sherpa-onnx</groupId>
+            <artifactId>sherpa-onnx</artifactId>
+            <version>$P5_SHERPA_VERSION</version>
+            <packaging>aar</packaging>
+          </project>
+          EOF
+          test -s "$artifact_dir/sherpa-onnx-$P5_SHERPA_VERSION.aar"
+          test -s "$artifact_dir/sherpa-onnx-$P5_SHERPA_VERSION.pom"
+
+      - name: Restore pinned Opus 1.6.1 source
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/voica-deps/opus-1.6.1.tar.gz
+          key: voica-opus-${{ runner.os }}-1.6.1-6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1
+
+      - name: Prefetch and verify Opus 1.6.1 source
+        shell: bash
+        run: bash ci/prepare-opus-source.sh
+
+      - name: Verify patched sherpa dependency graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle \
+            :engine:sherpa:dependencies \
+            --configuration debugCompileClasspath \
+            -Pvoica.patchedSherpaRepository="$P5_SHERPA_REPOSITORY" \
+            -Pvoica.sherpaDependencyVersion="$P5_SHERPA_VERSION" \
+            > "${RUNNER_TEMP}/sherpa-dependencies.txt"
+          grep -Fq "com.github.k2-fsa.sherpa-onnx:sherpa-onnx:$P5_SHERPA_VERSION" \
+            "${RUNNER_TEMP}/sherpa-dependencies.txt"
+          if grep -Fq 'com.github.k2-fsa.sherpa-onnx:sherpa-onnx:v1.13.8 ' \
+            "${RUNNER_TEMP}/sherpa-dependencies.txt"; then
+            echo "::error::Stock sherpa dependency leaked into CTC QA dependency graph"
+            exit 1
+          fi
+
+      - name: Unit tests with patched sherpa dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle \
+            :core:transcript:test \
+            :engine:sherpa:testDebugUnitTest \
+            :app:testDebugUnitTest \
+            -Pvoica.patchedSherpaRepository="$P5_SHERPA_REPOSITORY" \
+            -Pvoica.sherpaDependencyVersion="$P5_SHERPA_VERSION" \
+            --stacktrace
+
+      - name: Build current HEAD production-like releaseQa APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle \
+            :app:assembleReleaseQa \
+            -Pvoica.patchedSherpaRepository="$P5_SHERPA_REPOSITORY" \
+            -Pvoica.sherpaDependencyVersion="$P5_SHERPA_VERSION" \
+            -Pvoica.qa.defaultModelManifestUrl="$P5_CANDIDATE_MANIFEST" \
+            --stacktrace
+
+      - name: Verify current HEAD CTC QA APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="app/build/outputs/apk/releaseQa/app-releaseQa.apk"
+          test -s "$apk"
+          bash ci/verify-r8-outputs.sh releaseQa
+          version_code="$(sed -nE 's/^[[:space:]]*versionCode = ([0-9]+).*/\1/p' app/build.gradle.kts | head -n1)"
+          release_version="$(sed -nE 's/^[[:space:]]*versionName = "([^"]+)".*/\1/p' app/build.gradle.kts | head -n1)"
+          bash ci/verify-release-artifact.sh \
+            "$apk" \
+            io.github.ioannes78.voica.qa \
+            "$version_code" \
+            "${release_version}-export-qa" \
+            qa
+          bash ci/verify-release-security.sh "$apk"
+          bash ci/verify-sherpa-package.sh apk "$apk"
+          unzip -p "$apk" lib/arm64-v8a/libsherpa-onnx-jni.so > "${RUNNER_TEMP}/apk-sherpa-jni.so"
+          strings "${RUNNER_TEMP}/apk-sherpa-jni.so" | grep -Fq 'voica.funasr.ctc.command'
+          strings "${RUNNER_TEMP}/apk-sherpa-jni.so" | grep -Fq 'ForwardCompactCtc'
+          nm -D "${RUNNER_TEMP}/apk-sherpa-jni.so" | grep -Fq 'Java_com_k2fsa_sherpa_onnx_OfflineSpeakerDiarization_newFromFile'
+          nm -D "${RUNNER_TEMP}/apk-sherpa-jni.so" | grep -Fq 'Java_com_k2fsa_sherpa_onnx_OfflineSpeakerDiarization_process'
+          if zipinfo -1 "$apk" | grep -E '^lib/(armeabi|armeabi-v7a|x86|x86_64)/' >/dev/null; then
+            echo "::error::CTC QA APK contains unexpected non-arm64 native ABI"
+            exit 1
+          fi
+          sha256sum "$apk"
+
+      - name: Upload current HEAD CTC real-device QA APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Voica-Stage16-Finalization-CTC-current-head-releaseQa-apk
+          path: app/build/outputs/apk/releaseQa/app-releaseQa.apk
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0

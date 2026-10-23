@@ -360,21 +360,18 @@ class LibraryQueryRepositoryTest {
         db.execSQL(
             """
             INSERT INTO ai_summaries (
-                id, recordingId, transcriptionId, inputMode, mode,
-                templateId, templateSnapshot, providerProfileId,
-                providerNameSnapshot, baseUrlSnapshot, model,
+                id, recordingId, transcriptionId, inputMode, mode, model,
                 promptVersion, resultSchemaVersion, contentType,
                 classificationConfidence, structuredPayloadJson, displayText,
                 status, createdAtMs, startedAtMs, updatedAtMs, completedAtMs,
-                errorCode, sanitizedErrorMessage, requestConfigSnapshot,
-                usageSnapshot, alignmentIdSnapshot, sourceLineageSnapshot
+                errorCode, sanitizedErrorMessage, alignmentIdSnapshot,
+                sourceLineageSnapshot
             ) VALUES (
                 'summary-device', 'rec-device', 'tx-device',
-                'TRANSCRIPT_TEXT', 'SMART', NULL, NULL,
-                'provider', 'Provider', 'https://example.invalid', 'model',
+                'TRANSCRIPT_TEXT', 'SMART', 'model',
                 1, 1, 'MEETING', 0.9, '{}', 'summary',
                 'COMPLETED', 5000, 5000, 5100, 5100,
-                NULL, NULL, '{}', NULL, NULL, '{}'
+                NULL, NULL, NULL, '{}'
             )
             """.trimIndent(),
         )

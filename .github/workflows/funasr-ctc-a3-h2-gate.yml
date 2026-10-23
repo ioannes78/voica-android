@@ -1,0 +1,277 @@
+name: FunASR CTC A3 H2 Gate
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [ main ]
+    types: [edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: funasr-ctc-a3-h2-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  h2-fp32-export-parity:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.event.pull_request.title, '[A3-H2]')
+    name: H2a+H2b+H2c+H2d export + production INT8 + end-to-end parity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      MODELSCOPE_DOWNLOAD_PARALLEL_WORKERS: "4"
+      MODELSCOPE_DOWNLOAD_PARALLEL_THRESHOLD_MB: "500"
+      MODELSCOPE_DOWNLOAD_PART_SIZE_MB: "160"
+      FUNASR_REFERENCE_COMMIT: "24217c8ff0b81f3d967593f0bf84609306929f99"
+      LEGACY_EXPORTER_COMMIT: "6823a8ed9f4a0393750d54d750051cf5a51a7fa9"
+      # Public PyPI does not publish an onnxruntime 1.28.2 wheel. H2 desktop
+      # export/parity therefore uses the closest published 1.28.x wheel only
+      # for numerical export validation. The Android sherpa native boundary
+      # remains independently pinned and proven at ORT 1.28.2 by A0/A1/A2.
+      H2_DESKTOP_ORT_VERSION: "1.28.0"
+      ANDROID_NATIVE_ORT_VERSION: "1.28.2"
+
+    steps:
+      - name: Checkout Voica
+        uses: actions/checkout@v5
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned H2 tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --no-cache-dir \
+            "modelscope-hub==0.4.6" \
+            "tiktoken==0.12.0" \
+            "PyYAML==6.0.2" \
+            "onnx==1.18.0" \
+            "onnxruntime==${H2_DESKTOP_ORT_VERSION}" \
+            "ml_dtypes==0.5.4"
+          python -m pip install --disable-pip-version-check --no-cache-dir \
+            --index-url https://download.pytorch.org/whl/cpu \
+            "torch==2.7.1" \
+            "torchaudio==2.7.1"
+          python - <<'PY'
+          import os
+          import onnxruntime as ort
+          import torch
+          import torchaudio
+          from importlib.metadata import version
+          from ml_dtypes import float8_e4m3fn, int4, uint4
+          from modelscope_hub._download import DownloadManager
+          from modelscope_hub.constants import (
+              DOWNLOAD_PARALLEL_THRESHOLD,
+              DOWNLOAD_PARALLELS,
+              DOWNLOAD_PART_SIZE,
+          )
+
+          assert version("modelscope-hub") == "0.4.6"
+          assert version("tiktoken") == "0.12.0"
+          assert version("ml-dtypes") == "0.5.4"
+          assert float8_e4m3fn is not None and int4 is not None and uint4 is not None
+          assert torch.__version__.startswith("2.7.1")
+          assert torchaudio.__version__.startswith("2.7.1")
+          assert ort.__version__ == os.environ["H2_DESKTOP_ORT_VERSION"]
+          assert os.environ["ANDROID_NATIVE_ORT_VERSION"] == "1.28.2"
+          assert DOWNLOAD_PARALLELS == 4
+          assert DOWNLOAD_PARALLEL_THRESHOLD == 500 * 1024 * 1024
+          assert DOWNLOAD_PART_SIZE == 160 * 1024 * 1024
+          assert "file_size" in __import__("inspect").signature(DownloadManager.download_file).parameters
+          print(
+              "H2 tooling contract: "
+              f"torch={torch.__version__} torchaudio={torchaudio.__version__} "
+              f"desktop_ort={ort.__version__} "
+              f"ml_dtypes={version('ml-dtypes')} "
+              f"android_native_ort={os.environ['ANDROID_NATIVE_ORT_VERSION']} "
+              f"workers={DOWNLOAD_PARALLELS}"
+          )
+          PY
+
+      - name: Checkout pinned FunASR reference source
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="${RUNNER_TEMP}/FunASR-reference"
+          git init "$root"
+          git -C "$root" remote add origin https://github.com/modelscope/FunASR.git
+          git -C "$root" fetch --depth=1 origin "$FUNASR_REFERENCE_COMMIT"
+          git -C "$root" checkout --detach FETCH_HEAD
+          test "$(git -C "$root" rev-parse HEAD)" = "$FUNASR_REFERENCE_COMMIT"
+
+      - name: Checkout pinned revision-1 exporter
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="${RUNNER_TEMP}/FunASR-nano-onnx"
+          git init "$root"
+          git -C "$root" remote add origin https://github.com/Wasser1462/FunASR-nano-onnx.git
+          git -C "$root" fetch --depth=1 origin "$LEGACY_EXPORTER_COMMIT"
+          git -C "$root" checkout --detach FETCH_HEAD
+          test "$(git -C "$root" rev-parse HEAD)" = "$LEGACY_EXPORTER_COMMIT"
+
+      - name: Show runner disk before H2 source download
+        shell: bash
+        run: df -h . "${RUNNER_TEMP}"
+
+      - name: H2a export compact FP32 CTC scorer and prove parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/funasr-a3-h2a"
+          python ci/funasr-ctc-a3-h2/verify-h2a-ctc-export.py \
+            --out "$out" \
+            --funasr-root "${RUNNER_TEMP}/FunASR-reference"
+          test -s "$out/a3-h2a-ctc-export-parity.json"
+          test -s "$out/ctc_compact.fp32.onnx"
+          {
+            echo "## Stage 16B A3-H2a FP32 CTC export/parity"
+            echo
+            echo '```json'
+            cat "$out/a3-h2a-ctc-export-parity.json"
+            echo '```'
+            echo
+            echo "Desktop export/parity ORT: ${H2_DESKTOP_ORT_VERSION}. Android sherpa native ORT remains independently pinned at ${ANDROID_NATIVE_ORT_VERSION}."
+            echo
+            echo "The 2.13 GB checkpoint and exported FP32 ONNX remain runner-local; no binary artifact is uploaded."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: H2b prove revision-1 to dual-output encoder parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_root="${RUNNER_TEMP}/funasr-a3-h2a"
+          out="${RUNNER_TEMP}/funasr-a3-h2b"
+          python ci/funasr-ctc-a3-h2/verify-h2b-dual-encoder.py \
+            --source-root "$source_root" \
+            --exporter-root "${RUNNER_TEMP}/FunASR-nano-onnx" \
+            --out "$out"
+          test -s "$out/a3-h2b-dual-encoder-parity.json"
+          test -s "$out/encoder_adaptor.legacy.fp32.onnx"
+          test -s "$out/encoder_adaptor.dual.fp32.onnx"
+          {
+            echo
+            echo "## Stage 16B A3-H2b dual-output encoder parity"
+            echo
+            echo '```json'
+            cat "$out/a3-h2b-dual-encoder-parity.json"
+            echo '```'
+            echo
+            echo "H2b reuses the exact H2a checkpoint download and the pinned revision-1 exporter; no second model download or binary upload is permitted."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: H2c expose pre-adaptor state from the exact production INT8 graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/funasr-a3-h2c"
+          python ci/funasr-ctc-a3-h2/verify-h2c-int8-dual-surgery.py \
+            --h2b-root "${RUNNER_TEMP}/funasr-a3-h2b" \
+            --out "$out"
+          test -s "$out/a3-h2c-int8-dual-surgery.json"
+          test -s "$out/encoder_adaptor.dual.int8.onnx"
+          {
+            echo
+            echo "## Stage 16B A3-H2c production INT8 dual-output surgery"
+            echo
+            echo '```json'
+            cat "$out/a3-h2c-int8-dual-surgery.json"
+            echo '```'
+            echo
+            echo "H2c starts from the exact staged revision-1 sherpa package and requires output[0] bit-exact parity. The package and modified ONNX remain runner-local."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install pinned revision-1 generation dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --no-cache-dir \
+            "transformers==4.57.3" \
+            "kaldi-native-fbank==1.22.3" \
+            "soundfile==0.13.1"
+          python - <<'PY'
+          from importlib.metadata import version
+          assert version("transformers") == "4.57.3"
+          assert version("kaldi-native-fbank") == "1.22.3"
+          assert version("soundfile") == "0.13.1"
+          print(
+              "H2c generation dependencies: "
+              f"transformers={version('transformers')} "
+              f"kaldi-native-fbank={version('kaldi-native-fbank')} "
+              f"soundfile={version('soundfile')}"
+          )
+          PY
+
+      - name: H2c prove full revision-1 to dual-output LLM generation parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/funasr-a3-h2c-generation"
+          python ci/funasr-ctc-a3-h2/verify-h2c-generation-parity.py \
+            --h2c-root "${RUNNER_TEMP}/funasr-a3-h2c" \
+            --exporter-root "${RUNNER_TEMP}/FunASR-nano-onnx" \
+            --out "$out"
+          test -s "$out/a3-h2c-generation-parity.json"
+          {
+            echo
+            echo "## Stage 16B A3-H2c full LLM generation parity"
+            echo
+            echo '```json'
+            cat "$out/a3-h2c-generation-parity.json"
+            echo '```'
+            echo
+            echo "Only the encoder graph changes between the two runs. Production embedding, LLM and tokenizer assets are SHA-pinned and byte-identical. All assets remain runner-local."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: H2d select exact mixed INT8 CTC scorer
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/funasr-a3-h2d"
+          python ci/funasr-ctc-a3-h2/select-h2d-mixed-int8.py \
+            --h2a-root "${RUNNER_TEMP}/funasr-a3-h2a" \
+            --h2c-root "${RUNNER_TEMP}/funasr-a3-h2c" \
+            --h2c-generation-root "${RUNNER_TEMP}/funasr-a3-h2c-generation" \
+            --exporter-root "${RUNNER_TEMP}/FunASR-nano-onnx" \
+            --funasr-root "${RUNNER_TEMP}/FunASR-reference" \
+            --out "$out"
+          test -s "$out/a3-h2d-int8-alignment-diagnostic.json"
+          test -s "$out/a3-h2d-mixed-int8-selection.json"
+          test -s "$out/ctc_compact.projection-int8.onnx"
+          test -s "$out/ctc_compact.int8.onnx"
+          {
+            echo
+            echo "## Stage 16B A3-H2d INT8 baseline diagnostics"
+            echo
+            echo '```json'
+            cat "$out/a3-h2d-int8-alignment-diagnostic.json"
+            echo '```'
+            echo
+            echo "## Stage 16B A3-H2d mixed INT8 selection"
+            echo
+            echo '```json'
+            cat "$out/a3-h2d-mixed-int8-selection.json"
+            echo '```'
+            echo
+            echo "Acceptance criteria remain unchanged: exact state-path equality on both real-audio fixtures, size ratio <= 0.35, relative RMSE <= 0.08, and max logit absolute error <= 2.0. The selector searches the minimum quantized decoder-block cardinality before deterministic error-based selection."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove H2 model/export assets
+        if: always()
+        shell: bash
+        run: |
+          rm -rf \
+            "${RUNNER_TEMP}/funasr-a3-h2a" \
+            "${RUNNER_TEMP}/funasr-a3-h2b" \
+            "${RUNNER_TEMP}/funasr-a3-h2c" \
+            "${RUNNER_TEMP}/funasr-a3-h2c-generation" \
+            "${RUNNER_TEMP}/funasr-a3-h2d" \
+            "${RUNNER_TEMP}/FunASR-reference" \
+            "${RUNNER_TEMP}/FunASR-nano-onnx"
+          df -h . "${RUNNER_TEMP}"

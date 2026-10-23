@@ -1,10 +1,5 @@
 package io.github.ioannes78.voica
 
-import io.github.ioannes78.voica.database.AiSummaryEntity
-import io.github.ioannes78.voica.database.AiSummaryInputModeValue
-import io.github.ioannes78.voica.database.AiSummaryModeValue
-import io.github.ioannes78.voica.database.AiSummaryRemoteDispatchStateValue
-import io.github.ioannes78.voica.database.AiSummaryStateValue
 import io.github.ioannes78.voica.database.TranscriptionEntity
 import io.github.ioannes78.voica.database.TranscriptionModeValue
 import io.github.ioannes78.voica.database.TranscriptionStateValue
@@ -14,47 +9,29 @@ import org.junit.Test
 
 class Stage13B5Qa4GlobalAttentionTest {
     @Test
-    fun durableAttentionMapsToPersistentAppNotificationTargets() {
+    fun durableTranscriptionAttentionMapsToPersistentAppNotificationTarget() {
         val items =
             buildQa4GlobalAttentionItems(
                 transcriptionAttention = listOf(transcription(TranscriptionStateValue.INTERRUPTED)),
-                aiSummaryAttention = listOf(summary(AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT)),
                 recordings = emptyList(),
             )
 
-        assertEquals(2, items.size)
-        assertEquals("转写已中断", items[0].label)
-        assertEquals(RecordingDetailDestination.TRANSCRIPT, items[0].destination)
-        assertEquals("总结状态待确认", items[1].label)
-        assertEquals(RecordingDetailDestination.SUMMARY, items[1].destination)
+        assertEquals(1, items.size)
+        assertEquals("转写已中断", items.single().label)
+        assertEquals(RecordingDetailDestination.TRANSCRIPT, items.single().destination)
     }
 
     @Test
-    fun failedSummaryUsesFailureLabel() {
-        val item =
-            buildQa4GlobalAttentionItems(
-                transcriptionAttention = emptyList(),
-                aiSummaryAttention = listOf(summary(AiSummaryStateValue.FAILED)),
-                recordings = emptyList(),
-            ).single()
-
-        assertEquals("总结失败", item.label)
-    }
-
-    @Test
-    fun candidateProjectionIsSuppressedOnlyOnMatchingDetailPageAndRestoredAfterLeaving() {
+    fun transcriptionCandidateIsSuppressedOnlyOnMatchingDetailPageAndRestoredAfterLeaving() {
         val items =
             buildQa4GlobalAttentionItems(
                 transcriptionAttention = emptyList(),
-                aiSummaryAttention = emptyList(),
                 recordings = emptyList(),
                 transcriptionCandidates = listOf(transcription(TranscriptionStateValue.COMPLETED)),
-                aiSummaryCandidates = listOf(summary(AiSummaryStateValue.COMPLETED)),
             )
 
-        assertEquals(2, items.size)
-        assertEquals("新的转写结果已生成", items[0].label)
-        assertEquals("新的总结结果已生成", items[1].label)
+        assertEquals(1, items.size)
+        assertEquals("新的转写结果已生成", items.single().label)
 
         val filtered =
             filterQa4GlobalAttentionItems(
@@ -66,8 +43,7 @@ class Stage13B5Qa4GlobalAttentionTest {
                     ),
             )
 
-        assertEquals(1, filtered.size)
-        assertEquals(RecordingDetailDestination.SUMMARY, filtered.single().destination)
+        assertEquals(emptyList<Qa4GlobalAttentionItem>(), filtered)
 
         val restored =
             filterQa4GlobalAttentionItems(
@@ -107,42 +83,5 @@ class Stage13B5Qa4GlobalAttentionTest {
             completedAtMs = 2L,
             errorCode = "PROCESS_INTERRUPTED",
             errorMessage = "interrupted",
-        )
-
-    private fun summary(status: String): AiSummaryEntity =
-        AiSummaryEntity(
-            id = "summary",
-            recordingId = "recording",
-            transcriptionId = "tx",
-            inputMode = AiSummaryInputModeValue.TRANSCRIPT_TEXT,
-            mode = AiSummaryModeValue.SMART,
-            templateId = null,
-            templateSnapshot = null,
-            providerProfileId = "provider",
-            providerNameSnapshot = "Provider",
-            baseUrlSnapshot = "https://example.invalid",
-            model = "model",
-            promptVersion = 1,
-            resultSchemaVersion = 1,
-            contentType = null,
-            classificationConfidence = null,
-            structuredPayloadJson = null,
-            displayText = null,
-            status = status,
-            createdAtMs = 1L,
-            startedAtMs = 1L,
-            updatedAtMs = 2L,
-            completedAtMs = 2L,
-            errorCode = null,
-            sanitizedErrorMessage = null,
-            requestConfigSnapshot = "{}",
-            usageSnapshot = null,
-            alignmentIdSnapshot = null,
-            sourceLineageSnapshot = "{}",
-            executionGeneration = 1L,
-            ownerTaskId = 1,
-            remoteDispatchState = AiSummaryRemoteDispatchStateValue.NONE,
-            terminalAcknowledgedAtMs = null,
-            retryOfSummaryId = null,
         )
 }

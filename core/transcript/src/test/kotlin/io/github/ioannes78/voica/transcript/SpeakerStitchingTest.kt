@@ -1,6 +1,7 @@
 package io.github.ioannes78.voica.transcript
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -125,7 +126,6 @@ class SpeakerStitchingTest {
         val mapped = result.mappings.filter { it.chunkIndex == 1 }.map { it.globalSpeakerIndex }
         assertEquals(2, mapped.distinct().size)
     }
-
 
     @Test
     fun explicitSingleSpeakerCollapsesCrossChunkFragmentationEvenWithLowCosine() {
@@ -300,6 +300,103 @@ class SpeakerStitchingTest {
             )
 
         assertEquals(3, result.speakerCount)
+    }
+
+    @Test
+    fun autoWeakThirdSpeakerWithoutAnchorStaysUnmapped() {
+        val result =
+            stitchDiarizationChunks(
+                chunks =
+                    listOf(
+                        chunk(
+                            index = 0,
+                            turns =
+                                listOf(
+                                    turn(0, 0L, 160_000L),
+                                    turn(1, 160_000L, 320_000L),
+                                ),
+                            anchors =
+                                listOf(
+                                    anchor(0, floatArrayOf(1F, 0F)),
+                                    anchor(1, floatArrayOf(0F, 1F)),
+                                ),
+                        ),
+                        chunk(
+                            index = 1,
+                            turns = listOf(turn(9, 400_000L, 400_960L)),
+                            anchors = emptyList(),
+                        ),
+                    ),
+                config = DiarizationConfig(),
+            )
+
+        assertEquals(2, result.speakerCount)
+        assertFalse(result.mappings.any { it.chunkIndex == 1 && it.localSpeakerIndex == 9 })
+        assertFalse(result.turns.any { it.startSampleIndex == 400_000L })
+    }
+
+    @Test
+    fun autoCumulativeAnchorWindowOfEvidenceCanCreateThirdSpeaker() {
+        val result =
+            stitchDiarizationChunks(
+                chunks =
+                    listOf(
+                        chunk(
+                            index = 0,
+                            turns =
+                                listOf(
+                                    turn(0, 0L, 160_000L),
+                                    turn(1, 160_000L, 320_000L),
+                                ),
+                            anchors =
+                                listOf(
+                                    anchor(0, floatArrayOf(1F, 0F)),
+                                    anchor(1, floatArrayOf(0F, 1F)),
+                                ),
+                        ),
+                        chunk(
+                            index = 1,
+                            turns =
+                                listOf(
+                                    turn(9, 400_000L, 408_000L),
+                                    turn(9, 420_000L, 428_000L),
+                                ),
+                            anchors = emptyList(),
+                        ),
+                    ),
+                config = DiarizationConfig(),
+            )
+
+        assertEquals(3, result.speakerCount)
+        assertEquals(2, result.mapping(1, 9))
+    }
+
+    @Test
+    fun fixedThreeSpeakerCountDoesNotSuppressWeakThirdSpeaker() {
+        val result =
+            stitchDiarizationChunks(
+                chunks =
+                    listOf(
+                        chunk(
+                            index = 0,
+                            turns =
+                                listOf(
+                                    turn(0, 0L, 160_000L),
+                                    turn(1, 160_000L, 320_000L),
+                                    turn(2, 320_000L, 320_960L),
+                                ),
+                            anchors =
+                                listOf(
+                                    anchor(0, floatArrayOf(1F, 0F, 0F)),
+                                    anchor(1, floatArrayOf(0F, 1F, 0F)),
+                                ),
+                        ),
+                    ),
+                config = DiarizationConfig(expectedSpeakerCount = 3),
+            )
+
+        assertEquals(3, result.speakerCount)
+        assertEquals(2, result.mapping(0, 2))
     }
 
     @Test

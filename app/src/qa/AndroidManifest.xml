@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name=".Stage16BQaHubActivity"
+            android:exported="true"
+            android:label="Voica Stage 16B QA">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity android:name=".Stage16BGateBBenchmarkActivity" android:exported="false" android:label="Voica Gate B QA" />
+        <activity android:name=".Stage16BGateB3Activity" android:exported="false" android:label="Voica Gate B3 QA" />
+        <activity android:name=".Stage16BGateB3HotwordActivity" android:exported="false" android:label="Voica B3 Hotword QA" />
+        <activity android:name=".Stage16BGateB4TimelineActivity" android:exported="false" android:label="Voica B4 Timeline QA" />
+        <activity android:name=".Stage16BGateB5FreshLauncherActivity" android:exported="false" android:label="Voica B5 Performance QA" />
+        <activity
+            android:name=".Stage16BGateB5FreshSenseVoiceActivity"
+            android:exported="false"
+            android:label="B5 SenseVoice"
+            android:process=":model_validator" />
+        <activity
+            android:name=".Stage16BGateB5FreshFunAsrActivity"
+            android:exported="false"
+            android:label="B5 FunASR"
+            android:process=":model_validator" />
+        <activity
+            android:name=".Stage16BGateB5FreshQwen3Activity"
+            android:exported="false"
+            android:label="B5 Qwen3"
+            android:process=":model_validator" />
+
+        <activity android:name=".Stage16BGateB6LauncherActivity" android:exported="false" android:label="Voica B6 Endurance QA" />
+        <activity
+            android:name=".Stage16BGateB6FunAsrActivity"
+            android:exported="false"
+            android:label="B6 FunASR"
+            android:process=":model_validator" />
+        <activity
+            android:name=".Stage16BGateB6Qwen3Activity"
+            android:exported="false"
+            android:label="B6 Qwen3"
+            android:process=":model_validator" />
+    </application>
+</manifest>

@@ -1,0 +1,100 @@
+name: FunASR CTC A3 Heavy Gate
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [ main ]
+    types: [edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: funasr-ctc-a3-heavy-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  checkpoint-audit:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.event.pull_request.title, '[A3-H1]')
+    name: H1 checkpoint hash + CTC tensor inventory
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      MODELSCOPE_DOWNLOAD_PARALLEL_WORKERS: "4"
+      MODELSCOPE_DOWNLOAD_PARALLEL_THRESHOLD_MB: "500"
+      MODELSCOPE_DOWNLOAD_PART_SIZE_MB: "160"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned checkpoint tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --no-cache-dir \
+            "modelscope-hub==0.4.6" \
+            "PyYAML==6.0.2"
+          python -m pip install --disable-pip-version-check --no-cache-dir \
+            --index-url https://download.pytorch.org/whl/cpu \
+            "torch==2.7.1"
+          python - <<'PY'
+          import inspect
+          from importlib.metadata import version
+          from modelscope_hub import HubApi
+          from modelscope_hub._download import DownloadManager
+          from modelscope_hub.constants import (
+              DOWNLOAD_PARALLEL_THRESHOLD,
+              DOWNLOAD_PARALLELS,
+              DOWNLOAD_PART_SIZE,
+          )
+
+          assert version("modelscope-hub") == "0.4.6"
+          assert "allow_patterns" in inspect.signature(HubApi.download_repo).parameters
+          assert "file_size" in inspect.signature(DownloadManager.download_file).parameters
+          assert DOWNLOAD_PARALLELS == 4, DOWNLOAD_PARALLELS
+          assert DOWNLOAD_PARALLEL_THRESHOLD == 500 * 1024 * 1024, DOWNLOAD_PARALLEL_THRESHOLD
+          assert DOWNLOAD_PART_SIZE == 160 * 1024 * 1024, DOWNLOAD_PART_SIZE
+          print(
+              "ModelScope download contract: "
+              f"version={version('modelscope-hub')} "
+              f"workers={DOWNLOAD_PARALLELS} "
+              f"threshold={DOWNLOAD_PARALLEL_THRESHOLD} "
+              f"part_size={DOWNLOAD_PART_SIZE}"
+          )
+          PY
+
+      - name: Show runner disk before checkpoint download
+        shell: bash
+        run: df -h . "${RUNNER_TEMP}"
+
+      - name: Audit exact CTC-complete ModelScope checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/funasr-a3-h1"
+          python ci/funasr-ctc-a3-heavy/audit-checkpoint.py --out "$out"
+          test -s "$out/a3-h1-checkpoint-audit.json"
+          {
+            echo "## Stage 16B A3-H1 checkpoint audit"
+            echo
+            echo '```json'
+            cat "$out/a3-h1-checkpoint-audit.json"
+            echo '```'
+            echo
+            echo "The 2.1 GB checkpoint and all model assets remain runner-local; no artifact upload is permitted."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove downloaded model assets
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "${RUNNER_TEMP}/funasr-a3-h1"
+          df -h . "${RUNNER_TEMP}"

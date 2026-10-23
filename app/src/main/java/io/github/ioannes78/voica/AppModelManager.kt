@@ -15,6 +15,7 @@ import io.github.ioannes78.voica.model.ModelEnvironment
 import io.github.ioannes78.voica.model.ModelManager
 import io.github.ioannes78.voica.model.ModelStorage
 import io.github.ioannes78.voica.model.ModelUseRegistry
+import io.github.ioannes78.voica.model.Stage16BCandidateRuntimes
 import io.github.ioannes78.voica.sherpa.SherpaRuntime
 import java.io.File
 import java.net.URL
@@ -22,10 +23,10 @@ import java.net.URL
 object VoicaModelChannel {
     const val BOOTSTRAP_CATALOG_ASSET = "model-catalog-v1.json"
     const val PRODUCTION_MODEL_CHANNEL_COMMIT =
-        "be74c7065ce22a5f9b207a7cf1c88d3be0e872ec"
-    const val PRODUCTION_MANIFEST_VERSION = 7
+        "eeb59214244f392f3e2eecdb90016efbe3a95401"
+    const val PRODUCTION_MANIFEST_VERSION = 9
     const val PRODUCTION_MANIFEST_DIGEST =
-        "8bdb505ce97820cb942bc2855c8a099484b7e22f63ec5567b63f2c1c18d567cf"
+        "a49da9fdf2dabf2408ba2bb14cf6b5c25c35563052cc6307db8f8095caac0b45"
     const val PRODUCTION_MANIFEST_URL =
         "https://raw.githubusercontent.com/ioannes78/voica-model-channel/" +
             PRODUCTION_MODEL_CHANNEL_COMMIT +
@@ -36,11 +37,22 @@ object VoicaModelChannel {
     private const val CANDIDATE_RELEASE_PREFIX =
         "/ioannes78/voica-model-channel/releases/download/"
 
+    /**
+     * Developer-tooling gate. It is true for normal debuggable builds and for the
+     * explicitly non-production releaseQa variant, whose BuildConfig flag is false in release.
+     */
     fun isDebuggable(application: Application): Boolean =
-        application.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+        candidateModelChannelAllowed(
+            isDebuggable =
+                application.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0,
+            buildAllowsCandidateChannel = BuildConfig.ALLOW_CANDIDATE_MODEL_CHANNEL,
+        )
+
+    private fun isCandidateModelChannelAllowed(application: Application): Boolean =
+        isDebuggable(application)
 
     fun configuredDebugManifestUrl(application: Application): String? {
-        if (!isDebuggable(application)) return null
+        if (!isCandidateModelChannelAllowed(application)) return null
         val preferences =
             application.getSharedPreferences(PREFERENCES_NAME, Application.MODE_PRIVATE)
         val configured =
@@ -49,22 +61,32 @@ object VoicaModelChannel {
                 ?.trim()
                 ?.takeIf { it.isNotEmpty() }
                 ?: return null
-        if (isPromotedStage13aDebugManifestUrl(configured)) {
-            preferences.edit().remove(KEY_DEBUG_MANIFEST_URL).apply()
-            return null
-        }
         return configured.takeIf(::isAllowedDebugManifestUrl)
     }
 
+    internal fun defaultCandidateManifestUrl(
+        candidateChannelAllowed: Boolean,
+        buildConfiguredUrl: String,
+    ): String? {
+        if (!candidateChannelAllowed) return null
+        val normalized = buildConfiguredUrl.trim().takeIf { it.isNotEmpty() } ?: return null
+        return normalized.takeIf(::isAllowedDebugManifestUrl)
+    }
+
     fun resolveManifestUrl(application: Application): String =
-        configuredDebugManifestUrl(application) ?: PRODUCTION_MANIFEST_URL
+        configuredDebugManifestUrl(application)
+            ?: defaultCandidateManifestUrl(
+                candidateChannelAllowed = isCandidateModelChannelAllowed(application),
+                buildConfiguredUrl = BuildConfig.QA_DEFAULT_MODEL_MANIFEST_URL,
+            )
+            ?: PRODUCTION_MANIFEST_URL
 
     fun setDebugManifestUrl(
         application: Application,
         manifestUrl: String?,
     ) {
-        check(isDebuggable(application)) {
-            "candidate model channel override is debug-only"
+        check(isCandidateModelChannelAllowed(application)) {
+            "candidate model channel override is restricted to debug/QA builds"
         }
         val preferences =
             application.getSharedPreferences(
@@ -107,33 +129,39 @@ object VoicaModelChannel {
         }.getOrDefault(false)
 }
 
-internal fun isPromotedStage13aDebugManifestUrl(value: String): Boolean =
-    runCatching {
-        val url = URL(value)
-        url.protocol.equals("https", ignoreCase = true) &&
-            url.host.equals("github.com", ignoreCase = true) &&
-            url.query.isNullOrEmpty() &&
-            url.ref.isNullOrEmpty() &&
-            url.path in PROMOTED_STAGE13A_CANDIDATE_PATHS
-    }.getOrDefault(false)
+internal fun candidateModelChannelAllowed(
+    isDebuggable: Boolean,
+    buildAllowsCandidateChannel: Boolean,
+): Boolean = isDebuggable || buildAllowsCandidateChannel
 
-private val PROMOTED_STAGE13A_CANDIDATE_PATHS =
-    setOf(
-        "/ioannes78/voica-model-channel/releases/download/candidate-stage13a-all-r1/production.json",
-        "/ioannes78/voica-model-channel/releases/download/candidate-stage13a-streaming-asr-r1/production.json",
-    )
+internal const val STAGE16B_FUNASR_NANO_CANDIDATE_ID = "funasr-nano-int8"
+internal const val STAGE16B_FSMN_VAD_CANDIDATE_ID = "fsmn-vad-int8"
+internal const val STAGE16B_TEN_VAD_CANDIDATE_ID = "ten-vad-fp32"
 
 private val PRODUCT_MODEL_IDS =
     setOf(
         Stage8ModelIds.VAD,
         Stage8ModelIds.PUNCTUATION,
         Stage13AOfflineModelIds.SENSEVOICE,
-        Stage13AOfflineModelIds.QWEN3_ASR,
+        Stage13AOfflineModelIds.FUNASR_NANO,
         Stage13ARealtimeModelIds.SMALL_BILINGUAL,
         Stage13ARealtimeModelIds.CHINESE_LARGE_CTC,
         Stage9ModelIds.SEGMENTATION,
         Stage13ASpeakerEmbeddingModelIds.CAMP_PLUS,
+        STAGE16B_FSMN_VAD_CANDIDATE_ID,
     )
+
+private val DEBUG_CANDIDATE_MODEL_IDS =
+    setOf(
+        STAGE16B_TEN_VAD_CANDIDATE_ID,
+    )
+
+internal fun allowedModelIdsForManifest(productionManifestPinned: Boolean): Set<String> =
+    if (productionManifestPinned) {
+        PRODUCT_MODEL_IDS
+    } else {
+        PRODUCT_MODEL_IDS + DEBUG_CANDIDATE_MODEL_IDS
+    }
 
 fun createVoicaModelManager(
     application: Application,
@@ -156,6 +184,7 @@ fun createVoicaModelManager(
     val resolvedManifestUrl = VoicaModelChannel.resolveManifestUrl(application)
     val productionManifestPinned =
         resolvedManifestUrl == VoicaModelChannel.PRODUCTION_MANIFEST_URL
+    val allowedModelIds = allowedModelIdsForManifest(productionManifestPinned)
     val decodedRemoteCatalogProvider =
         DecodingModelCatalogProvider(
             HttpsModelCatalogTextSource(resolvedManifestUrl),
@@ -172,7 +201,7 @@ fun createVoicaModelManager(
             catalog.copy(
                 models =
                     catalog.models.filter { descriptor ->
-                        descriptor.modelId in PRODUCT_MODEL_IDS
+                        descriptor.modelId in allowedModelIds
                     },
             )
         }
@@ -184,6 +213,11 @@ fun createVoicaModelManager(
             abi = Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a",
             sdkInt = Build.VERSION.SDK_INT,
             appVersionCode = appVersionCode,
+            additionalRuntimes =
+                mapOf(
+                    Stage16BCandidateRuntimes.FSMN_VAD_ID to
+                        Stage16BCandidateRuntimes.FSMN_VAD_VERSION,
+                ),
         )
     val storage = ModelStorage(File(application.noBackupFilesDir, "models"))
     val packageDirectory = File(application.cacheDir, "model-packages")

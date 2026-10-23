@@ -8,6 +8,7 @@ import io.github.ioannes78.voica.model.ModelCandidateValidator
 import io.github.ioannes78.voica.model.ModelDescriptor
 import io.github.ioannes78.voica.model.ModelKind
 import io.github.ioannes78.voica.model.SpeakerModelRole
+import io.github.ioannes78.voica.transcript.VadEngine
 import java.io.File
 import java.util.concurrent.CancellationException
 
@@ -135,14 +136,14 @@ class SherpaModelCandidateValidator : ModelCandidateValidator {
             descriptor.files
                 .map { it.relativePath }
                 .singleOrNull { it.endsWith(".onnx", ignoreCase = true) }
-                ?: error("speaker candidate must contain exactly one ONNX model file")
+                ?: error("candidate must contain exactly one ONNX model file")
         val root = directory.canonicalFile
         val file = File(root, relativePath).canonicalFile
         require(file.path.startsWith(root.path + File.separator)) {
-            "speaker model file escapes candidate directory"
+            "model file escapes candidate directory"
         }
         require(file.isFile) {
-            "speaker model file is missing: $relativePath"
+            "model file is missing: $relativePath"
         }
         return file
     }
@@ -151,21 +152,21 @@ class SherpaModelCandidateValidator : ModelCandidateValidator {
         descriptor: ModelDescriptor,
         directory: File,
     ) {
-        val modelFile =
-            descriptor.files
-                .singleOrNull { it.relativePath.endsWith(".onnx") }
-                ?.let { File(directory, it.relativePath) }
-                ?: error("Silero candidate must contain one ONNX model file")
-
-        val engine =
+        val modelFile = requireSingleOnnx(descriptor, directory)
+        val location = SherpaVadModelLocation.File(modelFile.canonicalPath)
+        val engine: VadEngine =
             validationInit {
-                SherpaSileroVadEngine(
-                    model = descriptor,
-                    modelLocation =
-                        SherpaVadModelLocation.File(
-                            modelFile.canonicalPath,
-                        ),
-                )
+                if (descriptor.modelId == SHERPA_TEN_VAD_CANDIDATE_MODEL_ID) {
+                    SherpaTenVadEngine(
+                        model = descriptor,
+                        modelLocation = location,
+                    )
+                } else {
+                    SherpaSileroVadEngine(
+                        model = descriptor,
+                        modelLocation = location,
+                    )
+                }
             }
         try {
             SmokePcmSource(SMOKE_PCM_SAMPLES).use { source ->
@@ -214,6 +215,12 @@ class SherpaModelCandidateValidator : ModelCandidateValidator {
         descriptor: ModelDescriptor,
         directory: File,
     ) {
+        if (requiresFunAsrCtcBundle(descriptor)) {
+            validationInit {
+                validateFunAsrCtcBundle(descriptor, directory)
+            }
+        }
+
         val engine =
             validationInit {
                 createSherpaLargeOfflineAsrEngine(

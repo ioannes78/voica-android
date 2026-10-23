@@ -7,7 +7,7 @@ import io.github.ioannes78.voica.ble.RegisteredDownloadedAsset
 import io.github.ioannes78.voica.database.AudioIntegrityState
 import io.github.ioannes78.voica.database.AudioValidationState
 import io.github.ioannes78.voica.database.DownloadedDeviceAsset
-import io.github.ioannes78.voica.database.LegacyAssetFormat
+import io.github.ioannes78.voica.database.DeviceAssetFormat
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import java.io.File
 import java.security.MessageDigest
@@ -114,8 +114,8 @@ class RoomDownloadedAssetRegistry(
     }
 }
 
-private fun DeviceAudioFormat.toDatabaseFormat(): LegacyAssetFormat =
+private fun DeviceAudioFormat.toDatabaseFormat(): DeviceAssetFormat =
     when (this) {
-        DeviceAudioFormat.OPUS -> LegacyAssetFormat.OPUS
-        DeviceAudioFormat.WAV -> LegacyAssetFormat.WAV
+        DeviceAudioFormat.OPUS -> DeviceAssetFormat.OPUS
+        DeviceAudioFormat.WAV -> DeviceAssetFormat.WAV
     }

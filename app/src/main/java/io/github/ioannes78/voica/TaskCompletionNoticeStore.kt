@@ -8,7 +8,6 @@ import kotlinx.coroutines.flow.asStateFlow
 enum class TaskCompletionKind {
     TRANSCRIPTION,
     DIARIZATION,
-    AI_SUMMARY,
 }
 
 data class TaskCompletionNotice(
@@ -69,19 +68,9 @@ class TaskCompletionNoticeStore(
     fun acknowledgeVisible(
         recordingId: String,
         includeTranscriptResults: Boolean,
-        includeSummaryResults: Boolean,
     ) {
-        if (recordingId.isBlank()) return
-        val matches =
-            mutablePending.value.filter { notice ->
-                notice.recordingId == recordingId &&
-                    when (notice.kind) {
-                        TaskCompletionKind.TRANSCRIPTION,
-                        TaskCompletionKind.DIARIZATION,
-                        -> includeTranscriptResults
-                        TaskCompletionKind.AI_SUMMARY -> includeSummaryResults
-                    }
-            }
+        if (recordingId.isBlank() || !includeTranscriptResults) return
+        val matches = mutablePending.value.filter { it.recordingId == recordingId }
         if (matches.isEmpty()) return
         val editor = preferences.edit()
         val acknowledgedAt = nowMs()

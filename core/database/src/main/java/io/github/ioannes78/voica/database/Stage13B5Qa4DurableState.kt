@@ -89,79 +89,6 @@ interface Stage13B5Qa4Dao {
         """,
     )
     fun observeTranscriptionCandidates(): Flow<List<TranscriptionEntity>>
-
-    @Query(
-        """
-        SELECT candidate.*
-        FROM ai_summaries AS candidate
-        INNER JOIN recording_content_selection AS selection
-            ON selection.recordingId = candidate.recordingId
-        INNER JOIN ai_summaries AS selected_current
-            ON selected_current.id = selection.currentAiSummaryId
-        LEFT JOIN recording_candidate_attention AS attention
-            ON attention.recordingId = candidate.recordingId
-        WHERE candidate.status = 'COMPLETED'
-          AND candidate.id != selected_current.id
-          AND candidate.id = (
-              SELECT latest.id
-              FROM ai_summaries AS latest
-              WHERE latest.recordingId = candidate.recordingId
-                AND latest.status = 'COMPLETED'
-                AND latest.id != selected_current.id
-              ORDER BY latest.completedAtMs DESC, latest.createdAtMs DESC
-              LIMIT 1
-          )
-          AND (
-              COALESCE(candidate.completedAtMs, candidate.createdAtMs) >
-                  COALESCE(selected_current.completedAtMs, selected_current.createdAtMs)
-              OR (
-                  COALESCE(candidate.completedAtMs, candidate.createdAtMs) =
-                      COALESCE(selected_current.completedAtMs, selected_current.createdAtMs)
-                  AND candidate.createdAtMs > selected_current.createdAtMs
-              )
-          )
-          AND (
-              attention.dismissedAiSummaryCandidateId IS NULL
-              OR attention.dismissedAiSummaryCandidateId != candidate.id
-          )
-        ORDER BY candidate.updatedAtMs DESC, candidate.createdAtMs DESC
-        """,
-    )
-    fun observeAiSummaryCandidates(): Flow<List<AiSummaryEntity>>
-
-    @Query(
-        """
-        SELECT summary.*
-        FROM ai_summaries AS summary
-        LEFT JOIN recording_content_selection AS selection
-            ON selection.recordingId = summary.recordingId
-        LEFT JOIN ai_summaries AS selected
-            ON selected.id = selection.currentAiSummaryId
-        WHERE summary.executionGeneration > 0
-          AND summary.status IN (:states)
-          AND summary.terminalAcknowledgedAtMs IS NULL
-          AND summary.id NOT IN (
-              SELECT retryOfSummaryId
-              FROM ai_summaries
-              WHERE retryOfSummaryId IS NOT NULL
-          )
-          AND NOT (
-              selected.id IS NOT NULL
-              AND selected.status = 'COMPLETED'
-              AND selected.createdAtMs > summary.createdAtMs
-          )
-          AND NOT (
-              summary.status IN ('FAILED', 'INTERRUPTED')
-              AND EXISTS (
-                  SELECT 1 FROM ai_summaries AS newer
-                  WHERE newer.recordingId = summary.recordingId
-                    AND newer.createdAtMs > summary.createdAtMs
-              )
-          )
-        ORDER BY summary.updatedAtMs DESC, summary.createdAtMs DESC
-        """,
-    )
-    fun observeAiSummaryAttention(states: List<String>): Flow<List<AiSummaryEntity>>
 }
 
 class Stage13B5Qa4Repository(
@@ -177,9 +104,6 @@ class Stage13B5Qa4Repository(
     fun observeTranscriptionCandidates(): Flow<List<TranscriptionEntity>> =
         dao.observeTranscriptionCandidates()
 
-    fun observeAiSummaryCandidates(): Flow<List<AiSummaryEntity>> =
-        dao.observeAiSummaryCandidates()
-
     fun observeTranscriptionAttention(): Flow<List<TranscriptionEntity>> =
         transcriptionDao.observeDurableAttention(TranscriptionStateValue.ATTENTION)
 
@@ -188,9 +112,6 @@ class Stage13B5Qa4Repository(
             recordingId = recordingId,
             states = TranscriptionStateValue.ATTENTION,
         )
-
-    fun observeAiSummaryAttention(): Flow<List<AiSummaryEntity>> =
-        dao.observeAiSummaryAttention(QA4_AI_ATTENTION_STATES)
 
     suspend fun dismissTranscriptionCandidate(
         recordingId: String,
@@ -207,26 +128,6 @@ class Stage13B5Qa4Repository(
                 updatedAtMs = nowMs(),
             )).copy(
                 dismissedTranscriptionCandidateId = candidateId,
-                updatedAtMs = nowMs(),
-            ),
-        )
-    }
-
-    suspend fun dismissAiSummaryCandidate(
-        recordingId: String,
-        candidateId: String,
-    ) {
-        require(recordingId.isNotBlank())
-        require(candidateId.isNotBlank())
-        val current = dao.findCandidateAttention(recordingId)
-        dao.upsertCandidateAttention(
-            (current ?: RecordingCandidateAttentionEntity(
-                recordingId = recordingId,
-                dismissedTranscriptionCandidateId = null,
-                dismissedAiSummaryCandidateId = null,
-                updatedAtMs = nowMs(),
-            )).copy(
-                dismissedAiSummaryCandidateId = candidateId,
                 updatedAtMs = nowMs(),
             ),
         )
@@ -263,17 +164,6 @@ class Stage13B5Qa4Repository(
         )
     }
 
-    suspend fun clearAiSummaryCandidateDismissal(recordingId: String) {
-        val current = dao.findCandidateAttention(recordingId) ?: return
-        if (current.dismissedAiSummaryCandidateId == null) return
-        dao.upsertCandidateAttention(
-            current.copy(
-                dismissedAiSummaryCandidateId = null,
-                updatedAtMs = nowMs(),
-            ),
-        )
-    }
-
     suspend fun acknowledgeTranscriptionAttention(transcriptionId: String): Boolean =
         transcriptionDao.acknowledgeTerminal(
             transcriptionId = transcriptionId,
@@ -291,13 +181,4 @@ class Stage13B5Qa4Repository(
             states = TranscriptionStateValue.ATTENTION,
             nowMs = nowMs(),
         )
-
-    private companion object {
-        val QA4_AI_ATTENTION_STATES =
-            listOf(
-                AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT,
-                AiSummaryStateValue.FAILED,
-                AiSummaryStateValue.INTERRUPTED,
-            )
-    }
 }

@@ -1,6 +1,5 @@
 package io.github.ioannes78.voica
 
-import io.github.ioannes78.voica.ai.AiSummaryEnginePhase
 import io.github.ioannes78.voica.transcript.DiarizationPhase
 import io.github.ioannes78.voica.transcript.DiarizationProgress
 import io.github.ioannes78.voica.transcript.TranscriptionMode
@@ -49,24 +48,6 @@ class LongTaskNotificationLabelTest {
         assertEquals(
             "说话人分离 · 正在对齐转写 · 50%",
             buildDiarizationLabel(running, 50),
-        )
-    }
-
-    @Test
-    fun aiSummaryMappingUsesTruthfulUnitCounts() {
-        val running =
-            AiSummaryRunState.Running(
-                summaryId = "summary-a",
-                recordingId = "recording-a",
-                transcriptionId = "transcription-a",
-                phase = AiSummaryEnginePhase.MAPPING,
-                completedUnits = 3,
-                totalUnits = 8,
-            )
-
-        assertEquals(
-            "AI 总结 · 正在生成 3/8",
-            buildAiSummaryLabel(running),
         )
     }
 }

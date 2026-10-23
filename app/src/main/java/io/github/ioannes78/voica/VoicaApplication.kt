@@ -4,7 +4,6 @@ import android.app.ActivityManager
 import android.app.Application
 import android.os.Build
 import android.os.Process
-import io.github.ioannes78.voica.ai.AiSummaryEngine
 import io.github.ioannes78.voica.audio.AudioSourceResolver
 import io.github.ioannes78.voica.audio.PcmSourceResolver
 import io.github.ioannes78.voica.ble.DefaultDeviceRepository
@@ -17,15 +16,9 @@ import io.github.ioannes78.voica.database.RealtimeTranscriptPersistenceRepositor
 import io.github.ioannes78.voica.database.SearchIndexRebuilder
 import io.github.ioannes78.voica.database.Stage12CContentRepository
 import io.github.ioannes78.voica.database.Stage13B5Qa4Repository
-import io.github.ioannes78.voica.database.StructuredTranscriptInputBuilder
 import io.github.ioannes78.voica.database.TranscriptionRepository
 import io.github.ioannes78.voica.database.UnifiedSearchRepository
 import io.github.ioannes78.voica.database.VoicaDatabase
-import io.github.ioannes78.voica.llm.AndroidKeystoreCredentialStore
-import io.github.ioannes78.voica.llm.AppPrivateProviderProfileStore
-import io.github.ioannes78.voica.llm.ProviderAdapterRegistry
-import io.github.ioannes78.voica.llm.ProviderConfigurationRepository
-import io.github.ioannes78.voica.llm.UrlConnectionLlmHttpTransport
 import io.github.ioannes78.voica.model.ModelUseRegistry
 import io.github.ioannes78.voica.opus.NativeOpusBackend
 import io.github.ioannes78.voica.playback.AndroidPlaybackController
@@ -140,8 +133,13 @@ class AppContainer(
     val localSpeechSettingsStore =
         SharedPreferencesLocalSpeechSettingsStore(application)
     val taskCompletionNoticeStore = TaskCompletionNoticeStore(application)
-    private val stage8TranscriptionEngineProvider =
+    private val stage8BaseTranscriptionEngineProvider =
         SherpaStage8TranscriptionEngineProvider(
+            assetManager = application.assets,
+        )
+    private val stage16BLocalFileTranscriptionEngineProvider =
+        Stage16BLocalFileTranscriptionEngineProvider(
+            delegate = stage8BaseTranscriptionEngineProvider,
             assetManager = application.assets,
         )
     private val stage9BaseDiarizationEngineProvider =
@@ -172,38 +170,7 @@ class AppContainer(
             transcriptionRepository = transcriptionRepository,
         )
 
-    private val aiSummaryTaskOwnershipStore = AiSummaryTaskOwnershipStore(application)
-    val aiSummaryRepository =
-        AiSummaryRepository(
-            database = recordingDatabase,
-            currentOwnerTaskId = aiSummaryTaskOwnershipStore::currentTaskId,
-            isOwnerTaskActive = aiSummaryTaskOwnershipStore::isTaskActive,
-        )
-    val structuredTranscriptInputBuilder = StructuredTranscriptInputBuilder(recordingDatabase)
-    val providerCredentialStore = AndroidKeystoreCredentialStore(application)
-    val providerProfileStore = AppPrivateProviderProfileStore(application)
-    val providerConfigurationRepository =
-        ProviderConfigurationRepository(
-            profileStore = providerProfileStore,
-            credentialStore = providerCredentialStore,
-        )
-    val providerAdapterRegistry =
-        ProviderAdapterRegistry(
-            transport = UrlConnectionLlmHttpTransport(),
-            credentials = providerCredentialStore,
-        )
-    private val aiSummaryWorkScheduler = AndroidAiSummaryWorkScheduler(application)
-    val aiSummaryCoordinator =
-        AiSummaryCoordinator(
-            scope = applicationScope,
-            repository = aiSummaryRepository,
-            inputBuilder = structuredTranscriptInputBuilder,
-            profileStore = providerProfileStore,
-            providerRegistry = providerAdapterRegistry,
-            workScheduler = aiSummaryWorkScheduler,
-            engine = AiSummaryEngine(),
-            isRecordingActive = recordingLibraryRepository::isRecordingActive,
-        )
+    val aiSummaryRepository = AiSummaryRepository(recordingDatabase)
 
     val transcriptionCoordinator =
         TranscriptionCoordinator(
@@ -211,9 +178,9 @@ class AppContainer(
             pcmSourceResolver = pcmSourceResolver,
             transcriptionRepository = transcriptionRepository,
             loadCanonicalLineage = recordingLibraryRepository::loadCanonicalTranscriptionLineage,
-            modelManager = modelManager,
+            modelManager = Stage16BLocalFileVadModelManager(modelManager),
             modelUseRegistry = modelUseRegistry,
-            engineProvider = stage8TranscriptionEngineProvider,
+            engineProvider = stage16BLocalFileTranscriptionEngineProvider,
             localSpeechSettings = { localSpeechSettingsStore.settings.value },
             isRecordingActive = recordingLibraryRepository::isRecordingActive,
         )
@@ -224,7 +191,7 @@ class AppContainer(
             pcmSourceResolver = pcmSourceResolver,
             modelManager = modelManager,
             modelUseRegistry = modelUseRegistry,
-            engineProvider = stage8TranscriptionEngineProvider,
+            engineProvider = stage8BaseTranscriptionEngineProvider,
             localSpeechSettings = { localSpeechSettingsStore.settings.value },
         )
 
@@ -253,12 +220,6 @@ class AppContainer(
             localSpeechSettings = { localSpeechSettingsStore.settings.value },
         )
 
-    val stage13B5Qa4AttentionReconciler =
-        Stage13B5Qa4AttentionReconciler(
-            scope = applicationScope,
-            aiSummaryRepository = aiSummaryRepository,
-        )
-
     val longTaskNotificationController =
         LongTaskNotificationController(
             context = application,
@@ -266,8 +227,6 @@ class AppContainer(
             recordingRepository = recordingLibraryRepository,
             transcriptionCoordinator = transcriptionCoordinator,
             diarizationCoordinator = diarizationCoordinator,
-            aiSummaryCoordinator = aiSummaryCoordinator,
-            aiSummaryRepository = aiSummaryRepository,
             stage12CContentRepository = stage12CContentRepository,
             stage13B5Qa4Repository = stage13B5Qa4Repository,
             taskCompletionNoticeStore = taskCompletionNoticeStore,
@@ -303,7 +262,6 @@ class AppContainer(
                     canonicalAudioCoordinator = canonicalAudioCoordinator,
                     transcriptionCoordinator = transcriptionCoordinator,
                     diarizationCoordinator = diarizationCoordinator,
-                    aiSummaryCoordinator = aiSummaryCoordinator,
                 ),
             annotationAttachmentCleanup =
                 timelineAnnotationAttachmentStore::deleteAttachmentsForRecording,
@@ -537,7 +495,6 @@ class AppContainer(
             transcriptionCoordinator.reconcileOnStartup()
             diarizationCoordinator.reconcileOnStartup()
             autoDiarizationPostProcessor.recoverPendingOnStartup()
-            recoverAiSummaryWorkOnStartup(aiSummaryRepository, aiSummaryWorkScheduler)
             searchIndexRebuilder.rebuildIfRequired()
         }
     }

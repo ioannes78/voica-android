@@ -277,7 +277,7 @@ class DiarizationCoordinator(
             val requestedSpeakerCount =
                 if (config == null) speechSettings.speakerCount else null
             val effectiveConfig =
-                config ?: speechSettings.speakerCount.toDiarizationConfig(
+                config ?: speechSettings.speakerCount.toStage16BDiarizationConfig(
                     speechSettings.diarization,
                 )
             val job =
@@ -303,7 +303,7 @@ class DiarizationCoordinator(
             if (currentJob?.isActive == true) return false
             val speechSettings = localSpeechSettings()
             val effectiveConfig =
-                speakerCountChoice.toDiarizationConfig(speechSettings.diarization)
+                speakerCountChoice.toStage16BDiarizationConfig(speechSettings.diarization)
             val job =
                 scope.launch {
                     runDiarization(
@@ -442,7 +442,7 @@ class DiarizationCoordinator(
                 resolveActiveModels(
                     speakerEmbeddingModel = speechSettings.speakerEmbeddingModel,
                 )
-            val performance = speechSettings.resolvePerformance()
+            val performance = speechSettings.resolveStage16BDiarizationPerformance()
             val leasedModels = if (singleSpeakerFastPath) listOf(models.vad) else models.all
             leases =
                 leasedModels.map { active ->

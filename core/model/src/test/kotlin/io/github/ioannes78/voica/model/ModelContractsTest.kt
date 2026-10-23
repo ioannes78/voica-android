@@ -73,6 +73,86 @@ class ModelContractsTest {
     }
 
     @Test
+    fun compatibilityAcceptsExplicitAdditionalRuntime() {
+        val descriptor =
+            builtinVadDescriptor().copy(
+                runtimeId = "onnxruntime",
+                runtimeVersionMin = "1.28.2",
+                runtimeVersionMax = "1.28.2",
+            )
+        val environment =
+            ModelEnvironment(
+                runtimeId = "sherpa-onnx",
+                runtimeVersion = "1.13.8",
+                abi = "arm64-v8a",
+                sdkInt = 26,
+                appVersionCode = 20,
+                additionalRuntimes = mapOf("onnxruntime" to "1.28.2"),
+            )
+
+        val compatibility = descriptor.compatibilityWith(environment)
+
+        assertTrue(compatibility.compatible)
+    }
+
+    @Test
+    fun compatibilityRejectsMissingAdditionalRuntimeWithoutChangingPrimaryRuntimeSemantics() {
+        val descriptor =
+            builtinVadDescriptor().copy(
+                runtimeId = "onnxruntime",
+                runtimeVersionMin = "1.28.2",
+            )
+        val environment =
+            ModelEnvironment(
+                runtimeId = "sherpa-onnx",
+                runtimeVersion = "1.13.8",
+                abi = "arm64-v8a",
+                sdkInt = 26,
+                appVersionCode = 20,
+            )
+
+        val compatibility = descriptor.compatibilityWith(environment)
+
+        assertFalse(compatibility.compatible)
+        assertEquals(ModelIncompatibilityReason.RUNTIME_ID, compatibility.reason)
+    }
+
+    @Test
+    fun compatibilityUsesAdditionalRuntimeVersionForBounds() {
+        val descriptor =
+            builtinVadDescriptor().copy(
+                runtimeId = "onnxruntime",
+                runtimeVersionMin = "1.28.2",
+            )
+        val environment =
+            ModelEnvironment(
+                runtimeId = "sherpa-onnx",
+                runtimeVersion = "1.13.8",
+                abi = "arm64-v8a",
+                sdkInt = 26,
+                appVersionCode = 20,
+                additionalRuntimes = mapOf("onnxruntime" to "1.27.0"),
+            )
+
+        val compatibility = descriptor.compatibilityWith(environment)
+
+        assertFalse(compatibility.compatible)
+        assertEquals(ModelIncompatibilityReason.RUNTIME_TOO_OLD, compatibility.reason)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun environmentRejectsDuplicatePrimaryRuntimeIdentity() {
+        ModelEnvironment(
+            runtimeId = "sherpa-onnx",
+            runtimeVersion = "1.13.8",
+            abi = "arm64-v8a",
+            sdkInt = 26,
+            appVersionCode = 20,
+            additionalRuntimes = mapOf("sherpa-onnx" to "1.13.8"),
+        )
+    }
+
+    @Test
     fun revisionNotVersionStringDeterminesUpdates() {
         assertTrue(isModelUpdateAvailable(installedRevision = 7, remoteRevision = 8))
         assertFalse(isModelUpdateAvailable(installedRevision = 8, remoteRevision = 8))

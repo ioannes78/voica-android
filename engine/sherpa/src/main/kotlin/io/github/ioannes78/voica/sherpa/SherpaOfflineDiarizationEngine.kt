@@ -41,6 +41,7 @@ class SherpaOfflineDiarizationEngine internal constructor(
     override val segmentationModel: ModelDescriptor,
     override val embeddingModel: ModelDescriptor,
     private val native: NativeOfflineDiarizationSession,
+    private val settings: SherpaDiarizationSettings = SherpaDiarizationSettings(),
 ) : DiarizationEngine {
     private var closed = false
 
@@ -69,6 +70,7 @@ class SherpaOfflineDiarizationEngine internal constructor(
                     ),
                 settings = settings,
             ),
+        settings = settings,
     )
 
     init {
@@ -80,6 +82,7 @@ class SherpaOfflineDiarizationEngine internal constructor(
         require(embeddingModel.speakerRole == SpeakerModelRole.EMBEDDING) {
             "embedding model must declare EMBEDDING"
         }
+        DiarizationPerformanceDiagnostics.clear()
     }
 
     override suspend fun diarize(
@@ -90,6 +93,19 @@ class SherpaOfflineDiarizationEngine internal constructor(
         check(!closed) { "diarization engine is closed" }
         require(window.sampleRateHz == config.sampleRateHz)
 
+        DiarizationPerformanceDiagnostics.recordRuntimeConfig(
+            DiarizationRuntimeConfigDiagnostic(
+                expectedSpeakerCount = config.expectedSpeakerCount,
+                clusteringThreshold = config.clusteringThreshold ?: settings.defaultClusteringThreshold,
+                stitchingCosineThreshold = config.stitchingCosineThreshold,
+                numThreads = settings.numThreads,
+                chunkSizeSamples = config.chunkSizeSamples,
+                chunkOverlapSamples = config.chunkOverlapSamples,
+                sampleRateHz = config.sampleRateHz,
+                pyannoteWindowShiftRatio = settings.pyannoteWindowShiftRatio,
+            ),
+        )
+
         progressListener?.onProgress(
             DiarizationProgress(
                 phase = DiarizationPhase.DIARIZATION,
@@ -98,11 +114,8 @@ class SherpaOfflineDiarizationEngine internal constructor(
             ),
         )
 
-        val normalized =
-            FloatArray(window.samples.size) { index ->
-                window.samples[index] / 32768.0F
-            }
-
+        val normalized = FloatArray(window.samples.size) { index -> window.samples[index] / 32768.0F }
+        val processStartedNs = System.nanoTime()
         val nativeSegments =
             native.process(
                 samples = normalized,
@@ -110,37 +123,37 @@ class SherpaOfflineDiarizationEngine internal constructor(
                 expectedSpeakerCount = config.expectedSpeakerCount,
                 clusteringThreshold = config.clusteringThreshold,
             )
+        val processMs = elapsedMillis(processStartedNs)
 
         val mapped =
             nativeSegments
-                .mapNotNull { segment ->
-                    mapNativeSegment(
-                        segment = segment,
-                        window = window,
-                    )
-                }
+                .mapNotNull { segment -> mapNativeSegment(segment, window) }
                 .sortedWith(
                     compareBy<DiarizationSpeakerTurn> { it.startSampleIndex }
                         .thenBy { it.endSampleIndexExclusive }
                         .thenBy { it.speakerIndex },
                 )
-
         val withOverlap =
             mapped.mapIndexed { index, turn ->
                 turn.copy(
-                    overlap =
-                        mapped.indices.any { otherIndex ->
-                            if (index == otherIndex) {
-                                false
-                            } else {
-                                val other = mapped[otherIndex]
-                                other.speakerIndex != turn.speakerIndex &&
-                                    rangesOverlap(turn, other)
-                            }
-                        },
+                    overlap = mapped.indices.any { otherIndex ->
+                        if (index == otherIndex) false
+                        else {
+                            val other = mapped[otherIndex]
+                            other.speakerIndex != turn.speakerIndex && rangesOverlap(turn, other)
+                        }
+                    },
                 )
             }
-
+        val localSpeakerCount = withOverlap.maxOfOrNull { it.speakerIndex + 1 } ?: 0
+        DiarizationPerformanceDiagnostics.recordWindow(
+            DiarizationWindowPerformanceDiagnostic(
+                audioDurationMs = (window.samples.size.toLong() * 1_000L) / window.sampleRateHz.toLong(),
+                processMs = processMs,
+                localSpeakerCount = localSpeakerCount,
+                turnCount = withOverlap.size,
+            ),
+        )
         progressListener?.onProgress(
             DiarizationProgress(
                 phase = DiarizationPhase.DIARIZATION,
@@ -148,12 +161,7 @@ class SherpaOfflineDiarizationEngine internal constructor(
                 totalSamples = window.samples.size.toLong(),
             ),
         )
-
-        return DiarizationChunkResult(
-            speakerCount =
-                withOverlap.maxOfOrNull { it.speakerIndex + 1 } ?: 0,
-            turns = withOverlap,
-        )
+        return DiarizationChunkResult(localSpeakerCount, withOverlap)
     }
 
     override fun close() {
@@ -162,79 +170,42 @@ class SherpaOfflineDiarizationEngine internal constructor(
         native.close()
     }
 
-    private fun mapNativeSegment(
-        segment: NativeDiarizationSegment,
-        window: DiarizationWindow,
-    ): DiarizationSpeakerTurn? {
+    private fun mapNativeSegment(segment: NativeDiarizationSegment, window: DiarizationWindow): DiarizationSpeakerTurn? {
         require(segment.speakerIndex >= 0)
         require(segment.startSeconds.isFinite())
         require(segment.endSeconds.isFinite())
-
-        val localStart =
-            secondsToSampleOffset(
-                seconds = segment.startSeconds,
-                sampleRateHz = window.sampleRateHz,
-                maxSampleCount = window.samples.size.toLong(),
-            )
-        val localEnd =
-            secondsToSampleOffset(
-                seconds = segment.endSeconds,
-                sampleRateHz = window.sampleRateHz,
-                maxSampleCount = window.samples.size.toLong(),
-            )
+        val localStart = secondsToSampleOffset(segment.startSeconds, window.sampleRateHz, window.samples.size.toLong())
+        val localEnd = secondsToSampleOffset(segment.endSeconds, window.sampleRateHz, window.samples.size.toLong())
         if (localEnd <= localStart) return null
-
         return DiarizationSpeakerTurn(
             speakerIndex = segment.speakerIndex,
             startSampleIndex = Math.addExact(window.startSampleIndex, localStart),
             endSampleIndexExclusive = Math.addExact(window.startSampleIndex, localEnd),
-            confidence =
-                segment.confidence.takeIf {
-                    it.isFinite() && it in -1F..1F
-                },
+            confidence = segment.confidence.takeIf { it.isFinite() && it in -1F..1F },
             overlap = false,
         )
     }
 
     private companion object {
-        fun rangesOverlap(
-            left: DiarizationSpeakerTurn,
-            right: DiarizationSpeakerTurn,
-        ): Boolean =
-            left.startSampleIndex < right.endSampleIndexExclusive &&
-                right.startSampleIndex < left.endSampleIndexExclusive
+        fun elapsedMillis(startedNs: Long): Long = ((System.nanoTime() - startedNs).coerceAtLeast(0L) / 1_000_000L)
+        fun rangesOverlap(left: DiarizationSpeakerTurn, right: DiarizationSpeakerTurn): Boolean =
+            left.startSampleIndex < right.endSampleIndexExclusive && right.startSampleIndex < left.endSampleIndexExclusive
 
-        fun secondsToSampleOffset(
-            seconds: Float,
-            sampleRateHz: Int,
-            maxSampleCount: Long,
-        ): Long {
-            val raw =
-                (seconds.coerceAtLeast(0F).toDouble() * sampleRateHz.toDouble())
-                    .roundToLong()
+        fun secondsToSampleOffset(seconds: Float, sampleRateHz: Int, maxSampleCount: Long): Long {
+            val raw = (seconds.coerceAtLeast(0F).toDouble() * sampleRateHz.toDouble()).roundToLong()
             return raw.coerceIn(0L, maxSampleCount)
         }
 
-        fun resolveSingleOnnx(
-            descriptor: ModelDescriptor,
-            directory: File,
-            role: SpeakerModelRole,
-        ): File {
+        fun resolveSingleOnnx(descriptor: ModelDescriptor, directory: File, role: SpeakerModelRole): File {
             require(descriptor.kind == ModelKind.SPEAKER)
             require(descriptor.speakerRole == role)
             require(directory.isDirectory) { "speaker model directory is missing" }
-
-            val relativePath =
-                descriptor.files
-                    .map { it.relativePath }
-                    .singleOrNull { it.endsWith(".onnx", ignoreCase = true) }
-                    ?: error("speaker model must contain exactly one ONNX file")
-
+            val relativePath = descriptor.files.map { it.relativePath }
+                .singleOrNull { it.endsWith(".onnx", ignoreCase = true) }
+                ?: error("speaker model must contain exactly one ONNX file")
             val canonicalRoot = directory.canonicalFile
             val candidate = File(canonicalRoot, relativePath).canonicalFile
-            require(candidate.path.startsWith(canonicalRoot.path + File.separator)) {
-                "speaker model file escapes model directory"
-            }
+            require(candidate.path.startsWith(canonicalRoot.path + File.separator)) { "speaker model file escapes model directory" }
             require(candidate.isFile) { "speaker model file is missing: $relativePath" }
             return candidate
         }
@@ -249,12 +220,7 @@ internal data class NativeDiarizationSegment(
 )
 
 internal interface NativeOfflineDiarizationSession : AutoCloseable {
-    fun process(
-        samples: FloatArray,
-        sampleRateHz: Int,
-        expectedSpeakerCount: Int?,
-        clusteringThreshold: Float?,
-    ): List<NativeDiarizationSegment>
+    fun process(samples: FloatArray, sampleRateHz: Int, expectedSpeakerCount: Int?, clusteringThreshold: Float?): List<NativeDiarizationSegment>
 }
 
 private class SherpaNativeOfflineDiarizationSession(
@@ -267,30 +233,26 @@ private class SherpaNativeOfflineDiarizationSession(
             assetManager = null,
             config =
                 OfflineSpeakerDiarizationConfig(
-                    segmentation =
-                        OfflineSpeakerSegmentationModelConfig(
-                            pyannote =
-                                OfflineSpeakerSegmentationPyannoteModelConfig(
-                                    model = segmentationModelFile.absolutePath,
-                                    windowShiftRatio = settings.pyannoteWindowShiftRatio,
-                                ),
-                            numThreads = settings.numThreads,
-                            debug = false,
-                            provider = SherpaRuntime.PROVIDER_CPU,
+                    segmentation = OfflineSpeakerSegmentationModelConfig(
+                        pyannote = OfflineSpeakerSegmentationPyannoteModelConfig(
+                            model = segmentationModelFile.absolutePath,
+                            windowShiftRatio = settings.pyannoteWindowShiftRatio,
                         ),
-                    embedding =
-                        SpeakerEmbeddingExtractorConfig(
-                            model = embeddingModelFile.absolutePath,
-                            numThreads = settings.numThreads,
-                            debug = false,
-                            provider = SherpaRuntime.PROVIDER_CPU,
-                        ),
-                    clustering =
-                        FastClusteringConfig(
-                            numClusters = -1,
-                            threshold = settings.defaultClusteringThreshold,
-                            computeConfidence = settings.computeConfidence,
-                        ),
+                        numThreads = settings.numThreads,
+                        debug = false,
+                        provider = SherpaRuntime.PROVIDER_CPU,
+                    ),
+                    embedding = SpeakerEmbeddingExtractorConfig(
+                        model = embeddingModelFile.absolutePath,
+                        numThreads = settings.numThreads,
+                        debug = false,
+                        provider = SherpaRuntime.PROVIDER_CPU,
+                    ),
+                    clustering = FastClusteringConfig(
+                        numClusters = -1,
+                        threshold = settings.defaultClusteringThreshold,
+                        computeConfidence = settings.computeConfidence,
+                    ),
                     minDurationOn = settings.minDurationOnSeconds,
                     minDurationOff = settings.minDurationOffSeconds,
                 ),
@@ -311,25 +273,17 @@ private class SherpaNativeOfflineDiarizationSession(
     ): List<NativeDiarizationSegment> {
         check(!closed)
         require(sampleRateHz == DiarizationConfig.CANONICAL_SAMPLE_RATE_HZ)
-
         delegate.setConfig(
             OfflineSpeakerDiarizationConfig(
-                clustering =
-                    FastClusteringConfig(
-                        numClusters = expectedSpeakerCount ?: -1,
-                        threshold = clusteringThreshold ?: settings.defaultClusteringThreshold,
-                        computeConfidence = settings.computeConfidence,
-                    ),
+                clustering = FastClusteringConfig(
+                    numClusters = expectedSpeakerCount ?: -1,
+                    threshold = clusteringThreshold ?: settings.defaultClusteringThreshold,
+                    computeConfidence = settings.computeConfidence,
+                ),
             ),
         )
-
         return delegate.process(samples).map { segment ->
-            NativeDiarizationSegment(
-                startSeconds = segment.start,
-                endSeconds = segment.end,
-                speakerIndex = segment.speaker,
-                confidence = segment.confidence,
-            )
+            NativeDiarizationSegment(segment.start, segment.end, segment.speaker, segment.confidence)
         }
     }
 

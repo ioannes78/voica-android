@@ -1,0 +1,172 @@
+package io.github.ioannes78.voica.sherpa
+
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class FunAsrCtcPerformanceDiagnosticsTest {
+    @After
+    fun tearDown() {
+        FunAsrCtcPerformanceDiagnostics.clear()
+        FunAsrRuntimeDiagnostics.clear()
+        FunAsrQaSessionDiagnostics.clear()
+    }
+
+    @Test
+    fun formatsMeasuredDecodeAndAlignmentWithoutInventingEncoderCount() {
+        FunAsrQaSessionDiagnostics.begin(
+            effectiveThreads = 4,
+            hotwordEnabled = true,
+        )
+        FunAsrCtcPerformanceDiagnostics.record(
+            FunAsrCtcPerformanceDiagnostic(
+                audioSampleCount = 32_000,
+                audioDurationMs = 2_000,
+                textDecodeMs = 900,
+                alignmentMs = 200,
+                totalMs = 1_100,
+                targetTokenCount = 12,
+                alignedTokenCount = 12,
+                alignmentSucceeded = true,
+                sameStreamAlignment = true,
+                failureStage = null,
+            ),
+        )
+
+        val text = FunAsrCtcPerformanceDiagnostics.formatForQa()
+
+        assertTrue(
+            text.startsWith(
+                "runtime effectiveThreads=4 hotword=ON adaptiveRetryCount=0 retryOccurred=false\n" +
+                    "summary chunks=1",
+            ),
+        )
+        assertTrue(text.contains("audioMs=2000"))
+        assertTrue(text.contains("textDecodeMs=900"))
+        assertTrue(text.contains("textDecodeRtf=0.4500"))
+        assertTrue(text.contains("ctcAlignmentMs=200"))
+        assertTrue(text.contains("totalMs=1100"))
+        assertTrue(text.contains("measuredRtf=0.5500"))
+        assertTrue(text.contains("outputTokenCount=12"))
+        assertTrue(text.contains("audioSamples=32000"))
+        assertTrue(text.contains("outputTokens=12"))
+        assertTrue(text.contains("alignedTokens=12"))
+        assertTrue(text.contains("alignmentSucceeded=true"))
+        assertTrue(text.contains("sameStream=true"))
+        assertTrue(text.contains("encoderInvocationCount=not_exposed"))
+        assertEquals(1, FunAsrCtcPerformanceDiagnostics.snapshot().size)
+    }
+
+    @Test
+    fun runtimeSummaryCountsAdaptiveRetryAttempts() {
+        FunAsrQaSessionDiagnostics.begin(
+            effectiveThreads = 2,
+            hotwordEnabled = false,
+        )
+        FunAsrRuntimeDiagnostics.record(runtimeDiagnostic(retryDepth = 0))
+        FunAsrRuntimeDiagnostics.record(runtimeDiagnostic(retryDepth = 1))
+        FunAsrRuntimeDiagnostics.record(runtimeDiagnostic(retryDepth = 2))
+        FunAsrCtcPerformanceDiagnostics.record(
+            FunAsrCtcPerformanceDiagnostic(
+                audioSampleCount = 16_000,
+                audioDurationMs = 1_000,
+                textDecodeMs = 500,
+                alignmentMs = 50,
+                totalMs = 550,
+                targetTokenCount = 4,
+                alignedTokenCount = 4,
+                alignmentSucceeded = true,
+                sameStreamAlignment = true,
+                failureStage = null,
+            ),
+        )
+
+        val text = FunAsrCtcPerformanceDiagnostics.formatForQa()
+
+        assertTrue(text.contains("runtime effectiveThreads=2"))
+        assertTrue(text.contains("hotword=OFF"))
+        assertTrue(text.contains("adaptiveRetryCount=2"))
+        assertTrue(text.contains("retryOccurred=true"))
+    }
+
+    @Test
+    fun failedAlignmentKeepsMeasuredStageVisible() {
+        FunAsrCtcPerformanceDiagnostics.record(
+            FunAsrCtcPerformanceDiagnostic(
+                audioSampleCount = 16_000,
+                audioDurationMs = 1_000,
+                textDecodeMs = 450,
+                alignmentMs = 50,
+                totalMs = 500,
+                targetTokenCount = 6,
+                alignedTokenCount = null,
+                alignmentSucceeded = false,
+                sameStreamAlignment = true,
+                failureStage = "PARSE",
+            ),
+        )
+
+        val text = FunAsrCtcPerformanceDiagnostics.formatForQa()
+
+        assertTrue(text.contains("textDecodeRtf=0.4500"))
+        assertTrue(text.contains("outputTokenCount=6"))
+        assertTrue(text.contains("outputTokens=6"))
+        assertTrue(text.contains("alignedTokens=n/a"))
+        assertTrue(text.contains("sameStream=true"))
+        assertTrue(text.contains("alignmentSucceeded=false"))
+        assertTrue(text.contains("failureStage=PARSE"))
+    }
+
+    @Test
+    fun emptyStateIsExplicitForQa() {
+        val text = FunAsrCtcPerformanceDiagnostics.formatForQa()
+
+        assertEquals("No FunASR CTC performance diagnostics yet.", text)
+        assertTrue(FunAsrCtcPerformanceDiagnostics.snapshot().isEmpty())
+    }
+
+    @Test
+    fun clearRemovesPriorQaRecords() {
+        FunAsrCtcPerformanceDiagnostics.record(
+            FunAsrCtcPerformanceDiagnostic(
+                audioSampleCount = 16_000,
+                audioDurationMs = 1_000,
+                textDecodeMs = 500,
+                alignmentMs = null,
+                totalMs = 500,
+                targetTokenCount = 0,
+                alignedTokenCount = null,
+                alignmentSucceeded = false,
+                sameStreamAlignment = true,
+                failureStage = "TOKENIZE",
+            ),
+        )
+
+        FunAsrCtcPerformanceDiagnostics.clear()
+
+        assertTrue(FunAsrCtcPerformanceDiagnostics.snapshot().isEmpty())
+    }
+
+    private fun runtimeDiagnostic(retryDepth: Int) =
+        FunAsrRuntimeDiagnostic(
+            maxTotalLen = 512,
+            promptTokens = 10,
+            hotwordPromptTokens = 0,
+            audioTokenLen = 20,
+            contextLen = 30,
+            availableGenerationTokens = 100,
+            requestedMaxNewTokens = 64,
+            generatedTokenCount = 12,
+            eosReached = true,
+            audioTruncated = false,
+            generationHitCapacity = false,
+            chunkStart = 0,
+            chunkEnd = 16_000,
+            chunkDurationMs = 1_000,
+            outputChars = 8,
+            retryDepth = retryDepth,
+            accepted = true,
+            retryReason = null,
+        )
+}

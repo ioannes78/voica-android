@@ -1,0 +1,171 @@
+name: FunASR CTC Runtime Gate
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [edited]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-a2:
+    name: Patched sherpa arm64 A2
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'pull_request' &&
+          github.event.changes.title.from != null &&
+          startsWith(github.event.pull_request.title, '[CTC]'))
+      }}
+    concurrency:
+      group: funasr-ctc-runtime-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout Voica gate sources
+        uses: actions/checkout@v5
+
+      - name: Checkout pinned sherpa-onnx v1.13.8
+        uses: actions/checkout@v5
+        with:
+          repository: k2-fsa/sherpa-onnx
+          ref: v1.13.8
+          path: sherpa-upstream
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+
+      - name: Install pinned Android native toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "ndk;28.2.13676358" \
+            "cmake;3.22.1"
+
+      - name: Verify upstream runtime pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C sherpa-upstream describe --tags --exact-match HEAD)" = "v1.13.8"
+          grep -Fq 'onnxruntime_version=${SHERPA_ONNX_ONNXRUNTIME_VERSION:-1.28.2}' \
+            sherpa-upstream/build-android-arm64-v8a.sh
+          grep -Fq 'var hotwords: String = ""' \
+            sherpa-upstream/android/SherpaOnnxAar/sherpa_onnx/src/main/java/com/k2fsa/sherpa/onnx/OfflineRecognizer.kt
+
+      - name: Apply Stage 16B CTC A0 config patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ci/funasr-ctc-runtime/apply-a0-config-patch.py sherpa-upstream
+
+      - name: Apply Stage 16B CTC A1 shared-encoder patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ci/funasr-ctc-runtime/apply-a1-shared-encoder-patch.py sherpa-upstream
+
+      - name: Apply Stage 16B CTC A2 compact scorer patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ci/funasr-ctc-runtime/apply-a2-compact-ctc-patch.py sherpa-upstream
+          git -C sherpa-upstream diff --check
+          git -C sherpa-upstream diff -- \
+            android/SherpaOnnxAar/sherpa_onnx/src/main/java/com/k2fsa/sherpa/onnx/OfflineRecognizer.kt \
+            sherpa-onnx/csrc/offline-funasr-nano-model-config.h \
+            sherpa-onnx/csrc/offline-funasr-nano-model-config.cc \
+            sherpa-onnx/csrc/offline-funasr-nano-model.h \
+            sherpa-onnx/csrc/offline-funasr-nano-model.cc \
+            sherpa-onnx/csrc/offline-recognizer-funasr-nano-impl.h \
+            sherpa-onnx/csrc/offline-recognizer-funasr-nano-impl.cc \
+            sherpa-onnx/jni/offline-recognizer.cc
+
+      - name: Build patched arm64 JNI with ORT 1.28.2
+        shell: bash
+        working-directory: sherpa-upstream
+        env:
+          BUILD_SHARED_LIBS: ON
+          SHERPA_ONNX_ONNXRUNTIME_VERSION: "1.28.2"
+          SHERPA_ONNX_ENABLE_TTS: OFF
+          SHERPA_ONNX_ENABLE_SPEAKER_DIARIZATION: OFF
+          SHERPA_ONNX_ENABLE_BINARY: OFF
+          SHERPA_ONNX_ENABLE_C_API: OFF
+          SHERPA_ONNX_ENABLE_JNI: ON
+          SHERPA_ONNX_ANDROID_PLATFORM: android-21
+        run: |
+          set -euo pipefail
+          export ANDROID_NDK="$ANDROID_SDK_ROOT/ndk/28.2.13676358"
+          bash build-android-arm64-v8a.sh
+          test -s build-android-arm64-v8a/install/lib/libsherpa-onnx-jni.so
+          test -s build-android-arm64-v8a/install/lib/libonnxruntime.so
+
+      - name: Package patched arm64 AAR
+        shell: bash
+        working-directory: sherpa-upstream
+        run: |
+          set -euo pipefail
+          jni_root="android/SherpaOnnxAar/sherpa_onnx/src/main/jniLibs"
+          find "$jni_root" -mindepth 1 -maxdepth 1 -type d ! -name arm64-v8a -exec rm -rf {} +
+          jni_dir="$jni_root/arm64-v8a"
+          mkdir -p "$jni_dir"
+          rm -f "$jni_dir/libsherpa-onnx-jni.so" "$jni_dir/libonnxruntime.so"
+          cp build-android-arm64-v8a/install/lib/libsherpa-onnx-jni.so "$jni_dir/"
+          cp build-android-arm64-v8a/install/lib/libonnxruntime.so "$jni_dir/"
+          cd android/SherpaOnnxAar
+          ./gradlew :sherpa_onnx:assembleRelease --no-daemon
+
+      - name: Verify patched AAR ABI and A2 CTC boundary
+        shell: bash
+        working-directory: sherpa-upstream
+        run: |
+          set -euo pipefail
+          aar="android/SherpaOnnxAar/sherpa_onnx/build/outputs/aar/sherpa_onnx-release.aar"
+          test -s "$aar"
+          zipinfo -1 "$aar" | grep -qx 'jni/arm64-v8a/libsherpa-onnx-jni.so'
+          zipinfo -1 "$aar" | grep -qx 'jni/arm64-v8a/libonnxruntime.so'
+          unexpected_native_libs="$(
+            zipinfo -1 "$aar" |
+              grep -E '^jni/[^/]+/[^/]+\.so$' |
+              grep -Ev '^jni/arm64-v8a/' || true
+          )"
+          if [ -n "$unexpected_native_libs" ]; then
+            echo "Unexpected non-arm64 native libraries in patched AAR:" >&2
+            printf '%s\n' "$unexpected_native_libs" >&2
+            exit 1
+          fi
+
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          unzip -p "$aar" classes.jar > "$work/classes.jar"
+          javap -classpath "$work/classes.jar" \
+            com.k2fsa.sherpa.onnx.OfflineFunAsrNanoModelConfig > "$work/config.txt"
+          grep -Fq 'getCtcCompact' "$work/config.txt"
+          grep -Fq 'setCtcCompact' "$work/config.txt"
+
+          unzip -p "$aar" jni/arm64-v8a/libsherpa-onnx-jni.so > "$work/jni.so"
+          readelf -d "$work/jni.so" | grep -Fq 'libonnxruntime.so'
+          strings "$work/jni.so" | grep -Fq 'ctcCompact'
+          strings "$work/jni.so" | grep -Fq 'voica.funasr.ctc.command'
+          strings "$work/jni.so" | grep -Fq 'voica.funasr.ctc.state_id'
+          strings "$work/jni.so" | grep -Fq 'voica.funasr.ctc.target_ids'
+          strings "$work/jni.so" | grep -Fq 'voica.funasr.ctc.blank_id'
+          strings "$work/jni.so" | grep -Fq 'voica.funasr.ctc.vocab_size'
+          strings "$work/jni.so" | grep -Fq 'candidate_logits'
+          strings "$work/jni.so" | grep -Fq 'ForwardCompactCtc'
+
+          echo "Patched sherpa A2 compact CTC ABI verified; no artifact uploaded."

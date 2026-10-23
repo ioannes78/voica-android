@@ -13,6 +13,7 @@ import android.os.SystemClock
 import io.github.ioannes78.voica.model.ModelCandidateValidator
 import io.github.ioannes78.voica.model.ModelDescriptor
 import io.github.ioannes78.voica.model.ModelStorage
+import io.github.ioannes78.voica.model.Stage16BCandidateRuntimes
 import io.github.ioannes78.voica.sherpa.SherpaModelCandidateValidator
 import io.github.ioannes78.voica.sherpa.SherpaModelValidationException
 import io.github.ioannes78.voica.sherpa.SherpaModelValidationStage
@@ -204,7 +205,7 @@ class IsolatedModelValidationService : Service() {
                     storage.installedVersion(snapshot.descriptor)
                         ?: error("模型文件静态完整性校验失败")
 
-                SherpaModelCandidateValidator().validate(
+                modelCandidateValidatorFor(snapshot.descriptor).validate(
                     descriptor = snapshot.descriptor,
                     installedDirectory = installed.directory,
                 )
@@ -240,6 +241,29 @@ class IsolatedModelValidationService : Service() {
             result = result,
         )
     }
+}
+
+private fun modelCandidateValidatorFor(descriptor: ModelDescriptor): ModelCandidateValidator =
+    if (descriptor.runtimeId == Stage16BCandidateRuntimes.FSMN_VAD_ID) {
+        createFsmnValidator()
+    } else {
+        SherpaModelCandidateValidator()
+    }
+
+private fun createFsmnValidator(): ModelCandidateValidator {
+    val className = "io.github.ioannes78.voica.fsmn.FsmnModelCandidateValidator"
+    val validatorClass =
+        try {
+            Class.forName(className)
+        } catch (error: ClassNotFoundException) {
+            error(
+                "FSMN runtime is unavailable in this build; " +
+                    "Local File FSMN validation requires the production FSMN runtime module",
+            )
+        }
+    val instance = validatorClass.getDeclaredConstructor().newInstance()
+    return instance as? ModelCandidateValidator
+        ?: error("FSMN validator does not implement ModelCandidateValidator")
 }
 
 private data class ValidationRequest(

@@ -36,6 +36,7 @@ import io.github.ioannes78.voica.Stage13AOfflineModelIds
 import io.github.ioannes78.voica.Stage13ARealtimeModelIds
 import io.github.ioannes78.voica.Stage13ASpeakerEmbeddingModelIds
 import io.github.ioannes78.voica.resolvePerformance
+import io.github.ioannes78.voica.resolveStage16BDiarizationPerformance
 import io.github.ioannes78.voica.model.ModelAvailability
 import io.github.ioannes78.voica.model.ModelManager
 import io.github.ioannes78.voica.model.ModelState
@@ -81,14 +82,14 @@ internal fun LocalSpeechSettingsCard(
             onToggle = { offlineExpanded = !offlineExpanded },
         ) {
             Text(
-                "录音文件只使用这里选择的离线模型。SenseVoice 速度优先，Qwen3-ASR 质量优先。",
+                "录音文件使用这里选择的模型。SenseVoice 更快更省资源；FunASR Nano 优先识别质量。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
             OfflineOption(
-                title = "快速 · SenseVoice",
-                subtitle = "默认 · 多语言 · 资源占用较低",
+                title = "均衡 · SenseVoice",
+                subtitle = "多语言 · 速度快 · 资源占用低 · 原生时间轴",
                 selected =
                     settings.offlineAsrQuality == OfflineAsrQualityChoice.BALANCED ||
                         settings.offlineAsrQuality == OfflineAsrQualityChoice.AUTO,
@@ -97,12 +98,12 @@ internal fun LocalSpeechSettingsCard(
             )
             HorizontalDivider()
             OfflineOption(
-                title = "高质量 · Qwen3-ASR",
-                subtitle = "0.6B INT8 · 更高质量，内存和计算开销更高",
+                title = "高质量 · FunASR Nano",
+                subtitle = "中/英/日 · 原生标点 · 原生时间轴 · 支持热词",
                 selected =
                     settings.offlineAsrQuality == OfflineAsrQualityChoice.HIGH_QUALITY ||
                         settings.offlineAsrQuality == OfflineAsrQualityChoice.ULTRA,
-                status = availabilityStatus(availability[Stage13AOfflineModelIds.QWEN3_ASR]),
+                status = availabilityStatus(availability[Stage13AOfflineModelIds.FUNASR_NANO]),
                 onClick = { store.setOfflineAsrQuality(OfflineAsrQualityChoice.HIGH_QUALITY) },
             )
 
@@ -117,15 +118,11 @@ internal fun LocalSpeechSettingsCard(
                     parameters = supportedParameters[Stage13AOfflineModelIds.SENSEVOICE].orEmpty(),
                 )
             } else {
-                QwenAdvanced(
+                FunAsrAdvanced(
                     store = store,
-                    maxTotalLen = settings.qwen.maxTotalLen,
-                    maxNewTokens = settings.qwen.maxNewTokens,
-                    temperature = settings.qwen.temperature,
-                    topP = settings.qwen.topP,
-                    seed = settings.qwen.seed,
-                    hotwords = settings.qwen.hotwords,
-                    parameters = supportedParameters[Stage13AOfflineModelIds.QWEN3_ASR].orEmpty(),
+                    itn = settings.funAsr.useInverseTextNormalization,
+                    hotwords = settings.funAsr.hotwords,
+                    parameters = supportedParameters[Stage13AOfflineModelIds.FUNASR_NANO].orEmpty(),
                 )
             }
         }
@@ -137,7 +134,7 @@ internal fun LocalSpeechSettingsCard(
             onToggle = { realtimeExpanded = !realtimeExpanded },
         ) {
             Text(
-                "用于后续边录边转写，不影响当前录音文件的离线转写。",
+                "用于边录边转写，不影响录音文件的离线转写模型。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -231,7 +228,9 @@ internal fun LocalSpeechSettingsCard(
                 ParameterStepper(
                     title = "自动聚类阈值",
                     value = formatFloat(settings.diarization.clusteringThreshold),
-                    hint = "仅自动估算人数时使用",
+                    hint =
+                        "仅影响自动估算说话人数。值越高，越倾向把相似声音归为同一人；" +
+                            "过高可能把不同人错误合并。\n当前生效值：${formatFloat(settings.diarization.clusteringThreshold)}",
                     onDecrease = {
                         store.setDiarizationSettings(
                             settings.diarization.copy(
@@ -254,7 +253,9 @@ internal fun LocalSpeechSettingsCard(
                 ParameterStepper(
                     title = "跨分块相似度阈值",
                     value = formatFloat(settings.diarization.stitchingCosineThreshold),
-                    hint = "值越高越严格；过高可能增加说话人碎片",
+                    hint =
+                        "控制不同时间窗口中的说话人是否视为同一个人。值越高越严格；" +
+                            "过高可能把同一个人拆成多个说话人。",
                     onDecrease = {
                         store.setDiarizationSettings(
                             settings.diarization.copy(
@@ -283,17 +284,33 @@ internal fun LocalSpeechSettingsCard(
             }
         }
 
+        val asrPerformance = settings.resolvePerformance()
+        val diarizationPerformance = settings.resolveStage16BDiarizationPerformance()
         SpeechSection(
             title = "性能与语音检测",
-            summary = performanceSummary(settings.performanceProfile, settings.resolvePerformance().effectiveThreads),
+            summary =
+                "ASR ${performanceSummary(settings.performanceProfile, asrPerformance.effectiveThreads)} · " +
+                    "分离 ${performanceSummary(settings.performanceProfile, diarizationPerformance.effectiveThreads)}",
             expanded = performanceExpanded,
             onToggle = { performanceExpanded = !performanceExpanded },
         ) {
             Text(
-                "线程数会应用于本地 ASR、VAD、标点和说话人分离。",
+                "自动模式下 ASR 与说话人分离可使用不同的推荐线程数；手动指定线程数后两者使用同一值。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+            Text(
+                "ASR：${performanceSummary(settings.performanceProfile, asrPerformance.effectiveThreads)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+            )
+            Text(
+                "说话人分离：${performanceSummary(settings.performanceProfile, diarizationPerformance.effectiveThreads)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
             )
             Text(
                 "性能模式",
@@ -323,14 +340,16 @@ internal fun LocalSpeechSettingsCard(
             ParameterStepper(
                 title = "CPU 线程数",
                 value = settings.requestedThreads?.toString() ?: "自动",
-                hint = "当前有效 ${settings.resolvePerformance().effectiveThreads} 线程 · 设备最多 $maxThreads",
+                hint =
+                    "ASR ${asrPerformance.effectiveThreads} 线程 · " +
+                        "说话人分离 ${diarizationPerformance.effectiveThreads} 线程 · 设备最多 $maxThreads",
                 onDecrease = {
-                    val current = settings.requestedThreads ?: settings.resolvePerformance().effectiveThreads
+                    val current = settings.requestedThreads ?: asrPerformance.effectiveThreads
                     val next = (current - 1).coerceAtLeast(1)
                     store.setRequestedThreads(next)
                 },
                 onIncrease = {
-                    val current = settings.requestedThreads ?: settings.resolvePerformance().effectiveThreads
+                    val current = settings.requestedThreads ?: asrPerformance.effectiveThreads
                     val next = (current + 1).coerceAtMost(maxThreads)
                     store.setRequestedThreads(next)
                 },
@@ -343,14 +362,20 @@ internal fun LocalSpeechSettingsCard(
             }
             HorizontalDivider()
             Text(
-                "语音检测（Silero VAD）",
+                "语音检测",
                 style = MaterialTheme.typography.titleSmall,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+            )
+            Text(
+                "录音文件优先使用 FSMN VAD，不可用时回退 Silero VAD；实时转写继续使用 Silero VAD。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
             )
             ParameterStepper(
                 title = "VAD threshold",
                 value = formatFloat(settings.vad.threshold),
-                hint = "语音判定阈值",
+                hint = "Silero 语音判定阈值",
                 onDecrease = {
                     store.setVadSettings(
                         settings.vad.copy(threshold = (settings.vad.threshold - 0.05F).coerceAtLeast(0.05F)),
@@ -365,7 +390,7 @@ internal fun LocalSpeechSettingsCard(
             ParameterStepper(
                 title = "min silence",
                 value = formatSeconds(settings.vad.minSilenceDurationSeconds),
-                hint = "最短静音时长",
+                hint = "Silero 最短静音时长",
                 onDecrease = {
                     store.setVadSettings(
                         settings.vad.copy(
@@ -386,7 +411,7 @@ internal fun LocalSpeechSettingsCard(
             ParameterStepper(
                 title = "min speech",
                 value = formatSeconds(settings.vad.minSpeechDurationSeconds),
-                hint = "最短语音时长",
+                hint = "Silero 最短语音时长",
                 onDecrease = {
                     store.setVadSettings(
                         settings.vad.copy(
@@ -407,7 +432,7 @@ internal fun LocalSpeechSettingsCard(
             ParameterStepper(
                 title = "max speech",
                 value = formatSeconds(settings.vad.maxSpeechDurationSeconds),
-                hint = "单段语音最大时长",
+                hint = "FSMN / Silero 单段语音最大时长",
                 onDecrease = {
                     store.setVadSettings(
                         settings.vad.copy(
@@ -544,6 +569,63 @@ private fun SenseVoiceAdvanced(
         }
         TextButton(onClick = store::resetSenseVoiceSettings, modifier = Modifier.padding(horizontal = 8.dp)) {
             Text("恢复 SenseVoice 推荐值")
+        }
+    }
+}
+
+@Composable
+private fun FunAsrAdvanced(
+    store: LocalSpeechSettingsStore,
+    itn: Boolean,
+    hotwords: String,
+    parameters: Set<String>,
+) {
+    HorizontalDivider()
+    Column(modifier = Modifier.padding(top = 4.dp)) {
+        Text(
+            "FunASR Nano 设置",
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+        )
+        Text(
+            "默认自动识别语言。ITN 可规范化数字和日期；热词可提升专有名词识别。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+        )
+        fun supported(name: String) = parameters.isEmpty() || name in parameters
+        if (supported("itn")) {
+            HorizontalDivider()
+            ListItem(
+                headlineContent = { Text("ITN") },
+                supportingContent = { Text("规范化数字、日期、时间等表达；默认开启。") },
+                trailingContent = {
+                    Switch(
+                        checked = itn,
+                        onCheckedChange = { enabled ->
+                            val current = store.settings.value.funAsr
+                            store.setFunAsrSettings(current.copy(useInverseTextNormalization = enabled))
+                        },
+                    )
+                },
+            )
+        }
+        if (supported("hotwords")) {
+            HorizontalDivider()
+            OutlinedTextField(
+                value = hotwords,
+                onValueChange = { value ->
+                    if (value.length <= 512) {
+                        store.setFunAsrSettings(store.settings.value.funAsr.copy(hotwords = value))
+                    }
+                },
+                label = { Text("热词") },
+                supportingText = { Text("可选；多个热词可用逗号、分号或换行分隔，最多 512 个字符。") },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+            )
+        }
+        TextButton(onClick = store::resetFunAsrSettings, modifier = Modifier.padding(horizontal = 8.dp)) {
+            Text("恢复 FunASR Nano 推荐值")
         }
     }
 }
@@ -690,8 +772,8 @@ private fun offlineSummary(choice: OfflineAsrQualityChoice): String =
     when (choice) {
         OfflineAsrQualityChoice.HIGH_QUALITY,
         OfflineAsrQualityChoice.ULTRA,
-        -> "高质量 · Qwen3-ASR"
-        else -> "快速 · SenseVoice"
+        -> "高质量 · FunASR Nano"
+        else -> "均衡 · SenseVoice"
     }
 
 private fun realtimeSummary(choice: RealtimeAsrModelChoice): String =

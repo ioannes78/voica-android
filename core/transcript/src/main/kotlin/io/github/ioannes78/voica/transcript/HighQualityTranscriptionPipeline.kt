@@ -438,6 +438,8 @@ class HighQualityTranscriptionPipeline(
 
     private companion object {
         const val DEFAULT_READ_CHUNK_SAMPLES = 4_096
+        // The outer transport bound follows the default FSMN max speech duration. FunASR native
+        // calls are planned adaptively inside the sherpa engine rather than fixed at 25 seconds.
         const val DEFAULT_MAX_SECOND_PASS_SEGMENT_SAMPLES = 30L * 16_000L
     }
 }

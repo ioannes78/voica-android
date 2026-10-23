@@ -1,6 +1,7 @@
 package io.github.ioannes78.voica
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class LocalSpeechSettingsTest {
@@ -38,18 +39,18 @@ class LocalSpeechSettingsTest {
     }
 
     @Test
-    fun productOfflineMatrixContainsOnlySenseVoiceAndQwen() {
+    fun productOfflineMatrixContainsOnlySenseVoiceAndFunAsrNano() {
         assertEquals(
             listOf(
                 Stage13AOfflineModelIds.SENSEVOICE,
-                Stage13AOfflineModelIds.QWEN3_ASR,
+                Stage13AOfflineModelIds.FUNASR_NANO,
             ),
             Stage13AOfflineModelIds.ALL,
         )
     }
 
     @Test
-    fun offlineDefaultsToSenseVoiceAndHighQualityUsesQwen() {
+    fun offlineDefaultsToSenseVoiceAndHighQualityUsesFunAsrNano() {
         assertEquals(
             OfflineAsrQualityChoice.BALANCED,
             LocalSpeechSettings().offlineAsrQuality,
@@ -63,13 +64,34 @@ class LocalSpeechSettingsTest {
             OfflineAsrQualityChoice.BALANCED.preferredModelIds(),
         )
         assertEquals(
-            listOf(Stage13AOfflineModelIds.QWEN3_ASR),
+            listOf(Stage13AOfflineModelIds.FUNASR_NANO),
             OfflineAsrQualityChoice.HIGH_QUALITY.preferredModelIds(),
         )
         assertEquals(
-            listOf(Stage13AOfflineModelIds.QWEN3_ASR),
+            listOf(Stage13AOfflineModelIds.FUNASR_NANO),
             OfflineAsrQualityChoice.ULTRA.preferredModelIds(),
         )
+    }
+
+    @Test
+    fun funAsrDefaultsKeepVerifiedItNOnAndHotwordsEmpty() {
+        val funAsr = LocalFunAsrSettings()
+        assertEquals(true, funAsr.useInverseTextNormalization)
+        assertEquals("", funAsr.hotwords)
+    }
+
+    @Test
+    fun funAsrHotwordsAreBoundedForProductPreferences() {
+        assertEquals(
+            "OpenAI,Voica",
+            LocalFunAsrSettings(
+                useInverseTextNormalization = false,
+                hotwords = "OpenAI,Voica",
+            ).hotwords,
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            LocalFunAsrSettings(hotwords = "x".repeat(513))
+        }
     }
 
     @Test
@@ -94,7 +116,6 @@ class LocalSpeechSettingsTest {
             LocalSpeechSettings(
                 performanceProfile = SpeechPerformanceProfile.AUTO,
             ).resolvePerformance(logicalProcessors = 8)
-
         assertEquals(2, resolved.effectiveThreads)
         assertEquals(8, resolved.logicalProcessors)
     }
@@ -123,7 +144,6 @@ class LocalSpeechSettingsTest {
                 decodingMethod = RealtimeDecodingMethod.MODIFIED_BEAM_SEARCH,
                 maxActivePaths = 8,
             ).resolveFor(setOf("numThreads"))
-
         assertEquals(RealtimeDecodingMethod.GREEDY_SEARCH, defaults.decodingMethod)
         assertEquals(4, defaults.maxActivePaths)
         assertEquals(RealtimeDecodingMethod.GREEDY_SEARCH, unsupported.decodingMethod)
@@ -133,7 +153,6 @@ class LocalSpeechSettingsTest {
     @Test
     fun senseVoiceDefaultsUseAutoLanguageAndStableExternalPunctuation() {
         val senseVoice = LocalSenseVoiceSettings()
-
         assertEquals(SenseVoiceLanguageChoice.AUTO, senseVoice.language)
         assertEquals("", senseVoice.language.runtimeValue)
         assertEquals(false, senseVoice.useInverseTextNormalization)
@@ -144,7 +163,6 @@ class LocalSpeechSettingsTest {
     @Test
     fun qwenDefaultsMatchSherpaRuntimeDefaults() {
         val qwen = LocalQwenAsrSettings()
-
         assertEquals(512, qwen.maxTotalLen)
         assertEquals(128, qwen.maxNewTokens)
         assertEquals(1.0e-6F, qwen.temperature)
@@ -156,7 +174,6 @@ class LocalSpeechSettingsTest {
     @Test
     fun vadDefaultsMatchExistingSherpaBaseline() {
         val vad = LocalVadSettings()
-
         assertEquals(0.5F, vad.threshold)
         assertEquals(0.25F, vad.minSilenceDurationSeconds)
         assertEquals(0.25F, vad.minSpeechDurationSeconds)
@@ -181,19 +198,18 @@ class LocalSpeechSettingsTest {
     @Test
     fun fivePlusStartsAtFiveAndAllowsBoundedGlobalGrowth() {
         val config = SpeakerCountChoice.FIVE_PLUS.toDiarizationConfig()
-
         assertEquals(FIVE_PLUS_MINIMUM_SPEAKERS, config.expectedSpeakerCount)
         assertEquals(FIVE_PLUS_MINIMUM_SPEAKERS, config.minimumGlobalSpeakerCount)
         assertEquals(FIVE_PLUS_MAXIMUM_SPEAKERS, config.maximumGlobalSpeakerCount)
     }
 
     @Test
-    fun diarizationDefaultsPreserveExistingAutomaticBehavior() {
+    fun diarizationDefaultsUsePublishedRecommendedAutoClusteringThreshold() {
         val tuning = LocalDiarizationSettings()
         val config = SpeakerCountChoice.AUTO.toDiarizationConfig(tuning)
-
         assertEquals(true, tuning.autoAfterTranscription)
-        assertEquals(0.5F, config.clusteringThreshold)
+        assertEquals(RECOMMENDED_DIARIZATION_CLUSTERING_THRESHOLD, config.clusteringThreshold)
+        assertEquals(0.70F, config.clusteringThreshold)
         assertEquals(0.75F, config.stitchingCosineThreshold)
     }
 
@@ -205,7 +221,6 @@ class LocalSpeechSettingsTest {
                 stitchingCosineThreshold = 0.82F,
             )
         val config = SpeakerCountChoice.THREE.toDiarizationConfig(tuning)
-
         assertEquals(3, config.expectedSpeakerCount)
         assertEquals(null, config.clusteringThreshold)
         assertEquals(0.82F, config.stitchingCosineThreshold)

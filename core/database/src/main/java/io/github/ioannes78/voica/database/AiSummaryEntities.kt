@@ -1,6 +1,5 @@
 package io.github.ioannes78.voica.database
 
-import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -8,13 +7,10 @@ import androidx.room.PrimaryKey
 
 object AiSummaryInputModeValue {
     const val TRANSCRIPT_TEXT = "TRANSCRIPT_TEXT"
-    const val DIRECT_AUDIO = "DIRECT_AUDIO"
 }
 
 object AiSummaryModeValue {
     const val SMART = "SMART"
-    const val PRESET = "PRESET"
-    const val CUSTOM = "CUSTOM"
 }
 
 object AiSummaryStateValue {
@@ -41,14 +37,6 @@ object AiSummaryStateValue {
             REDUCING,
             VALIDATING,
         )
-}
-
-object AiSummaryRemoteDispatchStateValue {
-    const val NONE = "NONE"
-    const val READY_TO_SEND = "READY_TO_SEND"
-    const val REQUEST_IN_FLIGHT = "REQUEST_IN_FLIGHT"
-
-    val ALL = setOf(NONE, READY_TO_SEND, REQUEST_IN_FLIGHT)
 }
 
 @Entity(
@@ -80,11 +68,6 @@ data class AiSummaryEntity(
     val transcriptionId: String?,
     val inputMode: String,
     val mode: String,
-    val templateId: String?,
-    val templateSnapshot: String?,
-    val providerProfileId: String,
-    val providerNameSnapshot: String,
-    val baseUrlSnapshot: String,
     val model: String,
     val promptVersion: Int,
     val resultSchemaVersion: Int,
@@ -99,41 +82,8 @@ data class AiSummaryEntity(
     val completedAtMs: Long?,
     val errorCode: String?,
     val sanitizedErrorMessage: String?,
-    val requestConfigSnapshot: String,
-    val usageSnapshot: String?,
     val alignmentIdSnapshot: String?,
     val sourceLineageSnapshot: String,
-    @ColumnInfo(defaultValue = "0")
-    val executionGeneration: Long = 0L,
-    val ownerTaskId: Int? = null,
-    @ColumnInfo(defaultValue = "'NONE'")
-    val remoteDispatchState: String = AiSummaryRemoteDispatchStateValue.NONE,
-    val remoteRequestId: String? = null,
-    val remoteStepKind: String? = null,
-    val remoteStepKey: String? = null,
-    @ColumnInfo(defaultValue = "0")
-    val remoteCallOrdinal: Int = 0,
-    val remoteStartedAtMs: Long? = null,
-    val terminalAcknowledgedAtMs: Long? = null,
-    val retryOfSummaryId: String? = null,
-)
-
-@Entity(
-    tableName = "ai_custom_templates",
-    indices = [
-        Index(value = ["name"]),
-        Index(value = ["updatedAtMs"]),
-    ],
-)
-data class AiCustomTemplateEntity(
-    @PrimaryKey val id: String,
-    val name: String,
-    val schemaVersion: Int,
-    val sectionsConfigJson: String,
-    val focus: String?,
-    val userInstruction: String?,
-    val createdAtMs: Long,
-    val updatedAtMs: Long,
 )
 
 @Entity(
@@ -164,38 +114,4 @@ data class AiSummaryEvidenceEntity(
     val endSampleIndexExclusive: Long,
     val speakerId: String?,
     val assignmentQuality: String?,
-)
-
-@Entity(
-    tableName = "ai_summary_chunks",
-    foreignKeys = [
-        ForeignKey(
-            entity = AiSummaryEntity::class,
-            parentColumns = ["id"],
-            childColumns = ["aiSummaryId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
-    ],
-    indices = [
-        Index(value = ["aiSummaryId"]),
-        Index(value = ["aiSummaryId", "level", "chunkIndex"], unique = true),
-        Index(value = ["aiSummaryId", "status"]),
-    ],
-)
-data class AiSummaryChunkEntity(
-    @PrimaryKey val id: String,
-    val aiSummaryId: String,
-    val level: Int,
-    val chunkIndex: Int,
-    val sourceStartOrdinal: Int,
-    val sourceEndOrdinalExclusive: Int,
-    val startSampleIndex: Long,
-    val endSampleIndexExclusive: Long,
-    val inputDigest: String,
-    val status: String,
-    val attempt: Int,
-    val structuredResultJson: String?,
-    val errorCode: String?,
-    val sanitizedErrorMessage: String?,
-    val updatedAtMs: Long,
 )

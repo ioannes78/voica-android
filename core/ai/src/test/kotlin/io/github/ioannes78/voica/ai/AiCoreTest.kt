@@ -81,51 +81,6 @@ class AiCoreTest {
     }
 
     @Test
-    fun tokenBudgetSwitchesToChunkingWithoutTrustingProviderMetadata() {
-        val planner = TokenBudgetPlanner(fallbackContextWindowTokens = 4_000)
-        val plan =
-            planner.plan(
-                TokenBudgetRequest(
-                    contextWindowTokens = null,
-                    inputEstimatedTokens = 5_000,
-                    systemTokens = 300,
-                    templateTokens = 200,
-                    schemaTokens = 300,
-                    outputReserveTokens = 800,
-                    safetyMarginTokens = 400,
-                ),
-            )
-
-        assertTrue(plan is TokenBudgetPlan.Chunked)
-        assertEquals(2_000, plan.availableInputTokens)
-        assertEquals(1_700, (plan as TokenBudgetPlan.Chunked).targetChunkTokens)
-    }
-
-    @Test
-    fun summaryPromptDefaultsHumanReadableOutputToSimplifiedChinese() {
-        val prompt =
-            SummaryPromptFactory.taskInstruction(
-                mode = AiSummaryMode.SMART,
-                template = SummaryTemplateCatalog.smart(),
-                partial = false,
-            )
-
-        assertEquals(3, SummaryPromptFactory.PROMPT_VERSION)
-        assertTrue(
-            SummaryPromptFactory.systemInstruction.contains(
-                "write all human-readable summary content in Simplified Chinese",
-            ),
-        )
-        assertTrue(prompt.contains("Default output language is Simplified Chinese"))
-        assertTrue(
-            SummaryPromptFactory.repairInstruction()
-                .contains("human-readable summary content in Simplified Chinese"),
-        )
-        assertTrue(SummaryPromptFactory.systemInstruction.contains("[NO_AUDIO_EVIDENCE]"))
-        assertTrue(prompt.contains("evidenceRefs=[]"))
-    }
-
-    @Test
     fun summaryCodecAcceptsJsonCodeFenceCompatibilityWrapper() {
         val raw =
             """

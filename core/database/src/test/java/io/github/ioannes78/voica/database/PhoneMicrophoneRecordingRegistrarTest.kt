@@ -9,7 +9,6 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -83,35 +82,6 @@ class PhoneMicrophoneRecordingRegistrarTest {
 
         // Identity lineage does not make formal phone media a reclaimable derived cache.
         assertTrue(library.reclaimableCanonicalCandidates().isEmpty())
-    }
-
-    @Test
-    fun qaPhoneRecordingWithoutIdentityLineageIsRepairedOnDatabaseOpen() = runBlocking {
-        registerPhoneRecording("phone-qa-old")
-
-        database.openHelper.writableDatabase.execSQL(
-            "DELETE FROM audio_derivations WHERE recordingId = 'phone-qa-old'",
-        )
-        assertNull(
-            library.loadCanonicalTranscriptionLineage(
-                recordingId = "phone-qa-old",
-                profileId = PHONE_CANONICAL_PROFILE_ID,
-            ),
-        )
-
-        repairPhoneCanonicalIdentityLineage(database.openHelper.writableDatabase)
-
-        val repaired =
-            library.loadCanonicalTranscriptionLineage(
-                recordingId = "phone-qa-old",
-                profileId = PHONE_CANONICAL_PROFILE_ID,
-            )
-        assertNotNull(repaired)
-        val canonical = requireNotNull(library.loadRecording("phone-qa-old")).assets.single()
-        assertEquals(canonical.assetId, requireNotNull(repaired).canonicalAssetId)
-        assertEquals(canonical.assetId, library.loadRecording("phone-qa-old")!!.derivations.single().sourceAssetId)
-        assertEquals(canonical.assetId, library.loadRecording("phone-qa-old")!!.derivations.single().outputAssetId)
-        assertEquals(AudioDerivationState.READY, library.loadRecording("phone-qa-old")!!.derivations.single().state)
     }
 
     private suspend fun registerPhoneRecording(recordingId: String) {

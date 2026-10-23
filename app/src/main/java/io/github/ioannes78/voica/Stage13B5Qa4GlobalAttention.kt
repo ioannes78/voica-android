@@ -9,8 +9,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalContext
-import io.github.ioannes78.voica.database.AiSummaryEntity
-import io.github.ioannes78.voica.database.AiSummaryStateValue
 import io.github.ioannes78.voica.database.RecordingLibraryItem
 import io.github.ioannes78.voica.database.TranscriptionEntity
 import io.github.ioannes78.voica.database.TranscriptionStateValue
@@ -50,7 +48,7 @@ internal data class Qa4GlobalAttentionItem(
     val completionTaskId: String? = null,
 )
 
-/** Presentation-only bridge consumed by VoicaApp's single global status surface. */
+/** Presentation-only bridge consumed by the single global status surface. */
 internal data class Qa4GlobalAttentionProjection(
     val items: List<Qa4GlobalAttentionItem> = emptyList(),
     val onOpen: (Qa4GlobalAttentionItem) -> Unit = {},
@@ -70,14 +68,8 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
     val transcriptionAttention by
         container.stage13B5Qa4Repository.observeTranscriptionAttention()
             .collectAsState(initial = emptyList())
-    val aiSummaryAttention by
-        container.stage13B5Qa4Repository.observeAiSummaryAttention()
-            .collectAsState(initial = emptyList())
     val transcriptionCandidates by
         container.stage13B5Qa4Repository.observeTranscriptionCandidates()
-            .collectAsState(initial = emptyList())
-    val aiSummaryCandidates by
-        container.stage13B5Qa4Repository.observeAiSummaryCandidates()
             .collectAsState(initial = emptyList())
     val completionNotices by container.taskCompletionNoticeStore.pending.collectAsState()
     val diarizationAttention by
@@ -103,16 +95,14 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
             items =
                 buildQa4GlobalAttentionItems(
                     transcriptionAttention = transcriptionAttention,
-                    aiSummaryAttention = aiSummaryAttention,
                     transcriptionCandidates = transcriptionCandidates,
-                    aiSummaryCandidates = aiSummaryCandidates,
                     recordings = recordings,
                 ) + completionItems + speakerAttentionItems,
             visibleDetail = visibleDetail,
         )
 
     // A navigation request alone is not proof that the user actually saw the result. Acknowledge
-    // ordinary completion attention only when the exact result destination is visibly active.
+    // ordinary completion attention only when the transcript result destination is visibly active.
     LaunchedEffect(
         visibleDetail,
         completionNotices.map { notice -> "${notice.kind.name}:${notice.taskId}" },
@@ -121,17 +111,15 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
         container.taskCompletionNoticeStore.acknowledgeVisible(
             recordingId = visible.recordingId,
             includeTranscriptResults = visible.destination == RecordingDetailDestination.TRANSCRIPT,
-            includeSummaryResults = visible.destination == RecordingDetailDestination.SUMMARY,
         )
     }
 
-    // Candidate business truth remains untouched. Visiting the exact page only clears/suppresses
-    // that candidate's Android system notification; the in-app candidate remains until the existing
-    // candidate lifecycle accepts/dismisses it.
+    // Candidate business truth remains untouched. Visiting the transcript page only clears or
+    // suppresses that candidate's Android system notification; the in-app candidate remains until
+    // the existing candidate lifecycle accepts/dismisses it.
     LaunchedEffect(
         visibleDetail,
         transcriptionCandidates.map(TranscriptionEntity::id),
-        aiSummaryCandidates.map(AiSummaryEntity::id),
     ) {
         val visible = visibleDetail ?: return@LaunchedEffect
         if (visible.destination == RecordingDetailDestination.TRANSCRIPT) {
@@ -141,15 +129,6 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
                     val logicalKey = transcriptionCandidatePresentationKey(candidate.id)
                     presentationStore.markSystemDismissed(logicalKey)
                     notificationManager.cancel(transcriptionCandidateNotificationId(candidate.id))
-                }
-        }
-        if (visible.destination == RecordingDetailDestination.SUMMARY) {
-            aiSummaryCandidates
-                .filter { it.recordingId == visible.recordingId }
-                .forEach { candidate ->
-                    val logicalKey = aiSummaryCandidatePresentationKey(candidate.id)
-                    presentationStore.markSystemDismissed(logicalKey)
-                    notificationManager.cancel(aiSummaryCandidateNotificationId(candidate.id))
                 }
         }
     }
@@ -191,25 +170,17 @@ internal fun buildCompletionAttentionItems(
         recordings.firstOrNull { it.id == recordingId }?.displayName ?: "录音"
 
     return notices.map { notice ->
-        val destination =
-            when (notice.kind) {
-                TaskCompletionKind.TRANSCRIPTION,
-                TaskCompletionKind.DIARIZATION,
-                -> RecordingDetailDestination.TRANSCRIPT
-                TaskCompletionKind.AI_SUMMARY -> RecordingDetailDestination.SUMMARY
-            }
         val label =
             when (notice.kind) {
                 TaskCompletionKind.TRANSCRIPTION -> "转写完成"
                 TaskCompletionKind.DIARIZATION -> "说话人分离完成"
-                TaskCompletionKind.AI_SUMMARY -> "AI 总结完成"
             }
         Qa4GlobalAttentionItem(
             key = "completion:${notice.kind.name}:${notice.taskId}",
             recordingId = notice.recordingId,
             recordingName = recordingName(notice.recordingId),
             label = label,
-            destination = destination,
+            destination = RecordingDetailDestination.TRANSCRIPT,
             completionKind = notice.kind,
             completionTaskId = notice.taskId,
         )
@@ -218,10 +189,8 @@ internal fun buildCompletionAttentionItems(
 
 internal fun buildQa4GlobalAttentionItems(
     transcriptionAttention: List<TranscriptionEntity>,
-    aiSummaryAttention: List<AiSummaryEntity>,
     recordings: List<RecordingLibraryItem>,
     transcriptionCandidates: List<TranscriptionEntity> = emptyList(),
-    aiSummaryCandidates: List<AiSummaryEntity> = emptyList(),
 ): List<Qa4GlobalAttentionItem> {
     fun recordingName(recordingId: String): String =
         recordings.firstOrNull { it.id == recordingId }?.displayName ?: "录音"
@@ -243,22 +212,6 @@ internal fun buildQa4GlobalAttentionItems(
                 ),
             )
         }
-        aiSummaryAttention.forEach { summary ->
-            add(
-                Qa4GlobalAttentionItem(
-                    key = "summary-attention:${summary.id}",
-                    recordingId = summary.recordingId,
-                    recordingName = recordingName(summary.recordingId),
-                    label =
-                        when (summary.status) {
-                            AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT -> "总结状态待确认"
-                            AiSummaryStateValue.INTERRUPTED -> "总结已中断"
-                            else -> "总结失败"
-                        },
-                    destination = RecordingDetailDestination.SUMMARY,
-                ),
-            )
-        }
         transcriptionCandidates.forEach { transcription ->
             add(
                 Qa4GlobalAttentionItem(
@@ -267,17 +220,6 @@ internal fun buildQa4GlobalAttentionItems(
                     recordingName = recordingName(transcription.recordingId),
                     label = "新的转写结果已生成",
                     destination = RecordingDetailDestination.TRANSCRIPT,
-                ),
-            )
-        }
-        aiSummaryCandidates.forEach { summary ->
-            add(
-                Qa4GlobalAttentionItem(
-                    key = "summary-candidate:${summary.id}",
-                    recordingId = summary.recordingId,
-                    recordingName = recordingName(summary.recordingId),
-                    label = "新的总结结果已生成",
-                    destination = RecordingDetailDestination.SUMMARY,
                 ),
             )
         }

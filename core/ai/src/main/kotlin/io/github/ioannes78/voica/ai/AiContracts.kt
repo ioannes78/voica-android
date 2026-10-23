@@ -2,13 +2,6 @@ package io.github.ioannes78.voica.ai
 
 enum class AiInputMode {
     TRANSCRIPT_TEXT,
-    DIRECT_AUDIO,
-}
-
-enum class AiSummaryMode {
-    SMART,
-    PRESET,
-    CUSTOM,
 }
 
 enum class AiContentType {
@@ -42,20 +35,6 @@ enum class AiEpistemicStatus {
     TRANSCRIPT_STATED,
     AI_SYNTHESIS,
     UNCONFIRMED,
-}
-
-enum class AiGenerationStatus {
-    CREATED,
-    PREPARING,
-    ANALYZING,
-    PLANNING,
-    MAPPING,
-    REDUCING,
-    VALIDATING,
-    COMPLETED,
-    FAILED,
-    CANCELLED,
-    INTERRUPTED,
 }
 
 enum class TranscriptEvidenceSourceKind {

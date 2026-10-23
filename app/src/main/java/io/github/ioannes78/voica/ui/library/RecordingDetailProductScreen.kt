@@ -49,7 +49,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import io.github.ioannes78.voica.AiSummaryRunState
 import io.github.ioannes78.voica.DiarizationBenchmarkRunner
 import io.github.ioannes78.voica.DiarizationRunState
 import io.github.ioannes78.voica.RecordingSpeakerModeStore
@@ -73,7 +72,6 @@ import io.github.ioannes78.voica.database.TranscriptionEntity
 import io.github.ioannes78.voica.database.TranscriptionStateValue
 import io.github.ioannes78.voica.ui.ai.AiSummaryContentViewModel
 import io.github.ioannes78.voica.ui.ai.AiSummaryProductCard
-import io.github.ioannes78.voica.ui.ai.AiSummaryTransientHeader
 import io.github.ioannes78.voica.ui.ai.AiSummaryViewModel
 import io.github.ioannes78.voica.ui.annotation.TimelineAnnotationComposerButton
 import io.github.ioannes78.voica.ui.annotation.TimelineAnnotationDetailDialog
@@ -235,12 +233,8 @@ internal fun RecordingDetailProductScreen(
     val transcriptContentState by transcriptContentViewModel.state.collectAsState()
     val diarizationState by diarizationViewModel.runState.collectAsState()
     val diarizationNotice by diarizationViewModel.notice.collectAsState()
-    val aiSummaryRunState by aiSummaryViewModel.runState.collectAsState()
-    val aiSummaryCandidateId by aiSummaryViewModel.candidateId.collectAsState()
-    val selectedAiSummary by aiSummaryViewModel.selected.collectAsState()
     val candidateAttention by qa4LifecycleViewModel.candidateAttention.collectAsState()
     val transcriptionAttention by qa4LifecycleViewModel.transcriptionAttention.collectAsState()
-    val currentAiSummaryId by qa4LifecycleViewModel.currentAiSummaryId.collectAsState()
     val syncState by transcriptPlaybackSyncViewModel.state.collectAsState()
     val playbackSnapshot by playbackViewModel.snapshot.collectAsState()
     val annotationUiState by annotationViewModel.state.collectAsState()
@@ -263,8 +257,6 @@ internal fun RecordingDetailProductScreen(
 
     val visibleTranscriptionCandidateId =
         candidateId?.takeUnless { it == candidateAttention?.dismissedTranscriptionCandidateId }
-    val visibleAiSummaryCandidateId =
-        aiSummaryCandidateId?.takeUnless { it == candidateAttention?.dismissedAiSummaryCandidateId }
     val recordingDocument = document?.takeIf { it.recordingId == recording.id }
     LaunchedEffect(
         annotationUiState.items,
@@ -300,18 +292,10 @@ internal fun RecordingDetailProductScreen(
     val candidatePreview =
         visibleTranscriptionCandidateId != null &&
             recordingDocument?.transcriptionId == visibleTranscriptionCandidateId
-    val aiSummaryCandidatePreview =
-        visibleAiSummaryCandidateId != null &&
-            selectedAiSummary?.entity?.id == visibleAiSummaryCandidateId
     val transcriptionBusy =
         (transcriptionState as? TranscriptionRunState.Running)?.recordingId == recording.id
     val diarizationBusy =
         (diarizationState as? DiarizationRunState.Running)?.recordingId == recording.id
-    val summaryRunning =
-        (aiSummaryRunState as? AiSummaryRunState.Running)
-            ?.takeIf { running ->
-                recordingDocument?.transcriptionId == running.transcriptionId
-            }
     val canonicalReady =
         recording.assets.any { asset ->
             asset.role == AudioAssetRole.CANONICAL_WAV &&
@@ -598,29 +582,7 @@ internal fun RecordingDetailProductScreen(
                 }
             }
 
-            ProductDetailTab.SUMMARY -> {
-                if (recordingDocument != null) {
-                    AiSummaryTransientHeader(
-                        running = summaryRunning,
-                        candidateId = visibleAiSummaryCandidateId,
-                        candidatePreviewing = aiSummaryCandidatePreview,
-                        recordingName = recording.displayName,
-                        onCancel = aiSummaryViewModel::cancel,
-                        onViewCandidate = aiSummaryViewModel::selectSummary,
-                        onReturnCurrent = {
-                            currentAiSummaryId?.let(aiSummaryViewModel::selectSummary)
-                        },
-                        onAdoptCandidate = aiSummaryViewModel::adoptSummaryResult,
-                        onIgnoreCandidate = { candidate ->
-                            if (aiSummaryCandidatePreview) {
-                                currentAiSummaryId?.let(aiSummaryViewModel::selectSummary)
-                            }
-                            qa4LifecycleViewModel.dismissAiSummaryCandidate(candidate)
-                        },
-                    )
-                }
-            }
-
+            ProductDetailTab.SUMMARY -> Unit
             ProductDetailTab.ANNOTATIONS -> Unit
             ProductDetailTab.RECORDING -> Unit
         }
@@ -1044,7 +1006,7 @@ internal fun RecordingDetailProductScreen(
                                             verticalArrangement = Arrangement.spacedBy(8.dp),
                                         ) {
                                             Text("总结", style = MaterialTheme.typography.titleLarge)
-                                            Text("请先完成转写，再生成总结。")
+                                            Text("请先完成转写，再查看总结。")
                                             Button(onClick = { selectedTab = ProductDetailTab.TRANSCRIPT }) {
                                                 Text("前往转写")
                                             }
@@ -1060,7 +1022,7 @@ internal fun RecordingDetailProductScreen(
                                         onSeekEvidence = { sampleIndex ->
                                             playbackViewModel.seekAndPlay(recording.id, sampleIndex)
                                         },
-                                        showTransientHeader = false,
+                                        showTransientHeader = true,
                                         searchTarget = summarySearchTarget,
                                         dismissedStaleSummaryFingerprint =
                                             candidateAttention?.dismissedStaleSummaryFingerprint,

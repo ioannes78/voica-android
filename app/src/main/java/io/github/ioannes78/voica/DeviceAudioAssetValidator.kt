@@ -8,7 +8,7 @@ import io.github.ioannes78.voica.audio.WavParseResult
 import io.github.ioannes78.voica.audio.WavPcmParser
 import io.github.ioannes78.voica.database.AudioIntegrityState
 import io.github.ioannes78.voica.database.AudioValidationState
-import io.github.ioannes78.voica.database.LegacyAssetFormat
+import io.github.ioannes78.voica.database.DeviceAssetFormat
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.opus.NativeOpusBackend
 import java.io.File
@@ -23,7 +23,7 @@ class DeviceAudioAssetValidator(
 ) {
     suspend fun validate(
         remoteIdentity: String,
-        format: LegacyAssetFormat,
+        format: DeviceAssetFormat,
     ): Boolean {
         val asset = repository.findDeviceAsset(remoteIdentity, format) ?: return false
         val file = managedFile(asset.relativePath) ?: run {
@@ -58,8 +58,8 @@ class DeviceAudioAssetValidator(
         )
 
         return when (format) {
-            LegacyAssetFormat.OPUS -> validateOpus(asset.assetId, file)
-            LegacyAssetFormat.WAV -> validateWav(asset.assetId, file)
+            DeviceAssetFormat.OPUS -> validateOpus(asset.assetId, file)
+            DeviceAssetFormat.WAV -> validateWav(asset.assetId, file)
         }
     }
 

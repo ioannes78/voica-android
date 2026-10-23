@@ -7,6 +7,14 @@ plugins {
 }
 
 val buildGitSha = providers.environmentVariable("VOICA_BUILD_GIT_SHA").getOrElse("unknown")
+val qaDefaultModelManifestUrl =
+    providers.gradleProperty("voica.qa.defaultModelManifestUrl")
+        .orNull
+        ?.trim()
+        .orEmpty()
+if ('"' in qaDefaultModelManifestUrl || '\\' in qaDefaultModelManifestUrl) {
+    throw GradleException("QA default model manifest URL contains unsupported quoting characters")
+}
 
 fun releaseSecret(environmentName: String, propertyName: String): String? =
     providers.environmentVariable(environmentName)
@@ -57,6 +65,8 @@ android {
         versionCode = 92
         versionName = "1.1.0-stage16a2"
         buildConfigField("String", "GIT_SHA", "\"$buildGitSha\"")
+        buildConfigField("boolean", "ALLOW_CANDIDATE_MODEL_CHANNEL", "false")
+        buildConfigField("String", "QA_DEFAULT_MODEL_MANIFEST_URL", "\"\"")
         ndk {
             abiFilters += "arm64-v8a"
         }
@@ -115,10 +125,17 @@ android {
         create("releaseQa") {
             // Production-like, minified/shrunk candidate signed only with the public QA identity.
             // Same QA application ID allows an in-place upgrade from earlier Stage 14 QA builds.
+            // Candidate model-channel override is permitted only for this non-production QA variant.
             initWith(getByName("release"))
             applicationIdSuffix = ".qa"
             versionNameSuffix = "-export-qa"
             signingConfig = signingConfigs.getByName("qa")
+            buildConfigField("boolean", "ALLOW_CANDIDATE_MODEL_CHANNEL", "true")
+            buildConfigField(
+                "String",
+                "QA_DEFAULT_MODEL_MANIFEST_URL",
+                "\"$qaDefaultModelManifestUrl\"",
+            )
             matchingFallbacks += listOf("release")
         }
     }
@@ -180,7 +197,8 @@ dependencies {
     implementation(project(":engine:media"))
     implementation(project(":engine:playback"))
     implementation(project(":engine:sherpa"))
-    implementation(project(":engine:llm"))
+    implementation(project(":engine:fsmn"))
+
     implementation("androidx.core:core-ktx:1.19.1")
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")

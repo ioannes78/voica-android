@@ -11,6 +11,8 @@ import io.github.ioannes78.voica.model.ModelSourceType
 import io.github.ioannes78.voica.model.RedistributionPolicy
 import io.github.ioannes78.voica.model.TimestampCapability
 import java.nio.file.Files
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -33,6 +35,103 @@ class SherpaLargeOfflineAsrEngineTest {
         } finally {
             directory.deleteRecursively()
         }
+    }
+
+    @Test
+    fun funAsrNanoLayoutRejectsMissingTokenizerBeforeNativeLoad() {
+        val directory = Files.createTempDirectory("funasr-nano-layout").toFile()
+        try {
+            directory.resolve("encoder_adaptor.int8.onnx").writeBytes(byteArrayOf(1))
+            directory.resolve("llm.int8.onnx").writeBytes(byteArrayOf(1))
+            directory.resolve("embedding.int8.onnx").writeBytes(byteArrayOf(1))
+            val failure =
+                runCatching {
+                    createSherpaLargeOfflineAsrEngine(
+                        model = descriptor(SherpaOfflineAsrModelType.FUNASR_NANO),
+                        modelDirectory = directory,
+                    )
+                }.exceptionOrNull()
+
+            assertTrue(failure is IllegalArgumentException)
+            assertTrue(failure?.message.orEmpty().contains("Qwen3-0.6B"))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun funAsrNanoLayoutRejectsEmptyTokenizerBeforeNativeLoad() {
+        val directory = Files.createTempDirectory("funasr-nano-empty-tokenizer").toFile()
+        try {
+            directory.resolve("encoder_adaptor.int8.onnx").writeBytes(byteArrayOf(1))
+            directory.resolve("llm.int8.onnx").writeBytes(byteArrayOf(1))
+            directory.resolve("embedding.int8.onnx").writeBytes(byteArrayOf(1))
+            directory.resolve("Qwen3-0.6B").mkdirs()
+            val failure =
+                runCatching {
+                    createSherpaLargeOfflineAsrEngine(
+                        model = descriptor(SherpaOfflineAsrModelType.FUNASR_NANO),
+                        modelDirectory = directory,
+                    )
+                }.exceptionOrNull()
+
+            assertTrue(failure is IllegalStateException)
+            assertTrue(failure?.message.orEmpty().contains("tokenizer directory is empty"))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun funAsrNanoRejectsSyntheticSherpaTimingUntilTrustedCtcIsEnabled() {
+        assertFalse(
+            runtimeSupportsNativeTokenTiming(
+                descriptor(SherpaOfflineAsrModelType.FUNASR_NANO),
+            ),
+        )
+    }
+
+    @Test
+    fun funAsrNanoRejectsSherpaTimingEvenWhenDescriptorAdvertisesTokenTiming() {
+        val descriptor =
+            descriptor(
+                runtimeModelType = SherpaOfflineAsrModelType.FUNASR_NANO,
+                supportsTokenTiming = true,
+                timestampCapability = TimestampCapability.TOKEN,
+            )
+
+        assertFalse(runtimeSupportsNativeTokenTiming(descriptor))
+        assertEquals(TimestampCapability.NONE, runtimeTimestampCapability(descriptor))
+    }
+
+    @Test
+    fun funAsrNanoPreservesExternalAlignerRequirementForTrustedWrapper() {
+        val descriptor =
+            descriptor(
+                runtimeModelType = SherpaOfflineAsrModelType.FUNASR_NANO,
+                timestampCapability = TimestampCapability.EXTERNAL_ALIGNER_REQUIRED,
+            )
+
+        assertEquals(
+            TimestampCapability.EXTERNAL_ALIGNER_REQUIRED,
+            runtimeTimestampCapability(descriptor),
+        )
+    }
+
+    @Test
+    fun fireRedCtcKeepsNativeTokenTiming() {
+        val descriptor = descriptor(SherpaOfflineAsrModelType.FIRE_RED_ASR2_CTC)
+        assertTrue(runtimeSupportsNativeTokenTiming(descriptor))
+        assertEquals(TimestampCapability.TOKEN, runtimeTimestampCapability(descriptor))
+    }
+
+    @Test
+    fun qwenDoesNotGainNativeTimingWithoutDescriptorSupport() {
+        assertFalse(
+            runtimeSupportsNativeTokenTiming(
+                descriptor(SherpaOfflineAsrModelType.QWEN3_ASR),
+            ),
+        )
     }
 
     @Test
@@ -76,7 +175,11 @@ class SherpaLargeOfflineAsrEngineTest {
         }
     }
 
-    private fun descriptor(runtimeModelType: String) =
+    private fun descriptor(
+        runtimeModelType: String,
+        supportsTokenTiming: Boolean = false,
+        timestampCapability: TimestampCapability = TimestampCapability.NONE,
+    ) =
         ModelDescriptor(
             modelId = "large-test",
             kind = ModelKind.ASR_LARGE,
@@ -90,8 +193,9 @@ class SherpaLargeOfflineAsrEngineTest {
             capabilities =
                 ModelCapabilities(
                     supportsSecondPass = true,
+                    supportsTokenTiming = supportsTokenTiming,
                     executionMode = AsrExecutionMode.OFFLINE,
-                    timestampCapability = TimestampCapability.NONE,
+                    timestampCapability = timestampCapability,
                     punctuationMode = ModelPunctuationMode.EXTERNAL,
                 ),
             sourceType = ModelSourceType.MANAGED_DOWNLOAD,

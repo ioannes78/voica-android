@@ -4,6 +4,13 @@ plugins {
     id("com.android.library")
 }
 
+val sherpaDependencyVersion =
+    providers.gradleProperty("voica.sherpaDependencyVersion")
+        .orNull
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+        ?: "v1.13.8"
+
 android {
     namespace = "io.github.ioannes78.voica.sherpa"
     compileSdk = 37
@@ -34,7 +41,7 @@ dependencies {
     implementation(project(":core:transcript"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
 
-    api("com.github.k2-fsa.sherpa-onnx:sherpa-onnx:v1.13.8")
+    api("com.github.k2-fsa.sherpa-onnx:sherpa-onnx:$sherpaDependencyVersion")
 
     testImplementation(kotlin("test-junit"))
     testImplementation("junit:junit:4.13.2")

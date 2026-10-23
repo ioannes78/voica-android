@@ -3,12 +3,7 @@ package io.github.ioannes78.voica
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.Context
-import io.github.ioannes78.voica.ai.AiSummaryEnginePhase
-import io.github.ioannes78.voica.database.AiSummaryEntity
-import io.github.ioannes78.voica.database.AiSummaryRepository
-import io.github.ioannes78.voica.database.AiSummaryStateValue
 import io.github.ioannes78.voica.database.RecordingLibraryItem
 import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import io.github.ioannes78.voica.database.Stage12CContentRepository
@@ -29,8 +24,6 @@ class LongTaskNotificationController(
     private val recordingRepository: RecordingLibraryRepository,
     private val transcriptionCoordinator: TranscriptionCoordinator,
     private val diarizationCoordinator: DiarizationCoordinator,
-    private val aiSummaryCoordinator: AiSummaryCoordinator,
-    private val aiSummaryRepository: AiSummaryRepository,
     private val stage12CContentRepository: Stage12CContentRepository,
     private val stage13B5Qa4Repository: Stage13B5Qa4Repository,
     private val taskCompletionNoticeStore: TaskCompletionNoticeStore,
@@ -40,18 +33,14 @@ class LongTaskNotificationController(
     private var transcriptionTaskId: String? = null
     private var diarizationTaskId: String? = null
     private var transcriptionAttentionNotificationIds: Set<Int> = emptySet()
-    private var aiAttentionNotificationIds: Set<Int> = emptySet()
     private var completionNotificationIds: Set<Int> = emptySet()
 
     init {
-        createAiSummaryChannel()
         createAttentionChannel()
         createResultChannel()
         observeTranscription()
         observeDiarization()
-        observeAiSummary()
         observeTranscriptionAttention()
-        observeAiSummaryAttention()
         observeCompletionResults()
     }
 
@@ -177,70 +166,6 @@ class LongTaskNotificationController(
         }
     }
 
-    private fun observeAiSummary() {
-        scope.launch {
-            combine(
-                aiSummaryCoordinator.state,
-                recordingRepository.recordings,
-            ) { state, recordings -> state to recordings }
-                .collect { (state, recordings) ->
-                    val running = state as? AiSummaryRunState.Running
-                    val recordingId = running?.recordingId
-                    if (running == null || recordingId == null) {
-                        notificationManager.cancel(AI_SUMMARY_NOTIFICATION_ID)
-                        if (state is AiSummaryRunState.Completed) {
-                            val currentId =
-                                stage12CContentRepository.resolveCurrentAiSummaryId(
-                                    state.recordingId,
-                                )
-                            if (currentId == state.summaryId) {
-                                taskCompletionNoticeStore.publish(
-                                    kind = TaskCompletionKind.AI_SUMMARY,
-                                    taskId = state.summaryId,
-                                    recordingId = state.recordingId,
-                                )
-                            }
-                        }
-                        return@collect
-                    }
-
-                    val cancelIntent =
-                        running.summaryId?.let { summaryId ->
-                            val durable = aiSummaryRepository.find(summaryId)
-                            if (
-                                durable == null ||
-                                durable.status !in AiSummaryStateValue.ACTIVE ||
-                                durable.executionGeneration < 1L
-                            ) {
-                                notificationManager.cancel(AI_SUMMARY_NOTIFICATION_ID)
-                                return@collect
-                            }
-                            PendingIntent.getBroadcast(
-                                context,
-                                AI_SUMMARY_REQUEST_CANCEL,
-                                aiSummaryCancelIntent(
-                                    context = context,
-                                    summaryId = summaryId,
-                                    executionGeneration = durable.executionGeneration,
-                                ),
-                                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-                            )
-                        }
-
-                    val title = recordingName(recordings, recordingId)
-                    notificationManager.notify(
-                        AI_SUMMARY_NOTIFICATION_ID,
-                        buildAiSummaryNotification(
-                            title = title,
-                            running = running,
-                            recordingId = recordingId,
-                            cancelIntent = cancelIntent,
-                        ),
-                    )
-                }
-        }
-    }
-
     private fun observeTranscriptionAttention() {
         scope.launch {
             combine(
@@ -270,39 +195,6 @@ class LongTaskNotificationController(
                     }
                     (transcriptionAttentionNotificationIds - nextIds).forEach(notificationManager::cancel)
                     transcriptionAttentionNotificationIds = nextIds
-                }
-        }
-    }
-
-    private fun observeAiSummaryAttention() {
-        scope.launch {
-            combine(
-                stage13B5Qa4Repository.observeAiSummaryAttention(),
-                recordingRepository.recordings,
-            ) { tasks, recordings -> tasks to recordings }
-                .collect { (tasks, recordings) ->
-                    val nextIds = mutableSetOf<Int>()
-                    tasks.forEach { task ->
-                        val notificationId = aiAttentionNotificationId(task.id)
-                        val logicalKey = aiSummaryAttentionPresentationKey(task)
-                        if (!presentationStore.isSystemDismissed(logicalKey)) {
-                            nextIds += notificationId
-                            notificationManager.notify(
-                                notificationId,
-                                buildAttentionNotification(
-                                    title = aiAttentionTitle(task),
-                                    text = aiAttentionText(task),
-                                    recordingId = task.recordingId,
-                                    recordingName = recordingName(recordings, task.recordingId),
-                                    destination = RecordingDetailDestination.SUMMARY,
-                                    requestCode = notificationId,
-                                    logicalKey = logicalKey,
-                                ),
-                            )
-                        }
-                    }
-                    (aiAttentionNotificationIds - nextIds).forEach(notificationManager::cancel)
-                    aiAttentionNotificationIds = nextIds
                 }
         }
     }
@@ -378,24 +270,15 @@ class LongTaskNotificationController(
         notificationId: Int,
         logicalKey: String,
     ): Notification {
-        val destination =
-            when (notice.kind) {
-                TaskCompletionKind.TRANSCRIPTION,
-                TaskCompletionKind.DIARIZATION,
-                -> RecordingDetailDestination.TRANSCRIPT
-                TaskCompletionKind.AI_SUMMARY -> RecordingDetailDestination.SUMMARY
-            }
         val title =
             when (notice.kind) {
                 TaskCompletionKind.TRANSCRIPTION -> "转写已完成"
                 TaskCompletionKind.DIARIZATION -> "说话人分离已完成"
-                TaskCompletionKind.AI_SUMMARY -> "AI 总结已完成"
             }
         val text =
             when (notice.kind) {
                 TaskCompletionKind.TRANSCRIPTION -> "转写结果已生成"
                 TaskCompletionKind.DIARIZATION -> "说话人识别结果已生成"
-                TaskCompletionKind.AI_SUMMARY -> "总结结果已生成"
             }
         return Notification.Builder(context, VoicaNotificationChannels.TASK_RESULT)
             .setSmallIcon(R.drawable.ic_stat_voica)
@@ -407,7 +290,7 @@ class LongTaskNotificationController(
                     context = context,
                     requestCode = notificationId,
                     recordingId = notice.recordingId,
-                    destination = destination,
+                    destination = RecordingDetailDestination.TRANSCRIPT,
                     completionKind = notice.kind,
                     completionTaskId = notice.taskId,
                 ),
@@ -426,60 +309,6 @@ class LongTaskNotificationController(
             .build()
     }
 
-    private fun buildAiSummaryNotification(
-        title: String,
-        running: AiSummaryRunState.Running,
-        recordingId: String,
-        cancelIntent: PendingIntent?,
-    ): Notification {
-        val progress =
-            if (running.totalUnits > 0) {
-                ((running.completedUnits.toDouble() / running.totalUnits.toDouble()) * 100.0)
-                    .roundToInt()
-                    .coerceIn(0, 100)
-            } else {
-                null
-            }
-        val builder =
-            Notification.Builder(context, VoicaNotificationChannels.AI_SUMMARY)
-                .setSmallIcon(R.drawable.ic_stat_voica)
-                .setContentTitle(title)
-                .setContentText(buildAiSummaryLabel(running))
-                .setContentIntent(
-                    recordingOpenPendingIntent(
-                        context = context,
-                        requestCode = AI_SUMMARY_REQUEST_CONTENT,
-                        recordingId = recordingId,
-                        destination = RecordingDetailDestination.SUMMARY,
-                    ),
-                )
-                .setOnlyAlertOnce(true)
-                .setOngoing(true)
-                .setCategory(Notification.CATEGORY_PROGRESS)
-                .setProgress(100, progress ?: 0, progress == null)
-        if (cancelIntent != null) {
-            builder.addAction(
-                android.R.drawable.ic_menu_close_clear_cancel,
-                "取消生成",
-                cancelIntent,
-            )
-        }
-        return builder.build()
-    }
-
-    private fun createAiSummaryChannel() {
-        notificationManager.createNotificationChannel(
-            NotificationChannel(
-                VoicaNotificationChannels.AI_SUMMARY,
-                "AI 总结",
-                NotificationManager.IMPORTANCE_LOW,
-            ).apply {
-                description = "AI 总结生成进度"
-                setShowBadge(false)
-            },
-        )
-    }
-
     private fun createAttentionChannel() {
         notificationManager.createNotificationChannel(
             NotificationChannel(
@@ -487,7 +316,7 @@ class LongTaskNotificationController(
                 "任务需要处理",
                 NotificationManager.IMPORTANCE_DEFAULT,
             ).apply {
-                description = "转写或 AI 总结中断、失败或状态无法确认时提醒"
+                description = "转写中断或失败时提醒"
                 setShowBadge(true)
             },
         )
@@ -500,21 +329,16 @@ class LongTaskNotificationController(
                 "任务结果",
                 NotificationManager.IMPORTANCE_LOW,
             ).apply {
-                description = "转写、说话人分离或 AI 总结完成时提醒"
+                description = "转写或说话人分离完成时提醒"
                 setShowBadge(true)
             },
         )
     }
 
     companion object {
-        private const val AI_SUMMARY_NOTIFICATION_ID = 13051
-        private const val AI_SUMMARY_REQUEST_CONTENT = 13051
-        private const val AI_SUMMARY_REQUEST_CANCEL = 13052
         internal const val TRANSCRIPTION_ATTENTION_BASE = 140_000_000
-        internal const val AI_ATTENTION_BASE = 150_000_000
         internal const val TRANSCRIPTION_COMPLETION_BASE = 180_000_000
         internal const val DIARIZATION_COMPLETION_BASE = 190_000_000
-        internal const val AI_SUMMARY_COMPLETION_BASE = 200_000_000
     }
 }
 
@@ -575,25 +399,6 @@ internal fun buildDiarizationLabel(
     }
 }
 
-internal fun buildAiSummaryLabel(running: AiSummaryRunState.Running): String =
-    when (running.phase) {
-        AiSummaryEnginePhase.PREPARING -> "AI 总结 · 正在准备当前转写"
-        AiSummaryEnginePhase.ANALYZING -> "AI 总结 · 正在分析内容"
-        AiSummaryEnginePhase.MAPPING ->
-            if (running.totalUnits > 0) {
-                "AI 总结 · 正在生成 ${running.completedUnits}/${running.totalUnits}"
-            } else {
-                "AI 总结 · 正在生成"
-            }
-        AiSummaryEnginePhase.REDUCING ->
-            if (running.totalUnits > 0) {
-                "AI 总结 · 正在合并 ${running.completedUnits}/${running.totalUnits}"
-            } else {
-                "AI 总结 · 正在合并"
-            }
-        AiSummaryEnginePhase.VALIDATING -> "AI 总结 · 正在校验结果"
-    }
-
 internal fun transcriptionAttentionTitle(entity: TranscriptionEntity): String =
     when (entity.state) {
         TranscriptionStateValue.INTERRUPTED -> "转写已中断"
@@ -606,25 +411,8 @@ internal fun transcriptionAttentionText(entity: TranscriptionEntity): String =
         else -> "上一次转写没有完成，请返回 Voica 重新转写"
     }
 
-internal fun aiAttentionTitle(entity: AiSummaryEntity): String =
-    when (entity.status) {
-        AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT -> "AI 总结需要处理"
-        AiSummaryStateValue.INTERRUPTED -> "AI 总结已中断"
-        else -> "AI 总结生成失败"
-    }
-
-internal fun aiAttentionText(entity: AiSummaryEntity): String =
-    when (entity.status) {
-        AiSummaryStateValue.AMBIGUOUS_REMOTE_RESULT -> "上一次总结请求状态无法确认"
-        AiSummaryStateValue.INTERRUPTED -> "上一次总结未完成，请返回 Voica 处理"
-        else -> "AI 服务请求失败，请选择 AI 服务或模型重新生成"
-    }
-
 internal fun transcriptionAttentionPresentationKey(entity: TranscriptionEntity): String =
     "attention:transcription:${entity.id}:${entity.state}"
-
-internal fun aiSummaryAttentionPresentationKey(entity: AiSummaryEntity): String =
-    "attention:summary:${entity.id}:${entity.status}"
 
 internal fun taskCompletionPresentationKey(notice: TaskCompletionNotice): String =
     "completion:${notice.kind.name}:${notice.taskId}"
@@ -632,14 +420,10 @@ internal fun taskCompletionPresentationKey(notice: TaskCompletionNotice): String
 private fun transcriptionAttentionNotificationId(id: String): Int =
     LongTaskNotificationController.TRANSCRIPTION_ATTENTION_BASE + stableNotificationOffset(id)
 
-private fun aiAttentionNotificationId(id: String): Int =
-    LongTaskNotificationController.AI_ATTENTION_BASE + stableNotificationOffset(id)
-
 private fun completionNotificationId(notice: TaskCompletionNotice): Int =
     when (notice.kind) {
         TaskCompletionKind.TRANSCRIPTION -> LongTaskNotificationController.TRANSCRIPTION_COMPLETION_BASE
         TaskCompletionKind.DIARIZATION -> LongTaskNotificationController.DIARIZATION_COMPLETION_BASE
-        TaskCompletionKind.AI_SUMMARY -> LongTaskNotificationController.AI_SUMMARY_COMPLETION_BASE
     } + stableNotificationOffset(notice.taskId)
 
 private fun stableNotificationOffset(id: String): Int =

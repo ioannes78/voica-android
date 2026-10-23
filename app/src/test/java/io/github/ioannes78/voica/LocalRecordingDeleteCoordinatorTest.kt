@@ -71,7 +71,6 @@ class LocalRecordingDeleteCoordinatorTest {
                 "canonical:rec-1",
                 "transcription:rec-1",
                 "diarization:rec-1",
-                "summary:rec-1",
             ),
             hooks.events,
         )
@@ -105,7 +104,6 @@ class LocalRecordingDeleteCoordinatorTest {
                 "canonical:rec-retry",
                 "transcription:rec-retry",
                 "diarization:rec-retry",
-                "summary:rec-retry",
             ),
             hooks.events,
         )
@@ -128,12 +126,10 @@ class LocalRecordingDeleteCoordinatorTest {
                 "canonical:rec-a",
                 "transcription:rec-a",
                 "diarization:rec-a",
-                "summary:rec-a",
                 "playback:rec-b",
                 "canonical:rec-b",
                 "transcription:rec-b",
                 "diarization:rec-b",
-                "summary:rec-b",
             ),
             hooks.events,
         )
@@ -209,9 +205,6 @@ class LocalRecordingDeleteCoordinatorTest {
 
         override suspend fun cancelDiarizationAndAwait(recordingId: String) =
             step("diarization", recordingId)
-
-        override suspend fun cancelAiSummaryAndAwait(recordingId: String) =
-            step("summary", recordingId)
 
         private fun step(
             name: String,

@@ -120,11 +120,15 @@ jobs:
             :engine:playback:assembleDebug \
             :engine:sherpa:testDebugUnitTest \
             :engine:sherpa:assembleDebug \
-            :engine:llm:testDebugUnitTest \
-            :engine:llm:assembleDebug \
+            :engine:fsmn:testDebugUnitTest \
+            :engine:fsmn:assembleDebug \
             :app:testDebugUnitTest \
             --configuration-cache \
             --stacktrace
+
+      - name: Verify FSMN candidate runtime boundary
+        shell: bash
+        run: bash ci/verify-fsmn-candidate-runtime.sh debug
 
   qa-apk:
     name: QA APK Gate
@@ -232,4 +236,3 @@ jobs:
           path: app/build/outputs/apk/releaseQa/app-releaseQa.apk
           if-no-files-found: error
           retention-days: 1
-          compression-level: 0

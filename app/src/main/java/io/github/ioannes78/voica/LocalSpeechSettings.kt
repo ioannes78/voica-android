@@ -26,10 +26,11 @@ enum class RealtimeAsrModelChoice {
 object Stage13AOfflineModelIds {
     const val SENSEVOICE = Stage8ModelIds.SECOND_PASS_ASR
     const val FIRERED_ASR2 = "fireredasr2-ctc-zh-en-int8"
+    const val FUNASR_NANO = "funasr-nano-int8"
     const val QWEN3_ASR = "qwen3-asr-0.6b-int8"
 
     /** Product matrix for recording-file offline transcription. */
-    val ALL = listOf(SENSEVOICE, QWEN3_ASR)
+    val ALL = listOf(SENSEVOICE, FUNASR_NANO)
 }
 
 enum class OfflineAsrQualityChoice {
@@ -180,6 +181,15 @@ data class LocalSenseVoiceSettings(
     val useInverseTextNormalization: Boolean = false,
 )
 
+data class LocalFunAsrSettings(
+    val useInverseTextNormalization: Boolean = true,
+    val hotwords: String = "",
+) {
+    init {
+        require(hotwords.length <= 512)
+    }
+}
+
 data class LocalQwenAsrSettings(
     val maxTotalLen: Int = 512,
     val maxNewTokens: Int = 128,
@@ -200,7 +210,7 @@ data class LocalQwenAsrSettings(
 
 data class LocalDiarizationSettings(
     val autoAfterTranscription: Boolean = true,
-    val clusteringThreshold: Float = 0.5F,
+    val clusteringThreshold: Float = RECOMMENDED_DIARIZATION_CLUSTERING_THRESHOLD,
     val stitchingCosineThreshold: Float = 0.75F,
 ) {
     init {
@@ -233,6 +243,7 @@ data class LocalSpeechSettings(
     val requestedThreads: Int? = null,
     val realtime: LocalRealtimeAsrSettings = LocalRealtimeAsrSettings(),
     val senseVoice: LocalSenseVoiceSettings = LocalSenseVoiceSettings(),
+    val funAsr: LocalFunAsrSettings = LocalFunAsrSettings(),
     val qwen: LocalQwenAsrSettings = LocalQwenAsrSettings(),
     val vad: LocalVadSettings = LocalVadSettings(),
     val diarization: LocalDiarizationSettings = LocalDiarizationSettings(),
@@ -268,7 +279,7 @@ fun RealtimeAsrModelChoice.preferredModelIds(): List<String> =
         -> listOf(Stage13ARealtimeModelIds.SMALL_BILINGUAL)
     }
 
-/** SenseVoice is the fast/default offline model; Qwen3-ASR is the high-quality model. */
+/** SenseVoice is the balanced/efficiency offline model; FunASR Nano is the high-quality model. */
 fun OfflineAsrQualityChoice.preferredModelIds(): List<String> =
     when (this) {
         OfflineAsrQualityChoice.AUTO,
@@ -276,7 +287,7 @@ fun OfflineAsrQualityChoice.preferredModelIds(): List<String> =
         -> listOf(Stage13AOfflineModelIds.SENSEVOICE)
         OfflineAsrQualityChoice.HIGH_QUALITY,
         OfflineAsrQualityChoice.ULTRA,
-        -> listOf(Stage13AOfflineModelIds.QWEN3_ASR)
+        -> listOf(Stage13AOfflineModelIds.FUNASR_NANO)
     }
 
 fun LocalSpeechSettings.resolvePerformance(
@@ -321,6 +332,10 @@ interface LocalSpeechSettingsStore {
     fun setSenseVoiceSettings(settings: LocalSenseVoiceSettings)
 
     fun resetSenseVoiceSettings()
+
+    fun setFunAsrSettings(settings: LocalFunAsrSettings)
+
+    fun resetFunAsrSettings()
 
     fun setQwenSettings(settings: LocalQwenAsrSettings)
 
@@ -368,6 +383,7 @@ class SharedPreferencesLocalSpeechSettingsStore(
                         .takeIf { it > 0 },
                 realtime = readRealtimeSettings(preferences),
                 senseVoice = readSenseVoiceSettings(preferences),
+                funAsr = readFunAsrSettings(preferences),
                 qwen = readQwenSettings(preferences),
                 vad = readVadSettings(preferences),
                 diarization = readDiarizationSettings(preferences),
@@ -451,6 +467,23 @@ class SharedPreferencesLocalSpeechSettingsStore(
             .remove(KEY_SENSEVOICE_USE_ITN)
             .apply()
         mutableSettings.value = mutableSettings.value.copy(senseVoice = defaults)
+    }
+
+    override fun setFunAsrSettings(settings: LocalFunAsrSettings) {
+        preferences.edit()
+            .putBoolean(KEY_FUNASR_USE_ITN, settings.useInverseTextNormalization)
+            .putString(KEY_FUNASR_HOTWORDS, settings.hotwords)
+            .apply()
+        mutableSettings.value = mutableSettings.value.copy(funAsr = settings)
+    }
+
+    override fun resetFunAsrSettings() {
+        val defaults = LocalFunAsrSettings()
+        preferences.edit()
+            .remove(KEY_FUNASR_USE_ITN)
+            .remove(KEY_FUNASR_HOTWORDS)
+            .apply()
+        mutableSettings.value = mutableSettings.value.copy(funAsr = defaults)
     }
 
     override fun setQwenSettings(settings: LocalQwenAsrSettings) {
@@ -540,6 +573,8 @@ class SharedPreferencesLocalSpeechSettingsStore(
         const val KEY_REALTIME_MAX_ACTIVE_PATHS = "realtime-max-active-paths"
         const val KEY_SENSEVOICE_LANGUAGE = "sensevoice-language"
         const val KEY_SENSEVOICE_USE_ITN = "sensevoice-use-itn"
+        const val KEY_FUNASR_USE_ITN = "funasr-use-itn"
+        const val KEY_FUNASR_HOTWORDS = "funasr-hotwords"
         const val KEY_QWEN_MAX_TOTAL_LEN = "qwen-max-total-len"
         const val KEY_QWEN_MAX_NEW_TOKENS = "qwen-max-new-tokens"
         const val KEY_QWEN_TEMPERATURE = "qwen-temperature"
@@ -580,6 +615,16 @@ class SharedPreferencesLocalSpeechSettingsStore(
                     ),
             )
 
+        fun readFunAsrSettings(preferences: android.content.SharedPreferences): LocalFunAsrSettings =
+            LocalFunAsrSettings(
+                useInverseTextNormalization =
+                    preferences.getBoolean(
+                        KEY_FUNASR_USE_ITN,
+                        LocalFunAsrSettings().useInverseTextNormalization,
+                    ),
+                hotwords = preferences.getString(KEY_FUNASR_HOTWORDS, "").orEmpty().take(512),
+            )
+
         fun readQwenSettings(preferences: android.content.SharedPreferences): LocalQwenAsrSettings =
             runCatching {
                 LocalQwenAsrSettings(
@@ -598,7 +643,10 @@ class SharedPreferencesLocalSpeechSettingsStore(
                     autoAfterTranscription =
                         preferences.getBoolean(KEY_DIARIZATION_AUTO_AFTER_TRANSCRIPTION, true),
                     clusteringThreshold =
-                        preferences.getFloat(KEY_DIARIZATION_CLUSTERING_THRESHOLD, 0.5F),
+                        preferences.getFloat(
+                            KEY_DIARIZATION_CLUSTERING_THRESHOLD,
+                            RECOMMENDED_DIARIZATION_CLUSTERING_THRESHOLD,
+                        ),
                     stitchingCosineThreshold =
                         preferences.getFloat(KEY_DIARIZATION_STITCHING_COSINE_THRESHOLD, 0.75F),
                 )
@@ -616,9 +664,5 @@ class SharedPreferencesLocalSpeechSettingsStore(
     }
 }
 
+const val RECOMMENDED_DIARIZATION_CLUSTERING_THRESHOLD = 0.70F
 const val MAX_CONFIGURABLE_THREADS = 8
-const val FIVE_PLUS_INITIAL_CLUSTERING_THRESHOLD = 0.45F
-const val FIVE_PLUS_MINIMUM_SPEAKERS = 5
-const val FIVE_PLUS_MAXIMUM_SPEAKERS = 8
-private const val DEFAULT_BALANCED_THREADS = 2
-private const val PERFORMANCE_THREADS = 4
