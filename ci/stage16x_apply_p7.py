@@ -6,12 +6,9 @@ def replace_required(path: str, old: str, new: str) -> None:
     if not target.is_file():
         return
     text = target.read_text()
-    count = text.count(old)
-    if count == 0:
+    if old not in text:
         return
-    if count != 1:
-        raise SystemExit(f"{path}: expected at most one match, got {count}: {old!r}")
-    target.write_text(text.replace(old, new, 1))
+    target.write_text(text.replace(old, new))
 
 
 replacements = [
