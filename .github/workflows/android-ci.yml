@@ -55,7 +55,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git add app/src/main app/src/test app/src/androidTest
+          git add -A app/src
           if git diff --cached --quiet; then
             echo "P7 already applied; no commit required."
             exit 0
