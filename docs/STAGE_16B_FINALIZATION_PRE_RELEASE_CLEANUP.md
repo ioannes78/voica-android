@@ -16,6 +16,7 @@
 - Android PR #35 仍为 **Draft / Open / Unmerged**。
 - Finalization 当前开发分支：`stage16b-local-file-asr-v2`。
 - Finalization 真机回归所验证的当前源码头：`ef753e8b624f9acfa397775f26ffbfb3e59c1937`。
+- 本记录文档写回 commit：`52ed069db75788f2bc697e3546146a66ababee72`；该 commit 只修改本记录，不改变已真机验证的 runtime/source。
 - Room 当前版本：**v16**。
 - P5 revision-5：**CLOSED / REAL-DEVICE PASS**。
 - SenseVoice Rich Audio Metadata：**CANCELLED / NOT IMPLEMENTED**。
