@@ -7,7 +7,6 @@ import androidx.room.PrimaryKey
 
 object AiSummaryInputModeValue {
     const val TRANSCRIPT_TEXT = "TRANSCRIPT_TEXT"
-    const val DIRECT_AUDIO = "DIRECT_AUDIO"
 }
 
 object AiSummaryModeValue {

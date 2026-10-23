@@ -2,7 +2,6 @@ package io.github.ioannes78.voica.ai
 
 enum class AiInputMode {
     TRANSCRIPT_TEXT,
-    DIRECT_AUDIO,
 }
 
 enum class AiContentType {
