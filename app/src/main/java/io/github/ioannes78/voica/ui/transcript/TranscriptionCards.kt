@@ -1,5 +1,8 @@
 package io.github.ioannes78.voica.ui.transcript
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -20,17 +23,21 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.R
@@ -39,6 +46,7 @@ import io.github.ioannes78.voica.Stage13ARealtimeModelIds
 import io.github.ioannes78.voica.TranscriptionRunState
 import io.github.ioannes78.voica.VoicaApplication
 import io.github.ioannes78.voica.database.DiarizationSpeakerEntity
+import io.github.ioannes78.voica.ui.theme.VoicaThemeTokens
 import io.github.ioannes78.voica.transcript.TextProjectionQuality
 import io.github.ioannes78.voica.transcript.TranscriptionPhase
 import io.github.ioannes78.voica.transcript.TranscriptionProgress
@@ -263,8 +271,18 @@ fun TranscriptSegmentCard(
     val activeCue = remember(segment.stableId, activeCueId) {
         segment.cues.firstOrNull { cue -> cue.id == activeCueId && cue.projectionQuality == TextProjectionQuality.EXACT }
     }
+    val transcriptColors = VoicaThemeTokens.colors
     val displayText = segment.text.ifBlank { stringResource(R.string.transcript_empty_segment) }
-    val tokenHighlightColor = MaterialTheme.colorScheme.primaryContainer
+    val highlightAlpha = remember(segment.stableId) { Animatable(1f) }
+    LaunchedEffect(activeCueId) {
+        if (activeCue != null) {
+            highlightAlpha.snapTo(0.62f)
+            highlightAlpha.animateTo(1f, animationSpec = tween(durationMillis = 150))
+        } else {
+            highlightAlpha.snapTo(1f)
+        }
+    }
+    val tokenHighlightColor = transcriptColors.transcriptCurrentWordBg.copy(alpha = highlightAlpha.value)
     val annotatedText = buildAnnotatedString {
         append(displayText)
         if (
@@ -273,7 +291,29 @@ fun TranscriptSegmentCard(
             activeCue.textEndOffsetExclusive in 0..segment.text.length &&
             activeCue.textEndOffsetExclusive > activeCue.textStartOffset
         ) {
-            addStyle(SpanStyle(background = tokenHighlightColor), activeCue.textStartOffset, activeCue.textEndOffsetExclusive)
+            if (activeCue.textStartOffset > 0) {
+                addStyle(
+                    SpanStyle(color = transcriptColors.transcriptPlayedText),
+                    0,
+                    activeCue.textStartOffset,
+                )
+            }
+            addStyle(
+                SpanStyle(
+                    background = tokenHighlightColor,
+                    color = transcriptColors.transcriptCurrentWordText,
+                    fontWeight = FontWeight.Medium,
+                ),
+                activeCue.textStartOffset,
+                activeCue.textEndOffsetExclusive,
+            )
+            if (activeCue.textEndOffsetExclusive < segment.text.length) {
+                addStyle(
+                    SpanStyle(color = transcriptColors.transcriptUpcomingText),
+                    activeCue.textEndOffsetExclusive,
+                    segment.text.length,
+                )
+            }
         }
     }
     var textLayout by remember(segment.stableId) { mutableStateOf<TextLayoutResult?>(null) }
@@ -307,21 +347,36 @@ fun TranscriptSegmentCard(
             else -> null
         }
     val canEditSpeakerAssignment = spanId != null && repository != null && segment.speakerAssignmentAvailable
+    val paragraphBackground by
+        animateColorAsState(
+            targetValue =
+                when {
+                    searchHighlighted -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
+                    isActive -> transcriptColors.transcriptActiveParagraphBg
+                    else -> transcriptColors.surface
+                },
+            animationSpec = tween(durationMillis = 150),
+            label = "transcriptParagraphBackground",
+        )
 
     Column(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .background(
-                    when {
-                        searchHighlighted -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
-                        isActive -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
-                        else -> MaterialTheme.colorScheme.surface
-                    },
-                    RoundedCornerShape(8.dp),
-                )
+                .background(paragraphBackground, RoundedCornerShape(8.dp))
+                .drawBehind {
+                    if (isActive) {
+                        val strokeWidth = 2.dp.toPx()
+                        drawLine(
+                            color = transcriptColors.transcriptActiveLineBar,
+                            start = Offset(strokeWidth / 2f, 6.dp.toPx()),
+                            end = Offset(strokeWidth / 2f, size.height - 6.dp.toPx()),
+                            strokeWidth = strokeWidth,
+                        )
+                    }
+                }
                 .clickable(enabled = syncEnabled, onClick = { onSeek(segment.startSampleIndex) })
-                .padding(horizontal = 10.dp, vertical = 7.dp),
+                .padding(start = 13.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -329,7 +384,7 @@ fun TranscriptSegmentCard(
                 Text(
                     label,
                     style = MaterialTheme.typography.labelMedium,
-                    color = if (isActive || searchHighlighted || canEditSpeakerAssignment) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (isActive || searchHighlighted || canEditSpeakerAssignment) transcriptColors.accent else transcriptColors.textSecondary,
                     modifier =
                         Modifier
                             .weight(1f)
@@ -365,6 +420,7 @@ fun TranscriptSegmentCard(
         Text(
             text = annotatedText,
             style = MaterialTheme.typography.bodyMedium,
+            color = transcriptColors.textPrimary,
             onTextLayout = { textLayout = it },
             modifier =
                 Modifier.pointerInput(segment.stableId, activeCueId, syncEnabled, onAddAnnotation) {

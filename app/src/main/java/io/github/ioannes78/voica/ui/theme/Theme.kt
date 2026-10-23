@@ -379,11 +379,11 @@ private fun wenzhiSemanticColors(darkTheme: Boolean): VoicaSemanticColors =
             warning = WenzhiDarkWarning,
             error = WenzhiDarkError,
             info = WenzhiDarkInfo,
-            transcriptCurrentWordBg = WenzhiDarkAccent,
-            transcriptCurrentWordText = WenzhiDarkBackground,
+            transcriptCurrentWordBg = WenzhiDarkAccentContainer,
+            transcriptCurrentWordText = WenzhiDarkPrimaryText,
             transcriptUpcomingText = WenzhiDarkSecondaryText.copy(alpha = 0.82f),
             transcriptActiveLineBar = WenzhiDarkAccent,
-            transcriptActiveParagraphBg = WenzhiDarkAccentContainer.copy(alpha = 0.76f),
+            transcriptActiveParagraphBg = WenzhiDarkAccentContainer.copy(alpha = 0.52f),
             transcriptPlayedText = WenzhiDarkPrimaryText.copy(alpha = 0.9f),
         )
     } else {
@@ -408,11 +408,11 @@ private fun wenzhiSemanticColors(darkTheme: Boolean): VoicaSemanticColors =
             warning = WenzhiWarning,
             error = WenzhiError,
             info = WenzhiInfo,
-            transcriptCurrentWordBg = WenzhiAccent,
-            transcriptCurrentWordText = Color.White,
+            transcriptCurrentWordBg = WenzhiAccentContainer,
+            transcriptCurrentWordText = WenzhiInk,
             transcriptUpcomingText = WenzhiSecondary.copy(alpha = 0.82f),
             transcriptActiveLineBar = WenzhiAccent,
-            transcriptActiveParagraphBg = WenzhiAccentContainer.copy(alpha = 0.72f),
+            transcriptActiveParagraphBg = WenzhiAccentContainer.copy(alpha = 0.48f),
             transcriptPlayedText = WenzhiInk.copy(alpha = 0.88f),
         )
     }
