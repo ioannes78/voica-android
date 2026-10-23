@@ -50,12 +50,14 @@
     <string name="theme_mode_light">浅色</string>
     <string name="theme_mode_dark">深色</string>
     <string name="theme_palette_title">配色风格</string>
-    <string name="theme_palette_mint">Voica 青绿</string>
-    <string name="theme_palette_blue">Voica 蓝</string>
-    <string name="theme_palette_purple">Voica 紫</string>
+    <string name="theme_palette_wenzhi">闻知墨韵（默认）</string>
+    <string name="theme_palette_mint">经典青绿</string>
+    <string name="theme_palette_blue">经典蓝</string>
+    <string name="theme_palette_purple">经典紫</string>
+    <string name="theme_palette_custom">自定义</string>
     <string name="theme_custom_accent_title">自定义强调色</string>
     <string name="theme_custom_accent_hint">#RRGGBB</string>
     <string name="theme_custom_accent_error">请输入有效的 6 位十六进制颜色，例如 #57D4B2。</string>
     <string name="theme_custom_accent_apply">应用自定义颜色</string>
-    <string name="theme_settings_note">背景、正文、错误和警告等语义色由 Voica 自动保持可读性。</string>
+    <string name="theme_settings_note">闻知墨韵是默认配色；经典配色与自定义强调色会继续保留，背景、正文、状态和逐字稿强调均由当前主题语义色统一适配。</string>
 </resources>
