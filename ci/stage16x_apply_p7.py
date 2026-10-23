@@ -3,6 +3,8 @@ from pathlib import Path
 
 def replace_required(path: str, old: str, new: str) -> None:
     target = Path(path)
+    if not target.is_file():
+        return
     text = target.read_text()
     count = text.count(old)
     if count == 0:
