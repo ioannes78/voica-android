@@ -1,8 +1,8 @@
 # Stage 16+ Fully Offline Roadmap Amendment
 
-状态：**APPROVED / AUTHORITATIVE ROADMAP AMENDMENT / IMPLEMENTATION NOT STARTED**
+状态：**APPROVED / AUTHORITATIVE ROADMAP AMENDMENT / STAGE 16 FINAL FREEZE & HANDOFF COMPLETE / STAGE 17 RESERVED**
 
-修订日期：2026-10-23
+修订日期：2026-10-24
 
 本文件记录 Voica 在 Stage 16B P5 R5 之后确认的新产品方向，并作为 Stage 16 之后路线的当前最高优先级规划修订。
 
@@ -80,29 +80,33 @@ Voica 当前未发布，仅用于开发者本人使用。
 
 ## 4. Stage 16 — Finalization / Pre-release Cleanup
 
-Stage 16B P5 R5 已 CLOSED / REAL-DEVICE PASS；SenseVoice Rich Audio Metadata 不再实施。
+Stage 16 已正式完成并封存。
 
-Stage 16 剩余工作调整为：
+最终结果：
 
-1. 取消 SenseVoice Rich Audio Metadata；
-2. 删除现有 Online AI Summary 及仅为其服务的 provider/API 配置与网络路径；
-3. 执行 Pre-release Compatibility Cleanup；
-4. 执行 Room/Data Schema Consolidation；
-5. 清理 dead code / dependency / resource / legacy config；
-6. 执行静态、Unit、Instrumented、核心真机回归；
-7. 经用户明确授权后执行 Stage 16 Final Freeze/Handoff。
+1. SenseVoice Rich Audio Metadata：**CANCELLED / NOT IMPLEMENTED**；
+2. Online AI Summary 及仅为其服务的 provider/API 配置与网络产品路径：**REMOVED**；
+3. Pre-release Compatibility Cleanup：**DONE**；
+4. Room/Data Schema Consolidation：**DONE / v16**；
+5. dead code / dependency / resource / legacy config cleanup：**DONE within bounded-risk scope**；
+6. Automated Regression：**PASS**；
+7. Finalization Real-device Regression QA1–QA10：**PASS**；
+8. Stage 16 Final Freeze：**COMPLETE**；
+9. Stage 16 Final Handoff：**COMPLETE**。
 
-详细规划见：
+权威记录：
 
 - `docs/STAGE_16B_FINALIZATION_PRE_RELEASE_CLEANUP.md`
+- `docs/STAGE_16_FINAL_FREEZE.md`
+- `docs/STAGE_16_FINAL_HANDOFF.md`
 
-本文件本身不授权：
+Stage 16 Freeze/Handoff 本身仍不授权：
 
 - merge PR #35；
 - merge model-channel PR #21；
 - promotion FunASR candidate/revision；
-- 修改 production model channel；
-- 自动执行 Final Freeze/Handoff。
+- 修改 mutable production model channel；
+- 自动开始 Stage 17/18 implementation。
 
 ---
 
@@ -112,6 +116,8 @@ Stage 17 新定位：
 
 **Fully Offline Intelligence — 全离线内容理解与可追溯问答**
 
+当前状态：**RESERVED / NOT STARTED**。
+
 规划顺序：
 
 1. **17.1 Offline LLM Runtime Foundation**
@@ -120,7 +126,7 @@ Stage 17 新定位：
 4. **17.4 Offline Q&A + Audio Citation**
 5. **17.5 Local Retrieval / RAG**
 
-首选模型方向为 **Gemma 4 E2B**。当前 Google AI Edge Gallery 已列出 Android 可部署的 `Gemma-4-E2B-it` LiteRT-LM 模型；具体 LiteRT-LM/runtime/model artifact/revision/quantization 仍必须在 Stage 17 开始时重新核验并冻结，不以聊天中的临时版本号作为事实源。
+首选模型方向为 **Gemma 4 E2B**。具体 LiteRT-LM/runtime/model artifact/revision/quantization 仍必须在 Stage 17 开始时重新核验并冻结，不以聊天中的临时版本号作为事实源。
 
 核心设计原则：
 
@@ -132,11 +138,15 @@ Gemma 不得生成或猜测可跳转 timestamp。Q&A 返回稳定 evidence/segme
 
 - `docs/ROADMAP_STAGE_17_FULLY_OFFLINE_INTELLIGENCE.md`
 
+Stage 17 开始前必须重新核验 GitHub live state，并重新完成《Stage 17 修订需求》与《Stage 17 开发规划》两级确认；不得因 Stage 16 Handoff 完成而自动编码。
+
 ---
 
 ## 6. Stage 18 — Local Speech Quality & Latency Consolidation
 
 原 Stage 16C 的本地语音质量/延迟优化完整后移为 Stage 18，不删除其核心设计。
+
+当前状态：**RESERVED / NOT STARTED**。
 
 顺序：
 
@@ -150,7 +160,7 @@ Gemma 不得生成或猜测可跳转 timestamp。Q&A 返回稳定 evidence/segme
 
 - `docs/ROADMAP_STAGE_18_LOCAL_SPEECH_CONSOLIDATION.md`
 
-Stage 18 不承担云端 realtime ASR。
+Stage 18 不承担云端 realtime ASR，也不得与 Stage 17 自动并行启动。
 
 ---
 
@@ -173,14 +183,17 @@ Stage 18 不承担云端 realtime ASR。
 
 ## 8. 当前阶段门禁
 
-当前仍处于 Stage 16 收尾。
+Stage 16 已 Final Freeze/Handoff COMPLETE。
 
-不得因为 Stage 17/18 已重新规划而：
+当前停点是：
 
-- 提前创建 Stage 17/18 implementation branch；
-- 提前编码 Gemma/LLM；
-- 提前实施 Stage 18 FSMN realtime/two-pass；
-- 绕过 Stage 16 cleanup/regression；
-- 自动执行 Stage 16 Final Freeze/Handoff。
+**Stage 17 requirements Gate**。
 
-Stage 16 完成、用户明确确认 Freeze/Handoff 后，才允许重新核验 GitHub 并进入 Stage 17 requirements/development-plan Gate。
+不得因为 Stage 17/18 已规划而：
+
+- 自动创建 Stage 17/18 implementation branch；
+- 自动编码 Gemma/LLM；
+- 自动实施 Stage 18 FSMN realtime/two-pass；
+- 把 Stage 16 Freeze/Handoff 解释为 PR merge 或 model promotion 授权。
+
+进入 Stage 17 时必须重新核验 GitHub，并重新完成需求确认与开发规划确认。
