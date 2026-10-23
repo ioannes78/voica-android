@@ -7,12 +7,102 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+
+private val WenzhiPaper = Color(0xFFF5F2EA)
+private val WenzhiSurface = Color(0xFFFBFAF6)
+private val WenzhiElevated = Color(0xFFFFFFFF)
+private val WenzhiInk = Color(0xFF171717)
+private val WenzhiSecondary = Color(0xFF656565)
+private val WenzhiTertiary = Color(0xFF9A968D)
+private val WenzhiDivider = Color(0xFFDDD9D0)
+private val WenzhiDisabled = Color(0xFFC5C0B7)
+private val WenzhiAccent = Color(0xFF315E58)
+private val WenzhiAccentContainer = Color(0xFFE5EEEB)
+private val WenzhiRecording = Color(0xFFB94D48)
+private val WenzhiRecordingContainer = Color(0xFFF5E8E5)
+private val WenzhiWarning = Color(0xFFA87536)
+private val WenzhiError = Color(0xFFA94442)
+private val WenzhiInfo = Color(0xFF536A78)
+
+private val WenzhiDarkBackground = Color(0xFF111210)
+private val WenzhiDarkSurface = Color(0xFF191A18)
+private val WenzhiDarkElevated = Color(0xFF212220)
+private val WenzhiDarkPrimaryText = Color(0xFFF2EFE7)
+private val WenzhiDarkSecondaryText = Color(0xFFB4B0A7)
+private val WenzhiDarkTertiaryText = Color(0xFF817E77)
+private val WenzhiDarkDivider = Color(0xFF343532)
+private val WenzhiDarkAccent = Color(0xFF79A69D)
+private val WenzhiDarkAccentContainer = Color(0xFF233632)
+private val WenzhiDarkRecording = Color(0xFFD36A64)
+private val WenzhiDarkRecordingContainer = Color(0xFF3A2321)
+private val WenzhiDarkWarning = Color(0xFFC6965A)
+private val WenzhiDarkError = Color(0xFFD1706C)
+private val WenzhiDarkInfo = Color(0xFF7F98A6)
+
+private val WenzhiInkLight =
+    lightColorScheme(
+        primary = WenzhiAccent,
+        onPrimary = Color.White,
+        primaryContainer = WenzhiAccentContainer,
+        onPrimaryContainer = WenzhiInk,
+        secondary = WenzhiSecondary,
+        onSecondary = Color.White,
+        secondaryContainer = Color(0xFFF0EEE8),
+        onSecondaryContainer = WenzhiInk,
+        tertiary = WenzhiInfo,
+        onTertiary = Color.White,
+        tertiaryContainer = Color(0xFFE8EDF0),
+        onTertiaryContainer = WenzhiInk,
+        background = WenzhiPaper,
+        onBackground = WenzhiInk,
+        surface = WenzhiSurface,
+        onSurface = WenzhiInk,
+        surfaceVariant = Color(0xFFF0EDE6),
+        onSurfaceVariant = WenzhiSecondary,
+        outline = WenzhiDivider,
+        outlineVariant = WenzhiDisabled,
+        error = WenzhiError,
+        onError = Color.White,
+        errorContainer = Color(0xFFF4E7E5),
+        onErrorContainer = WenzhiError,
+    )
+
+private val WenzhiInkDark =
+    darkColorScheme(
+        primary = WenzhiDarkAccent,
+        onPrimary = Color(0xFF10211E),
+        primaryContainer = WenzhiDarkAccentContainer,
+        onPrimaryContainer = Color(0xFFE5EEEB),
+        secondary = WenzhiDarkSecondaryText,
+        onSecondary = Color(0xFF242522),
+        secondaryContainer = WenzhiDarkElevated,
+        onSecondaryContainer = WenzhiDarkPrimaryText,
+        tertiary = WenzhiDarkInfo,
+        onTertiary = Color(0xFF162127),
+        tertiaryContainer = Color(0xFF26343B),
+        onTertiaryContainer = WenzhiDarkPrimaryText,
+        background = WenzhiDarkBackground,
+        onBackground = WenzhiDarkPrimaryText,
+        surface = WenzhiDarkSurface,
+        onSurface = WenzhiDarkPrimaryText,
+        surfaceVariant = WenzhiDarkElevated,
+        onSurfaceVariant = WenzhiDarkSecondaryText,
+        outline = WenzhiDarkDivider,
+        outlineVariant = WenzhiDarkTertiaryText,
+        error = WenzhiDarkError,
+        onError = Color(0xFF2A1110),
+        errorContainer = Color(0xFF452624),
+        onErrorContainer = Color(0xFFFFDAD6),
+    )
 
 private val MintDark =
     darkColorScheme(
@@ -97,6 +187,46 @@ private val PurpleLight =
         background = Color(0xFFFFF7FF),
         surface = Color(0xFFFFF7FF),
     )
+
+@Immutable
+data class VoicaSemanticColors(
+    val brandPaper: Color,
+    val brandInk: Color,
+    val brandAccent: Color,
+    val brandRecording: Color,
+    val background: Color,
+    val surface: Color,
+    val surfaceElevated: Color,
+    val surfaceVariant: Color,
+    val textPrimary: Color,
+    val textSecondary: Color,
+    val textTertiary: Color,
+    val divider: Color,
+    val disabled: Color,
+    val accent: Color,
+    val accentContainer: Color,
+    val recording: Color,
+    val recordingContainer: Color,
+    val warning: Color,
+    val error: Color,
+    val info: Color,
+    val transcriptCurrentWordBg: Color,
+    val transcriptCurrentWordText: Color,
+    val transcriptUpcomingText: Color,
+    val transcriptActiveLineBar: Color,
+    val transcriptActiveParagraphBg: Color,
+    val transcriptPlayedText: Color,
+)
+
+private val LocalVoicaSemanticColors = staticCompositionLocalOf {
+    wenzhiSemanticColors(darkTheme = false)
+}
+
+object VoicaThemeTokens {
+    val colors: VoicaSemanticColors
+        @Composable
+        get() = LocalVoicaSemanticColors.current
+}
 
 private val VoicaTypography =
     Typography(
@@ -200,6 +330,7 @@ fun VoicaTheme(
 
     val scheme =
         when (settings.preset) {
+            VoicaColorPreset.WENZHI_INK -> if (darkTheme) WenzhiInkDark else WenzhiInkLight
             VoicaColorPreset.MINT -> if (darkTheme) MintDark else MintLight
             VoicaColorPreset.BLUE -> if (darkTheme) BlueDark else BlueLight
             VoicaColorPreset.PURPLE -> if (darkTheme) PurpleDark else PurpleLight
@@ -209,13 +340,115 @@ fun VoicaTheme(
                     accent = Color(settings.customAccentArgb),
                 )
         }
+    val semanticColors =
+        if (settings.preset == VoicaColorPreset.WENZHI_INK) {
+            wenzhiSemanticColors(darkTheme)
+        } else {
+            legacySemanticColors(scheme, darkTheme)
+        }
 
-    MaterialTheme(
-        colorScheme = scheme,
-        typography = VoicaTypography,
-        content = content,
-    )
+    CompositionLocalProvider(LocalVoicaSemanticColors provides semanticColors) {
+        MaterialTheme(
+            colorScheme = scheme,
+            typography = VoicaTypography,
+            content = content,
+        )
+    }
 }
+
+private fun wenzhiSemanticColors(darkTheme: Boolean): VoicaSemanticColors =
+    if (darkTheme) {
+        VoicaSemanticColors(
+            brandPaper = WenzhiPaper,
+            brandInk = WenzhiInk,
+            brandAccent = WenzhiAccent,
+            brandRecording = WenzhiRecording,
+            background = WenzhiDarkBackground,
+            surface = WenzhiDarkSurface,
+            surfaceElevated = WenzhiDarkElevated,
+            surfaceVariant = WenzhiDarkElevated,
+            textPrimary = WenzhiDarkPrimaryText,
+            textSecondary = WenzhiDarkSecondaryText,
+            textTertiary = WenzhiDarkTertiaryText,
+            divider = WenzhiDarkDivider,
+            disabled = WenzhiDarkTertiaryText,
+            accent = WenzhiDarkAccent,
+            accentContainer = WenzhiDarkAccentContainer,
+            recording = WenzhiDarkRecording,
+            recordingContainer = WenzhiDarkRecordingContainer,
+            warning = WenzhiDarkWarning,
+            error = WenzhiDarkError,
+            info = WenzhiDarkInfo,
+            transcriptCurrentWordBg = WenzhiDarkAccent,
+            transcriptCurrentWordText = WenzhiDarkBackground,
+            transcriptUpcomingText = WenzhiDarkSecondaryText.copy(alpha = 0.82f),
+            transcriptActiveLineBar = WenzhiDarkAccent,
+            transcriptActiveParagraphBg = WenzhiDarkAccentContainer.copy(alpha = 0.76f),
+            transcriptPlayedText = WenzhiDarkPrimaryText.copy(alpha = 0.9f),
+        )
+    } else {
+        VoicaSemanticColors(
+            brandPaper = WenzhiPaper,
+            brandInk = WenzhiInk,
+            brandAccent = WenzhiAccent,
+            brandRecording = WenzhiRecording,
+            background = WenzhiPaper,
+            surface = WenzhiSurface,
+            surfaceElevated = WenzhiElevated,
+            surfaceVariant = Color(0xFFF0EDE6),
+            textPrimary = WenzhiInk,
+            textSecondary = WenzhiSecondary,
+            textTertiary = WenzhiTertiary,
+            divider = WenzhiDivider,
+            disabled = WenzhiDisabled,
+            accent = WenzhiAccent,
+            accentContainer = WenzhiAccentContainer,
+            recording = WenzhiRecording,
+            recordingContainer = WenzhiRecordingContainer,
+            warning = WenzhiWarning,
+            error = WenzhiError,
+            info = WenzhiInfo,
+            transcriptCurrentWordBg = WenzhiAccent,
+            transcriptCurrentWordText = Color.White,
+            transcriptUpcomingText = WenzhiSecondary.copy(alpha = 0.82f),
+            transcriptActiveLineBar = WenzhiAccent,
+            transcriptActiveParagraphBg = WenzhiAccentContainer.copy(alpha = 0.72f),
+            transcriptPlayedText = WenzhiInk.copy(alpha = 0.88f),
+        )
+    }
+
+private fun legacySemanticColors(
+    scheme: ColorScheme,
+    darkTheme: Boolean,
+): VoicaSemanticColors =
+    VoicaSemanticColors(
+        brandPaper = scheme.background,
+        brandInk = scheme.onBackground,
+        brandAccent = scheme.primary,
+        brandRecording = scheme.error,
+        background = scheme.background,
+        surface = scheme.surface,
+        surfaceElevated = scheme.surface,
+        surfaceVariant = scheme.surfaceVariant,
+        textPrimary = scheme.onSurface,
+        textSecondary = scheme.onSurfaceVariant,
+        textTertiary = scheme.onSurfaceVariant.copy(alpha = 0.72f),
+        divider = scheme.outline,
+        disabled = scheme.onSurfaceVariant.copy(alpha = 0.5f),
+        accent = scheme.primary,
+        accentContainer = scheme.primaryContainer,
+        recording = scheme.error,
+        recordingContainer = scheme.errorContainer,
+        warning = if (darkTheme) scheme.tertiary else scheme.secondary,
+        error = scheme.error,
+        info = scheme.tertiary,
+        transcriptCurrentWordBg = scheme.primaryContainer,
+        transcriptCurrentWordText = scheme.onPrimaryContainer,
+        transcriptUpcomingText = scheme.onSurfaceVariant.copy(alpha = 0.78f),
+        transcriptActiveLineBar = scheme.primary,
+        transcriptActiveParagraphBg = scheme.secondaryContainer.copy(alpha = 0.62f),
+        transcriptPlayedText = scheme.onSurface.copy(alpha = 0.88f),
+    )
 
 private fun customColorScheme(
     darkTheme: Boolean,
