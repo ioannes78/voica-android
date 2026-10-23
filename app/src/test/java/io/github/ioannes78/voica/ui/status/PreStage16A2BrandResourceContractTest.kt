@@ -81,16 +81,22 @@ class Stage16XWenzhiBrandResourceContractTest {
     }
 
     @Test
-    fun `production notification sources have started migrating to WENZHI small icon`() {
+    fun `production notification sources use WENZHI small icon only`() {
         val sourceRoot = appRoot().resolve("src/main/java")
         val kotlinFiles = sourceRoot.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
-        val removedLegacyUsers = kotlinFiles.filter { it.readText().contains("R.drawable.ic_voica_notification") }
+        val legacyUsers =
+            kotlinFiles.filter { file ->
+                val text = file.readText()
+                text.contains("R.drawable.ic_voica_notification") ||
+                    text.contains("R.drawable.ic_stat_voica")
+            }
 
         assertTrue(
-            "Removed legacy notification resource references remain: ${removedLegacyUsers.map { it.path }}",
-            removedLegacyUsers.isEmpty(),
+            "Old Voica notification resource references remain: ${legacyUsers.map { it.path }}",
+            legacyUsers.isEmpty(),
         )
         assertTrue(kotlinFiles.any { it.readText().contains("R.drawable.ic_stat_wenzhi") })
+        assertFalse(resourceFile("values/stage16x_brand_compat.xml").exists())
     }
 
     private fun resourceFile(relativePath: String): File = appRoot().resolve("src/main/res/$relativePath")
