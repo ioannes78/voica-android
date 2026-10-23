@@ -27,7 +27,7 @@ on:
           - qa
 
 permissions:
-  contents: read
+  contents: write
   actions: write
 
 jobs:
@@ -44,8 +44,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
-      # Keep fast validation build identity stable so commit churn does not invalidate
-      # Gradle Configuration Cache. QA/production artifacts receive the real source SHA.
       VOICA_BUILD_GIT_SHA: ci-fast
 
     steps:
@@ -87,7 +85,6 @@ jobs:
         uses: gradle/actions/setup-gradle@v5.0.2
         with:
           gradle-version: "9.6.0"
-          # Same-repository jobs may refresh Gradle state; external forks remain read-only.
           cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
 
@@ -135,6 +132,21 @@ jobs:
           gradle :core:database:kspDebugKotlin --rerun-tasks --no-configuration-cache --stacktrace
           test -f "$schema"
 
+      - name: Commit generated Room v15 schema
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          schema="core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/15.json"
+          if [ -z "$(git status --porcelain --untracked-files=all -- "$schema")" ]; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$schema"
+          git commit -m "Commit Room v15 schema"
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
+
       - name: Upload generated Room v15 schema
         uses: actions/upload-artifact@v4
         with:
@@ -149,9 +161,6 @@ jobs:
 
   qa-apk:
     name: QA APK Gate
-    # QA APK generation is edge-triggered: add the [APK] prefix to the PR title
-    # when the stage enters a real-device QA handoff. Keeping [APK] in the title
-    # does not rebuild an APK on later synchronize/push events.
     if: >-
       ${{
         (github.event_name == 'pull_request' &&
