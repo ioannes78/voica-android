@@ -1,8 +1,8 @@
 {
   "formatVersion": 1,
   "database": {
-    "version": 15,
-    "identityHash": "023b9481839f089721290b989b39dc89",
+    "version": 16,
+    "identityHash": "d9091074b0654977cb0db055dcb35dcd",
     "entities": [
       {
         "tableName": "recordings",
@@ -413,89 +413,6 @@
             "referencedColumns": [
               "id"
             ]
-          }
-        ]
-      },
-      {
-        "tableName": "library_meta",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `value` TEXT NOT NULL, `updatedAtMs` INTEGER NOT NULL, PRIMARY KEY(`key`))",
-        "fields": [
-          {
-            "fieldPath": "key",
-            "columnName": "key",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "value",
-            "columnName": "value",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "updatedAtMs",
-            "columnName": "updatedAtMs",
-            "affinity": "INTEGER",
-            "notNull": true
-          }
-        ],
-        "primaryKey": {
-          "autoGenerate": false,
-          "columnNames": [
-            "key"
-          ]
-        }
-      },
-      {
-        "tableName": "migration_diagnostics",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `sourcePath` TEXT NOT NULL, `code` TEXT NOT NULL, `detail` TEXT, `observedAtMs` INTEGER NOT NULL)",
-        "fields": [
-          {
-            "fieldPath": "id",
-            "columnName": "id",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "sourcePath",
-            "columnName": "sourcePath",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "code",
-            "columnName": "code",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "detail",
-            "columnName": "detail",
-            "affinity": "TEXT"
-          },
-          {
-            "fieldPath": "observedAtMs",
-            "columnName": "observedAtMs",
-            "affinity": "INTEGER",
-            "notNull": true
-          }
-        ],
-        "primaryKey": {
-          "autoGenerate": true,
-          "columnNames": [
-            "id"
-          ]
-        },
-        "indices": [
-          {
-            "name": "index_migration_diagnostics_sourcePath_code",
-            "unique": true,
-            "columnNames": [
-              "sourcePath",
-              "code"
-            ],
-            "orders": [],
-            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_migration_diagnostics_sourcePath_code` ON `${TABLE_NAME}` (`sourcePath`, `code`)"
           }
         ]
       },
@@ -4141,7 +4058,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '023b9481839f089721290b989b39dc89')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'd9091074b0654977cb0db055dcb35dcd')"
     ]
   }
 }
