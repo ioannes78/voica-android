@@ -26,9 +26,7 @@ import androidx.room.RoomDatabase
         TranscriptSpeakerAlignmentEntity::class,
         TranscriptSpeakerSpanEntity::class,
         AiSummaryEntity::class,
-        AiCustomTemplateEntity::class,
         AiSummaryEvidenceEntity::class,
-        AiSummaryChunkEntity::class,
         TranscriptionUserMetadataEntity::class,
         TranscriptionRevisionEntity::class,
         TranscriptionRevisionParagraphEntity::class,
@@ -46,7 +44,7 @@ import androidx.room.RoomDatabase
         TimelineAnnotationEntity::class,
         TimelineAnnotationAttachmentEntity::class,
     ],
-    version = 14,
+    version = 15,
     exportSchema = true,
 )
 abstract class VoicaDatabase : RoomDatabase() {

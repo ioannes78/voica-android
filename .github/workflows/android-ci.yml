@@ -126,6 +126,14 @@ jobs:
             --configuration-cache \
             --stacktrace
 
+      - name: Upload generated Room v15 schema
+        uses: actions/upload-artifact@v4
+        with:
+          name: room-schema-v15
+          path: core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/15.json
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Verify FSMN candidate runtime boundary
         shell: bash
         run: bash ci/verify-fsmn-candidate-runtime.sh debug

@@ -1,8 +1,8 @@
 package io.github.ioannes78.voica.database
 
-import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
+import androidx.room.Ignore
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
@@ -43,6 +43,7 @@ object AiSummaryStateValue {
         )
 }
 
+/** Temporary source-compatibility shim for the v15 schema capture commit only. */
 object AiSummaryRemoteDispatchStateValue {
     const val NONE = "NONE"
     const val READY_TO_SEND = "READY_TO_SEND"
@@ -80,11 +81,6 @@ data class AiSummaryEntity(
     val transcriptionId: String?,
     val inputMode: String,
     val mode: String,
-    val templateId: String?,
-    val templateSnapshot: String?,
-    val providerProfileId: String,
-    val providerNameSnapshot: String,
-    val baseUrlSnapshot: String,
     val model: String,
     val promptVersion: Int,
     val resultSchemaVersion: Int,
@@ -99,25 +95,80 @@ data class AiSummaryEntity(
     val completedAtMs: Long?,
     val errorCode: String?,
     val sanitizedErrorMessage: String?,
-    val requestConfigSnapshot: String,
-    val usageSnapshot: String?,
     val alignmentIdSnapshot: String?,
     val sourceLineageSnapshot: String,
-    @ColumnInfo(defaultValue = "0")
-    val executionGeneration: Long = 0L,
-    val ownerTaskId: Int? = null,
-    @ColumnInfo(defaultValue = "'NONE'")
-    val remoteDispatchState: String = AiSummaryRemoteDispatchStateValue.NONE,
-    val remoteRequestId: String? = null,
-    val remoteStepKind: String? = null,
-    val remoteStepKey: String? = null,
-    @ColumnInfo(defaultValue = "0")
-    val remoteCallOrdinal: Int = 0,
-    val remoteStartedAtMs: Long? = null,
-    val terminalAcknowledgedAtMs: Long? = null,
-    val retryOfSummaryId: String? = null,
-)
+) {
+    /**
+     * Transitional constructor used only while the Room v15 schema is captured from CI.
+     * Provider/remote execution arguments are intentionally not persisted in v15.
+     */
+    @Ignore
+    @Suppress("UNUSED_PARAMETER")
+    constructor(
+        id: String,
+        recordingId: String,
+        transcriptionId: String?,
+        inputMode: String,
+        mode: String,
+        templateId: String?,
+        templateSnapshot: String?,
+        providerProfileId: String,
+        providerNameSnapshot: String,
+        baseUrlSnapshot: String,
+        model: String,
+        promptVersion: Int,
+        resultSchemaVersion: Int,
+        contentType: String?,
+        classificationConfidence: Double?,
+        structuredPayloadJson: String?,
+        displayText: String?,
+        status: String,
+        createdAtMs: Long,
+        startedAtMs: Long?,
+        updatedAtMs: Long,
+        completedAtMs: Long?,
+        errorCode: String?,
+        sanitizedErrorMessage: String?,
+        requestConfigSnapshot: String,
+        usageSnapshot: String?,
+        alignmentIdSnapshot: String?,
+        sourceLineageSnapshot: String,
+        executionGeneration: Long = 0L,
+        ownerTaskId: Int? = null,
+        remoteDispatchState: String = AiSummaryRemoteDispatchStateValue.NONE,
+        remoteRequestId: String? = null,
+        remoteStepKind: String? = null,
+        remoteStepKey: String? = null,
+        remoteCallOrdinal: Int = 0,
+        remoteStartedAtMs: Long? = null,
+        terminalAcknowledgedAtMs: Long? = null,
+        retryOfSummaryId: String? = null,
+    ) : this(
+        id = id,
+        recordingId = recordingId,
+        transcriptionId = transcriptionId,
+        inputMode = inputMode,
+        mode = mode,
+        model = model,
+        promptVersion = promptVersion,
+        resultSchemaVersion = resultSchemaVersion,
+        contentType = contentType,
+        classificationConfidence = classificationConfidence,
+        structuredPayloadJson = structuredPayloadJson,
+        displayText = displayText,
+        status = status,
+        createdAtMs = createdAtMs,
+        startedAtMs = startedAtMs,
+        updatedAtMs = updatedAtMs,
+        completedAtMs = completedAtMs,
+        errorCode = errorCode,
+        sanitizedErrorMessage = sanitizedErrorMessage,
+        alignmentIdSnapshot = alignmentIdSnapshot,
+        sourceLineageSnapshot = sourceLineageSnapshot,
+    )
+}
 
+/** Retained temporarily for source compatibility; no longer registered in VoicaDatabase v15. */
 @Entity(
     tableName = "ai_custom_templates",
     indices = [
@@ -166,6 +217,7 @@ data class AiSummaryEvidenceEntity(
     val assignmentQuality: String?,
 )
 
+/** Retained temporarily for source compatibility; no longer registered in VoicaDatabase v15. */
 @Entity(
     tableName = "ai_summary_chunks",
     foreignKeys = [

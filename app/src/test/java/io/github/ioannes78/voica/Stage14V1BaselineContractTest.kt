@@ -29,7 +29,7 @@ class Stage14V1BaselineContractTest {
     fun preReleaseRoomRuntimeUsesCurrentSchemaWithoutHistoricalMigrationChain() {
         val source = databaseProductionSource("VoicaDatabase.kt")
 
-        assertTrue(source.contains("version = 14"))
+        assertTrue(source.contains("version = 15"))
         assertFalse(
             "pre-release personal-use baseline must not register historical migrations at runtime",
             source.contains(".addMigrations("),
