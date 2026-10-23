@@ -31,6 +31,42 @@ permissions:
   actions: write
 
 jobs:
+  stage16x-p6-apply:
+    name: Stage 16X P6 exact patch
+    if: >-
+      ${{
+        github.event_name == 'pull_request' &&
+        github.event.action == 'synchronize' &&
+        github.head_ref == 'stage16x-wenzhi-brand-theme' &&
+        github.event.pull_request.head.repo.full_name == github.repository
+      }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout Stage 16X branch
+        uses: actions/checkout@v5
+        with:
+          ref: stage16x-wenzhi-brand-theme
+      - name: Apply exact P6 patch
+        run: python3 ci/stage16x_apply_p6.py
+      - name: Commit P6 when changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add app/src/main/java/io/github/ioannes78/voica/ui/transcript/TranscriptionCards.kt \
+                  app/src/main/res/values/strings.xml
+          if git diff --cached --quiet; then
+            echo "P6 already applied; no commit required."
+            exit 0
+          fi
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Stage 16X: implement gentle transcript reading highlight"
+          git push origin HEAD:stage16x-wenzhi-brand-theme
+
   fast-gate:
     name: Fast PR Gate
     if: >-
