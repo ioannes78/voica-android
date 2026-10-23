@@ -1,0 +1,35 @@
+name: Stage 16X P6 deterministic patch
+
+on:
+  push:
+    branches: [ stage16x-wenzhi-brand-theme ]
+    paths:
+      - ".github/workflows/stage16x-p6-apply.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout Stage 16X
+        uses: actions/checkout@v5
+        with:
+          ref: stage16x-wenzhi-brand-theme
+      - name: Apply exact P6 patch
+        run: python3 ci/stage16x_apply_p6.py
+      - name: Commit exact patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/io/github/ioannes78/voica/ui/transcript/TranscriptionCards.kt \
+                  app/src/main/java/io/github/ioannes78/voica/ui/theme/Theme.kt \
+                  app/src/main/res/values/strings.xml
+          git diff --cached --check
+          git diff --cached --quiet && { echo "No patch produced"; exit 1; }
+          git commit -m "Stage 16X: implement gentle transcript reading highlight"
+          git push origin HEAD:stage16x-wenzhi-brand-theme
