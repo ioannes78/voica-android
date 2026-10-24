@@ -40,6 +40,16 @@ private val WenzhiDarkWarning = Color(0xFFC6965A)
 private val WenzhiDarkError = Color(0xFFD1706C)
 private val WenzhiDarkInfo = Color(0xFF7F98A6)
 
+private val PaperInk = Color(0xFF292720)
+private val PaperSecondary = Color(0xFF6C675A)
+private val PaperAccent = Color(0xFF776244)
+private val PaperAccentContainer = Color(0xFFE9DDBB)
+private val PaperPlayback = Color(0xFF9A7B45)
+private val PaperDarkText = Color(0xFFF4EBDD)
+private val PaperDarkSecondary = Color(0xFFC0B49E)
+private val PaperDarkAccent = Color(0xFFC9AA70)
+private val PaperDarkAccentContainer = Color(0xFF493B27)
+
 @Immutable
 private data class SurfacePalette(
     val background: Color,
@@ -228,6 +238,104 @@ private val PurpleDarkSurfaces =
         inverseSurface = Color(0xFFE9E1EC),
         inverseOnSurface = Color(0xFF302B33),
     )
+
+private val PaperDarkSurfaces =
+    SurfacePalette(
+        background = Color(0xFF17140F),
+        onBackground = PaperDarkText,
+        surface = Color(0xFF1E1A14),
+        onSurface = PaperDarkText,
+        surfaceDim = Color(0xFF17140F),
+        surfaceBright = Color(0xFF453B2D),
+        surfaceContainerLowest = Color(0xFF100D09),
+        surfaceContainerLow = Color(0xFF1B1711),
+        surfaceContainer = Color(0xFF241F18),
+        surfaceContainerHigh = Color(0xFF2E271D),
+        surfaceContainerHighest = Color(0xFF393024),
+        surfaceVariant = Color(0xFF332B20),
+        onSurfaceVariant = PaperDarkSecondary,
+        outline = Color(0xFF9C907B),
+        outlineVariant = Color(0xFF4E4435),
+        inverseSurface = Color(0xFFEDE2CF),
+        inverseOnSurface = Color(0xFF30291F),
+    )
+
+private fun paperLightSurfaces(tone: WenzhiPaperTone): SurfacePalette {
+    val background =
+        when (tone) {
+            WenzhiPaperTone.PAPER_WHITE -> Color(0xFFFAF6E9)
+            WenzhiPaperTone.XUAN_WARM -> Color(0xFFF6F0DF)
+            WenzhiPaperTone.RICE_APRICOT -> Color(0xFFF1E7CF)
+            WenzhiPaperTone.ANTIQUE -> Color(0xFFEFE3C5)
+        }
+    return SurfacePalette(
+        background = background,
+        onBackground = PaperInk,
+        surface = mix(background, Color.White, 0.45f),
+        onSurface = PaperInk,
+        surfaceDim = mix(background, Color(0xFFC7B991), 0.18f),
+        surfaceBright = mix(background, Color.White, 0.78f),
+        surfaceContainerLowest = mix(background, Color.White, 0.9f),
+        surfaceContainerLow = mix(background, Color.White, 0.30f),
+        surfaceContainer = background,
+        surfaceContainerHigh = mix(background, Color(0xFFD2C39C), 0.14f),
+        surfaceContainerHighest = mix(background, Color(0xFFC7B78D), 0.22f),
+        surfaceVariant = mix(background, Color(0xFFD5C59F), 0.16f),
+        onSurfaceVariant = PaperSecondary,
+        outline = Color(0xFF897E68),
+        outlineVariant = mix(background, Color(0xFFB9AA87), 0.30f),
+        inverseSurface = Color(0xFF3A3329),
+        inverseOnSurface = Color(0xFFF8EFDc),
+    )
+}
+
+private fun customSurfacePalette(
+    darkTheme: Boolean,
+    accent: Color,
+): SurfacePalette {
+    fun tint(base: Color, ratio: Float): Color = mix(base, accent, ratio)
+    return if (darkTheme) {
+        SurfacePalette(
+            background = tint(Color(0xFF111412), 0.04f),
+            onBackground = Color(0xFFEEF1EF),
+            surface = tint(Color(0xFF171A18), 0.05f),
+            onSurface = Color(0xFFEEF1EF),
+            surfaceDim = tint(Color(0xFF111412), 0.04f),
+            surfaceBright = tint(Color(0xFF373B38), 0.08f),
+            surfaceContainerLowest = tint(Color(0xFF0B0E0C), 0.03f),
+            surfaceContainerLow = tint(Color(0xFF151815), 0.05f),
+            surfaceContainer = tint(Color(0xFF1C201D), 0.06f),
+            surfaceContainerHigh = tint(Color(0xFF252A26), 0.07f),
+            surfaceContainerHighest = tint(Color(0xFF2E342F), 0.08f),
+            surfaceVariant = tint(Color(0xFF29302B), 0.08f),
+            onSurfaceVariant = Color(0xFFB7C0BA),
+            outline = Color(0xFF89928C),
+            outlineVariant = tint(Color(0xFF414843), 0.08f),
+            inverseSurface = Color(0xFFE3E9E5),
+            inverseOnSurface = Color(0xFF29302B),
+        )
+    } else {
+        SurfacePalette(
+            background = tint(Color(0xFFF7F7F4), 0.025f),
+            onBackground = Color(0xFF1A1D1B),
+            surface = tint(Color(0xFFFDFDFC), 0.025f),
+            onSurface = Color(0xFF1A1D1B),
+            surfaceDim = tint(Color(0xFFDFE2DF), 0.035f),
+            surfaceBright = Color.White,
+            surfaceContainerLowest = Color.White,
+            surfaceContainerLow = tint(Color(0xFFF4F5F2), 0.03f),
+            surfaceContainer = tint(Color(0xFFEEF1ED), 0.045f),
+            surfaceContainerHigh = tint(Color(0xFFE7EBE7), 0.055f),
+            surfaceContainerHighest = tint(Color(0xFFDDE3DE), 0.065f),
+            surfaceVariant = tint(Color(0xFFE8ECE8), 0.06f),
+            onSurfaceVariant = Color(0xFF5D655F),
+            outline = Color(0xFF7B847E),
+            outlineVariant = tint(Color(0xFFCCD3CE), 0.05f),
+            inverseSurface = Color(0xFF2D332F),
+            inverseOnSurface = Color(0xFFF0F4F1),
+        )
+    }
+}
 
 private fun ColorScheme.withSurfacePalette(
     palette: SurfacePalette,
@@ -449,6 +557,58 @@ private val PurpleDark =
         inversePrimary = Color(0xFF6750A4),
     )
 
+private fun wenzhiPaperColorScheme(
+    darkTheme: Boolean,
+    paperTone: WenzhiPaperTone,
+): ColorScheme =
+    if (darkTheme) {
+        darkColorScheme(
+            primary = PaperDarkAccent,
+            onPrimary = Color(0xFF33270F),
+            primaryContainer = PaperDarkAccentContainer,
+            onPrimaryContainer = Color(0xFFF1DEB3),
+            secondary = PaperDarkSecondary,
+            onSecondary = Color(0xFF30291F),
+            secondaryContainer = Color(0xFF463C2E),
+            onSecondaryContainer = Color(0xFFE9DDC8),
+            tertiary = Color(0xFFC7A27C),
+            onTertiary = Color(0xFF392713),
+            tertiaryContainer = Color(0xFF533B23),
+            onTertiaryContainer = Color(0xFFF0D4B6),
+            error = Color(0xFFFFB4AB),
+            onError = Color(0xFF690005),
+            errorContainer = Color(0xFF93000A),
+            onErrorContainer = Color(0xFFFFDAD6),
+        ).withSurfacePalette(
+            palette = PaperDarkSurfaces,
+            surfaceTint = PaperDarkAccent,
+            inversePrimary = PaperAccent,
+        )
+    } else {
+        lightColorScheme(
+            primary = PaperAccent,
+            onPrimary = Color.White,
+            primaryContainer = PaperAccentContainer,
+            onPrimaryContainer = Color(0xFF3F321F),
+            secondary = PaperSecondary,
+            onSecondary = Color.White,
+            secondaryContainer = Color(0xFFEDE4D1),
+            onSecondaryContainer = PaperInk,
+            tertiary = Color(0xFF8B6545),
+            onTertiary = Color.White,
+            tertiaryContainer = Color(0xFFF3DDC4),
+            onTertiaryContainer = Color(0xFF332111),
+            error = Color(0xFFA94442),
+            onError = Color.White,
+            errorContainer = Color(0xFFF4E7E5),
+            onErrorContainer = Color(0xFFA94442),
+        ).withSurfacePalette(
+            palette = paperLightSurfaces(paperTone),
+            surfaceTint = PaperAccent,
+            inversePrimary = PaperDarkAccent,
+        )
+    }
+
 @Immutable
 data class VoicaSemanticColors(
     val brandPaper: Color,
@@ -491,90 +651,18 @@ object VoicaThemeTokens {
 
 private val VoicaTypography =
     Typography(
-        headlineLarge =
-            TextStyle(
-                fontFamily = FontFamily.SansSerif,
-                fontWeight = FontWeight.Medium,
-                fontSize = 24.sp,
-                lineHeight = 30.sp,
-            ),
-        headlineMedium =
-            TextStyle(
-                fontFamily = FontFamily.SansSerif,
-                fontWeight = FontWeight.Medium,
-                fontSize = 24.sp,
-                lineHeight = 30.sp,
-            ),
-        headlineSmall =
-            TextStyle(
-                fontFamily = FontFamily.SansSerif,
-                fontWeight = FontWeight.Medium,
-                fontSize = 20.sp,
-                lineHeight = 26.sp,
-            ),
-        titleLarge =
-            TextStyle(
-                fontFamily = FontFamily.SansSerif,
-                fontWeight = FontWeight.Medium,
-                fontSize = 17.sp,
-                lineHeight = 23.sp,
-            ),
-        titleMedium =
-            TextStyle(
-                fontFamily = FontFamily.SansSerif,
-                fontWeight = FontWeight.Medium,
-                fontSize = 16.sp,
-                lineHeight = 22.sp,
-            ),
-        titleSmall =
-            TextStyle(
-                fontFamily = FontFamily.SansSerif,
-                fontWeight = FontWeight.Medium,
-                fontSize = 14.sp,
-                lineHeight = 20.sp,
-            ),
-        bodyLarge =
-            TextStyle(
-                fontFamily = FontFamily.SansSerif,
-                fontWeight = FontWeight.Normal,
-                fontSize = 15.sp,
-                lineHeight = 21.sp,
-            ),
-        bodyMedium =
-            TextStyle(
-                fontFamily = FontFamily.SansSerif,
-                fontWeight = FontWeight.Normal,
-                fontSize = 15.sp,
-                lineHeight = 21.sp,
-            ),
-        bodySmall =
-            TextStyle(
-                fontFamily = FontFamily.SansSerif,
-                fontWeight = FontWeight.Normal,
-                fontSize = 13.sp,
-                lineHeight = 18.sp,
-            ),
-        labelLarge =
-            TextStyle(
-                fontFamily = FontFamily.SansSerif,
-                fontWeight = FontWeight.Medium,
-                fontSize = 14.sp,
-                lineHeight = 20.sp,
-            ),
-        labelMedium =
-            TextStyle(
-                fontFamily = FontFamily.SansSerif,
-                fontWeight = FontWeight.Normal,
-                fontSize = 13.sp,
-                lineHeight = 18.sp,
-            ),
-        labelSmall =
-            TextStyle(
-                fontFamily = FontFamily.SansSerif,
-                fontWeight = FontWeight.Normal,
-                fontSize = 12.sp,
-                lineHeight = 16.sp,
-            ),
+        headlineLarge = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium, fontSize = 24.sp, lineHeight = 30.sp),
+        headlineMedium = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium, fontSize = 24.sp, lineHeight = 30.sp),
+        headlineSmall = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium, fontSize = 20.sp, lineHeight = 26.sp),
+        titleLarge = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium, fontSize = 17.sp, lineHeight = 23.sp),
+        titleMedium = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium, fontSize = 16.sp, lineHeight = 22.sp),
+        titleSmall = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium, fontSize = 14.sp, lineHeight = 20.sp),
+        bodyLarge = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Normal, fontSize = 15.sp, lineHeight = 21.sp),
+        bodyMedium = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Normal, fontSize = 15.sp, lineHeight = 21.sp),
+        bodySmall = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Normal, fontSize = 13.sp, lineHeight = 18.sp),
+        labelLarge = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium, fontSize = 14.sp, lineHeight = 20.sp),
+        labelMedium = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Normal, fontSize = 13.sp, lineHeight = 18.sp),
+        labelSmall = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Normal, fontSize = 12.sp, lineHeight = 16.sp),
     )
 
 @Composable
@@ -593,13 +681,14 @@ fun VoicaTheme(
         resolveVoicaColorScheme(
             preset = settings.preset,
             darkTheme = darkTheme,
+            paperTone = settings.paperTone,
             customAccentArgb = settings.customAccentArgb,
         )
     val semanticColors =
-        if (settings.preset == VoicaColorPreset.WENZHI_INK) {
-            wenzhiSemanticColors(scheme, darkTheme)
-        } else {
-            legacySemanticColors(scheme, darkTheme)
+        when (settings.preset) {
+            VoicaColorPreset.WENZHI_INK -> wenzhiSemanticColors(scheme, darkTheme)
+            VoicaColorPreset.WENZHI_PAPER -> paperSemanticColors(scheme, darkTheme)
+            else -> legacySemanticColors(scheme, darkTheme)
         }
 
     CompositionLocalProvider(LocalVoicaSemanticColors provides semanticColors) {
@@ -614,18 +703,16 @@ fun VoicaTheme(
 internal fun resolveVoicaColorScheme(
     preset: VoicaColorPreset,
     darkTheme: Boolean,
+    paperTone: WenzhiPaperTone = WenzhiPaperTone.XUAN_WARM,
     customAccentArgb: Int = VoicaThemeSettings.DEFAULT_CUSTOM_ACCENT,
 ): ColorScheme =
     when (preset) {
         VoicaColorPreset.WENZHI_INK -> if (darkTheme) WenzhiInkDark else WenzhiInkLight
+        VoicaColorPreset.WENZHI_PAPER -> wenzhiPaperColorScheme(darkTheme, paperTone)
         VoicaColorPreset.MINT -> if (darkTheme) MintDark else MintLight
         VoicaColorPreset.BLUE -> if (darkTheme) BlueDark else BlueLight
         VoicaColorPreset.PURPLE -> if (darkTheme) PurpleDark else PurpleLight
-        VoicaColorPreset.CUSTOM ->
-            customColorScheme(
-                darkTheme = darkTheme,
-                accent = Color(customAccentArgb),
-            )
+        VoicaColorPreset.CUSTOM -> customColorScheme(darkTheme, Color(customAccentArgb))
     }
 
 private fun wenzhiSemanticColors(
@@ -659,6 +746,39 @@ private fun wenzhiSemanticColors(
         transcriptActiveLineBar = scheme.primary,
         transcriptActiveParagraphBg = scheme.primaryContainer,
         transcriptPlayedText = scheme.onSurface.copy(alpha = if (darkTheme) 0.9f else 0.88f),
+    )
+
+private fun paperSemanticColors(
+    scheme: ColorScheme,
+    darkTheme: Boolean,
+): VoicaSemanticColors =
+    VoicaSemanticColors(
+        brandPaper = Color(0xFFF6F0DF),
+        brandInk = PaperInk,
+        brandAccent = PaperAccent,
+        brandRecording = WenzhiRecording,
+        background = scheme.background,
+        surface = scheme.surface,
+        surfaceElevated = scheme.surfaceContainerHigh,
+        surfaceVariant = scheme.surfaceContainer,
+        textPrimary = scheme.onSurface,
+        textSecondary = scheme.onSurfaceVariant,
+        textTertiary = scheme.onSurfaceVariant.copy(alpha = 0.72f),
+        divider = scheme.outlineVariant,
+        disabled = scheme.onSurfaceVariant.copy(alpha = 0.5f),
+        accent = scheme.primary,
+        accentContainer = scheme.primaryContainer,
+        recording = if (darkTheme) WenzhiDarkRecording else WenzhiRecording,
+        recordingContainer = if (darkTheme) WenzhiDarkRecordingContainer else WenzhiRecordingContainer,
+        warning = if (darkTheme) PaperDarkAccent else PaperPlayback,
+        error = scheme.error,
+        info = if (darkTheme) Color(0xFFB6A486) else Color(0xFF756A58),
+        transcriptCurrentWordBg = mix(scheme.primaryContainer, scheme.primary, if (darkTheme) 0.34f else 0.30f),
+        transcriptCurrentWordText = scheme.onPrimaryContainer,
+        transcriptUpcomingText = scheme.onSurfaceVariant.copy(alpha = 0.82f),
+        transcriptActiveLineBar = if (darkTheme) PaperDarkAccent else PaperPlayback,
+        transcriptActiveParagraphBg = scheme.primaryContainer,
+        transcriptPlayedText = scheme.onSurface.copy(alpha = 0.9f),
     )
 
 private fun legacySemanticColors(
@@ -698,33 +818,60 @@ private fun customColorScheme(
     darkTheme: Boolean,
     accent: Color,
 ): ColorScheme {
-    val base = if (darkTheme) MintDark else MintLight
-    val onPrimary =
-        if (accent.luminance() > 0.48f) {
-            Color(0xFF101413)
-        } else {
-            Color.White
-        }
+    val onPrimary = if (accent.luminance() > 0.48f) Color(0xFF101413) else Color.White
     val container =
         mix(
             accent,
             if (darkTheme) Color.Black else Color.White,
             if (darkTheme) 0.56f else 0.72f,
         )
-    val onContainer =
-        if (container.luminance() > 0.48f) {
-            Color(0xFF101413)
+    val onContainer = if (container.luminance() > 0.48f) Color(0xFF101413) else Color.White
+    val secondary = mix(accent, if (darkTheme) Color(0xFFB8C1BB) else Color(0xFF58615B), 0.62f)
+    val secondaryContainer = mix(accent, if (darkTheme) Color(0xFF35403A) else Color(0xFFE1E7E2), 0.72f)
+    val base =
+        if (darkTheme) {
+            darkColorScheme(
+                primary = accent,
+                onPrimary = onPrimary,
+                primaryContainer = container,
+                onPrimaryContainer = onContainer,
+                secondary = secondary,
+                onSecondary = Color(0xFF222825),
+                secondaryContainer = secondaryContainer,
+                onSecondaryContainer = Color(0xFFE1E8E3),
+                tertiary = mix(accent, Color(0xFFB7C7D0), 0.72f),
+                onTertiary = Color(0xFF203036),
+                tertiaryContainer = mix(accent, Color(0xFF35464D), 0.76f),
+                onTertiaryContainer = Color(0xFFD9E8EF),
+                error = Color(0xFFFFB4AB),
+                onError = Color(0xFF690005),
+                errorContainer = Color(0xFF93000A),
+                onErrorContainer = Color(0xFFFFDAD6),
+            )
         } else {
-            Color.White
+            lightColorScheme(
+                primary = accent,
+                onPrimary = onPrimary,
+                primaryContainer = container,
+                onPrimaryContainer = onContainer,
+                secondary = secondary,
+                onSecondary = Color.White,
+                secondaryContainer = secondaryContainer,
+                onSecondaryContainer = Color(0xFF202521),
+                tertiary = mix(accent, Color(0xFF5D7079), 0.70f),
+                onTertiary = Color.White,
+                tertiaryContainer = mix(accent, Color(0xFFDCEAF0), 0.82f),
+                onTertiaryContainer = Color(0xFF19272D),
+                error = Color(0xFFBA1A1A),
+                onError = Color.White,
+                errorContainer = Color(0xFFFFDAD6),
+                onErrorContainer = Color(0xFF410002),
+            )
         }
-
-    return base.copy(
-        primary = accent,
-        onPrimary = onPrimary,
-        primaryContainer = container,
-        onPrimaryContainer = onContainer,
-        secondary = mix(accent, base.secondary, 0.45f),
-        secondaryContainer = mix(accent, base.secondaryContainer, 0.35f),
+    return base.withSurfacePalette(
+        palette = customSurfacePalette(darkTheme, accent),
+        surfaceTint = accent,
+        inversePrimary = accent,
     )
 }
 
