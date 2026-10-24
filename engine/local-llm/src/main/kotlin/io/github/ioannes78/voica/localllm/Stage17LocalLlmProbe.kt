@@ -8,6 +8,8 @@ import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.ExperimentalApi
+import com.google.ai.edge.litertlm.ExperimentalFlags
 import com.google.ai.edge.litertlm.SamplerConfig
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Dispatchers
@@ -66,18 +68,22 @@ data class Stage17ProbeResult(
 /**
  * Stage 17 / P0 only.
  *
- * R4 is a controlled same-device comparison against Google AI Edge Gallery. The user's physical
- * device can run Gemma 4 E2B in Gallery, so this probe intentionally matches Gallery's Android
- * runtime/configuration before changing the already verified base model artifact:
+ * R5 keeps the R4 runtime/model/sampler/KV variables fixed and corrects one remaining Gallery
+ * parity difference discovered from the real-device R4 crash evidence:
  *
  * - LiteRT-LM 0.18.0;
  * - maxNumTokens = 4000;
  * - normal app-private model paths do not provide cacheDir;
  * - SamplerConfig(topK=64, topP=0.95, temperature=1.0);
- * - prompt is sent as Contents rather than the String convenience overload.
+ * - prompt is sent as Contents rather than the String convenience overload;
+ * - speculative decoding is disabled at Engine creation through ExperimentalFlags;
+ * - ConversationConfig leaves enableSpeculativeDecoding=null so the session inherits Engine OFF,
+ *   matching Gallery instead of forcing a session-level false override;
+ * - conversation constrained decoding is explicitly disabled before createConversation().
  *
  * This remains a feasibility probe only. It is not wired into production summary/RAG/Q&A.
  */
+@OptIn(ExperimentalApi::class)
 class Stage17LocalLlmProbe {
     suspend fun run(
         request: Stage17ProbeRequest,
@@ -85,6 +91,12 @@ class Stage17LocalLlmProbe {
     ): Stage17ProbeResult =
         withContext(Dispatchers.IO) {
             coroutineScope {
+                val previousSpeculativeDecoding = ExperimentalFlags.enableSpeculativeDecoding
+                val previousConversationConstrainedDecoding =
+                    ExperimentalFlags.enableConversationConstrainedDecoding
+                ExperimentalFlags.enableSpeculativeDecoding = false
+                ExperimentalFlags.enableConversationConstrainedDecoding = false
+
                 val backend =
                     when (request.backend) {
                         ProbeBackend.CPU -> Backend.CPU()
@@ -96,16 +108,6 @@ class Stage17LocalLlmProbe {
                         backend = backend,
                         maxNumTokens = request.maxNumTokens,
                         cacheDir = null,
-                    )
-                val conversationConfig =
-                    ConversationConfig(
-                        samplerConfig =
-                            SamplerConfig(
-                                topK = PROBE_TOP_K,
-                                topP = PROBE_TOP_P,
-                                temperature = PROBE_TEMPERATURE,
-                            ),
-                        enableSpeculativeDecoding = false,
                     )
 
                 val pssBeforeInitializeKb = currentPssKb()
@@ -139,8 +141,9 @@ class Stage17LocalLlmProbe {
                         peakPssKb.updateAndGet { previous -> maxOf(previous, pssAfterInitializeKb) }
                         onPhase(Stage17ProbePhase.ENGINE_INITIALIZED)
 
+                        ExperimentalFlags.enableConversationConstrainedDecoding = false
                         onPhase(Stage17ProbePhase.CONVERSATION_CREATING)
-                        engine.createConversation(conversationConfig).use { conversation ->
+                        engine.createConversation(stage17P0ConversationConfig()).use { conversation ->
                             onPhase(Stage17ProbePhase.CONVERSATION_READY)
                             generationStartedNanos = SystemClock.elapsedRealtimeNanos()
                             onPhase(Stage17ProbePhase.GENERATING)
@@ -182,6 +185,9 @@ class Stage17LocalLlmProbe {
                     )
                 } finally {
                     sampler.cancelAndJoin()
+                    ExperimentalFlags.enableConversationConstrainedDecoding =
+                        previousConversationConstrainedDecoding
+                    ExperimentalFlags.enableSpeculativeDecoding = previousSpeculativeDecoding
                 }
             }
         }
@@ -201,6 +207,17 @@ class Stage17LocalLlmProbe {
         const val PSS_SAMPLE_INTERVAL_MS = 250L
     }
 }
+
+internal fun stage17P0ConversationConfig(): ConversationConfig =
+    ConversationConfig(
+        samplerConfig =
+            SamplerConfig(
+                topK = Stage17LocalLlmProbe.PROBE_TOP_K,
+                topP = Stage17LocalLlmProbe.PROBE_TOP_P,
+                temperature = Stage17LocalLlmProbe.PROBE_TEMPERATURE,
+            ),
+        enableSpeculativeDecoding = null,
+    )
 
 /**
  * Externally verified P0 candidate metadata. These values are feasibility inputs, not a production

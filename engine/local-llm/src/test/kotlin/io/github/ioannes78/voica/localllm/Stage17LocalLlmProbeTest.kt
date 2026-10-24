@@ -3,10 +3,11 @@ package io.github.ioannes78.voica.localllm
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 
 class Stage17LocalLlmProbeTest {
     @Test
-    fun runtimeVersionMatchesGalleryForR4() {
+    fun runtimeVersionMatchesGalleryForR5() {
         assertEquals("0.18.0", BuildConfig.LITERT_LM_VERSION)
         assertEquals("0.18.0", Stage17LocalLlmProbe.RUNTIME_VERSION)
     }
@@ -25,7 +26,7 @@ class Stage17LocalLlmProbeTest {
     }
 
     @Test
-    fun r4SmokeConfigMatchesGalleryDefaults() {
+    fun r5SmokeConfigKeepsGalleryDefaults() {
         assertEquals(4_000, Stage17LocalLlmProbe.PROBE_MAX_CONTEXT_TOKENS)
         assertEquals(64, Stage17LocalLlmProbe.PROBE_TOP_K)
         assertEquals(0.95, Stage17LocalLlmProbe.PROBE_TOP_P)
@@ -37,6 +38,17 @@ class Stage17LocalLlmProbeTest {
                 backend = ProbeBackend.CPU,
             ).maxNumTokens,
         )
+    }
+
+    @Test
+    fun r5ConversationUsesGallerySamplerAndInheritsEngineSpeculativeSetting() {
+        val config = stage17P0ConversationConfig()
+        val sampler = requireNotNull(config.samplerConfig)
+
+        assertEquals(Stage17LocalLlmProbe.PROBE_TOP_K, sampler.topK)
+        assertEquals(Stage17LocalLlmProbe.PROBE_TOP_P, sampler.topP)
+        assertEquals(Stage17LocalLlmProbe.PROBE_TEMPERATURE, sampler.temperature)
+        assertNull(config.enableSpeculativeDecoding)
     }
 
     @Test
