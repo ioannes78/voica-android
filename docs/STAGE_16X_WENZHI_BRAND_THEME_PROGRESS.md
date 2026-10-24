@@ -1,72 +1,65 @@
 # Stage 16X — WENZHI Brand & Theme Consolidation
 
-Status: **IMPLEMENTATION COMPLETE / FINAL AUTOMATED GATE PENDING / DRAFT PR / NO MERGE**
+Status: **CLOSED / P8 PASS / P9 REAL-DEVICE PASS / READY TO MERGE**
 
-Stage 16X consolidates the user-visible product brand, Material 3 theme foundation, and transcript reading presentation before Stage 17.
+Stage 16X consolidates the user-visible WENZHI brand, Material 3 theme foundation, and transcript reading presentation before Stage 17.
 
-Approved revision plan: **Stage 16X Revision Plan V5**.
+Approved revision plan: **Stage 16X Revision Plan V5**, followed by **P9 Revision-1 Preset Theme Visual Hierarchy Refinement**.
 
-## P6-R1 — QA4 transcript layout stability — CLOSED / REAL-DEVICE PASS
+## Final implementation state
 
-The transcript body keeps a fixed `displayText`, typography, and layout while playback advances. The active EXACT cue no longer rebuilds an `AnnotatedString` or moves SpanStyle boundaries. Current-word emphasis is drawn behind the already-laid-out text using `TextLayoutResult` character geometry, with per-line rectangles for cross-line ranges. The transcript pointer-input identity no longer depends on `activeCueId`.
+- WENZHI brand resources are consolidated across launcher, adaptive icon, monochrome icon, notification icon, splash, and user-visible product copy.
+- WENZHI Ink is the default preset and uses warm xuan-paper / warm charcoal Surface ladders without cold-purple fallback surfaces.
+- WENZHI Paper / 宣纸暖白 is a first-class light/dark preset with four persisted paper warmth options.
+- Mint, Blue, Purple, and Custom preserve distinct palette personalities while sharing the same Material 3 role architecture.
+- Custom generates controlled low-chroma neutral/surface palettes from the selected accent and supports visual swatches plus HEX/HSL controls.
+- Theme settings use visual preset previews and all presets inherit the same Settings / Transcript / Chip / Mini Player hierarchy rules.
 
-Real-device QA4 passed: during continuous playback the current-word highlight moves while transcript text, line wrapping, and unread text remain visually stationary.
+## Transcript reading contract — CLOSED / REAL-DEVICE PASS
 
-Visual hierarchy remains fixed:
+Playback keeps transcript text geometry fixed while the current-word paint moves independently. No dynamic font weight, font size, letter spacing, baseline shift, or moving text span boundaries are used.
 
-- active paragraph background = weak, theme-derived emphasis;
-- current word background = strong, theme-derived emphasis.
+Final hierarchy:
 
-No timeline, cue timestamp, seek, ASR, CTC, VAD, diarization, or playback-state mapping logic was changed.
+- page = `background`;
+- normal transcript segment = `surfaceContainerLow`;
+- active paragraph = weak theme-derived emphasis layered over the stable segment surface;
+- active line = medium theme accent;
+- current word = strongest theme-derived fill/outline emphasis;
+- body text geometry remains stable during playback.
 
-## P6-R2 / P6-R2.1 — Material 3 Surface foundation — COMPLETE
+No timeline, cue timestamp, seek, ASR, CTC, VAD, diarization, or playback-state mapping logic was changed by the visual refinement.
 
-All fixed presets now explicitly own a full Material 3 Surface family in both light and dark modes, including `surfaceDim`, `surfaceBright`, `surfaceContainerLowest` through `surfaceContainerHighest`, variant, outline, inverse, tint, and scrim roles.
+## P8 — automated regression — PASS
 
-WENZHI Ink no longer depends on unspecified Material baseline surfaces. Its light Surface ladder is warm xuan-paper neutral; dark mode is warm charcoal neutral. Cold-purple fallback surfaces are removed while cyan-ink remains the accent.
+Final Fast PR Gate passed on the Stage 16X branch, including:
 
-Mint, Blue, and Purple retain separate tonal personalities rather than sharing a neutral ladder. Semantic surface aliases now map back to Material 3 surface-container roles instead of maintaining a second independent surface palette.
+- repository/static contracts;
+- unit tests;
+- Debug compilation;
+- Material 3 Surface contracts;
+- theme personality contracts;
+- transcript reading-highlight contracts;
+- transcript layout-stability contract;
+- FSMN candidate runtime boundary.
 
-## P6-R3 — WENZHI Paper / 宣纸暖白 — COMPLETE
+## P9 Revision-1 — real-device QA — PASS
 
-WENZHI Paper is a first-class light/dark preset with warm paper surfaces, ink text, tea-brown accent and a distinct stronger current-word reading highlight. Light mode supports four persisted paper warmth choices:
+Real-device QA passed for:
 
-- 纸白 — `#FAF6E9`;
-- 宣纸暖白 — `#F6F0DF` (default);
-- 米杏 — `#F1E7CF`;
-- 古纸 — `#EFE3C5`.
+1. 闻知墨韵 — Light;
+2. 闻知墨韵 — Dark;
+3. 宣纸暖白 — Light/Dark;
+4. 薄荷 — Light/Dark;
+5. 蓝色 — Light/Dark;
+6. 紫色 — Light/Dark;
+7. Custom — Light/Dark;
+8. all-theme word-playback regression.
 
-Dark mode uses warm charcoal/brown neutrals rather than a yellow-filled dark UI.
+The final playback regression confirms the same behavior across all presets: active paragraph remains weak, current word remains clearly stronger, and transcript characters / line wrapping stay visually stationary while playback advances.
 
-## P6-R4 — Visual theme palette UX — COMPLETE
+## Freeze / Handoff
 
-Theme settings now present real preview cards instead of text-only palette chips for the five presets:
+Stage 16X implementation, automated regression, and final real-device QA are complete. PR #36 may be merged to `main` after this closure commit passes the normal Fast PR Gate.
 
-- 闻知墨韵 (default);
-- 宣纸暖白;
-- 薄荷;
-- 蓝色;
-- 紫色.
-
-The WENZHI Paper card exposes the four paper warmth swatches. The Custom section provides eleven visual accent swatches plus advanced HEX and HSL controls. Preview cards follow the selected System/Light/Dark display mode.
-
-## P6-R5 — Custom theme generator — COMPLETE
-
-Custom no longer reuses Mint surfaces. A selected accent generates a controlled low-chroma neutral/surface ladder plus primary, container and supporting roles. Strong accent choices therefore do not flood the whole UI with saturated color.
-
-## P6-R6 — Transcript theme regression — IMPLEMENTED / FINAL GATE PENDING
-
-Automated contracts now cover WENZHI Ink, WENZHI Paper, Mint, Blue, Purple, and Custom in both light and dark modes. They verify readable theme-derived word-highlight roles, visible active accents, distinct paragraph/word emphasis where the palette uses separate container roles, and the frozen QA4 rendering contract: fixed text geometry, weak paragraph paint, strong word paint, no hard-coded transcript color.
-
-## P7 — Brand/theme hard-code cleanup — COMPLETE
-
-User-visible product copy and resources use WENZHI / 闻知. Technical package, application, notification-channel and compatibility identifiers retain `Voica` where changing identity would be unsafe or unnecessary. The transcript reading layer uses semantic theme tokens instead of fixed highlight colors.
-
-## Remaining gates
-
-- P8 — final Fast PR Gate covering unit tests, debug compile, Surface contracts, reading-highlight contracts, brand/static contracts, and FSMN runtime boundary;
-- P9 — final real-device QA across the five presets, Light/Dark appearance, paper warmth, custom palette controls, and transcript paragraph/word emphasis.
-
-Stage 17 remains **NOT STARTED**.
-
-This document does not authorize merging this Stage 16X branch. PR #36 remains draft / NO MERGE until P8 and P9 are complete.
+Stage 17 remains **NOT STARTED** and is unblocked only after PR #36 is merged.

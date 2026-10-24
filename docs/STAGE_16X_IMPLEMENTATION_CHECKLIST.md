@@ -18,6 +18,15 @@
 - [x] P6-R6 — all-theme light/dark transcript reading-highlight regression contracts implemented
 - [x] P7 — user-visible brand/theme hard-code cleanup audit; technical compatibility identifiers retained
 - [x] P8 — final automated regression / static brand gates — PASS
-- [ ] P9 — final real-device QA
+- [x] P9 Revision-1 — final real-device visual QA — PASS
+  - [x] QA1 — 闻知墨韵 Light: Settings + Transcript
+  - [x] QA2 — 闻知墨韵 Dark
+  - [x] QA3 — 宣纸暖白 Light/Dark
+  - [x] QA4 — 薄荷 Light/Dark
+  - [x] QA5 — 蓝色 Light/Dark
+  - [x] QA6 — 紫色 Light/Dark
+  - [x] QA7 — Custom Light/Dark
+  - [x] QA8 — all-theme word-playback final regression: weak paragraph / strong current word / stable text layout
+- [x] Freeze / Handoff — Stage 16X implementation and real-device QA closed; PR #36 ready for final merge
 
-Stage 17 remains blocked until Stage 16X closes P9.
+Stage 16X is complete. Stage 17 remains NOT STARTED and becomes unblocked after PR #36 is merged to `main`.
