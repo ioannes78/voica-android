@@ -43,7 +43,6 @@ import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.localllm.ProbeBackend
 import io.github.ioannes78.voica.localllm.Stage17LocalLlmProbe
 import io.github.ioannes78.voica.localllm.Stage17P0Candidate
-import io.github.ioannes78.voica.localllm.Stage17ProbePhase
 import io.github.ioannes78.voica.localllm.Stage17ProbeRequest
 import io.github.ioannes78.voica.localllm.Stage17ProbeResult
 import io.github.ioannes78.voica.ui.theme.VoicaTheme
@@ -91,7 +90,6 @@ private fun Stage17P0LocalLlmScreen(onClose: () -> Unit) {
     val probe = remember { Stage17LocalLlmProbe() }
     val modelDir = remember { File(context.filesDir, "stage17-p0") }
     val modelFile = remember { File(modelDir, Stage17P0Candidate.MODEL_FILE) }
-    val cacheDir = remember { File(context.cacheDir, "stage17-p0-litertlm").apply { mkdirs() } }
     val diagnosticPrefs =
         remember { context.getSharedPreferences(P0_DIAGNOSTIC_PREFS, Context.MODE_PRIVATE) }
     val memoryInfo =
@@ -100,6 +98,7 @@ private fun Stage17P0LocalLlmScreen(onClose: () -> Unit) {
                 context.getSystemService(ActivityManager::class.java).getMemoryInfo(info)
             }
         }
+
     val previousProbeStartedAt = remember { diagnosticPrefs.getLong(P0_KEY_STARTED_AT, 0L) }
     val previousProbeBackend = remember { diagnosticPrefs.getString(P0_KEY_BACKEND, null) }
     val previousProbePhase = remember { diagnosticPrefs.getString(P0_KEY_PHASE, null) }
@@ -148,21 +147,18 @@ private fun Stage17P0LocalLlmScreen(onClose: () -> Unit) {
                     }
                     persistProbeState(backend, P0_PHASE_MODEL_HASH_VERIFIED)
                     operation =
-                        "${backend.name} probe 运行中 · KV ${Stage17LocalLlmProbe.PROBE_MAX_CONTEXT_TOKENS} tokens"
+                        "${backend.name} · Gallery parity probe 运行中 · KV ${Stage17LocalLlmProbe.PROBE_MAX_CONTEXT_TOKENS}"
                     val result =
                         probe.run(
                             Stage17ProbeRequest(
                                 modelPath = modelFile.absolutePath,
-                                cacheDir = cacheDir.absolutePath,
                                 backend = backend,
                             ),
-                            onPhase = { phase ->
-                                persistProbeState(backend, phase.name)
-                            },
+                            onPhase = { phase -> persistProbeState(backend, phase.name) },
                         )
                     persistProbeState(backend, P0_PHASE_COMPLETED)
                     resultText = result.toDiagnosticsText()
-                    operation = "${backend.name} probe 完成"
+                    operation = "${backend.name} · Gallery parity probe 完成"
                 } catch (_: CancellationException) {
                     persistProbeState(backend, P0_PHASE_CANCELLED)
                     operation = "probe 已请求取消"
@@ -218,19 +214,24 @@ private fun Stage17P0LocalLlmScreen(onClose: () -> Unit) {
         item {
             Text("Stage 17 P0 · 本地 LLM 可行性", style = MaterialTheme.typography.headlineSmall)
             Text(
-                "仅 QA 构建。此页不进入正式总结/RAG/问答链路，只验证 Gemma 4 E2B + LiteRT-LM 的真机运行、内存与延迟。",
+                "R4：对齐 Google AI Edge Gallery 的运行时/配置，只验证同一 base 模型的真机兼容性。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
         item {
-            P0Card(title = "候选与设备") {
-                Text("Runtime：LiteRT-LM 0.18.1")
+            P0Card(title = "Gallery parity R4") {
+                Text("Runtime：LiteRT-LM ${Stage17LocalLlmProbe.RUNTIME_VERSION}")
                 Text("Model：${Stage17P0Candidate.MODEL_ID}")
-                Text("Revision：${Stage17P0Candidate.GALLERY_BASE_REVISION}")
+                Text("Base revision：${Stage17P0Candidate.GALLERY_BASE_REVISION}")
                 Text("候选文件：${formatBytes(Stage17P0Candidate.GALLERY_BASE_SIZE_BYTES)}")
-                Text("P0 KV 上限：${Stage17LocalLlmProbe.PROBE_MAX_CONTEXT_TOKENS} tokens")
+                Text("KV 上限：${Stage17LocalLlmProbe.PROBE_MAX_CONTEXT_TOKENS} tokens")
+                Text(
+                    "Sampler：topK=${Stage17LocalLlmProbe.PROBE_TOP_K} · topP=${Stage17LocalLlmProbe.PROBE_TOP_P} · temperature=${Stage17LocalLlmProbe.PROBE_TEMPERATURE}",
+                )
+                Text("cacheDir：null（与 Gallery 普通 App 私有路径一致）")
+                Text("speculative decoding：OFF")
                 Text("设备 RAM：${formatBytes(totalMemoryBytes)}（P0 门槛 ≥ ${Stage17P0Candidate.MIN_DEVICE_MEMORY_GB} GB）")
                 Text("应用可用存储：${formatBytes(context.filesDir.usableSpace)}")
                 if (totalMemoryBytes < Stage17P0Candidate.MIN_DEVICE_MEMORY_GB * 1_000_000_000L) {
@@ -252,7 +253,7 @@ private fun Stage17P0LocalLlmScreen(onClose: () -> Unit) {
                         )
                     },
                 ) {
-                    Text("打开候选模型页")
+                    Text("打开 base 模型页")
                 }
             }
         }
@@ -281,11 +282,11 @@ private fun Stage17P0LocalLlmScreen(onClose: () -> Unit) {
                     if (modelReady) {
                         "已就绪：${modelFile.name} · ${formatBytes(importedBytes)}"
                     } else {
-                        "未就绪。下载 exact revision 后选择 ${Stage17P0Candidate.MODEL_FILE}。"
+                        "未就绪。选择冻结 base revision 的 ${Stage17P0Candidate.MODEL_FILE}。"
                     },
                 )
                 Text(
-                    "运行 Probe 前会校验 SHA-256：${Stage17P0Candidate.GALLERY_BASE_SHA256.take(12)}…",
+                    "SHA-256：${Stage17P0Candidate.GALLERY_BASE_SHA256.take(16)}…",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -296,10 +297,7 @@ private fun Stage17P0LocalLlmScreen(onClose: () -> Unit) {
                     )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        enabled = !busy,
-                        onClick = { picker.launch(arrayOf("*/*")) },
-                    ) {
+                    Button(enabled = !busy, onClick = { picker.launch(arrayOf("*/*")) }) {
                         Text("选择 .litertlm")
                     }
                     OutlinedButton(
@@ -318,9 +316,9 @@ private fun Stage17P0LocalLlmScreen(onClose: () -> Unit) {
         }
 
         item {
-            P0Card(title = "运行 Probe") {
+            P0Card(title = "运行 Gallery parity Probe") {
                 Text(
-                    "固定中文 smoke prompt；KV ${Stage17LocalLlmProbe.PROBE_MAX_CONTEXT_TOKENS}；最多 ${Stage17LocalLlmProbe.PROBE_MAX_OUTPUT_TOKENS} output tokens；speculative decoding=OFF。",
+                    "固定短中文 prompt；Contents 输入；Gallery sampler；不启用 MTP/speculative decoding。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -331,10 +329,7 @@ private fun Stage17P0LocalLlmScreen(onClose: () -> Unit) {
                     Button(enabled = modelReady && !busy, onClick = { startProbe(ProbeBackend.GPU) }) {
                         Text("GPU")
                     }
-                    OutlinedButton(
-                        enabled = busy,
-                        onClick = { activeJob?.cancel() },
-                    ) {
+                    OutlinedButton(enabled = busy, onClick = { activeJob?.cancel() }) {
                         Text("取消")
                     }
                 }
@@ -380,7 +375,7 @@ private fun P0Card(
     }
 }
 
-private suspend fun android.content.Context.importStage17P0Candidate(
+private suspend fun Context.importStage17P0Candidate(
     destination: File,
     source: Uri,
     onProgress: (Long) -> Unit,
@@ -413,7 +408,7 @@ private suspend fun android.content.Context.importStage17P0Candidate(
                     output.fd.sync()
                     withContext(Dispatchers.Main.immediate) { onProgress(total) }
                     require(total == Stage17P0Candidate.GALLERY_BASE_SIZE_BYTES) {
-                        "文件大小不匹配：实际 $total bytes，期望 ${Stage17P0Candidate.GALLERY_BASE_SIZE_BYTES} bytes。P0 只接受已冻结 base revision。"
+                        "文件大小不匹配：实际 $total bytes，期望 ${Stage17P0Candidate.GALLERY_BASE_SIZE_BYTES} bytes。"
                     }
                     val actualSha256 = digest.digest().toHexString()
                     require(actualSha256 == Stage17P0Candidate.GALLERY_BASE_SHA256) {
@@ -450,8 +445,12 @@ private fun ByteArray.toHexString(): String = joinToString(separator = "") { byt
 
 private fun Stage17ProbeResult.toDiagnosticsText(): String =
     buildString {
-        appendLine("[Stage 17 P0 local LLM]")
-        appendLine("runtime=$runtimeVersion backend=$backend maxNumTokens=$maxNumTokens")
+        appendLine("[Stage 17 P0 Gallery parity R4]")
+        appendLine("runtime=$runtimeVersion backend=$backend maxNumTokens=$maxNumTokens cacheDir=null")
+        appendLine(
+            "sampler topK=${Stage17LocalLlmProbe.PROBE_TOP_K} topP=${Stage17LocalLlmProbe.PROBE_TOP_P} " +
+                "temperature=${Stage17LocalLlmProbe.PROBE_TEMPERATURE} speculative=false",
+        )
         appendLine("initializeMs=$initializeMs ttfeMs=${timeToFirstEmissionMs ?: -1} generationMs=$totalGenerationMs")
         appendLine(
             "pssKb before=$pssBeforeInitializeKb initialized=$pssAfterInitializeKb " +
