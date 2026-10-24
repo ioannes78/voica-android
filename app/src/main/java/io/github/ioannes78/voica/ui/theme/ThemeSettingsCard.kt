@@ -13,12 +13,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -75,12 +75,13 @@ fun ThemeSettingsCard(
             VoicaThemeMode.LIGHT -> false
             VoicaThemeMode.DARK -> true
         }
+
     var customHex by rememberSaveable { mutableStateOf(formatRgb(settings.customAccentArgb)) }
     var invalidCustomColor by rememberSaveable { mutableStateOf(false) }
     val initialHsl = remember(settings.customAccentArgb) { rgbToHsl(settings.customAccentArgb) }
-    var hue by rememberSaveable { mutableFloatStateOf(initialHsl[0]) }
-    var saturation by rememberSaveable { mutableFloatStateOf(initialHsl[1]) }
-    var lightness by rememberSaveable { mutableFloatStateOf(initialHsl[2]) }
+    var hue by remember { mutableFloatStateOf(initialHsl[0]) }
+    var saturation by remember { mutableFloatStateOf(initialHsl[1]) }
+    var lightness by remember { mutableFloatStateOf(initialHsl[2]) }
 
     LaunchedEffect(settings.customAccentArgb) {
         customHex = formatRgb(settings.customAccentArgb)
@@ -96,35 +97,15 @@ fun ThemeSettingsCard(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                stringResource(R.string.theme_settings_title),
+                text = stringResource(R.string.theme_settings_title),
                 style = MaterialTheme.typography.titleMedium,
             )
+            ThemeModeSelector(settings = settings, store = store)
+
             Text(
-                stringResource(R.string.theme_mode_title),
+                text = stringResource(R.string.theme_brand_section),
                 style = MaterialTheme.typography.labelLarge,
             )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                FilterChip(
-                    selected = settings.mode == VoicaThemeMode.SYSTEM,
-                    onClick = { store.setMode(VoicaThemeMode.SYSTEM) },
-                    label = { Text(stringResource(R.string.theme_mode_system)) },
-                )
-                FilterChip(
-                    selected = settings.mode == VoicaThemeMode.LIGHT,
-                    onClick = { store.setMode(VoicaThemeMode.LIGHT) },
-                    label = { Text(stringResource(R.string.theme_mode_light)) },
-                )
-                FilterChip(
-                    selected = settings.mode == VoicaThemeMode.DARK,
-                    onClick = { store.setMode(VoicaThemeMode.DARK) },
-                    label = { Text(stringResource(R.string.theme_mode_dark)) },
-                )
-            }
-
-            Text(stringResource(R.string.theme_brand_section), style = MaterialTheme.typography.labelLarge)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -152,39 +133,13 @@ fun ThemeSettingsCard(
             }
 
             if (settings.preset == VoicaColorPreset.WENZHI_PAPER) {
-                Text(stringResource(R.string.theme_paper_tone_title), style = MaterialTheme.typography.labelLarge)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    PaperToneSwatch(
-                        tone = WenzhiPaperTone.PAPER_WHITE,
-                        label = stringResource(R.string.theme_paper_tone_white),
-                        selected = settings.paperTone == WenzhiPaperTone.PAPER_WHITE,
-                        onClick = { store.setPaperTone(WenzhiPaperTone.PAPER_WHITE) },
-                    )
-                    PaperToneSwatch(
-                        tone = WenzhiPaperTone.XUAN_WARM,
-                        label = stringResource(R.string.theme_paper_tone_xuan),
-                        selected = settings.paperTone == WenzhiPaperTone.XUAN_WARM,
-                        onClick = { store.setPaperTone(WenzhiPaperTone.XUAN_WARM) },
-                    )
-                    PaperToneSwatch(
-                        tone = WenzhiPaperTone.RICE_APRICOT,
-                        label = stringResource(R.string.theme_paper_tone_apricot),
-                        selected = settings.paperTone == WenzhiPaperTone.RICE_APRICOT,
-                        onClick = { store.setPaperTone(WenzhiPaperTone.RICE_APRICOT) },
-                    )
-                    PaperToneSwatch(
-                        tone = WenzhiPaperTone.ANTIQUE,
-                        label = stringResource(R.string.theme_paper_tone_antique),
-                        selected = settings.paperTone == WenzhiPaperTone.ANTIQUE,
-                        onClick = { store.setPaperTone(WenzhiPaperTone.ANTIQUE) },
-                    )
-                }
+                PaperToneSelector(settings = settings, store = store)
             }
 
-            Text(stringResource(R.string.theme_classic_section), style = MaterialTheme.typography.labelLarge)
+            Text(
+                text = stringResource(R.string.theme_classic_section),
+                style = MaterialTheme.typography.labelLarge,
+            )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -212,7 +167,10 @@ fun ThemeSettingsCard(
                 )
             }
 
-            Text(stringResource(R.string.theme_custom_palette_title), style = MaterialTheme.typography.labelLarge)
+            Text(
+                text = stringResource(R.string.theme_custom_palette_title),
+                style = MaterialTheme.typography.labelLarge,
+            )
             accentChoices.chunked(4).forEach { rowChoices ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -235,7 +193,10 @@ fun ThemeSettingsCard(
             }
 
             if (settings.preset == VoicaColorPreset.CUSTOM) {
-                Text(stringResource(R.string.theme_custom_advanced_title), style = MaterialTheme.typography.labelLarge)
+                Text(
+                    text = stringResource(R.string.theme_custom_advanced_title),
+                    style = MaterialTheme.typography.labelLarge,
+                )
                 OutlinedTextField(
                     value = customHex,
                     onValueChange = {
@@ -265,7 +226,6 @@ fun ThemeSettingsCard(
                 ) {
                     Text(stringResource(R.string.theme_custom_accent_apply))
                 }
-
                 HslSlider(
                     label = stringResource(R.string.theme_custom_hue, hue.roundToInt()),
                     value = hue,
@@ -276,7 +236,10 @@ fun ThemeSettingsCard(
                     },
                 )
                 HslSlider(
-                    label = stringResource(R.string.theme_custom_saturation, (saturation * 100f).roundToInt()),
+                    label = stringResource(
+                        R.string.theme_custom_saturation,
+                        (saturation * 100f).roundToInt(),
+                    ),
                     value = saturation,
                     range = 0f..1f,
                     onValueChange = { value ->
@@ -285,7 +248,10 @@ fun ThemeSettingsCard(
                     },
                 )
                 HslSlider(
-                    label = stringResource(R.string.theme_custom_lightness, (lightness * 100f).roundToInt()),
+                    label = stringResource(
+                        R.string.theme_custom_lightness,
+                        (lightness * 100f).roundToInt(),
+                    ),
                     value = lightness,
                     range = 0.12f..0.88f,
                     onValueChange = { value ->
@@ -296,7 +262,7 @@ fun ThemeSettingsCard(
             }
 
             Text(
-                stringResource(R.string.theme_settings_note),
+                text = stringResource(R.string.theme_settings_note),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -305,9 +271,80 @@ fun ThemeSettingsCard(
 }
 
 @Composable
+private fun ThemeModeSelector(
+    settings: VoicaThemeSettings,
+    store: ThemeSettingsStore,
+) {
+    Text(
+        text = stringResource(R.string.theme_mode_title),
+        style = MaterialTheme.typography.labelLarge,
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        FilterChip(
+            selected = settings.mode == VoicaThemeMode.SYSTEM,
+            onClick = { store.setMode(VoicaThemeMode.SYSTEM) },
+            label = { Text(stringResource(R.string.theme_mode_system)) },
+        )
+        FilterChip(
+            selected = settings.mode == VoicaThemeMode.LIGHT,
+            onClick = { store.setMode(VoicaThemeMode.LIGHT) },
+            label = { Text(stringResource(R.string.theme_mode_light)) },
+        )
+        FilterChip(
+            selected = settings.mode == VoicaThemeMode.DARK,
+            onClick = { store.setMode(VoicaThemeMode.DARK) },
+            label = { Text(stringResource(R.string.theme_mode_dark)) },
+        )
+    }
+}
+
+@Composable
+private fun PaperToneSelector(
+    settings: VoicaThemeSettings,
+    store: ThemeSettingsStore,
+) {
+    Text(
+        text = stringResource(R.string.theme_paper_tone_title),
+        style = MaterialTheme.typography.labelLarge,
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        PaperToneSwatch(
+            tone = WenzhiPaperTone.PAPER_WHITE,
+            label = stringResource(R.string.theme_paper_tone_white),
+            selected = settings.paperTone == WenzhiPaperTone.PAPER_WHITE,
+            onClick = { store.setPaperTone(WenzhiPaperTone.PAPER_WHITE) },
+        )
+        PaperToneSwatch(
+            tone = WenzhiPaperTone.XUAN_WARM,
+            label = stringResource(R.string.theme_paper_tone_xuan),
+            selected = settings.paperTone == WenzhiPaperTone.XUAN_WARM,
+            onClick = { store.setPaperTone(WenzhiPaperTone.XUAN_WARM) },
+        )
+        PaperToneSwatch(
+            tone = WenzhiPaperTone.RICE_APRICOT,
+            label = stringResource(R.string.theme_paper_tone_apricot),
+            selected = settings.paperTone == WenzhiPaperTone.RICE_APRICOT,
+            onClick = { store.setPaperTone(WenzhiPaperTone.RICE_APRICOT) },
+        )
+        PaperToneSwatch(
+            tone = WenzhiPaperTone.ANTIQUE,
+            label = stringResource(R.string.theme_paper_tone_antique),
+            selected = settings.paperTone == WenzhiPaperTone.ANTIQUE,
+            onClick = { store.setPaperTone(WenzhiPaperTone.ANTIQUE) },
+        )
+    }
+}
+
+@Composable
 private fun ThemePreviewCard(
     label: String,
-    scheme: androidx.compose.material3.ColorScheme,
+    scheme: ColorScheme,
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -316,12 +353,11 @@ private fun ThemePreviewCard(
     val shape = RoundedCornerShape(12.dp)
     Card(
         onClick = onClick,
-        modifier =
-            modifier.border(
-                width = if (selected) 2.dp else 1.dp,
-                color = if (selected) scheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                shape = shape,
-            ),
+        modifier = modifier.border(
+            width = if (selected) 2.dp else 1.dp,
+            color = if (selected) scheme.primary else MaterialTheme.colorScheme.outlineVariant,
+            shape = shape,
+        ),
         shape = shape,
         colors = CardDefaults.cardColors(containerColor = scheme.surfaceContainerLow),
     ) {
@@ -335,13 +371,13 @@ private fun ThemePreviewCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    label,
+                    text = label,
                     style = MaterialTheme.typography.labelMedium,
                     color = scheme.onSurface,
                 )
                 badge?.let {
                     Text(
-                        it,
+                        text = it,
                         style = MaterialTheme.typography.labelSmall,
                         color = scheme.primary,
                     )
@@ -353,14 +389,13 @@ private fun ThemePreviewCard(
                 PreviewDot(scheme.primary)
             }
             Box(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .background(scheme.primaryContainer, RoundedCornerShape(5.dp))
-                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(scheme.primaryContainer, RoundedCornerShape(5.dp))
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
             ) {
                 Text(
-                    "Aa",
+                    text = "Aa",
                     style = MaterialTheme.typography.labelSmall,
                     color = scheme.onPrimaryContainer,
                 )
@@ -372,11 +407,10 @@ private fun ThemePreviewCard(
 @Composable
 private fun PreviewDot(color: Color) {
     Box(
-        modifier =
-            Modifier
-                .size(22.dp)
-                .background(color, CircleShape)
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
+        modifier = Modifier
+            .size(22.dp)
+            .background(color, CircleShape)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
     )
 }
 
@@ -387,24 +421,29 @@ private fun PaperToneSwatch(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val color = resolveVoicaColorScheme(VoicaColorPreset.WENZHI_PAPER, false, paperTone = tone).background
+    val color = resolveVoicaColorScheme(
+        preset = VoicaColorPreset.WENZHI_PAPER,
+        darkTheme = false,
+        paperTone = tone,
+    ).background
     Column(
-        modifier = Modifier.clickable(onClick = onClick).padding(2.dp),
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .padding(2.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         Box(
-            modifier =
-                Modifier
-                    .size(if (selected) 36.dp else 32.dp)
-                    .background(color, CircleShape)
-                    .border(
-                        if (selected) 2.dp else 1.dp,
-                        if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                        CircleShape,
-                    ),
+            modifier = Modifier
+                .size(if (selected) 36.dp else 32.dp)
+                .background(color, CircleShape)
+                .border(
+                    width = if (selected) 2.dp else 1.dp,
+                    color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                    shape = CircleShape,
+                ),
         )
-        Text(label, style = MaterialTheme.typography.labelSmall)
+        Text(text = label, style = MaterialTheme.typography.labelSmall)
     }
 }
 
@@ -416,22 +455,26 @@ private fun AccentSwatch(
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier.clickable(onClick = onClick).padding(vertical = 3.dp),
+        modifier = modifier
+            .clickable(onClick = onClick)
+            .padding(vertical = 3.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         Box(
-            modifier =
-                Modifier
-                    .size(if (selected) 34.dp else 30.dp)
-                    .background(Color(choice.argb), CircleShape)
-                    .border(
-                        if (selected) 2.dp else 1.dp,
-                        if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                        CircleShape,
-                    ),
+            modifier = Modifier
+                .size(if (selected) 34.dp else 30.dp)
+                .background(Color(choice.argb), CircleShape)
+                .border(
+                    width = if (selected) 2.dp else 1.dp,
+                    color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                    shape = CircleShape,
+                ),
         )
-        Text(stringResource(choice.labelRes), style = MaterialTheme.typography.labelSmall)
+        Text(
+            text = stringResource(choice.labelRes),
+            style = MaterialTheme.typography.labelSmall,
+        )
     }
 }
 
@@ -442,8 +485,8 @@ private fun HslSlider(
     range: ClosedFloatingPointRange<Float>,
     onValueChange: (Float) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
-        Text(label, style = MaterialTheme.typography.bodySmall)
+    Column {
+        Text(text = label, style = MaterialTheme.typography.bodySmall)
         Slider(
             value = value,
             onValueChange = onValueChange,
@@ -462,8 +505,7 @@ private fun parseRgb(value: String): Int? {
     }.getOrNull()
 }
 
-private fun formatRgb(argb: Int): String =
-    "#%06X".format(argb and 0x00FFFFFF)
+private fun formatRgb(argb: Int): String = "#%06X".format(argb and 0x00FFFFFF)
 
 private fun rgbToHsl(argb: Int): FloatArray {
     val r = AndroidColor.red(argb) / 255f
@@ -486,7 +528,11 @@ private fun rgbToHsl(argb: Int): FloatArray {
             max == g -> 60f * (((b - r) / delta) + 2f)
             else -> 60f * (((r - g) / delta) + 4f)
         }.let { if (it < 0f) it + 360f else it }
-    return floatArrayOf(hue, saturation.coerceIn(0f, 1f), lightness.coerceIn(0f, 1f))
+    return floatArrayOf(
+        hue,
+        saturation.coerceIn(0f, 1f),
+        lightness.coerceIn(0f, 1f),
+    )
 }
 
 private fun hslToArgb(
