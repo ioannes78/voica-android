@@ -68,17 +68,20 @@ data class Stage17ProbeResult(
 /**
  * Stage 17 / P0 only.
  *
- * R5 keeps the R4 runtime/model/sampler/KV variables fixed and corrects one remaining Gallery
- * parity difference discovered from the real-device R4 crash evidence:
+ * R6 keeps the R5 runtime/configuration fixed and changes only the Gemma 4 E2B artifact under
+ * test. Real-device R4/R5 evidence showed CPU and GPU both pass Engine.initialize() and then die
+ * with a native crash in createConversation() when using the May-4 model artifact. The same phone
+ * can run Gemma 4 E2B in Google AI Edge Gallery, so R6 pins the earlier pre-MTP Gallery artifact
+ * (revision 7fa1d784...) as an artifact/runtime compatibility control.
  *
+ * Runtime/configuration remains fixed:
  * - LiteRT-LM 0.18.0;
  * - maxNumTokens = 4000;
  * - normal app-private model paths do not provide cacheDir;
  * - SamplerConfig(topK=64, topP=0.95, temperature=1.0);
  * - prompt is sent as Contents rather than the String convenience overload;
  * - speculative decoding is disabled at Engine creation through ExperimentalFlags;
- * - ConversationConfig leaves enableSpeculativeDecoding=null so the session inherits Engine OFF,
- *   matching Gallery instead of forcing a session-level false override;
+ * - ConversationConfig leaves enableSpeculativeDecoding=null so the session inherits Engine OFF;
  * - conversation constrained decoding is explicitly disabled before createConversation().
  *
  * This remains a feasibility probe only. It is not wired into production summary/RAG/Q&A.
@@ -221,15 +224,16 @@ internal fun stage17P0ConversationConfig(): ConversationConfig =
 
 /**
  * Externally verified P0 candidate metadata. These values are feasibility inputs, not a production
- * model-channel contract. P0 must still complete real-device CPU/GPU measurements before P1.
+ * model-channel contract. R6 intentionally uses the pre-MTP Gallery artifact as a controlled
+ * compatibility test after the May-4 artifact repeatedly crashed in createConversation().
  */
 object Stage17P0Candidate {
     const val MODEL_ID = "litert-community/gemma-4-E2B-it-litert-lm"
     const val MODEL_FILE = "gemma-4-E2B-it.litertlm"
-    const val GALLERY_BASE_REVISION = "6e5c4f1e395deb959c494953478fa5cec4b8008f"
-    const val GALLERY_MTP_UPDATE_REVISION = "7fa1d78473894f7e736a21d920c3aa80f950c0db"
-    const val GALLERY_BASE_SIZE_BYTES = 2_588_147_712L
-    const val GALLERY_BASE_SHA256 = "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c"
+    const val GALLERY_BASE_REVISION = "7fa1d78473894f7e736a21d920c3aa80f950c0db"
+    const val GALLERY_NEWER_MTP_REVISION = "6e5c4f1e395deb959c494953478fa5cec4b8008f"
+    const val GALLERY_BASE_SIZE_BYTES = 2_583_085_056L
+    const val GALLERY_BASE_SHA256 = "ab7838cdfc8f77e54d8ca45eadceb20452d9f01e4bfade03e5dce27911b27e42"
     const val MIN_DEVICE_MEMORY_GB = 8
     const val MAX_CONTEXT_TOKENS = 32_000
 }
