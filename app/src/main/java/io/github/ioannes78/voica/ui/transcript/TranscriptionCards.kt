@@ -33,11 +33,14 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.Stage13AOfflineModelIds
 import io.github.ioannes78.voica.Stage13ARealtimeModelIds
@@ -71,7 +74,7 @@ fun TranscriptionStatusCard(
             Modifier
                 .fillMaxWidth()
                 .background(
-                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                    MaterialTheme.colorScheme.surfaceContainerLow,
                     RoundedCornerShape(10.dp),
                 )
                 .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -309,13 +312,20 @@ fun TranscriptSegmentCard(
             else -> null
         }
     val canEditSpeakerAssignment = spanId != null && repository != null && segment.speakerAssignmentAvailable
+    val paragraphBase = MaterialTheme.colorScheme.surfaceContainerLow
     val paragraphBackground by
         animateColorAsState(
             targetValue =
                 when {
-                    searchHighlighted -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
-                    isActive -> transcriptColors.transcriptActiveParagraphBg.copy(alpha = 0.26f)
-                    else -> transcriptColors.surface
+                    searchHighlighted ->
+                        MaterialTheme.colorScheme.primaryContainer
+                            .copy(alpha = 0.55f)
+                            .compositeOver(paragraphBase)
+                    isActive ->
+                        transcriptColors.transcriptActiveParagraphBg
+                            .copy(alpha = 0.22f)
+                            .compositeOver(paragraphBase)
+                    else -> paragraphBase
                 },
             animationSpec = tween(durationMillis = 150),
             label = "transcriptParagraphBackground",
@@ -325,28 +335,28 @@ fun TranscriptSegmentCard(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .background(paragraphBackground, RoundedCornerShape(8.dp))
+                .background(paragraphBackground, RoundedCornerShape(10.dp))
                 .drawBehind {
                     if (isActive) {
                         val strokeWidth = 2.dp.toPx()
                         drawLine(
-                            color = transcriptColors.transcriptActiveLineBar,
-                            start = Offset(strokeWidth / 2f, 6.dp.toPx()),
-                            end = Offset(strokeWidth / 2f, size.height - 6.dp.toPx()),
+                            color = transcriptColors.transcriptActiveLineBar.copy(alpha = 0.68f),
+                            start = Offset(strokeWidth / 2f, 7.dp.toPx()),
+                            end = Offset(strokeWidth / 2f, size.height - 7.dp.toPx()),
                             strokeWidth = strokeWidth,
                         )
                     }
                 }
                 .clickable(enabled = syncEnabled, onClick = { onSeek(segment.startSampleIndex) })
-                .padding(start = 13.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
+                .padding(start = 14.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             speakerLabel?.let { label ->
                 Text(
                     label,
                     style = MaterialTheme.typography.labelMedium,
-                    color = if (isActive || searchHighlighted || canEditSpeakerAssignment) transcriptColors.accent else transcriptColors.textSecondary,
+                    color = transcriptColors.accent.copy(alpha = if (isActive || searchHighlighted || canEditSpeakerAssignment) 1f else 0.82f),
                     modifier =
                         Modifier
                             .weight(1f)
@@ -363,8 +373,12 @@ fun TranscriptSegmentCard(
                             },
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(formatSampleRange(segment.startSampleIndex, segment.endSampleIndexExclusive), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text(
+                    formatSampleRange(segment.startSampleIndex, segment.endSampleIndexExclusive),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f),
+                )
                 if (annotationAction != null) {
                     annotationAction()
                 } else {
@@ -372,7 +386,7 @@ fun TranscriptSegmentCard(
                         Text(
                             "＋标注",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.84f),
                             modifier = Modifier.clickable(enabled = syncEnabled) { addAnnotation(segment.startSampleIndex) },
                         )
                     }
@@ -381,7 +395,7 @@ fun TranscriptSegmentCard(
         }
         Text(
             text = displayText,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 23.sp),
             color = transcriptColors.textPrimary,
             onTextLayout = { textLayout = it },
             modifier =
@@ -392,6 +406,7 @@ fun TranscriptSegmentCard(
                         val horizontalPad = 1.5.dp.toPx()
                         val verticalPad = 0.5.dp.toPx()
                         val radius = 3.dp.toPx()
+                        val outlineWidth = 1.dp.toPx()
                         currentWordHighlightRects(
                             layout = layout,
                             startOffset = cue.textStartOffset,
@@ -402,11 +417,21 @@ fun TranscriptSegmentCard(
                             val right = (rect.right + horizontalPad).coerceAtMost(size.width)
                             val bottom = (rect.bottom + verticalPad).coerceAtMost(size.height)
                             if (right > left && bottom > top) {
+                                val highlightTopLeft = Offset(left, top)
+                                val highlightSize = Size(right - left, bottom - top)
+                                val highlightCorner = CornerRadius(radius, radius)
                                 drawRoundRect(
                                     color = transcriptColors.transcriptCurrentWordBg,
-                                    topLeft = Offset(left, top),
-                                    size = Size(right - left, bottom - top),
-                                    cornerRadius = CornerRadius(radius, radius),
+                                    topLeft = highlightTopLeft,
+                                    size = highlightSize,
+                                    cornerRadius = highlightCorner,
+                                )
+                                drawRoundRect(
+                                    color = transcriptColors.accent.copy(alpha = 0.62f),
+                                    topLeft = highlightTopLeft,
+                                    size = highlightSize,
+                                    cornerRadius = highlightCorner,
+                                    style = Stroke(width = outlineWidth),
                                 )
                             }
                         }

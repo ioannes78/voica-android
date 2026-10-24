@@ -48,8 +48,13 @@ class Stage16XTranscriptLayoutStabilityContractTest {
         val source = transcriptionCardsSource()
         val segmentCard = source.substringAfter("fun TranscriptSegmentCard(").substringBefore("internal fun productTranscriptionFailureMessage")
 
-        assertTrue(segmentCard.contains("transcriptActiveParagraphBg.copy(alpha = 0.26f)"))
+        assertTrue(segmentCard.contains("surfaceContainerLow"))
+        assertTrue(segmentCard.contains("transcriptActiveParagraphBg"))
+        assertTrue(segmentCard.contains("copy(alpha = 0.22f)"))
+        assertTrue(segmentCard.contains("compositeOver(paragraphBase)"))
         assertTrue(segmentCard.contains("color = transcriptColors.transcriptCurrentWordBg"))
+        assertTrue(segmentCard.contains("style = Stroke(width = outlineWidth)"))
+        assertTrue(segmentCard.contains("transcriptColors.accent.copy(alpha = 0.62f)"))
     }
 
     private fun transcriptionCardsSource(): String =

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Build
@@ -21,13 +22,17 @@ import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,6 +40,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -160,7 +166,11 @@ fun ProductSettingsScreen(
                 onBack = { page = SettingsPage.HOME },
             ) {
                 item {
-                    Card(modifier = Modifier.fillMaxWidth()) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                    ) {
                         Column(
                             modifier = Modifier.padding(14.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -196,7 +206,7 @@ private fun SettingsHome(
             .fillMaxSize()
             .padding(padding),
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
             Text(
@@ -205,7 +215,11 @@ private fun SettingsHome(
             )
         }
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+            ) {
                 Column {
                     SettingsRow(
                         title = "本地模型",
@@ -213,35 +227,35 @@ private fun SettingsHome(
                         icon = { Icon(Icons.Outlined.Psychology, contentDescription = null) },
                         onClick = { onOpen(SettingsPage.MODELS) },
                     )
-                    HorizontalDivider()
+                    SettingsDivider()
                     SettingsRow(
                         title = "本地语音识别",
                         subtitle = "离线转写、实时转写与说话人分离",
                         icon = { Icon(Icons.Outlined.Tune, contentDescription = null) },
                         onClick = { onOpen(SettingsPage.SPEECH) },
                     )
-                    HorizontalDivider()
+                    SettingsDivider()
                     SettingsRow(
                         title = "存储与导出",
                         subtitle = "导出位置、录音、模型与缓存",
                         icon = { Icon(Icons.Outlined.Storage, contentDescription = null) },
                         onClick = { onOpen(SettingsPage.STORAGE) },
                     )
-                    HorizontalDivider()
+                    SettingsDivider()
                     SettingsRow(
                         title = "主题与显示",
                         subtitle = "闻知墨韵 · 可选经典配色",
                         icon = { Icon(Icons.Outlined.Palette, contentDescription = null) },
                         onClick = { onOpen(SettingsPage.THEME) },
                     )
-                    HorizontalDivider()
+                    SettingsDivider()
                     SettingsRow(
                         title = "高级设置",
                         subtitle = "运行库、语言与诊断",
                         icon = { Icon(Icons.Outlined.Tune, contentDescription = null) },
                         onClick = { onOpen(SettingsPage.ADVANCED) },
                     )
-                    HorizontalDivider()
+                    SettingsDivider()
                     SettingsRow(
                         title = "关于闻知",
                         subtitle = BuildConfig.VERSION_NAME,
@@ -267,19 +281,38 @@ private fun SettingsRow(
             Text(
                 subtitle,
                 maxLines = 1,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },
-        leadingContent = icon,
+        leadingContent = {
+            CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.primary) {
+                icon()
+            }
+        },
         trailingContent = {
             Icon(
                 Icons.Outlined.ChevronRight,
                 contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },
+        colors =
+            ListItemDefaults.colors(
+                containerColor = Color.Transparent,
+                headlineColor = MaterialTheme.colorScheme.onSurface,
+                supportingColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            ),
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
+    )
+}
+
+@Composable
+private fun SettingsDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(start = 56.dp),
+        thickness = 0.5.dp,
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.62f),
     )
 }
 
@@ -341,7 +374,10 @@ private fun AdvancedSettingsPage(
         onBack = onBack,
     ) {
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+            ) {
                 Column(modifier = Modifier.padding(14.dp)) {
                     ListItem(
                         headlineContent = { Text(stringResource(R.string.settings_language)) },
@@ -352,7 +388,7 @@ private fun AdvancedSettingsPage(
                             Icon(Icons.Outlined.Build, contentDescription = null)
                         },
                     )
-                    HorizontalDivider()
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.62f))
                     ListItem(
                         headlineContent = { Text(stringResource(R.string.settings_scope)) },
                         supportingContent = {
@@ -363,7 +399,10 @@ private fun AdvancedSettingsPage(
             }
         }
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+            ) {
                 Column(
                     modifier = Modifier.padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -415,7 +454,10 @@ private fun AdvancedSettingsPage(
         }
         if (showStage16A16AudioCalibration) {
             item {
-                Card(modifier = Modifier.fillMaxWidth()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                ) {
                     ListItem(
                         headlineContent = { Text("Stage 16A.1.6 音频校准") },
                         supportingContent = {
@@ -443,7 +485,10 @@ private fun AdvancedSettingsPage(
         }
         if (showStage15FinalGate) {
             item {
-                Card(modifier = Modifier.fillMaxWidth()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                ) {
                     ListItem(
                         headlineContent = { Text("Stage 15 Final Gate") },
                         supportingContent = {

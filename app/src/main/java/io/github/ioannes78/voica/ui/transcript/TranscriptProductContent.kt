@@ -37,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import io.github.ioannes78.voica.ContentTextExportCoordinator
 import io.github.ioannes78.voica.TextContentDocument
 import io.github.ioannes78.voica.TextExportFormat
@@ -122,11 +123,13 @@ fun TranscriptProductActionBar(
             CompactTranscriptChip(
                 label = "时间轴",
                 selected = mode == TranscriptViewMode.TIMELINE,
+                prominent = true,
                 onClick = { onModeChange(TranscriptViewMode.TIMELINE) },
             )
             CompactTranscriptChip(
                 label = "阅读",
                 selected = mode == TranscriptViewMode.READING,
+                prominent = true,
                 onClick = { onModeChange(TranscriptViewMode.READING) },
             )
             CompactTranscriptChip(
@@ -283,32 +286,48 @@ fun TranscriptProductActionBar(
 private fun CompactTranscriptChip(
     label: String,
     selected: Boolean,
+    prominent: Boolean = false,
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
+    val colors = MaterialTheme.colorScheme
+    val containerColor =
+        when {
+            selected && prominent -> colors.primaryContainer
+            selected -> colors.surfaceContainerHigh
+            else -> colors.surfaceContainerLow
+        }
+    val contentColor =
+        when {
+            selected && prominent -> colors.onPrimaryContainer
+            selected -> colors.primary
+            else -> colors.onSurfaceVariant
+        }
     val borderColor =
-        if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.outline
+        when {
+            selected && prominent -> colors.primary.copy(alpha = 0.55f)
+            selected -> colors.outlineVariant
+            else -> colors.outlineVariant.copy(alpha = 0.82f)
+        }
+
     Surface(
         modifier =
             Modifier
                 .heightIn(min = 36.dp)
                 .clickable(enabled = enabled, onClick = onClick),
         shape = MaterialTheme.shapes.medium,
-        color =
-            if (selected) {
-                MaterialTheme.colorScheme.secondaryContainer
-            } else {
-                MaterialTheme.colorScheme.surface
-            },
+        color = containerColor,
+        contentColor = contentColor,
         border = BorderStroke(1.dp, borderColor),
     ) {
         Box(
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 6.dp),
             contentAlignment = Alignment.Center,
         ) {
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelMedium,
+                color = if (enabled) contentColor else colors.onSurfaceVariant.copy(alpha = 0.45f),
                 maxLines = 1,
             )
         }
@@ -329,12 +348,14 @@ fun TranscriptContinuousReading(
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         SelectionContainer {
             Text(
                 text = fullText,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+                style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 23.sp),
+                color = MaterialTheme.colorScheme.onSurface,
             )
         }
     }

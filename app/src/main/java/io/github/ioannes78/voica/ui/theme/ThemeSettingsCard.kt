@@ -23,6 +23,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -91,7 +92,11 @@ fun ThemeSettingsCard(
         lightness = hsl[2]
     }
 
-    Card(modifier = modifier.fillMaxWidth()) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+    ) {
         Column(
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -359,7 +364,7 @@ private fun ThemePreviewCard(
             shape = shape,
         ),
         shape = shape,
-        colors = CardDefaults.cardColors(containerColor = scheme.surfaceContainerLow),
+        colors = CardDefaults.cardColors(containerColor = scheme.background),
     ) {
         Column(
             modifier = Modifier.padding(9.dp),
@@ -383,35 +388,66 @@ private fun ThemePreviewCard(
                     )
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                PreviewDot(scheme.background)
-                PreviewDot(scheme.surfaceContainerHigh)
-                PreviewDot(scheme.primary)
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(scheme.primaryContainer, RoundedCornerShape(5.dp))
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
+
+            Surface(
+                color = scheme.surfaceContainerLow,
+                shape = RoundedCornerShape(8.dp),
             ) {
-                Text(
-                    text = "Aa",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = scheme.onPrimaryContainer,
-                )
+                Column(
+                    modifier = Modifier.padding(7.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "Aa",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = scheme.onSurface,
+                        )
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .background(scheme.primary, CircleShape),
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                scheme.primaryContainer.copy(alpha = 0.42f),
+                                RoundedCornerShape(5.dp),
+                            )
+                            .padding(horizontal = 6.dp, vertical = 5.dp),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Text(
+                                text = "阅读",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = scheme.onSurface,
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .background(scheme.primary, RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 4.dp, vertical = 1.dp),
+                            ) {
+                                Text(
+                                    text = "词",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = scheme.onPrimary,
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }
-}
-
-@Composable
-private fun PreviewDot(color: Color) {
-    Box(
-        modifier = Modifier
-            .size(22.dp)
-            .background(color, CircleShape)
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
-    )
 }
 
 @Composable
