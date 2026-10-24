@@ -43,7 +43,8 @@ fun GlobalMiniPlaybackBar(
     val progress = globalMiniPlayerProgress(snapshot)
 
     Surface(
-        tonalElevation = 3.dp,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 0.dp,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column {
@@ -124,7 +125,7 @@ private fun MiniPlaybackProgress(
     modifier: Modifier = Modifier,
 ) {
     val active = MaterialTheme.colorScheme.primary
-    val inactive = MaterialTheme.colorScheme.surfaceVariant
+    val inactive = MaterialTheme.colorScheme.outlineVariant
     Canvas(modifier = modifier.height(3.dp)) {
         val y = size.height / 2f
         val endX = size.width * progress.coerceIn(0f, 1f)

@@ -451,7 +451,7 @@ class LocalAudioExportCoordinator(
                 put(MediaStore.Downloads.MIME_TYPE, source.mimeType)
                 put(
                     MediaStore.Downloads.RELATIVE_PATH,
-                    Environment.DIRECTORY_DOWNLOADS + "/Voica",
+                    Environment.DIRECTORY_DOWNLOADS + "/WENZHI/",
                 )
                 put(MediaStore.Downloads.IS_PENDING, 1)
             }
@@ -496,7 +496,7 @@ class LocalAudioExportCoordinator(
     private fun loadExistingDownloadNames(): MutableSet<String> {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return mutableSetOf()
         val names = linkedSetOf<String>()
-        val relativePath = Environment.DIRECTORY_DOWNLOADS + "/Voica/"
+        val relativePath = Environment.DIRECTORY_DOWNLOADS + "/WENZHI/"
         runCatching {
             resolver.query(
                 MediaStore.Downloads.EXTERNAL_CONTENT_URI,
@@ -627,7 +627,7 @@ class LocalAudioExportCoordinator(
             .trim()
             .trimEnd('.')
             .take(MAX_EXPORT_BASENAME)
-            .ifBlank { "Voica-" + nowMs() }
+            .ifBlank { "WENZHI-" + nowMs() }
 
     private fun ensureExtension(
         name: String,

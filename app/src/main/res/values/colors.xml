@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="voica_launcher_background">#06132B</color>
+    <color name="wenzhi_paper">#F5F2EA</color>
+    <color name="wenzhi_ink">#171717</color>
 </resources>

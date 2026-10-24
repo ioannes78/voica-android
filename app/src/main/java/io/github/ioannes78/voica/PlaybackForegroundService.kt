@@ -327,7 +327,7 @@ class PlaybackForegroundService : Service() {
             }
 
         return Notification.Builder(this, VoicaNotificationChannels.PLAYBACK)
-            .setSmallIcon(R.drawable.ic_stat_voica)
+            .setSmallIcon(R.drawable.ic_stat_wenzhi)
             .setContentTitle(currentRecordingName)
             .setContentText(text)
             .setContentIntent(contentIntent)
@@ -388,7 +388,7 @@ class PlaybackForegroundService : Service() {
                 "录音播放",
                 NotificationManager.IMPORTANCE_LOW,
             ).apply {
-                description = "Voica 后台和锁屏录音播放控制"
+                description = "闻知后台和锁屏录音播放控制"
                 setShowBadge(false)
             },
         )

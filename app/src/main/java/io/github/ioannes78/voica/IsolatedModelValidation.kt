@@ -126,7 +126,7 @@ internal class AndroidIsolatedModelCandidateValidator(
                         }
                         error(
                             IsolatedModelValidationStatus.VALIDATOR_PROCESS_CRASHED.name +
-                                " · 模型运行验证进程异常退出；Voica 主进程未受影响",
+                                " · 模型运行验证进程异常退出；闻知主进程未受影响",
                         )
                     }
                     delay(POLL_INTERVAL_MS)
@@ -134,7 +134,7 @@ internal class AndroidIsolatedModelCandidateValidator(
 
                 error(
                     IsolatedModelValidationStatus.TIMEOUT.name +
-                        " · 模型运行验证超时；Voica 主进程未受影响",
+                        " · 模型运行验证超时；闻知主进程未受影响",
                 )
             } finally {
                 runCatching { application.unbindService(connection) }

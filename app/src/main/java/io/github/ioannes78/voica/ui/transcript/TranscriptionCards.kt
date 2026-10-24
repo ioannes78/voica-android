@@ -1,5 +1,7 @@
 package io.github.ioannes78.voica.ui.transcript
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -26,19 +28,26 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.Stage13AOfflineModelIds
 import io.github.ioannes78.voica.Stage13ARealtimeModelIds
 import io.github.ioannes78.voica.TranscriptionRunState
 import io.github.ioannes78.voica.VoicaApplication
 import io.github.ioannes78.voica.database.DiarizationSpeakerEntity
+import io.github.ioannes78.voica.ui.theme.VoicaThemeTokens
 import io.github.ioannes78.voica.transcript.TextProjectionQuality
 import io.github.ioannes78.voica.transcript.TranscriptionPhase
 import io.github.ioannes78.voica.transcript.TranscriptionProgress
@@ -65,7 +74,7 @@ fun TranscriptionStatusCard(
             Modifier
                 .fillMaxWidth()
                 .background(
-                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                    MaterialTheme.colorScheme.surfaceContainerLow,
                     RoundedCornerShape(10.dp),
                 )
                 .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -261,21 +270,17 @@ fun TranscriptSegmentCard(
     annotationAction: (@Composable () -> Unit)? = null,
 ) {
     val activeCue = remember(segment.stableId, activeCueId) {
-        segment.cues.firstOrNull { cue -> cue.id == activeCueId && cue.projectionQuality == TextProjectionQuality.EXACT }
-    }
-    val displayText = segment.text.ifBlank { stringResource(R.string.transcript_empty_segment) }
-    val tokenHighlightColor = MaterialTheme.colorScheme.primaryContainer
-    val annotatedText = buildAnnotatedString {
-        append(displayText)
-        if (
-            segment.text.isNotBlank() && activeCue != null &&
-            activeCue.textStartOffset in 0..segment.text.length &&
-            activeCue.textEndOffsetExclusive in 0..segment.text.length &&
-            activeCue.textEndOffsetExclusive > activeCue.textStartOffset
-        ) {
-            addStyle(SpanStyle(background = tokenHighlightColor), activeCue.textStartOffset, activeCue.textEndOffsetExclusive)
+        segment.cues.firstOrNull { cue ->
+            cue.id == activeCueId &&
+                cue.projectionQuality == TextProjectionQuality.EXACT &&
+                segment.text.isNotBlank() &&
+                cue.textStartOffset in 0 until segment.text.length &&
+                cue.textEndOffsetExclusive in 1..segment.text.length &&
+                cue.textEndOffsetExclusive > cue.textStartOffset
         }
     }
+    val transcriptColors = VoicaThemeTokens.colors
+    val displayText = segment.text.ifBlank { stringResource(R.string.transcript_empty_segment) }
     var textLayout by remember(segment.stableId) { mutableStateOf<TextLayoutResult?>(null) }
 
     val application = LocalContext.current.applicationContext as? VoicaApplication
@@ -307,29 +312,51 @@ fun TranscriptSegmentCard(
             else -> null
         }
     val canEditSpeakerAssignment = spanId != null && repository != null && segment.speakerAssignmentAvailable
+    val paragraphBase = MaterialTheme.colorScheme.surfaceContainerLow
+    val paragraphBackground by
+        animateColorAsState(
+            targetValue =
+                when {
+                    searchHighlighted ->
+                        MaterialTheme.colorScheme.primaryContainer
+                            .copy(alpha = 0.55f)
+                            .compositeOver(paragraphBase)
+                    isActive ->
+                        transcriptColors.transcriptActiveParagraphBg
+                            .copy(alpha = 0.22f)
+                            .compositeOver(paragraphBase)
+                    else -> paragraphBase
+                },
+            animationSpec = tween(durationMillis = 150),
+            label = "transcriptParagraphBackground",
+        )
 
     Column(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .background(
-                    when {
-                        searchHighlighted -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
-                        isActive -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
-                        else -> MaterialTheme.colorScheme.surface
-                    },
-                    RoundedCornerShape(8.dp),
-                )
+                .background(paragraphBackground, RoundedCornerShape(10.dp))
+                .drawBehind {
+                    if (isActive) {
+                        val strokeWidth = 2.dp.toPx()
+                        drawLine(
+                            color = transcriptColors.transcriptActiveLineBar.copy(alpha = 0.68f),
+                            start = Offset(strokeWidth / 2f, 7.dp.toPx()),
+                            end = Offset(strokeWidth / 2f, size.height - 7.dp.toPx()),
+                            strokeWidth = strokeWidth,
+                        )
+                    }
+                }
                 .clickable(enabled = syncEnabled, onClick = { onSeek(segment.startSampleIndex) })
-                .padding(horizontal = 10.dp, vertical = 7.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
+                .padding(start = 14.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             speakerLabel?.let { label ->
                 Text(
                     label,
                     style = MaterialTheme.typography.labelMedium,
-                    color = if (isActive || searchHighlighted || canEditSpeakerAssignment) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = transcriptColors.accent.copy(alpha = if (isActive || searchHighlighted || canEditSpeakerAssignment) 1f else 0.82f),
                     modifier =
                         Modifier
                             .weight(1f)
@@ -346,8 +373,12 @@ fun TranscriptSegmentCard(
                             },
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(formatSampleRange(segment.startSampleIndex, segment.endSampleIndexExclusive), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text(
+                    formatSampleRange(segment.startSampleIndex, segment.endSampleIndexExclusive),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f),
+                )
                 if (annotationAction != null) {
                     annotationAction()
                 } else {
@@ -355,7 +386,7 @@ fun TranscriptSegmentCard(
                         Text(
                             "＋标注",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.84f),
                             modifier = Modifier.clickable(enabled = syncEnabled) { addAnnotation(segment.startSampleIndex) },
                         )
                     }
@@ -363,38 +394,76 @@ fun TranscriptSegmentCard(
             }
         }
         Text(
-            text = annotatedText,
-            style = MaterialTheme.typography.bodyMedium,
+            text = displayText,
+            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 23.sp),
+            color = transcriptColors.textPrimary,
             onTextLayout = { textLayout = it },
             modifier =
-                Modifier.pointerInput(segment.stableId, activeCueId, syncEnabled, onAddAnnotation) {
-                    detectTapGestures(
-                        onTap = { position ->
-                            if (syncEnabled) {
-                                val offset = textLayout?.getOffsetForPosition(position)
-                                val cue = offset?.let { textOffset ->
-                                    segment.cues.firstOrNull { candidate ->
-                                        candidate.projectionQuality == TextProjectionQuality.EXACT &&
-                                            textOffset >= candidate.textStartOffset && textOffset < candidate.textEndOffsetExclusive
-                                    }
-                                }
-                                onSeek(cue?.startSampleIndex ?: segment.startSampleIndex)
+                Modifier
+                    .drawBehind {
+                        val cue = activeCue ?: return@drawBehind
+                        val layout = textLayout ?: return@drawBehind
+                        val horizontalPad = 1.5.dp.toPx()
+                        val verticalPad = 0.5.dp.toPx()
+                        val radius = 3.dp.toPx()
+                        val outlineWidth = 1.dp.toPx()
+                        currentWordHighlightRects(
+                            layout = layout,
+                            startOffset = cue.textStartOffset,
+                            endOffsetExclusive = cue.textEndOffsetExclusive,
+                        ).forEach { rect ->
+                            val left = (rect.left - horizontalPad).coerceAtLeast(0f)
+                            val top = (rect.top - verticalPad).coerceAtLeast(0f)
+                            val right = (rect.right + horizontalPad).coerceAtMost(size.width)
+                            val bottom = (rect.bottom + verticalPad).coerceAtMost(size.height)
+                            if (right > left && bottom > top) {
+                                val highlightTopLeft = Offset(left, top)
+                                val highlightSize = Size(right - left, bottom - top)
+                                val highlightCorner = CornerRadius(radius, radius)
+                                drawRoundRect(
+                                    color = transcriptColors.transcriptCurrentWordBg,
+                                    topLeft = highlightTopLeft,
+                                    size = highlightSize,
+                                    cornerRadius = highlightCorner,
+                                )
+                                drawRoundRect(
+                                    color = transcriptColors.accent.copy(alpha = 0.62f),
+                                    topLeft = highlightTopLeft,
+                                    size = highlightSize,
+                                    cornerRadius = highlightCorner,
+                                    style = Stroke(width = outlineWidth),
+                                )
                             }
-                        },
-                        onLongPress = { position ->
-                            if (syncEnabled && onAddAnnotation != null) {
-                                val offset = textLayout?.getOffsetForPosition(position)
-                                val cue = offset?.let { textOffset ->
-                                    segment.cues.firstOrNull { candidate ->
-                                        candidate.projectionQuality == TextProjectionQuality.EXACT &&
-                                            textOffset >= candidate.textStartOffset && textOffset < candidate.textEndOffsetExclusive
+                        }
+                    }
+                    .pointerInput(segment.stableId, syncEnabled, onAddAnnotation) {
+                        detectTapGestures(
+                            onTap = { position ->
+                                if (syncEnabled) {
+                                    val offset = textLayout?.getOffsetForPosition(position)
+                                    val cue = offset?.let { textOffset ->
+                                        segment.cues.firstOrNull { candidate ->
+                                            candidate.projectionQuality == TextProjectionQuality.EXACT &&
+                                                textOffset >= candidate.textStartOffset && textOffset < candidate.textEndOffsetExclusive
+                                        }
                                     }
+                                    onSeek(cue?.startSampleIndex ?: segment.startSampleIndex)
                                 }
-                                onAddAnnotation(cue?.startSampleIndex ?: segment.startSampleIndex)
-                            }
-                        },
-                    )
-                },
+                            },
+                            onLongPress = { position ->
+                                if (syncEnabled && onAddAnnotation != null) {
+                                    val offset = textLayout?.getOffsetForPosition(position)
+                                    val cue = offset?.let { textOffset ->
+                                        segment.cues.firstOrNull { candidate ->
+                                            candidate.projectionQuality == TextProjectionQuality.EXACT &&
+                                                textOffset >= candidate.textStartOffset && textOffset < candidate.textEndOffsetExclusive
+                                        }
+                                    }
+                                    onAddAnnotation(cue?.startSampleIndex ?: segment.startSampleIndex)
+                                }
+                            },
+                        )
+                    },
         )
     }
 
@@ -450,6 +519,38 @@ fun TranscriptSegmentCard(
             confirmButton = { TextButton(onClick = { speakerDialogOpen = false }) { Text(stringResource(R.string.cancel)) } },
         )
     }
+}
+
+private fun currentWordHighlightRects(
+    layout: TextLayoutResult,
+    startOffset: Int,
+    endOffsetExclusive: Int,
+): List<Rect> {
+    val text = layout.layoutInput.text.text
+    if (startOffset !in text.indices || endOffsetExclusive !in 1..text.length || endOffsetExclusive <= startOffset) {
+        return emptyList()
+    }
+
+    val rectsByLine = linkedMapOf<Int, Rect>()
+    for (offset in startOffset until endOffsetExclusive) {
+        if (text[offset] == '\n') continue
+        val box = layout.getBoundingBox(offset)
+        if (box.width <= 0f || box.height <= 0f) continue
+        val line = layout.getLineForOffset(offset)
+        val current = rectsByLine[line]
+        rectsByLine[line] =
+            if (current == null) {
+                box
+            } else {
+                Rect(
+                    left = minOf(current.left, box.left),
+                    top = minOf(current.top, box.top),
+                    right = maxOf(current.right, box.right),
+                    bottom = maxOf(current.bottom, box.bottom),
+                )
+            }
+    }
+    return rectsByLine.values.toList()
 }
 
 internal fun productTranscriptionFailureMessage(rawMessage: String): String {

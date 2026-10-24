@@ -145,7 +145,7 @@ class ContentTextExportCoordinator(
                         put(MediaStore.Downloads.MIME_TYPE, format.mimeType)
                         put(
                             MediaStore.Downloads.RELATIVE_PATH,
-                            Environment.DIRECTORY_DOWNLOADS + "/Voica",
+                            Environment.DIRECTORY_DOWNLOADS + "/WENZHI/",
                         )
                         put(MediaStore.Downloads.IS_PENDING, 1)
                     }
@@ -231,9 +231,7 @@ class ContentTextExportCoordinator(
                         locationLabel = locationLabel,
                     )
                 } catch (error: Throwable) {
-                    destination?.let {
-                        runCatching { DocumentsContract.deleteDocument(resolver, it) }
-                    }
+                    destination?.let { runCatching { DocumentsContract.deleteDocument(resolver, it) } }
                     TextExportResult(
                         exported = false,
                         displayName = displayName,
@@ -315,7 +313,7 @@ class ContentTextExportCoordinator(
 
     private fun allocateDownloadName(requested: String): String {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return requested
-        val relativePath = Environment.DIRECTORY_DOWNLOADS + "/Voica/"
+        val relativePath = Environment.DIRECTORY_DOWNLOADS + "/WENZHI/"
         val used = linkedSetOf<String>()
         runCatching {
             resolver.query(
@@ -387,7 +385,7 @@ class ContentTextExportCoordinator(
             .trim()
             .trimEnd('.')
             .take(MAX_BASENAME)
-            .ifBlank { "Voica-" + nowMs() }
+            .ifBlank { "WENZHI-" + nowMs() }
 
     private fun cleanupStaleShareCacheLocked() {
         if (!shareDir.exists()) return

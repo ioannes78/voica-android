@@ -135,7 +135,7 @@ internal fun HomePhoneMicrophonePermissionGate(
         AlertDialog(
             onDismissRequest = { showRationale = false },
             title = { Text("允许麦克风") },
-            text = { Text("Voica 只会在你主动开始手机录音或手机实时转写时使用麦克风。") },
+            text = { Text("闻知只会在你主动开始手机录音或手机实时转写时使用麦克风。") },
             confirmButton = {
                 TextButton(
                     onClick = {

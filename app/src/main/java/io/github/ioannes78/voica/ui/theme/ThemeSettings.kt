@@ -12,15 +12,25 @@ enum class VoicaThemeMode {
 }
 
 enum class VoicaColorPreset {
+    WENZHI_INK,
+    WENZHI_PAPER,
     MINT,
     BLUE,
     PURPLE,
     CUSTOM,
 }
 
+enum class WenzhiPaperTone {
+    PAPER_WHITE,
+    XUAN_WARM,
+    RICE_APRICOT,
+    ANTIQUE,
+}
+
 data class VoicaThemeSettings(
     val mode: VoicaThemeMode = VoicaThemeMode.SYSTEM,
-    val preset: VoicaColorPreset = VoicaColorPreset.MINT,
+    val preset: VoicaColorPreset = VoicaColorPreset.WENZHI_INK,
+    val paperTone: WenzhiPaperTone = WenzhiPaperTone.XUAN_WARM,
     val customAccentArgb: Int = DEFAULT_CUSTOM_ACCENT,
 ) {
     companion object {
@@ -34,6 +44,8 @@ interface ThemeSettingsStore {
     fun setMode(mode: VoicaThemeMode)
 
     fun setPreset(preset: VoicaColorPreset)
+
+    fun setPaperTone(tone: WenzhiPaperTone)
 
     fun setCustomAccent(argb: Int)
 }
@@ -57,7 +69,11 @@ class SharedPreferencesThemeSettingsStore(
                 preset =
                     preferences.getString(KEY_PRESET, null)
                         ?.let { runCatching { VoicaColorPreset.valueOf(it) }.getOrNull() }
-                        ?: VoicaColorPreset.MINT,
+                        ?: VoicaColorPreset.WENZHI_INK,
+                paperTone =
+                    preferences.getString(KEY_PAPER_TONE, null)
+                        ?.let { runCatching { WenzhiPaperTone.valueOf(it) }.getOrNull() }
+                        ?: WenzhiPaperTone.XUAN_WARM,
                 customAccentArgb =
                     preferences.getInt(
                         KEY_CUSTOM_ACCENT,
@@ -79,6 +95,18 @@ class SharedPreferencesThemeSettingsStore(
         mutableSettings.value = mutableSettings.value.copy(preset = preset)
     }
 
+    override fun setPaperTone(tone: WenzhiPaperTone) {
+        preferences.edit().putString(KEY_PAPER_TONE, tone.name).apply()
+        mutableSettings.value =
+            mutableSettings.value.copy(
+                paperTone = tone,
+                preset = VoicaColorPreset.WENZHI_PAPER,
+            )
+        preferences.edit()
+            .putString(KEY_PRESET, VoicaColorPreset.WENZHI_PAPER.name)
+            .apply()
+    }
+
     override fun setCustomAccent(argb: Int) {
         preferences.edit().putInt(KEY_CUSTOM_ACCENT, argb).apply()
         mutableSettings.value =
@@ -95,6 +123,7 @@ class SharedPreferencesThemeSettingsStore(
         const val PREFERENCES_NAME = "voica-theme"
         const val KEY_MODE = "mode"
         const val KEY_PRESET = "preset"
+        const val KEY_PAPER_TONE = "paper-tone"
         const val KEY_CUSTOM_ACCENT = "custom-accent"
     }
 }
