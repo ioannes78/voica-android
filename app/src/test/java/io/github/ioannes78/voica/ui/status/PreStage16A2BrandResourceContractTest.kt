@@ -99,6 +99,45 @@ class Stage16XWenzhiBrandResourceContractTest {
         assertFalse(resourceFile("values/stage16x_brand_compat.xml").exists())
     }
 
+    @Test
+    fun `user visible About copy and default export destinations use WENZHI`() {
+        val sourceRoot = appRoot().resolve("src/main/java/io/github/ioannes78/voica")
+        val settings = sourceRoot.resolve("ui/settings/ProductSettingsScreen.kt").readText()
+        assertFalse(settings.contains("关于 Voica"))
+        assertFalse(settings.contains("Text(\"Voica\")"))
+        assertTrue(settings.contains("关于闻知"))
+        assertTrue(settings.contains("闻知 WENZHI"))
+
+        listOf(
+            sourceRoot.resolve("ContentTextExportCoordinator.kt"),
+            sourceRoot.resolve("LocalAudioExportCoordinator.kt"),
+        ).forEach { sourceFile ->
+            val source = sourceFile.readText()
+            assertFalse(
+                "${sourceFile.name} still writes default exports into Voica",
+                source.contains("DIRECTORY_DOWNLOADS + \"/Voica"),
+            )
+            assertFalse(
+                "${sourceFile.name} still uses a Voica fallback export name",
+                source.contains("\"Voica-\""),
+            )
+            assertTrue(
+                "${sourceFile.name} must use the WENZHI default export directory",
+                source.contains("DIRECTORY_DOWNLOADS + \"/WENZHI/\""),
+            )
+        }
+    }
+
+    @Test
+    fun `home brand symbol follows theme foreground without replacing exact raster`() {
+        val header =
+            appRoot()
+                .resolve("src/main/java/io/github/ioannes78/voica/ui/device/VoicaBrandHeader.kt")
+                .readText()
+        assertTrue(header.contains("R.drawable.ic_launcher_foreground"))
+        assertTrue(header.contains("ColorFilter.tint(MaterialTheme.colorScheme.onBackground)"))
+    }
+
     private fun resourceFile(relativePath: String): File = appRoot().resolve("src/main/res/$relativePath")
 
     private fun appRoot(): File {
