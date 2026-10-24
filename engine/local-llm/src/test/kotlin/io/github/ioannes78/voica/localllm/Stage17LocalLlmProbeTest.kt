@@ -6,18 +6,26 @@ import kotlin.test.assertFailsWith
 
 class Stage17LocalLlmProbeTest {
     @Test
-    fun runtimeVersionMatchesGalleryForR5() {
+    fun runtimeVersionMatchesGalleryForR6() {
         assertEquals("0.18.0", BuildConfig.LITERT_LM_VERSION)
         assertEquals("0.18.0", Stage17LocalLlmProbe.RUNTIME_VERSION)
     }
 
     @Test
-    fun p0CandidateMatchesVerifiedGalleryBaseMetadata() {
+    fun p0CandidateMatchesVerifiedPreMtpGalleryArtifact() {
         assertEquals("litert-community/gemma-4-E2B-it-litert-lm", Stage17P0Candidate.MODEL_ID)
         assertEquals("gemma-4-E2B-it.litertlm", Stage17P0Candidate.MODEL_FILE)
-        assertEquals(2_588_147_712L, Stage17P0Candidate.GALLERY_BASE_SIZE_BYTES)
         assertEquals(
-            "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+            "7fa1d78473894f7e736a21d920c3aa80f950c0db",
+            Stage17P0Candidate.GALLERY_BASE_REVISION,
+        )
+        assertEquals(
+            "6e5c4f1e395deb959c494953478fa5cec4b8008f",
+            Stage17P0Candidate.GALLERY_NEWER_MTP_REVISION,
+        )
+        assertEquals(2_583_085_056L, Stage17P0Candidate.GALLERY_BASE_SIZE_BYTES)
+        assertEquals(
+            "ab7838cdfc8f77e54d8ca45eadceb20452d9f01e4bfade03e5dce27911b27e42",
             Stage17P0Candidate.GALLERY_BASE_SHA256,
         )
         assertEquals(8, Stage17P0Candidate.MIN_DEVICE_MEMORY_GB)
@@ -25,7 +33,7 @@ class Stage17LocalLlmProbeTest {
     }
 
     @Test
-    fun r5SmokeConfigKeepsGalleryDefaults() {
+    fun r6SmokeConfigKeepsR5RuntimeVariablesFixed() {
         assertEquals(4_000, Stage17LocalLlmProbe.PROBE_MAX_CONTEXT_TOKENS)
         assertEquals(64, Stage17LocalLlmProbe.PROBE_TOP_K)
         assertEquals(0.95, Stage17LocalLlmProbe.PROBE_TOP_P)
