@@ -18,6 +18,28 @@ dex_tree="$(mktemp)"
 trap 'rm -f "${listing}" "${jni_so}" "${dex_tree}"' EXIT
 zipinfo -1 "${artifact}" > "${listing}"
 
+verify_revision2_native_runtime() {
+    local so="$1"
+    for marker in \
+        'voica.funasr.ctc.command' \
+        'voica.funasr.ctc.target_ids' \
+        'candidate_logits' \
+        'ForwardCompactCtc'; do
+        if ! strings "${so}" | grep -Fq "${marker}"; then
+            echo "FunASR revision-2 native runtime marker missing: ${marker}" >&2
+            exit 1
+        fi
+    done
+    for symbol in \
+        'Java_com_k2fsa_sherpa_onnx_OfflineSpeakerDiarization_newFromFile' \
+        'Java_com_k2fsa_sherpa_onnx_OfflineSpeakerDiarization_process'; do
+        if ! nm -D "${so}" | grep -Fq "${symbol}"; then
+            echo "Required Sherpa JNI symbol missing after r2 runtime promotion: ${symbol}" >&2
+            exit 1
+        fi
+    done
+}
+
 case "${kind}" in
     apk)
         required_prefix='lib/arm64-v8a/'
@@ -41,6 +63,7 @@ case "${kind}" in
             readelf -d "${jni_so}" | grep NEEDED >&2 || true
             exit 1
         fi
+        verify_revision2_native_runtime "${jni_so}"
 
         analyzer="$(command -v apkanalyzer)"
         test -n "${analyzer}"
@@ -72,6 +95,9 @@ case "${kind}" in
             grep -E '^base/lib/' "${listing}" | grep -Ev '^base/lib/arm64-v8a/' >&2 || true
             exit 1
         fi
+        unzip -p "${artifact}" "${required_prefix}libsherpa-onnx-jni.so" > "${jni_so}"
+        test -s "${jni_so}"
+        verify_revision2_native_runtime "${jni_so}"
         unzip -tq "${artifact}" >/dev/null
         ;;
     *)
@@ -80,4 +106,4 @@ case "${kind}" in
         ;;
 esac
 
-echo "Verified Sherpa/R8/native package boundary for ${artifact}"
+echo "Verified Sherpa revision-2 CTC/R8/native package boundary for ${artifact}"

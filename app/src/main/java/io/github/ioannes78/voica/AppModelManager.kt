@@ -23,10 +23,10 @@ import java.net.URL
 object VoicaModelChannel {
     const val BOOTSTRAP_CATALOG_ASSET = "model-catalog-v1.json"
     const val PRODUCTION_MODEL_CHANNEL_COMMIT =
-        "eeb59214244f392f3e2eecdb90016efbe3a95401"
-    const val PRODUCTION_MANIFEST_VERSION = 9
+        "6aa111fd973f87254ac7edbcae7260ac17d4b5d1"
+    const val PRODUCTION_MANIFEST_VERSION = 10
     const val PRODUCTION_MANIFEST_DIGEST =
-        "a49da9fdf2dabf2408ba2bb14cf6b5c25c35563052cc6307db8f8095caac0b45"
+        "2dda741fa038ad37e20b9f9750de9acce1d7aa0c8dab246854de69bd8e0ef120"
     const val PRODUCTION_MANIFEST_URL =
         "https://raw.githubusercontent.com/ioannes78/voica-model-channel/" +
             PRODUCTION_MODEL_CHANNEL_COMMIT +

@@ -69,6 +69,7 @@ jobs:
         run: |
           set -euo pipefail
           bash ci/verify-room-schemas.sh
+          bash ci/verify-funasr-r2-runtime-source.sh
 
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import os, re
@@ -146,6 +147,7 @@ jobs:
         run: |
           set -euo pipefail
           bash ci/verify-room-schemas.sh
+          bash ci/verify-funasr-r2-runtime-source.sh
           grep -Fq "$VOICA_MODEL_CHANNEL_COMMIT" app/src/main/java/io/github/ioannes78/voica/AppModelManager.kt
           grep -Fq "$VOICA_MODEL_MANIFEST_DIGEST" app/src/main/java/io/github/ioannes78/voica/AppModelManager.kt
 
