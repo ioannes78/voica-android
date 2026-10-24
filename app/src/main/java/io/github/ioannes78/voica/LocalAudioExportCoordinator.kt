@@ -451,7 +451,7 @@ class LocalAudioExportCoordinator(
                 put(MediaStore.Downloads.MIME_TYPE, source.mimeType)
                 put(
                     MediaStore.Downloads.RELATIVE_PATH,
-                    Environment.DIRECTORY_DOWNLOADS + "/Voica",
+                    Environment.DIRECTORY_DOWNLOADS + "/WENZHI/",
                 )
                 put(MediaStore.Downloads.IS_PENDING, 1)
             }
@@ -627,7 +627,7 @@ class LocalAudioExportCoordinator(
             .trim()
             .trimEnd('.')
             .take(MAX_EXPORT_BASENAME)
-            .ifBlank { "Voica-" + nowMs() }
+            .ifBlank { "WENZHI-" + nowMs() }
 
     private fun ensureExtension(
         name: String,
