@@ -6,28 +6,27 @@ pluginManagement {
     }
 }
 
-val patchedSherpaRepository =
-    providers.gradleProperty("voica.patchedSherpaRepository")
-        .orNull
-        ?.trim()
-        ?.takeIf { it.isNotEmpty() }
-        ?.let(::file)
-        ?.canonicalFile
-
-if (patchedSherpaRepository != null && !patchedSherpaRepository.isDirectory) {
-    error("Configured patched sherpa Maven repository does not exist: $patchedSherpaRepository")
-}
-
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
-        patchedSherpaRepository?.let { repository ->
-            maven {
-                name = "voicaP5PatchedSherpa"
-                url = uri(repository)
-                content {
-                    includeGroup("com.github.k2-fsa.sherpa-onnx")
-                }
+        // Production Sherpa runtime for FunASR revision-2 native CTC. This repository is
+        // intentionally first and artifact-only: all normal Debug/QA/Release builds resolve the
+        // exact immutable AAR published after Stage 16B P5 real-device acceptance.
+        ivy {
+            name = "voicaProductionSherpaRuntime"
+            url =
+                uri(
+                    "https://github.com/ioannes78/voica-android/releases/download/" +
+                        "runtime-sherpa-funasr-ctc-r2",
+                )
+            patternLayout {
+                artifact("[artifact]-[revision].[ext]")
+            }
+            metadataSources {
+                artifact()
+            }
+            content {
+                includeGroup("com.github.k2-fsa.sherpa-onnx")
             }
         }
         google()

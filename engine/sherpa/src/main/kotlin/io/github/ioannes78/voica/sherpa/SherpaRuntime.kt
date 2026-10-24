@@ -17,7 +17,7 @@ data class SherpaRuntimeProbeResult(
  */
 object SherpaRuntime {
     const val RUNTIME_ID = "sherpa-onnx"
-    const val RUNTIME_VERSION = "1.13.8"
+    const val RUNTIME_VERSION = "1.13.8-p5-ctc-r2"
     const val PROVIDER_CPU = "cpu"
     const val DEFAULT_NUM_THREADS = 2
 
