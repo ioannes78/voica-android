@@ -8,6 +8,7 @@
 - [x] P5 — legacy palette persistence compatibility
 - [x] P6 — gentle transcript playback reading highlight baseline
 - [x] P6-R1 — QA4 transcript layout stability implementation: fixed text geometry + independent word paint layer
+- [x] P6-R1 Fast PR Gate — unit tests / debug compile / FSMN boundary passed
 - [ ] P6-R1 QA4 — real-device confirmation: 20–30 s continuous playback, current-word highlight moves while unread text remains visually stationary
 - [ ] P6-R2 — complete Material 3 Surface token consolidation for all preset themes
 - [ ] P6-R2.1 — WENZHI Ink warm Surface cleanup; remove residual cool-purple Surface roles
