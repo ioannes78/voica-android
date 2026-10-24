@@ -270,7 +270,7 @@ fun TranscriptSegmentCard(
     }
     val transcriptColors = VoicaThemeTokens.colors
     val displayText = segment.text.ifBlank { stringResource(R.string.transcript_empty_segment) }
-    val tokenHighlightColor = transcriptColors.accent.copy(alpha = 0.26f)
+    val tokenHighlightColor = transcriptColors.transcriptCurrentWordBg
     val annotatedText = buildAnnotatedString {
         append(displayText)
         if (
