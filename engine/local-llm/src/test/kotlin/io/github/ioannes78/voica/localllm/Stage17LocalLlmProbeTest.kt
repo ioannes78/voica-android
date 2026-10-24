@@ -16,7 +16,7 @@ class Stage17LocalLlmProbeTest {
         assertEquals("gemma-4-E2B-it.litertlm", Stage17P0Candidate.MODEL_FILE)
         assertEquals(2_588_147_712L, Stage17P0Candidate.GALLERY_BASE_SIZE_BYTES)
         assertEquals(
-            "181938105e0eefd105961417e8da75903deacda102c4fce9ce90f50b97139a63c",
+            "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
             Stage17P0Candidate.GALLERY_BASE_SHA256,
         )
         assertEquals(8, Stage17P0Candidate.MIN_DEVICE_MEMORY_GB)
