@@ -1,8 +1,11 @@
 package io.github.ioannes78.voica
 
 import android.app.ActivityManager
+import android.app.ApplicationExitInfo
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -40,11 +43,15 @@ import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.localllm.ProbeBackend
 import io.github.ioannes78.voica.localllm.Stage17LocalLlmProbe
 import io.github.ioannes78.voica.localllm.Stage17P0Candidate
+import io.github.ioannes78.voica.localllm.Stage17ProbePhase
 import io.github.ioannes78.voica.localllm.Stage17ProbeRequest
 import io.github.ioannes78.voica.localllm.Stage17ProbeResult
 import io.github.ioannes78.voica.ui.theme.VoicaTheme
 import java.io.File
 import java.io.FileOutputStream
+import java.security.MessageDigest
+import java.text.DateFormat
+import java.util.Date
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -85,11 +92,22 @@ private fun Stage17P0LocalLlmScreen(onClose: () -> Unit) {
     val modelDir = remember { File(context.filesDir, "stage17-p0") }
     val modelFile = remember { File(modelDir, Stage17P0Candidate.MODEL_FILE) }
     val cacheDir = remember { File(context.cacheDir, "stage17-p0-litertlm").apply { mkdirs() } }
+    val diagnosticPrefs =
+        remember { context.getSharedPreferences(P0_DIAGNOSTIC_PREFS, Context.MODE_PRIVATE) }
     val memoryInfo =
         remember {
             ActivityManager.MemoryInfo().also { info ->
                 context.getSystemService(ActivityManager::class.java).getMemoryInfo(info)
             }
+        }
+    val previousProbeStartedAt = remember { diagnosticPrefs.getLong(P0_KEY_STARTED_AT, 0L) }
+    val previousProbeBackend = remember { diagnosticPrefs.getString(P0_KEY_BACKEND, null) }
+    val previousProbePhase = remember { diagnosticPrefs.getString(P0_KEY_PHASE, null) }
+    val previousProbePhaseAt = remember { diagnosticPrefs.getLong(P0_KEY_PHASE_AT, 0L) }
+    val previousProbeFailure = remember { diagnosticPrefs.getString(P0_KEY_FAILURE, null) }
+    val previousExit =
+        remember(previousProbeStartedAt) {
+            context.stage17P0LastExitDiagnostics(previousProbeStartedAt)
         }
 
     var importedBytes by remember {
@@ -100,13 +118,37 @@ private fun Stage17P0LocalLlmScreen(onClose: () -> Unit) {
     var resultText by remember { mutableStateOf<String?>(null) }
     var activeJob by remember { mutableStateOf<Job?>(null) }
 
+    fun persistProbeState(
+        backend: ProbeBackend,
+        phase: String,
+        startedAt: Long? = null,
+        failure: String? = null,
+    ) {
+        diagnosticPrefs.edit().apply {
+            putString(P0_KEY_BACKEND, backend.name)
+            putString(P0_KEY_PHASE, phase)
+            putLong(P0_KEY_PHASE_AT, System.currentTimeMillis())
+            if (startedAt != null) putLong(P0_KEY_STARTED_AT, startedAt)
+            if (failure == null) remove(P0_KEY_FAILURE) else putString(P0_KEY_FAILURE, failure)
+        }.commit()
+    }
+
     fun startProbe(backend: ProbeBackend) {
         if (activeJob != null || !modelFile.isValidP0Candidate()) return
-        operation = "${backend.name} probe 运行中"
+        val startedAt = System.currentTimeMillis()
+        persistProbeState(backend, P0_PHASE_MODEL_HASH, startedAt = startedAt)
+        operation = "${backend.name} · 正在校验模型 SHA-256"
         resultText = null
         activeJob =
             scope.launch {
                 try {
+                    val actualSha256 = withContext(Dispatchers.IO) { modelFile.sha256() }
+                    require(actualSha256 == Stage17P0Candidate.GALLERY_BASE_SHA256) {
+                        "模型 SHA-256 不匹配：$actualSha256"
+                    }
+                    persistProbeState(backend, P0_PHASE_MODEL_HASH_VERIFIED)
+                    operation =
+                        "${backend.name} probe 运行中 · KV ${Stage17LocalLlmProbe.PROBE_MAX_CONTEXT_TOKENS} tokens"
                     val result =
                         probe.run(
                             Stage17ProbeRequest(
@@ -114,15 +156,20 @@ private fun Stage17P0LocalLlmScreen(onClose: () -> Unit) {
                                 cacheDir = cacheDir.absolutePath,
                                 backend = backend,
                             ),
+                            onPhase = { phase ->
+                                persistProbeState(backend, phase.name)
+                            },
                         )
+                    persistProbeState(backend, P0_PHASE_COMPLETED)
                     resultText = result.toDiagnosticsText()
                     operation = "${backend.name} probe 完成"
                 } catch (_: CancellationException) {
+                    persistProbeState(backend, P0_PHASE_CANCELLED)
                     operation = "probe 已请求取消"
                 } catch (error: Throwable) {
-                    resultText =
-                        "[Stage 17 P0 ${backend.name} failure]\n" +
-                            "${error::class.java.name}: ${error.message ?: "n/a"}"
+                    val failure = "${error::class.java.name}: ${error.message ?: "n/a"}"
+                    persistProbeState(backend, P0_PHASE_FAILED, failure = failure)
+                    resultText = "[Stage 17 P0 ${backend.name} failure]\n$failure"
                     operation = "${backend.name} probe 失败"
                 } finally {
                     activeJob = null
@@ -135,7 +182,7 @@ private fun Stage17P0LocalLlmScreen(onClose: () -> Unit) {
             if (uri == null || activeJob != null) return@rememberLauncherForActivityResult
             copiedBytes = 0L
             resultText = null
-            operation = "正在导入 P0 模型"
+            operation = "正在导入并校验 P0 模型"
             activeJob =
                 scope.launch {
                     try {
@@ -146,7 +193,7 @@ private fun Stage17P0LocalLlmScreen(onClose: () -> Unit) {
                                 onProgress = { copiedBytes = it },
                             )
                         importedBytes = imported.length()
-                        operation = "模型已导入并通过大小校验"
+                        operation = "模型已导入并通过大小 + SHA-256 校验"
                     } catch (_: CancellationException) {
                         operation = "模型导入已取消"
                     } catch (error: Throwable) {
@@ -183,6 +230,7 @@ private fun Stage17P0LocalLlmScreen(onClose: () -> Unit) {
                 Text("Model：${Stage17P0Candidate.MODEL_ID}")
                 Text("Revision：${Stage17P0Candidate.GALLERY_BASE_REVISION}")
                 Text("候选文件：${formatBytes(Stage17P0Candidate.GALLERY_BASE_SIZE_BYTES)}")
+                Text("P0 KV 上限：${Stage17LocalLlmProbe.PROBE_MAX_CONTEXT_TOKENS} tokens")
                 Text("设备 RAM：${formatBytes(totalMemoryBytes)}（P0 门槛 ≥ ${Stage17P0Candidate.MIN_DEVICE_MEMORY_GB} GB）")
                 Text("应用可用存储：${formatBytes(context.filesDir.usableSpace)}")
                 if (totalMemoryBytes < Stage17P0Candidate.MIN_DEVICE_MEMORY_GB * 1_000_000_000L) {
@@ -209,6 +257,24 @@ private fun Stage17P0LocalLlmScreen(onClose: () -> Unit) {
             }
         }
 
+        if (previousProbePhase != null) {
+            item {
+                P0Card(title = "上次 Probe 诊断") {
+                    Text("backend=${previousProbeBackend ?: "n/a"}")
+                    Text("lastPhase=$previousProbePhase")
+                    if (previousProbePhaseAt > 0L) {
+                        Text("phaseAt=${formatTimestamp(previousProbePhaseAt)}")
+                    }
+                    previousProbeFailure?.let { Text("failure=$it") }
+                    Text(
+                        previousExit ?: "未找到与上次 Probe 时间匹配的系统进程退出记录。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
         item {
             P0Card(title = "P0 模型文件") {
                 Text(
@@ -218,7 +284,12 @@ private fun Stage17P0LocalLlmScreen(onClose: () -> Unit) {
                         "未就绪。下载 exact revision 后选择 ${Stage17P0Candidate.MODEL_FILE}。"
                     },
                 )
-                if (operation == "正在导入 P0 模型") {
+                Text(
+                    "运行 Probe 前会校验 SHA-256：${Stage17P0Candidate.GALLERY_BASE_SHA256.take(12)}…",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (operation == "正在导入并校验 P0 模型") {
                     Text(
                         "已复制 ${formatBytes(copiedBytes)} / ${formatBytes(Stage17P0Candidate.GALLERY_BASE_SIZE_BYTES)}",
                         style = MaterialTheme.typography.bodySmall,
@@ -249,7 +320,7 @@ private fun Stage17P0LocalLlmScreen(onClose: () -> Unit) {
         item {
             P0Card(title = "运行 Probe") {
                 Text(
-                    "固定中文 smoke prompt；最多 ${Stage17LocalLlmProbe.PROBE_MAX_OUTPUT_TOKENS} tokens；speculative decoding=OFF。",
+                    "固定中文 smoke prompt；KV ${Stage17LocalLlmProbe.PROBE_MAX_CONTEXT_TOKENS}；最多 ${Stage17LocalLlmProbe.PROBE_MAX_OUTPUT_TOKENS} output tokens；speculative decoding=OFF。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -320,6 +391,7 @@ private suspend fun android.content.Context.importStage17P0Candidate(
         temporary.delete()
         var promoted = false
         try {
+            val digest = MessageDigest.getInstance("SHA-256")
             contentResolver.openInputStream(source).use { input ->
                 requireNotNull(input) { "无法打开所选模型文件" }
                 FileOutputStream(temporary).use { output ->
@@ -331,6 +403,7 @@ private suspend fun android.content.Context.importStage17P0Candidate(
                         val count = input.read(buffer)
                         if (count < 0) break
                         output.write(buffer, 0, count)
+                        digest.update(buffer, 0, count)
                         total += count
                         if (total >= nextProgress) {
                             withContext(Dispatchers.Main.immediate) { onProgress(total) }
@@ -341,6 +414,10 @@ private suspend fun android.content.Context.importStage17P0Candidate(
                     withContext(Dispatchers.Main.immediate) { onProgress(total) }
                     require(total == Stage17P0Candidate.GALLERY_BASE_SIZE_BYTES) {
                         "文件大小不匹配：实际 $total bytes，期望 ${Stage17P0Candidate.GALLERY_BASE_SIZE_BYTES} bytes。P0 只接受已冻结 base revision。"
+                    }
+                    val actualSha256 = digest.digest().toHexString()
+                    require(actualSha256 == Stage17P0Candidate.GALLERY_BASE_SHA256) {
+                        "SHA-256 不匹配：实际 $actualSha256"
                     }
                 }
             }
@@ -356,10 +433,25 @@ private suspend fun android.content.Context.importStage17P0Candidate(
 private fun File.isValidP0Candidate(): Boolean =
     isFile && length() == Stage17P0Candidate.GALLERY_BASE_SIZE_BYTES
 
+private fun File.sha256(): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    inputStream().buffered(COPY_BUFFER_BYTES).use { input ->
+        val buffer = ByteArray(COPY_BUFFER_BYTES)
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            digest.update(buffer, 0, count)
+        }
+    }
+    return digest.digest().toHexString()
+}
+
+private fun ByteArray.toHexString(): String = joinToString(separator = "") { byte -> "%02x".format(byte) }
+
 private fun Stage17ProbeResult.toDiagnosticsText(): String =
     buildString {
         appendLine("[Stage 17 P0 local LLM]")
-        appendLine("runtime=$runtimeVersion backend=$backend")
+        appendLine("runtime=$runtimeVersion backend=$backend maxNumTokens=$maxNumTokens")
         appendLine("initializeMs=$initializeMs ttfeMs=${timeToFirstEmissionMs ?: -1} generationMs=$totalGenerationMs")
         appendLine(
             "pssKb before=$pssBeforeInitializeKb initialized=$pssAfterInitializeKb " +
@@ -368,6 +460,45 @@ private fun Stage17ProbeResult.toDiagnosticsText(): String =
         appendLine("prompt=${Stage17LocalLlmProbe.PROBE_PROMPT}")
         append("response=$responsePreview")
     }
+
+private fun Context.stage17P0LastExitDiagnostics(sinceMillis: Long): String? {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || sinceMillis <= 0L) return null
+    val manager = getSystemService(ActivityManager::class.java)
+    val exit =
+        manager.getHistoricalProcessExitReasons(packageName, 0, 8)
+            .firstOrNull { it.timestamp >= sinceMillis }
+            ?: return null
+    return buildString {
+        append("systemExit=${exit.reason.stage17ExitReasonLabel()}")
+        append(" status=${exit.status}")
+        append(" importance=${exit.importance}")
+        append(" pssKb=${exit.pss}")
+        append(" rssKb=${exit.rss}")
+        append(" at=${formatTimestamp(exit.timestamp)}")
+        exit.description?.takeIf { it.isNotBlank() }?.let { append(" description=$it") }
+    }
+}
+
+private fun Int.stage17ExitReasonLabel(): String =
+    when (this) {
+        ApplicationExitInfo.REASON_EXIT_SELF -> "EXIT_SELF"
+        ApplicationExitInfo.REASON_SIGNALED -> "SIGNALED"
+        ApplicationExitInfo.REASON_LOW_MEMORY -> "LOW_MEMORY"
+        ApplicationExitInfo.REASON_CRASH -> "CRASH"
+        ApplicationExitInfo.REASON_CRASH_NATIVE -> "CRASH_NATIVE"
+        ApplicationExitInfo.REASON_ANR -> "ANR"
+        ApplicationExitInfo.REASON_INITIALIZATION_FAILURE -> "INITIALIZATION_FAILURE"
+        ApplicationExitInfo.REASON_PERMISSION_CHANGE -> "PERMISSION_CHANGE"
+        ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE -> "EXCESSIVE_RESOURCE_USAGE"
+        ApplicationExitInfo.REASON_USER_REQUESTED -> "USER_REQUESTED"
+        ApplicationExitInfo.REASON_USER_STOPPED -> "USER_STOPPED"
+        ApplicationExitInfo.REASON_DEPENDENCY_DIED -> "DEPENDENCY_DIED"
+        ApplicationExitInfo.REASON_OTHER -> "OTHER"
+        else -> "UNKNOWN($this)"
+    }
+
+private fun formatTimestamp(timestampMillis: Long): String =
+    DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.MEDIUM).format(Date(timestampMillis))
 
 private fun formatBytes(bytes: Long): String =
     when {
@@ -378,3 +509,14 @@ private fun formatBytes(bytes: Long): String =
 
 private const val COPY_BUFFER_BYTES = 4 * 1024 * 1024
 private const val COPY_PROGRESS_STEP_BYTES = 32L * 1024L * 1024L
+private const val P0_DIAGNOSTIC_PREFS = "stage17-p0-diagnostics"
+private const val P0_KEY_BACKEND = "backend"
+private const val P0_KEY_PHASE = "phase"
+private const val P0_KEY_PHASE_AT = "phase_at"
+private const val P0_KEY_STARTED_AT = "started_at"
+private const val P0_KEY_FAILURE = "failure"
+private const val P0_PHASE_MODEL_HASH = "MODEL_HASHING"
+private const val P0_PHASE_MODEL_HASH_VERIFIED = "MODEL_HASH_VERIFIED"
+private const val P0_PHASE_COMPLETED = "COMPLETED"
+private const val P0_PHASE_CANCELLED = "CANCELLED"
+private const val P0_PHASE_FAILED = "FAILED"
