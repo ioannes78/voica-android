@@ -122,6 +122,8 @@ jobs:
             :engine:sherpa:assembleDebug \
             :engine:fsmn:testDebugUnitTest \
             :engine:fsmn:assembleDebug \
+            :engine:local-llm:testDebugUnitTest \
+            :engine:local-llm:assembleDebug \
             :app:testDebugUnitTest \
             --configuration-cache \
             --stacktrace
