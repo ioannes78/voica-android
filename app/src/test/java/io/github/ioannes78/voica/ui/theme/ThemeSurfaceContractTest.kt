@@ -13,6 +13,7 @@ class ThemeSurfaceContractTest {
         val presets =
             listOf(
                 VoicaColorPreset.WENZHI_INK,
+                VoicaColorPreset.WENZHI_PAPER,
                 VoicaColorPreset.MINT,
                 VoicaColorPreset.BLUE,
                 VoicaColorPreset.PURPLE,
@@ -74,6 +75,33 @@ class ThemeSurfaceContractTest {
     }
 
     @Test
+    fun `WENZHI Paper defaults to warm xuan paper and supports four paper tones`() {
+        val expectedBackgrounds =
+            mapOf(
+                WenzhiPaperTone.PAPER_WHITE to Color(0xFFFAF6E9),
+                WenzhiPaperTone.XUAN_WARM to Color(0xFFF6F0DF),
+                WenzhiPaperTone.RICE_APRICOT to Color(0xFFF1E7CF),
+                WenzhiPaperTone.ANTIQUE to Color(0xFFEFE3C5),
+            )
+
+        expectedBackgrounds.forEach { (tone, expected) ->
+            val scheme =
+                resolveVoicaColorScheme(
+                    preset = VoicaColorPreset.WENZHI_PAPER,
+                    darkTheme = false,
+                    paperTone = tone,
+                )
+            assertEquals(expected, scheme.background)
+            assertEquals(Color(0xFF776244), scheme.primary)
+        }
+
+        assertEquals(
+            Color(0xFFF6F0DF),
+            resolveVoicaColorScheme(VoicaColorPreset.WENZHI_PAPER, darkTheme = false).background,
+        )
+    }
+
+    @Test
     fun `legacy preset surfaces retain their own color personalities`() {
         val mint = resolveVoicaColorScheme(VoicaColorPreset.MINT, darkTheme = false).surfaceContainer
         val blue = resolveVoicaColorScheme(VoicaColorPreset.BLUE, darkTheme = false).surfaceContainer
@@ -83,6 +111,19 @@ class ThemeSurfaceContractTest {
         assertTrue(blue.blue > blue.red, "Blue surface must keep a blue-grey cast")
         assertTrue(purple.blue > purple.green, "Purple surface must keep a restrained purple-grey cast")
         assertTrue(mint != blue && blue != purple && mint != purple)
+    }
+
+    @Test
+    fun `custom theme generates its own controlled neutral surfaces`() {
+        val accent = 0xFFC25B47.toInt()
+        val light = resolveVoicaColorScheme(VoicaColorPreset.CUSTOM, false, customAccentArgb = accent)
+        val dark = resolveVoicaColorScheme(VoicaColorPreset.CUSTOM, true, customAccentArgb = accent)
+
+        assertEquals(Color(accent), light.primary)
+        assertEquals(Color(accent), dark.primary)
+        assertTrue(light.surfaceContainer != resolveVoicaColorScheme(VoicaColorPreset.MINT, false).surfaceContainer)
+        assertTrue(dark.surfaceContainer != resolveVoicaColorScheme(VoicaColorPreset.MINT, true).surfaceContainer)
+        assertTrue(light.surfaceContainer.red > light.surfaceContainer.blue)
     }
 
     private fun surfaceRoles(scheme: ColorScheme): List<Color> =
