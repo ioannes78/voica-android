@@ -1,76 +1,48 @@
 # Stage 17 P0 — Offline LLM Runtime / Model Feasibility
 
-Status: **IN PROGRESS / R4 GALLERY PARITY / NO PRODUCTION LLM DECISION YET**
+Status: **CLOSED — PASS WITH RESTRICTIONS**
 
 Branch: `stage17-fully-offline-intelligence`
 Base production baseline: `28ec9a837c5b0debac8e6d32ab99e0cf8d80be12`
 
-## Purpose
+## Final decision
 
-P0 exists only to decide whether the first local LLM candidate is technically suitable for WENZHI on Android. It does not authorize P1, production Summary, retrieval, Q&A, or a production LLM model contract.
+P0 is closed as **PASS WITH RESTRICTIONS**.
 
-The Android `main` branch now independently contains the accepted FunASR Nano revision-2 native CTC production baseline. P0 inherits that speech baseline but does not modify or republish it.
+Detailed root-cause analysis, real-device evidence, validated runtime/model configuration, restrictions, and the Stage 17 P1 transition are recorded in:
 
-## Runtime path
+- `docs/STAGE_17_P0_CLOSURE.md`
 
-P0 started by validating LiteRT-LM 0.18.1. Real-device testing then showed that both CPU and GPU could terminate the app during the common Engine/model-load path.
+## Accepted runtime result
 
-R4 is a controlled same-device parity test against Google AI Edge Gallery, which can run the same Gemma 4 E2B base model on the test device. R4 therefore deliberately aligns the WENZHI probe with the Gallery configuration before changing the already verified model artifact:
+LiteRT-LM Android `0.18.0` with Gemma 4 E2B is feasible on the tested 8 GB Android device for both CPU and GPU inference.
 
-- LiteRT-LM Android runtime: `0.18.0`;
-- `maxNumTokens = 4000`;
-- `cacheDir = null`;
-- `SamplerConfig(topK = 64, topP = 0.95, temperature = 1.0)`;
-- ordinary `Contents` prompt input;
-- speculative decoding disabled.
+The blocking native crash at `CONVERSATION_CREATING` was resolved in R7 by preserving the `com.google.ai.edge.litertlm.**` JNI/API boundary through R8 while keeping production-like minification enabled.
 
-This is a feasibility configuration only. It is not a production runtime freeze.
+The validated post-fix artifact is the pre-MTP Gallery artifact:
 
-## Gemma 4 E2B candidate
-
-- model id: `litert-community/gemma-4-E2B-it-litert-lm`
+- revision: `7fa1d78473894f7e736a21d920c3aa80f950c0db`
 - file: `gemma-4-E2B-it.litertlm`
-- frozen base revision: `6e5c4f1e395deb959c494953478fa5cec4b8008f`
-- exact file size: `2,588,147,712` bytes
-- exact SHA-256: `181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c`
-- minimum candidate device memory: `8 GB`
-- advertised maximum context: `32K`
-- candidate accelerators: CPU / GPU
-- optional MTP update revision: `7fa1d78473894f7e736a21d920c3aa80f950c0db`
+- size: `2,583,085,056` bytes
+- SHA-256: `ab7838cdfc8f77e54d8ca45eadceb20452d9f01e4bfade03e5dce27911b27e42`
 
-These values are P0 feasibility inputs. They are not yet a WENZHI production LLM pin.
+The newer MTP-capable artifact was tested only before the R8 fix and is therefore not classified as validated under R7.
 
-## P0 probe contract
+## P0 exit coverage
 
-The isolated `:engine:local-llm` module must verify:
+Real-device gates completed:
 
-1. The R4 LiteRT-LM runtime resolves and compiles under the current Android/Gradle/Kotlin toolchain.
-2. The exact SHA-256-verified `.litertlm` base model can initialize on CPU and, where supported, GPU.
-3. The fixed smoke prompt is `请用一句简短中文回答：你现在运行在本地设备上。`
-4. The probe records initialize latency, first streamed emission latency, total generation latency, PSS before/after initialize, PSS after generation/close, peak PSS, backend, runtime, context limit, and a bounded response preview.
-5. Probe phase breadcrumbs and Android process-exit diagnostics must distinguish caught Kotlin failures from native crash / signal / low-memory termination where Android exposes that evidence.
-6. Cancellation must unwind Conversation and Engine lifecycle through structured resource closing.
-7. The QA harness remains unavailable to the production application ID.
+1. CPU inference feasibility — PASS.
+2. GPU inference feasibility — PASS.
+3. Repeated CPU load / generation / release — PASS.
+4. Repeated GPU load / generation / release — PASS.
+5. Cancellation — PASS.
+6. Foreground / background lifecycle — PASS.
+7. Sustained GPU thermal/load observation — PASS.
+8. Production-like R8 build with explicit LiteRT-LM JNI/API preservation — PASS.
 
-## Explicit non-goals
+## Stage transition
 
-P0 does not:
+Stage 17 P1 — Offline LLM Runtime Foundation — is now **UNBLOCKED**.
 
-- implement Summary;
-- implement hierarchical long-text processing;
-- implement RAG / retrieval;
-- implement Q&A;
-- add provider/API-key/cloud fallback code;
-- change the production FunASR/model-channel baseline inherited from `main`;
-- republish the patched Sherpa runtime;
-- declare Gemma 4 E2B production-ready.
-
-## Exit decision
-
-P0 ends only with one of:
-
-- `PASS`;
-- `PASS WITH RESTRICTIONS`;
-- `FAIL`.
-
-A decision requires real-device CPU evidence, GPU evidence or a documented unsupported restriction, repeated-load memory recovery, cancellation, foreground/background lifecycle behavior, and thermal observation. P1 remains blocked until that decision is recorded.
+P1 must still follow the normal requirement and development-plan confirmation workflow before implementation. P0 closure does not authorize merging PR #37; merge requires separate explicit user approval.
