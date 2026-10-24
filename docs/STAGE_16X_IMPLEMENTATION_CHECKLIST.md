@@ -17,7 +17,7 @@
 - [x] P6-R5 — custom theme generator with controlled neutral/surface tonal palettes + HEX/HSL controls
 - [x] P6-R6 — all-theme light/dark transcript reading-highlight regression contracts implemented
 - [x] P7 — user-visible brand/theme hard-code cleanup audit; technical compatibility identifiers retained
-- [ ] P8 — final automated regression / static brand gates — FINAL FAST GATE PENDING
+- [x] P8 — final automated regression / static brand gates — PASS
 - [ ] P9 — final real-device QA
 
 Stage 17 remains blocked until Stage 16X closes P9.
