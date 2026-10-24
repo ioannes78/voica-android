@@ -1,7 +1,6 @@
 package io.github.ioannes78.voica.ui.transcript
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -23,7 +22,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,7 +35,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.R
@@ -273,16 +270,7 @@ fun TranscriptSegmentCard(
     }
     val transcriptColors = VoicaThemeTokens.colors
     val displayText = segment.text.ifBlank { stringResource(R.string.transcript_empty_segment) }
-    val highlightAlpha = remember(segment.stableId) { Animatable(0f) }
-    LaunchedEffect(activeCueId) {
-        if (activeCueId == null) {
-            highlightAlpha.snapTo(0f)
-        } else {
-            highlightAlpha.snapTo(0.42f)
-            highlightAlpha.animateTo(0.72f, animationSpec = tween(durationMillis = 150))
-        }
-    }
-    val tokenHighlightColor = transcriptColors.transcriptCurrentWordBg.copy(alpha = highlightAlpha.value)
+    val tokenHighlightColor = transcriptColors.accent.copy(alpha = 0.26f)
     val annotatedText = buildAnnotatedString {
         append(displayText)
         if (
@@ -302,7 +290,6 @@ fun TranscriptSegmentCard(
                 SpanStyle(
                     background = tokenHighlightColor,
                     color = transcriptColors.transcriptCurrentWordText,
-                    fontWeight = FontWeight.Medium,
                 ),
                 activeCue.textStartOffset,
                 activeCue.textEndOffsetExclusive,
