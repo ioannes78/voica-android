@@ -29,13 +29,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.Stage13AOfflineModelIds
@@ -266,43 +267,17 @@ fun TranscriptSegmentCard(
     annotationAction: (@Composable () -> Unit)? = null,
 ) {
     val activeCue = remember(segment.stableId, activeCueId) {
-        segment.cues.firstOrNull { cue -> cue.id == activeCueId && cue.projectionQuality == TextProjectionQuality.EXACT }
+        segment.cues.firstOrNull { cue ->
+            cue.id == activeCueId &&
+                cue.projectionQuality == TextProjectionQuality.EXACT &&
+                segment.text.isNotBlank() &&
+                cue.textStartOffset in 0 until segment.text.length &&
+                cue.textEndOffsetExclusive in 1..segment.text.length &&
+                cue.textEndOffsetExclusive > cue.textStartOffset
+        }
     }
     val transcriptColors = VoicaThemeTokens.colors
     val displayText = segment.text.ifBlank { stringResource(R.string.transcript_empty_segment) }
-    val tokenHighlightColor = transcriptColors.transcriptCurrentWordBg
-    val annotatedText = buildAnnotatedString {
-        append(displayText)
-        if (
-            segment.text.isNotBlank() && activeCue != null &&
-            activeCue.textStartOffset in 0..segment.text.length &&
-            activeCue.textEndOffsetExclusive in 0..segment.text.length &&
-            activeCue.textEndOffsetExclusive > activeCue.textStartOffset
-        ) {
-            if (activeCue.textStartOffset > 0) {
-                addStyle(
-                    SpanStyle(color = transcriptColors.transcriptPlayedText),
-                    0,
-                    activeCue.textStartOffset,
-                )
-            }
-            addStyle(
-                SpanStyle(
-                    background = tokenHighlightColor,
-                    color = transcriptColors.transcriptCurrentWordText,
-                ),
-                activeCue.textStartOffset,
-                activeCue.textEndOffsetExclusive,
-            )
-            if (activeCue.textEndOffsetExclusive < segment.text.length) {
-                addStyle(
-                    SpanStyle(color = transcriptColors.transcriptUpcomingText),
-                    activeCue.textEndOffsetExclusive,
-                    segment.text.length,
-                )
-            }
-        }
-    }
     var textLayout by remember(segment.stableId) { mutableStateOf<TextLayoutResult?>(null) }
 
     val application = LocalContext.current.applicationContext as? VoicaApplication
@@ -339,7 +314,7 @@ fun TranscriptSegmentCard(
             targetValue =
                 when {
                     searchHighlighted -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
-                    isActive -> transcriptColors.transcriptActiveParagraphBg.copy(alpha = 0.52f)
+                    isActive -> transcriptColors.transcriptActiveParagraphBg.copy(alpha = 0.26f)
                     else -> transcriptColors.surface
                 },
             animationSpec = tween(durationMillis = 150),
@@ -405,39 +380,65 @@ fun TranscriptSegmentCard(
             }
         }
         Text(
-            text = annotatedText,
+            text = displayText,
             style = MaterialTheme.typography.bodyMedium,
             color = transcriptColors.textPrimary,
             onTextLayout = { textLayout = it },
             modifier =
-                Modifier.pointerInput(segment.stableId, activeCueId, syncEnabled, onAddAnnotation) {
-                    detectTapGestures(
-                        onTap = { position ->
-                            if (syncEnabled) {
-                                val offset = textLayout?.getOffsetForPosition(position)
-                                val cue = offset?.let { textOffset ->
-                                    segment.cues.firstOrNull { candidate ->
-                                        candidate.projectionQuality == TextProjectionQuality.EXACT &&
-                                            textOffset >= candidate.textStartOffset && textOffset < candidate.textEndOffsetExclusive
-                                    }
-                                }
-                                onSeek(cue?.startSampleIndex ?: segment.startSampleIndex)
+                Modifier
+                    .drawBehind {
+                        val cue = activeCue ?: return@drawBehind
+                        val layout = textLayout ?: return@drawBehind
+                        val horizontalPad = 1.5.dp.toPx()
+                        val verticalPad = 0.5.dp.toPx()
+                        val radius = 3.dp.toPx()
+                        currentWordHighlightRects(
+                            layout = layout,
+                            startOffset = cue.textStartOffset,
+                            endOffsetExclusive = cue.textEndOffsetExclusive,
+                        ).forEach { rect ->
+                            val left = (rect.left - horizontalPad).coerceAtLeast(0f)
+                            val top = (rect.top - verticalPad).coerceAtLeast(0f)
+                            val right = (rect.right + horizontalPad).coerceAtMost(size.width)
+                            val bottom = (rect.bottom + verticalPad).coerceAtMost(size.height)
+                            if (right > left && bottom > top) {
+                                drawRoundRect(
+                                    color = transcriptColors.transcriptCurrentWordBg,
+                                    topLeft = Offset(left, top),
+                                    size = Size(right - left, bottom - top),
+                                    cornerRadius = CornerRadius(radius, radius),
+                                )
                             }
-                        },
-                        onLongPress = { position ->
-                            if (syncEnabled && onAddAnnotation != null) {
-                                val offset = textLayout?.getOffsetForPosition(position)
-                                val cue = offset?.let { textOffset ->
-                                    segment.cues.firstOrNull { candidate ->
-                                        candidate.projectionQuality == TextProjectionQuality.EXACT &&
-                                            textOffset >= candidate.textStartOffset && textOffset < candidate.textEndOffsetExclusive
+                        }
+                    }
+                    .pointerInput(segment.stableId, syncEnabled, onAddAnnotation) {
+                        detectTapGestures(
+                            onTap = { position ->
+                                if (syncEnabled) {
+                                    val offset = textLayout?.getOffsetForPosition(position)
+                                    val cue = offset?.let { textOffset ->
+                                        segment.cues.firstOrNull { candidate ->
+                                            candidate.projectionQuality == TextProjectionQuality.EXACT &&
+                                                textOffset >= candidate.textStartOffset && textOffset < candidate.textEndOffsetExclusive
+                                        }
                                     }
+                                    onSeek(cue?.startSampleIndex ?: segment.startSampleIndex)
                                 }
-                                onAddAnnotation(cue?.startSampleIndex ?: segment.startSampleIndex)
-                            }
-                        },
-                    )
-                },
+                            },
+                            onLongPress = { position ->
+                                if (syncEnabled && onAddAnnotation != null) {
+                                    val offset = textLayout?.getOffsetForPosition(position)
+                                    val cue = offset?.let { textOffset ->
+                                        segment.cues.firstOrNull { candidate ->
+                                            candidate.projectionQuality == TextProjectionQuality.EXACT &&
+                                                textOffset >= candidate.textStartOffset && textOffset < candidate.textEndOffsetExclusive
+                                        }
+                                    }
+                                    onAddAnnotation(cue?.startSampleIndex ?: segment.startSampleIndex)
+                                }
+                            },
+                        )
+                    },
         )
     }
 
@@ -493,6 +494,38 @@ fun TranscriptSegmentCard(
             confirmButton = { TextButton(onClick = { speakerDialogOpen = false }) { Text(stringResource(R.string.cancel)) } },
         )
     }
+}
+
+private fun currentWordHighlightRects(
+    layout: TextLayoutResult,
+    startOffset: Int,
+    endOffsetExclusive: Int,
+): List<Rect> {
+    val text = layout.layoutInput.text.text
+    if (startOffset !in text.indices || endOffsetExclusive !in 1..text.length || endOffsetExclusive <= startOffset) {
+        return emptyList()
+    }
+
+    val rectsByLine = linkedMapOf<Int, Rect>()
+    for (offset in startOffset until endOffsetExclusive) {
+        if (text[offset] == '\n') continue
+        val box = layout.getBoundingBox(offset)
+        if (box.width <= 0f || box.height <= 0f) continue
+        val line = layout.getLineForOffset(offset)
+        val current = rectsByLine[line]
+        rectsByLine[line] =
+            if (current == null) {
+                box
+            } else {
+                Rect(
+                    left = minOf(current.left, box.left),
+                    top = minOf(current.top, box.top),
+                    right = maxOf(current.right, box.right),
+                    bottom = maxOf(current.bottom, box.bottom),
+                )
+            }
+    }
+    return rectsByLine.values.toList()
 }
 
 internal fun productTranscriptionFailureMessage(rawMessage: String): String {
