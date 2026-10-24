@@ -4,7 +4,9 @@ plugins {
     id("com.android.library")
 }
 
-val liteRtLmVersion = "0.18.1"
+// P0 R4 deliberately matches the current Google AI Edge Gallery Android runtime so the
+// same-device Gallery success can be used as a controlled compatibility reference.
+val liteRtLmVersion = "0.18.0"
 
 android {
     namespace = "io.github.ioannes78.voica.localllm"
