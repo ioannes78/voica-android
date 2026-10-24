@@ -232,7 +232,7 @@ jobs:
       - name: Upload QA APK
         uses: actions/upload-artifact@v4
         with:
-          name: Voica-${{ env.VOICA_RELEASEQA_VERSION }}-apk
+          name: WENZHI-${{ env.VOICA_RELEASEQA_VERSION }}-apk
           path: app/build/outputs/apk/releaseQa/app-releaseQa.apk
           if-no-files-found: error
           retention-days: 1
