@@ -6,9 +6,15 @@ import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.coroutineContext
 
@@ -37,6 +43,8 @@ data class Stage17ProbeResult(
     val pssBeforeInitializeKb: Long,
     val pssAfterInitializeKb: Long,
     val pssAfterGenerationKb: Long,
+    val pssAfterCloseKb: Long,
+    val peakPssKb: Long,
     val responsePreview: String,
 )
 
@@ -45,70 +53,99 @@ data class Stage17ProbeResult(
  *
  * This probe deliberately stays outside the production summary / retrieval / Q&A path. Its only
  * job is to verify that the pinned LiteRT-LM runtime and a caller-supplied .litertlm artifact can
- * initialize and generate on a physical Android device while capturing coarse latency/PSS data.
- * Cancelling the calling coroutine closes the conversation and engine through the use blocks.
+ * initialize and generate on a physical Android device while capturing latency/PSS data.
+ * Cancelling the calling coroutine closes the conversation and engine through structured resource
+ * ownership. Speculative decoding is explicitly disabled so the P0 baseline exercises one model.
  */
 class Stage17LocalLlmProbe {
     suspend fun run(request: Stage17ProbeRequest): Stage17ProbeResult =
         withContext(Dispatchers.Default) {
-            val backend =
-                when (request.backend) {
-                    ProbeBackend.CPU -> Backend.CPU()
-                    ProbeBackend.GPU -> Backend.GPU()
-                }
-            val config =
-                EngineConfig(
-                    modelPath = request.modelPath,
-                    backend = backend,
-                    cacheDir = request.cacheDir,
-                )
-            val conversationConfig =
-                ConversationConfig(
-                    maxOutputToken = PROBE_MAX_OUTPUT_TOKENS,
-                    enableSpeculativeDecoding = false,
-                )
+            coroutineScope {
+                val backend =
+                    when (request.backend) {
+                        ProbeBackend.CPU -> Backend.CPU()
+                        ProbeBackend.GPU -> Backend.GPU()
+                    }
+                val engineConfig =
+                    EngineConfig(
+                        modelPath = request.modelPath,
+                        backend = backend,
+                        cacheDir = request.cacheDir,
+                    )
+                val conversationConfig =
+                    ConversationConfig(
+                        maxOutputToken = PROBE_MAX_OUTPUT_TOKENS,
+                        enableSpeculativeDecoding = false,
+                    )
 
-            val pssBeforeInitializeKb = Debug.getPss()
-            var pssAfterInitializeKb = pssBeforeInitializeKb
-            var firstEmissionNanos: Long? = null
-            var generationStartedNanos = 0L
-            var generationFinishedNanos = 0L
-            val response = StringBuilder()
-
-            Engine(config).use { engine ->
-                val initializeStartedNanos = SystemClock.elapsedRealtimeNanos()
-                engine.initialize()
-                val initializeFinishedNanos = SystemClock.elapsedRealtimeNanos()
-                pssAfterInitializeKb = Debug.getPss()
-
-                engine.createConversation(conversationConfig).use { conversation ->
-                    generationStartedNanos = SystemClock.elapsedRealtimeNanos()
-                    conversation.sendMessageAsync(PROBE_PROMPT).collect { message ->
-                        coroutineContext.ensureActive()
-                        if (firstEmissionNanos == null) {
-                            firstEmissionNanos = SystemClock.elapsedRealtimeNanos()
-                        }
-                        if (response.length < MAX_RESPONSE_PREVIEW_CHARS) {
-                            response.append(message.toString())
+                val pssBeforeInitializeKb = currentPssKb()
+                val peakPssKb = AtomicLong(pssBeforeInitializeKb)
+                val sampler =
+                    launch(Dispatchers.Default) {
+                        while (isActive) {
+                            val sample = currentPssKb()
+                            peakPssKb.updateAndGet { previous -> maxOf(previous, sample) }
+                            delay(PSS_SAMPLE_INTERVAL_MS)
                         }
                     }
-                    generationFinishedNanos = SystemClock.elapsedRealtimeNanos()
-                }
 
-                return@withContext Stage17ProbeResult(
-                    runtimeVersion = BuildConfig.LITERT_LM_VERSION,
-                    backend = request.backend,
-                    initializeMs = nanosToMillis(initializeFinishedNanos - initializeStartedNanos),
-                    timeToFirstEmissionMs =
-                        firstEmissionNanos?.let { nanosToMillis(it - generationStartedNanos) },
-                    totalGenerationMs = nanosToMillis(generationFinishedNanos - generationStartedNanos),
-                    pssBeforeInitializeKb = pssBeforeInitializeKb,
-                    pssAfterInitializeKb = pssAfterInitializeKb,
-                    pssAfterGenerationKb = Debug.getPss(),
-                    responsePreview = response.toString().take(MAX_RESPONSE_PREVIEW_CHARS),
-                )
+                var pssAfterInitializeKb = pssBeforeInitializeKb
+                var pssAfterGenerationKb = pssBeforeInitializeKb
+                var firstEmissionNanos: Long? = null
+                var initializeMs = 0L
+                var generationStartedNanos = 0L
+                var generationFinishedNanos = 0L
+                val response = StringBuilder()
+
+                try {
+                    Engine(engineConfig).use { engine ->
+                        val initializeStartedNanos = SystemClock.elapsedRealtimeNanos()
+                        engine.initialize()
+                        val initializeFinishedNanos = SystemClock.elapsedRealtimeNanos()
+                        initializeMs = nanosToMillis(initializeFinishedNanos - initializeStartedNanos)
+                        pssAfterInitializeKb = currentPssKb()
+                        peakPssKb.updateAndGet { previous -> maxOf(previous, pssAfterInitializeKb) }
+
+                        engine.createConversation(conversationConfig).use { conversation ->
+                            generationStartedNanos = SystemClock.elapsedRealtimeNanos()
+                            conversation.sendMessageAsync(PROBE_PROMPT).collect { message ->
+                                coroutineContext.ensureActive()
+                                if (firstEmissionNanos == null) {
+                                    firstEmissionNanos = SystemClock.elapsedRealtimeNanos()
+                                }
+                                if (response.length < MAX_RESPONSE_PREVIEW_CHARS) {
+                                    response.append(message.toString())
+                                }
+                            }
+                            generationFinishedNanos = SystemClock.elapsedRealtimeNanos()
+                        }
+                        pssAfterGenerationKb = currentPssKb()
+                        peakPssKb.updateAndGet { previous -> maxOf(previous, pssAfterGenerationKb) }
+                    }
+
+                    val pssAfterCloseKb = currentPssKb()
+                    peakPssKb.updateAndGet { previous -> maxOf(previous, pssAfterCloseKb) }
+                    Stage17ProbeResult(
+                        runtimeVersion = BuildConfig.LITERT_LM_VERSION,
+                        backend = request.backend,
+                        initializeMs = initializeMs,
+                        timeToFirstEmissionMs =
+                            firstEmissionNanos?.let { nanosToMillis(it - generationStartedNanos) },
+                        totalGenerationMs = nanosToMillis(generationFinishedNanos - generationStartedNanos),
+                        pssBeforeInitializeKb = pssBeforeInitializeKb,
+                        pssAfterInitializeKb = pssAfterInitializeKb,
+                        pssAfterGenerationKb = pssAfterGenerationKb,
+                        pssAfterCloseKb = pssAfterCloseKb,
+                        peakPssKb = peakPssKb.get(),
+                        responsePreview = response.toString().take(MAX_RESPONSE_PREVIEW_CHARS),
+                    )
+                } finally {
+                    sampler.cancelAndJoin()
+                }
             }
         }
+
+    private fun currentPssKb(): Long = Debug.getPss().toLong()
 
     private fun nanosToMillis(value: Long): Long = value / 1_000_000L
 
@@ -116,6 +153,7 @@ class Stage17LocalLlmProbe {
         const val PROBE_PROMPT = "请用一句中文回答：你现在运行在本地设备上。"
         const val PROBE_MAX_OUTPUT_TOKENS = 64
         const val MAX_RESPONSE_PREVIEW_CHARS = 512
+        const val PSS_SAMPLE_INTERVAL_MS = 100L
     }
 }
 

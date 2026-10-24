@@ -103,8 +103,13 @@
             android:name=".NotificationPresentationDismissReceiver"
             android:exported="false" />
 
-        <!-- Stage 15/16A QA probes remain available to in-app/internal tooling only.
+        <!-- Stage 15/16A/17 QA probes remain available to in-app/internal tooling only.
              They must never create additional launcher icons. -->
+        <activity
+            android:name=".Stage17P0LocalLlmActivity"
+            android:exported="false"
+            android:label="WENZHI Stage 17 P0 Local LLM" />
+
         <activity
             android:name=".Stage16A16AudioCalibrationActivity"
             android:exported="false"
