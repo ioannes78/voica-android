@@ -3,6 +3,7 @@ package io.github.ioannes78.voica.localllm
 import android.os.Debug
 import android.os.SystemClock
 import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import kotlinx.coroutines.Dispatchers
@@ -61,6 +62,11 @@ class Stage17LocalLlmProbe {
                     backend = backend,
                     cacheDir = request.cacheDir,
                 )
+            val conversationConfig =
+                ConversationConfig(
+                    maxOutputToken = PROBE_MAX_OUTPUT_TOKENS,
+                    enableSpeculativeDecoding = false,
+                )
 
             val pssBeforeInitializeKb = Debug.getPss()
             var pssAfterInitializeKb = pssBeforeInitializeKb
@@ -75,7 +81,7 @@ class Stage17LocalLlmProbe {
                 val initializeFinishedNanos = SystemClock.elapsedRealtimeNanos()
                 pssAfterInitializeKb = Debug.getPss()
 
-                engine.createConversation().use { conversation ->
+                engine.createConversation(conversationConfig).use { conversation ->
                     generationStartedNanos = SystemClock.elapsedRealtimeNanos()
                     conversation.sendMessageAsync(PROBE_PROMPT).collect { message ->
                         coroutineContext.ensureActive()
@@ -108,6 +114,7 @@ class Stage17LocalLlmProbe {
 
     companion object {
         const val PROBE_PROMPT = "请用一句中文回答：你现在运行在本地设备上。"
+        const val PROBE_MAX_OUTPUT_TOKENS = 64
         const val MAX_RESPONSE_PREVIEW_CHARS = 512
     }
 }
