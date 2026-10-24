@@ -3,9 +3,12 @@ package io.github.ioannes78.voica.localllm
 import android.os.Debug
 import android.os.SystemClock
 import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Content
+import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.SamplerConfig
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
@@ -36,13 +39,11 @@ enum class Stage17ProbePhase {
 
 data class Stage17ProbeRequest(
     val modelPath: String,
-    val cacheDir: String,
     val backend: ProbeBackend,
     val maxNumTokens: Int = Stage17LocalLlmProbe.PROBE_MAX_CONTEXT_TOKENS,
 ) {
     init {
         require(modelPath.isNotBlank()) { "modelPath must not be blank" }
-        require(cacheDir.isNotBlank()) { "cacheDir must not be blank" }
         require(maxNumTokens > 0) { "maxNumTokens must be positive" }
     }
 }
@@ -65,15 +66,17 @@ data class Stage17ProbeResult(
 /**
  * Stage 17 / P0 only.
  *
- * This probe deliberately stays outside the production summary / retrieval / Q&A path. Its only
- * job is to verify that the pinned LiteRT-LM runtime and a caller-supplied .litertlm artifact can
- * initialize and generate on a physical Android device while capturing latency/PSS data.
- * Cancelling the calling coroutine closes the conversation and engine through structured resource
- * ownership. Speculative decoding is explicitly disabled so the P0 baseline exercises one model.
+ * R4 is a controlled same-device comparison against Google AI Edge Gallery. The user's physical
+ * device can run Gemma 4 E2B in Gallery, so this probe intentionally matches Gallery's Android
+ * runtime/configuration before changing the already verified base model artifact:
  *
- * P0 deliberately caps the KV cache instead of inheriting Gemma 4 E2B's advertised 32K maximum.
- * The smoke prompt does not need a production-sized context window, and an unbounded/default KV
- * cache can turn runtime feasibility into a device-memory stress test before generation begins.
+ * - LiteRT-LM 0.18.0;
+ * - maxNumTokens = 4000;
+ * - normal app-private model paths do not provide cacheDir;
+ * - SamplerConfig(topK=64, topP=0.95, temperature=1.0);
+ * - prompt is sent as Contents rather than the String convenience overload.
+ *
+ * This remains a feasibility probe only. It is not wired into production summary/RAG/Q&A.
  */
 class Stage17LocalLlmProbe {
     suspend fun run(
@@ -92,11 +95,16 @@ class Stage17LocalLlmProbe {
                         modelPath = request.modelPath,
                         backend = backend,
                         maxNumTokens = request.maxNumTokens,
-                        cacheDir = request.cacheDir,
+                        cacheDir = null,
                     )
                 val conversationConfig =
                     ConversationConfig(
-                        maxOutputToken = PROBE_MAX_OUTPUT_TOKENS,
+                        samplerConfig =
+                            SamplerConfig(
+                                topK = PROBE_TOP_K,
+                                topP = PROBE_TOP_P,
+                                temperature = PROBE_TEMPERATURE,
+                            ),
                         enableSpeculativeDecoding = false,
                     )
 
@@ -136,15 +144,17 @@ class Stage17LocalLlmProbe {
                             onPhase(Stage17ProbePhase.CONVERSATION_READY)
                             generationStartedNanos = SystemClock.elapsedRealtimeNanos()
                             onPhase(Stage17ProbePhase.GENERATING)
-                            conversation.sendMessageAsync(PROBE_PROMPT).collect { message ->
-                                coroutineContext.ensureActive()
-                                if (firstEmissionNanos == null) {
-                                    firstEmissionNanos = SystemClock.elapsedRealtimeNanos()
+                            conversation
+                                .sendMessageAsync(Contents.of(Content.Text(PROBE_PROMPT)))
+                                .collect { message ->
+                                    coroutineContext.ensureActive()
+                                    if (firstEmissionNanos == null) {
+                                        firstEmissionNanos = SystemClock.elapsedRealtimeNanos()
+                                    }
+                                    if (response.length < MAX_RESPONSE_PREVIEW_CHARS) {
+                                        response.append(message.toString())
+                                    }
                                 }
-                                if (response.length < MAX_RESPONSE_PREVIEW_CHARS) {
-                                    response.append(message.toString())
-                                }
-                            }
                             generationFinishedNanos = SystemClock.elapsedRealtimeNanos()
                             onPhase(Stage17ProbePhase.GENERATED)
                         }
@@ -181,9 +191,12 @@ class Stage17LocalLlmProbe {
     private fun nanosToMillis(value: Long): Long = value / 1_000_000L
 
     companion object {
-        const val PROBE_PROMPT = "请用一句中文回答：你现在运行在本地设备上。"
-        const val PROBE_MAX_CONTEXT_TOKENS = 2_048
-        const val PROBE_MAX_OUTPUT_TOKENS = 64
+        const val RUNTIME_VERSION = "0.18.0"
+        const val PROBE_PROMPT = "请用一句简短中文回答：你现在运行在本地设备上。"
+        const val PROBE_MAX_CONTEXT_TOKENS = 4_000
+        const val PROBE_TOP_K = 64
+        const val PROBE_TOP_P = 0.95
+        const val PROBE_TEMPERATURE = 1.0
         const val MAX_RESPONSE_PREVIEW_CHARS = 512
         const val PSS_SAMPLE_INTERVAL_MS = 250L
     }
