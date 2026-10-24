@@ -18,13 +18,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
 private val WenzhiPaper = Color(0xFFF5F2EA)
-private val WenzhiSurface = Color(0xFFFBFAF6)
-private val WenzhiElevated = Color(0xFFFFFFFF)
 private val WenzhiInk = Color(0xFF171717)
 private val WenzhiSecondary = Color(0xFF656565)
-private val WenzhiTertiary = Color(0xFF9A968D)
-private val WenzhiDivider = Color(0xFFDDD9D0)
-private val WenzhiDisabled = Color(0xFFC5C0B7)
 private val WenzhiAccent = Color(0xFF315E58)
 private val WenzhiAccentContainer = Color(0xFFE5EEEB)
 private val WenzhiTranscriptCurrentWordBg = mix(WenzhiAccentContainer, WenzhiAccent, 0.24f)
@@ -34,13 +29,8 @@ private val WenzhiWarning = Color(0xFFA87536)
 private val WenzhiError = Color(0xFFA94442)
 private val WenzhiInfo = Color(0xFF536A78)
 
-private val WenzhiDarkBackground = Color(0xFF111210)
-private val WenzhiDarkSurface = Color(0xFF191A18)
-private val WenzhiDarkElevated = Color(0xFF212220)
 private val WenzhiDarkPrimaryText = Color(0xFFF2EFE7)
 private val WenzhiDarkSecondaryText = Color(0xFFB4B0A7)
-private val WenzhiDarkTertiaryText = Color(0xFF817E77)
-private val WenzhiDarkDivider = Color(0xFF343532)
 private val WenzhiDarkAccent = Color(0xFF79A69D)
 private val WenzhiDarkAccentContainer = Color(0xFF233632)
 private val WenzhiDarkTranscriptCurrentWordBg = mix(WenzhiDarkAccentContainer, WenzhiDarkAccent, 0.26f)
@@ -49,6 +39,223 @@ private val WenzhiDarkRecordingContainer = Color(0xFF3A2321)
 private val WenzhiDarkWarning = Color(0xFFC6965A)
 private val WenzhiDarkError = Color(0xFFD1706C)
 private val WenzhiDarkInfo = Color(0xFF7F98A6)
+
+@Immutable
+private data class SurfacePalette(
+    val background: Color,
+    val onBackground: Color,
+    val surface: Color,
+    val onSurface: Color,
+    val surfaceDim: Color,
+    val surfaceBright: Color,
+    val surfaceContainerLowest: Color,
+    val surfaceContainerLow: Color,
+    val surfaceContainer: Color,
+    val surfaceContainerHigh: Color,
+    val surfaceContainerHighest: Color,
+    val surfaceVariant: Color,
+    val onSurfaceVariant: Color,
+    val outline: Color,
+    val outlineVariant: Color,
+    val inverseSurface: Color,
+    val inverseOnSurface: Color,
+)
+
+private val WenzhiLightSurfaces =
+    SurfacePalette(
+        background = WenzhiPaper,
+        onBackground = WenzhiInk,
+        surface = Color(0xFFFBFAF6),
+        onSurface = WenzhiInk,
+        surfaceDim = Color(0xFFDED9CF),
+        surfaceBright = Color(0xFFFFFDF8),
+        surfaceContainerLowest = Color(0xFFFFFDF9),
+        surfaceContainerLow = Color(0xFFF7F4ED),
+        surfaceContainer = Color(0xFFF2EFE7),
+        surfaceContainerHigh = Color(0xFFECE8DF),
+        surfaceContainerHighest = Color(0xFFE6E1D7),
+        surfaceVariant = Color(0xFFF0EDE6),
+        onSurfaceVariant = WenzhiSecondary,
+        outline = Color(0xFF817B70),
+        outlineVariant = Color(0xFFD9D3C9),
+        inverseSurface = Color(0xFF31312E),
+        inverseOnSurface = Color(0xFFF7F3EA),
+    )
+
+private val WenzhiDarkSurfaces =
+    SurfacePalette(
+        background = Color(0xFF111210),
+        onBackground = WenzhiDarkPrimaryText,
+        surface = Color(0xFF191A18),
+        onSurface = WenzhiDarkPrimaryText,
+        surfaceDim = Color(0xFF111210),
+        surfaceBright = Color(0xFF383936),
+        surfaceContainerLowest = Color(0xFF0C0D0B),
+        surfaceContainerLow = Color(0xFF171815),
+        surfaceContainer = Color(0xFF1D1E1B),
+        surfaceContainerHigh = Color(0xFF252622),
+        surfaceContainerHighest = Color(0xFF2D2E2A),
+        surfaceVariant = Color(0xFF252622),
+        onSurfaceVariant = WenzhiDarkSecondaryText,
+        outline = Color(0xFF938F86),
+        outlineVariant = Color(0xFF454640),
+        inverseSurface = Color(0xFFE8E4DC),
+        inverseOnSurface = Color(0xFF2B2B28),
+    )
+
+private val MintLightSurfaces =
+    SurfacePalette(
+        background = Color(0xFFF5F9F8),
+        onBackground = Color(0xFF17201E),
+        surface = Color(0xFFFBFDFC),
+        onSurface = Color(0xFF17201E),
+        surfaceDim = Color(0xFFDDE5E3),
+        surfaceBright = Color(0xFFFFFFFF),
+        surfaceContainerLowest = Color(0xFFFFFFFF),
+        surfaceContainerLow = Color(0xFFF3F8F6),
+        surfaceContainer = Color(0xFFEDF4F2),
+        surfaceContainerHigh = Color(0xFFE6EFEC),
+        surfaceContainerHighest = Color(0xFFDDE9E5),
+        surfaceVariant = Color(0xFFE7EFEC),
+        onSurfaceVariant = Color(0xFF53635E),
+        outline = Color(0xFF75857F),
+        outlineVariant = Color(0xFFCCD8D4),
+        inverseSurface = Color(0xFF26332F),
+        inverseOnSurface = Color(0xFFEDF5F2),
+    )
+
+private val MintDarkSurfaces =
+    SurfacePalette(
+        background = Color(0xFF0F1715),
+        onBackground = Color(0xFFEEF3F2),
+        surface = Color(0xFF151E1B),
+        onSurface = Color(0xFFEEF3F2),
+        surfaceDim = Color(0xFF0F1715),
+        surfaceBright = Color(0xFF35413D),
+        surfaceContainerLowest = Color(0xFF0A100E),
+        surfaceContainerLow = Color(0xFF141C19),
+        surfaceContainer = Color(0xFF1A2421),
+        surfaceContainerHigh = Color(0xFF222D29),
+        surfaceContainerHighest = Color(0xFF2A3632),
+        surfaceVariant = Color(0xFF26332F),
+        onSurfaceVariant = Color(0xFFAAB8B3),
+        outline = Color(0xFF84938E),
+        outlineVariant = Color(0xFF3C4945),
+        inverseSurface = Color(0xFFDCE7E3),
+        inverseOnSurface = Color(0xFF26322F),
+    )
+
+private val BlueLightSurfaces =
+    SurfacePalette(
+        background = Color(0xFFF5F8FC),
+        onBackground = Color(0xFF17212B),
+        surface = Color(0xFFFAFCFF),
+        onSurface = Color(0xFF17212B),
+        surfaceDim = Color(0xFFDCE4EC),
+        surfaceBright = Color(0xFFFFFFFF),
+        surfaceContainerLowest = Color(0xFFFFFFFF),
+        surfaceContainerLow = Color(0xFFF2F6FA),
+        surfaceContainer = Color(0xFFECF2F7),
+        surfaceContainerHigh = Color(0xFFE4EBF2),
+        surfaceContainerHighest = Color(0xFFDCE5ED),
+        surfaceVariant = Color(0xFFE8EFF5),
+        onSurfaceVariant = Color(0xFF566575),
+        outline = Color(0xFF778696),
+        outlineVariant = Color(0xFFCBD6E0),
+        inverseSurface = Color(0xFF28343E),
+        inverseOnSurface = Color(0xFFEEF4F9),
+    )
+
+private val BlueDarkSurfaces =
+    SurfacePalette(
+        background = Color(0xFF0E161E),
+        onBackground = Color(0xFFEAF1F7),
+        surface = Color(0xFF131C25),
+        onSurface = Color(0xFFEAF1F7),
+        surfaceDim = Color(0xFF0E161E),
+        surfaceBright = Color(0xFF34424E),
+        surfaceContainerLowest = Color(0xFF091017),
+        surfaceContainerLow = Color(0xFF121A22),
+        surfaceContainer = Color(0xFF18232D),
+        surfaceContainerHigh = Color(0xFF202C37),
+        surfaceContainerHighest = Color(0xFF293642),
+        surfaceVariant = Color(0xFF24313C),
+        onSurfaceVariant = Color(0xFFAEBCC8),
+        outline = Color(0xFF8795A1),
+        outlineVariant = Color(0xFF3A4853),
+        inverseSurface = Color(0xFFDCE6EE),
+        inverseOnSurface = Color(0xFF26323C),
+    )
+
+private val PurpleLightSurfaces =
+    SurfacePalette(
+        background = Color(0xFFFAF8FC),
+        onBackground = Color(0xFF211E24),
+        surface = Color(0xFFFDFBFE),
+        onSurface = Color(0xFF211E24),
+        surfaceDim = Color(0xFFE2DDE5),
+        surfaceBright = Color(0xFFFFFFFF),
+        surfaceContainerLowest = Color(0xFFFFFFFF),
+        surfaceContainerLow = Color(0xFFF7F3F9),
+        surfaceContainer = Color(0xFFF1EDF4),
+        surfaceContainerHigh = Color(0xFFEBE5EE),
+        surfaceContainerHighest = Color(0xFFE4DDE8),
+        surfaceVariant = Color(0xFFEEE8F1),
+        onSurfaceVariant = Color(0xFF625B67),
+        outline = Color(0xFF847A89),
+        outlineVariant = Color(0xFFD7CEDB),
+        inverseSurface = Color(0xFF322E35),
+        inverseOnSurface = Color(0xFFF5EFF7),
+    )
+
+private val PurpleDarkSurfaces =
+    SurfacePalette(
+        background = Color(0xFF17151A),
+        onBackground = Color(0xFFF0EAF2),
+        surface = Color(0xFF1D1A20),
+        onSurface = Color(0xFFF0EAF2),
+        surfaceDim = Color(0xFF17151A),
+        surfaceBright = Color(0xFF403942),
+        surfaceContainerLowest = Color(0xFF100E12),
+        surfaceContainerLow = Color(0xFF1B181E),
+        surfaceContainer = Color(0xFF231F26),
+        surfaceContainerHigh = Color(0xFF2C2730),
+        surfaceContainerHighest = Color(0xFF352F39),
+        surfaceVariant = Color(0xFF302A34),
+        onSurfaceVariant = Color(0xFFC1B7C5),
+        outline = Color(0xFF948A99),
+        outlineVariant = Color(0xFF4A424E),
+        inverseSurface = Color(0xFFE9E1EC),
+        inverseOnSurface = Color(0xFF302B33),
+    )
+
+private fun ColorScheme.withSurfacePalette(
+    palette: SurfacePalette,
+    surfaceTint: Color,
+    inversePrimary: Color,
+): ColorScheme =
+    copy(
+        background = palette.background,
+        onBackground = palette.onBackground,
+        surface = palette.surface,
+        onSurface = palette.onSurface,
+        surfaceDim = palette.surfaceDim,
+        surfaceBright = palette.surfaceBright,
+        surfaceContainerLowest = palette.surfaceContainerLowest,
+        surfaceContainerLow = palette.surfaceContainerLow,
+        surfaceContainer = palette.surfaceContainer,
+        surfaceContainerHigh = palette.surfaceContainerHigh,
+        surfaceContainerHighest = palette.surfaceContainerHighest,
+        surfaceVariant = palette.surfaceVariant,
+        onSurfaceVariant = palette.onSurfaceVariant,
+        surfaceTint = surfaceTint,
+        outline = palette.outline,
+        outlineVariant = palette.outlineVariant,
+        inverseSurface = palette.inverseSurface,
+        inverseOnSurface = palette.inverseOnSurface,
+        inversePrimary = inversePrimary,
+        scrim = Color.Black,
+    )
 
 private val WenzhiInkLight =
     lightColorScheme(
@@ -64,18 +271,14 @@ private val WenzhiInkLight =
         onTertiary = Color.White,
         tertiaryContainer = Color(0xFFE8EDF0),
         onTertiaryContainer = WenzhiInk,
-        background = WenzhiPaper,
-        onBackground = WenzhiInk,
-        surface = WenzhiSurface,
-        onSurface = WenzhiInk,
-        surfaceVariant = Color(0xFFF0EDE6),
-        onSurfaceVariant = WenzhiSecondary,
-        outline = WenzhiDivider,
-        outlineVariant = WenzhiDisabled,
         error = WenzhiError,
         onError = Color.White,
         errorContainer = Color(0xFFF4E7E5),
         onErrorContainer = WenzhiError,
+    ).withSurfacePalette(
+        palette = WenzhiLightSurfaces,
+        surfaceTint = WenzhiAccent,
+        inversePrimary = WenzhiDarkAccent,
     )
 
 private val WenzhiInkDark =
@@ -86,47 +289,20 @@ private val WenzhiInkDark =
         onPrimaryContainer = Color(0xFFE5EEEB),
         secondary = WenzhiDarkSecondaryText,
         onSecondary = Color(0xFF242522),
-        secondaryContainer = WenzhiDarkElevated,
+        secondaryContainer = Color(0xFF2A2B27),
         onSecondaryContainer = WenzhiDarkPrimaryText,
         tertiary = WenzhiDarkInfo,
         onTertiary = Color(0xFF162127),
         tertiaryContainer = Color(0xFF26343B),
         onTertiaryContainer = WenzhiDarkPrimaryText,
-        background = WenzhiDarkBackground,
-        onBackground = WenzhiDarkPrimaryText,
-        surface = WenzhiDarkSurface,
-        onSurface = WenzhiDarkPrimaryText,
-        surfaceVariant = WenzhiDarkElevated,
-        onSurfaceVariant = WenzhiDarkSecondaryText,
-        outline = WenzhiDarkDivider,
-        outlineVariant = WenzhiDarkTertiaryText,
         error = WenzhiDarkError,
         onError = Color(0xFF2A1110),
         errorContainer = Color(0xFF452624),
         onErrorContainer = Color(0xFFFFDAD6),
-    )
-
-private val MintDark =
-    darkColorScheme(
-        primary = Color(0xFF58D6B5),
-        onPrimary = Color(0xFF00382D),
-        primaryContainer = Color(0xFF173F36),
-        onPrimaryContainer = Color(0xFFB8F4E2),
-        secondary = Color(0xFFB2CCC3),
-        onSecondary = Color(0xFF1D352E),
-        secondaryContainer = Color(0xFF334B43),
-        onSecondaryContainer = Color(0xFFCDE8DE),
-        background = Color(0xFF10171B),
-        onBackground = Color(0xFFEEF3F2),
-        surface = Color(0xFF171F24),
-        onSurface = Color(0xFFEEF3F2),
-        surfaceVariant = Color(0xFF253139),
-        onSurfaceVariant = Color(0xFFAAB6B8),
-        outline = Color(0xFF35434A),
-        error = Color(0xFFFF5C5C),
-        onError = Color.White,
-        errorContainer = Color(0xFF5D1F23),
-        onErrorContainer = Color(0xFFFFDAD6),
+    ).withSurfacePalette(
+        palette = WenzhiDarkSurfaces,
+        surfaceTint = WenzhiDarkAccent,
+        inversePrimary = WenzhiAccent,
     )
 
 private val MintLight =
@@ -139,24 +315,42 @@ private val MintLight =
         onSecondary = Color.White,
         secondaryContainer = Color(0xFFCDE8DE),
         onSecondaryContainer = Color(0xFF072019),
-        background = Color(0xFFF6F8F8),
-        onBackground = Color(0xFF17201E),
-        surface = Color(0xFFFFFFFF),
-        onSurface = Color(0xFF17201E),
-        surfaceVariant = Color(0xFFEEF2F1),
-        onSurfaceVariant = Color(0xFF5E6B68),
-        outline = Color(0xFFD8E0DE),
+        tertiary = Color(0xFF496773),
+        onTertiary = Color.White,
+        tertiaryContainer = Color(0xFFCDE9F3),
+        onTertiaryContainer = Color(0xFF041F28),
+        error = Color(0xFFBA1A1A),
+        onError = Color.White,
+        errorContainer = Color(0xFFFFDAD6),
+        onErrorContainer = Color(0xFF410002),
+    ).withSurfacePalette(
+        palette = MintLightSurfaces,
+        surfaceTint = Color(0xFF087D67),
+        inversePrimary = Color(0xFF58D6B5),
     )
 
-private val BlueDark =
+private val MintDark =
     darkColorScheme(
-        primary = Color(0xFF9FC9FF),
-        onPrimary = Color(0xFF00325A),
-        primaryContainer = Color(0xFF00497F),
-        onPrimaryContainer = Color(0xFFD1E4FF),
-        background = Color(0xFF101820),
-        surface = Color(0xFF101820),
-        surfaceVariant = Color(0xFF202A33),
+        primary = Color(0xFF58D6B5),
+        onPrimary = Color(0xFF00382D),
+        primaryContainer = Color(0xFF173F36),
+        onPrimaryContainer = Color(0xFFB8F4E2),
+        secondary = Color(0xFFB2CCC3),
+        onSecondary = Color(0xFF1D352E),
+        secondaryContainer = Color(0xFF334B43),
+        onSecondaryContainer = Color(0xFFCDE8DE),
+        tertiary = Color(0xFFABCBD8),
+        onTertiary = Color(0xFF15343F),
+        tertiaryContainer = Color(0xFF2D4B56),
+        onTertiaryContainer = Color(0xFFC7E7F4),
+        error = Color(0xFFFFB4AB),
+        onError = Color(0xFF690005),
+        errorContainer = Color(0xFF93000A),
+        onErrorContainer = Color(0xFFFFDAD6),
+    ).withSurfacePalette(
+        palette = MintDarkSurfaces,
+        surfaceTint = Color(0xFF58D6B5),
+        inversePrimary = Color(0xFF087D67),
     )
 
 private val BlueLight =
@@ -165,19 +359,46 @@ private val BlueLight =
         onPrimary = Color.White,
         primaryContainer = Color(0xFFCDE5FF),
         onPrimaryContainer = Color(0xFF001D32),
-        background = Color(0xFFF8F9FF),
-        surface = Color(0xFFF8F9FF),
+        secondary = Color(0xFF506579),
+        onSecondary = Color.White,
+        secondaryContainer = Color(0xFFDCE7F1),
+        onSecondaryContainer = Color(0xFF0D1D2A),
+        tertiary = Color(0xFF5F5E7A),
+        onTertiary = Color.White,
+        tertiaryContainer = Color(0xFFE5E2F2),
+        onTertiaryContainer = Color(0xFF1B1B35),
+        error = Color(0xFFBA1A1A),
+        onError = Color.White,
+        errorContainer = Color(0xFFFFDAD6),
+        onErrorContainer = Color(0xFF410002),
+    ).withSurfacePalette(
+        palette = BlueLightSurfaces,
+        surfaceTint = Color(0xFF00639A),
+        inversePrimary = Color(0xFF9FC9FF),
     )
 
-private val PurpleDark =
+private val BlueDark =
     darkColorScheme(
-        primary = Color(0xFFD0BCFF),
-        onPrimary = Color(0xFF381E72),
-        primaryContainer = Color(0xFF4F378B),
-        onPrimaryContainer = Color(0xFFEADDFF),
-        background = Color(0xFF17151D),
-        surface = Color(0xFF17151D),
-        surfaceVariant = Color(0xFF2A2730),
+        primary = Color(0xFF9FC9FF),
+        onPrimary = Color(0xFF00325A),
+        primaryContainer = Color(0xFF00497F),
+        onPrimaryContainer = Color(0xFFD1E4FF),
+        secondary = Color(0xFFB8C9D8),
+        onSecondary = Color(0xFF22323F),
+        secondaryContainer = Color(0xFF384956),
+        onSecondaryContainer = Color(0xFFD4E5F4),
+        tertiary = Color(0xFFC7C4EA),
+        onTertiary = Color(0xFF302F4C),
+        tertiaryContainer = Color(0xFF474663),
+        onTertiaryContainer = Color(0xFFE4E0FF),
+        error = Color(0xFFFFB4AB),
+        onError = Color(0xFF690005),
+        errorContainer = Color(0xFF93000A),
+        onErrorContainer = Color(0xFFFFDAD6),
+    ).withSurfacePalette(
+        palette = BlueDarkSurfaces,
+        surfaceTint = Color(0xFF9FC9FF),
+        inversePrimary = Color(0xFF00639A),
     )
 
 private val PurpleLight =
@@ -186,8 +407,46 @@ private val PurpleLight =
         onPrimary = Color.White,
         primaryContainer = Color(0xFFEADDFF),
         onPrimaryContainer = Color(0xFF21005D),
-        background = Color(0xFFFFF7FF),
-        surface = Color(0xFFFFF7FF),
+        secondary = Color(0xFF625B71),
+        onSecondary = Color.White,
+        secondaryContainer = Color(0xFFE8DEF8),
+        onSecondaryContainer = Color(0xFF1D192B),
+        tertiary = Color(0xFF7D5260),
+        onTertiary = Color.White,
+        tertiaryContainer = Color(0xFFFFD8E4),
+        onTertiaryContainer = Color(0xFF31111D),
+        error = Color(0xFFBA1A1A),
+        onError = Color.White,
+        errorContainer = Color(0xFFFFDAD6),
+        onErrorContainer = Color(0xFF410002),
+    ).withSurfacePalette(
+        palette = PurpleLightSurfaces,
+        surfaceTint = Color(0xFF6750A4),
+        inversePrimary = Color(0xFFD0BCFF),
+    )
+
+private val PurpleDark =
+    darkColorScheme(
+        primary = Color(0xFFD0BCFF),
+        onPrimary = Color(0xFF381E72),
+        primaryContainer = Color(0xFF4F378B),
+        onPrimaryContainer = Color(0xFFEADDFF),
+        secondary = Color(0xFFCCC2DC),
+        onSecondary = Color(0xFF332D41),
+        secondaryContainer = Color(0xFF4A4458),
+        onSecondaryContainer = Color(0xFFE8DEF8),
+        tertiary = Color(0xFFEFB8C8),
+        onTertiary = Color(0xFF492532),
+        tertiaryContainer = Color(0xFF633B48),
+        onTertiaryContainer = Color(0xFFFFD8E4),
+        error = Color(0xFFFFB4AB),
+        onError = Color(0xFF690005),
+        errorContainer = Color(0xFF93000A),
+        onErrorContainer = Color(0xFFFFDAD6),
+    ).withSurfacePalette(
+        palette = PurpleDarkSurfaces,
+        surfaceTint = Color(0xFFD0BCFF),
+        inversePrimary = Color(0xFF6750A4),
     )
 
 @Immutable
@@ -221,7 +480,7 @@ data class VoicaSemanticColors(
 )
 
 private val LocalVoicaSemanticColors = staticCompositionLocalOf {
-    wenzhiSemanticColors(darkTheme = false)
+    wenzhiSemanticColors(WenzhiInkLight, darkTheme = false)
 }
 
 object VoicaThemeTokens {
@@ -331,20 +590,14 @@ fun VoicaTheme(
         }
 
     val scheme =
-        when (settings.preset) {
-            VoicaColorPreset.WENZHI_INK -> if (darkTheme) WenzhiInkDark else WenzhiInkLight
-            VoicaColorPreset.MINT -> if (darkTheme) MintDark else MintLight
-            VoicaColorPreset.BLUE -> if (darkTheme) BlueDark else BlueLight
-            VoicaColorPreset.PURPLE -> if (darkTheme) PurpleDark else PurpleLight
-            VoicaColorPreset.CUSTOM ->
-                customColorScheme(
-                    darkTheme = darkTheme,
-                    accent = Color(settings.customAccentArgb),
-                )
-        }
+        resolveVoicaColorScheme(
+            preset = settings.preset,
+            darkTheme = darkTheme,
+            customAccentArgb = settings.customAccentArgb,
+        )
     val semanticColors =
         if (settings.preset == VoicaColorPreset.WENZHI_INK) {
-            wenzhiSemanticColors(darkTheme)
+            wenzhiSemanticColors(scheme, darkTheme)
         } else {
             legacySemanticColors(scheme, darkTheme)
         }
@@ -358,66 +611,55 @@ fun VoicaTheme(
     }
 }
 
-private fun wenzhiSemanticColors(darkTheme: Boolean): VoicaSemanticColors =
-    if (darkTheme) {
-        VoicaSemanticColors(
-            brandPaper = WenzhiPaper,
-            brandInk = WenzhiInk,
-            brandAccent = WenzhiAccent,
-            brandRecording = WenzhiRecording,
-            background = WenzhiDarkBackground,
-            surface = WenzhiDarkSurface,
-            surfaceElevated = WenzhiDarkElevated,
-            surfaceVariant = WenzhiDarkElevated,
-            textPrimary = WenzhiDarkPrimaryText,
-            textSecondary = WenzhiDarkSecondaryText,
-            textTertiary = WenzhiDarkTertiaryText,
-            divider = WenzhiDarkDivider,
-            disabled = WenzhiDarkTertiaryText,
-            accent = WenzhiDarkAccent,
-            accentContainer = WenzhiDarkAccentContainer,
-            recording = WenzhiDarkRecording,
-            recordingContainer = WenzhiDarkRecordingContainer,
-            warning = WenzhiDarkWarning,
-            error = WenzhiDarkError,
-            info = WenzhiDarkInfo,
-            transcriptCurrentWordBg = WenzhiDarkTranscriptCurrentWordBg,
-            transcriptCurrentWordText = WenzhiDarkPrimaryText,
-            transcriptUpcomingText = WenzhiDarkSecondaryText.copy(alpha = 0.82f),
-            transcriptActiveLineBar = WenzhiDarkAccent,
-            transcriptActiveParagraphBg = WenzhiDarkAccentContainer.copy(alpha = 0.52f),
-            transcriptPlayedText = WenzhiDarkPrimaryText.copy(alpha = 0.9f),
-        )
-    } else {
-        VoicaSemanticColors(
-            brandPaper = WenzhiPaper,
-            brandInk = WenzhiInk,
-            brandAccent = WenzhiAccent,
-            brandRecording = WenzhiRecording,
-            background = WenzhiPaper,
-            surface = WenzhiSurface,
-            surfaceElevated = WenzhiElevated,
-            surfaceVariant = Color(0xFFF0EDE6),
-            textPrimary = WenzhiInk,
-            textSecondary = WenzhiSecondary,
-            textTertiary = WenzhiTertiary,
-            divider = WenzhiDivider,
-            disabled = WenzhiDisabled,
-            accent = WenzhiAccent,
-            accentContainer = WenzhiAccentContainer,
-            recording = WenzhiRecording,
-            recordingContainer = WenzhiRecordingContainer,
-            warning = WenzhiWarning,
-            error = WenzhiError,
-            info = WenzhiInfo,
-            transcriptCurrentWordBg = WenzhiTranscriptCurrentWordBg,
-            transcriptCurrentWordText = WenzhiInk,
-            transcriptUpcomingText = WenzhiSecondary.copy(alpha = 0.82f),
-            transcriptActiveLineBar = WenzhiAccent,
-            transcriptActiveParagraphBg = WenzhiAccentContainer.copy(alpha = 0.48f),
-            transcriptPlayedText = WenzhiInk.copy(alpha = 0.88f),
-        )
+internal fun resolveVoicaColorScheme(
+    preset: VoicaColorPreset,
+    darkTheme: Boolean,
+    customAccentArgb: Int = VoicaThemeSettings.DEFAULT_CUSTOM_ACCENT,
+): ColorScheme =
+    when (preset) {
+        VoicaColorPreset.WENZHI_INK -> if (darkTheme) WenzhiInkDark else WenzhiInkLight
+        VoicaColorPreset.MINT -> if (darkTheme) MintDark else MintLight
+        VoicaColorPreset.BLUE -> if (darkTheme) BlueDark else BlueLight
+        VoicaColorPreset.PURPLE -> if (darkTheme) PurpleDark else PurpleLight
+        VoicaColorPreset.CUSTOM ->
+            customColorScheme(
+                darkTheme = darkTheme,
+                accent = Color(customAccentArgb),
+            )
     }
+
+private fun wenzhiSemanticColors(
+    scheme: ColorScheme,
+    darkTheme: Boolean,
+): VoicaSemanticColors =
+    VoicaSemanticColors(
+        brandPaper = WenzhiPaper,
+        brandInk = WenzhiInk,
+        brandAccent = WenzhiAccent,
+        brandRecording = WenzhiRecording,
+        background = scheme.background,
+        surface = scheme.surface,
+        surfaceElevated = scheme.surfaceContainerHigh,
+        surfaceVariant = scheme.surfaceContainer,
+        textPrimary = scheme.onSurface,
+        textSecondary = scheme.onSurfaceVariant,
+        textTertiary = scheme.onSurfaceVariant.copy(alpha = 0.72f),
+        divider = scheme.outlineVariant,
+        disabled = scheme.onSurfaceVariant.copy(alpha = 0.5f),
+        accent = scheme.primary,
+        accentContainer = scheme.primaryContainer,
+        recording = if (darkTheme) WenzhiDarkRecording else WenzhiRecording,
+        recordingContainer = if (darkTheme) WenzhiDarkRecordingContainer else WenzhiRecordingContainer,
+        warning = if (darkTheme) WenzhiDarkWarning else WenzhiWarning,
+        error = if (darkTheme) WenzhiDarkError else WenzhiError,
+        info = if (darkTheme) WenzhiDarkInfo else WenzhiInfo,
+        transcriptCurrentWordBg = if (darkTheme) WenzhiDarkTranscriptCurrentWordBg else WenzhiTranscriptCurrentWordBg,
+        transcriptCurrentWordText = scheme.onPrimaryContainer,
+        transcriptUpcomingText = scheme.onSurfaceVariant.copy(alpha = 0.82f),
+        transcriptActiveLineBar = scheme.primary,
+        transcriptActiveParagraphBg = scheme.primaryContainer,
+        transcriptPlayedText = scheme.onSurface.copy(alpha = if (darkTheme) 0.9f else 0.88f),
+    )
 
 private fun legacySemanticColors(
     scheme: ColorScheme,
@@ -430,12 +672,12 @@ private fun legacySemanticColors(
         brandRecording = scheme.error,
         background = scheme.background,
         surface = scheme.surface,
-        surfaceElevated = scheme.surface,
-        surfaceVariant = scheme.surfaceVariant,
+        surfaceElevated = scheme.surfaceContainerHigh,
+        surfaceVariant = scheme.surfaceContainer,
         textPrimary = scheme.onSurface,
         textSecondary = scheme.onSurfaceVariant,
         textTertiary = scheme.onSurfaceVariant.copy(alpha = 0.72f),
-        divider = scheme.outline,
+        divider = scheme.outlineVariant,
         disabled = scheme.onSurfaceVariant.copy(alpha = 0.5f),
         accent = scheme.primary,
         accentContainer = scheme.primaryContainer,
@@ -448,7 +690,7 @@ private fun legacySemanticColors(
         transcriptCurrentWordText = scheme.onPrimaryContainer,
         transcriptUpcomingText = scheme.onSurfaceVariant.copy(alpha = 0.78f),
         transcriptActiveLineBar = scheme.primary,
-        transcriptActiveParagraphBg = scheme.secondaryContainer.copy(alpha = 0.62f),
+        transcriptActiveParagraphBg = scheme.secondaryContainer,
         transcriptPlayedText = scheme.onSurface.copy(alpha = 0.88f),
     )
 
