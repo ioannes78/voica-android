@@ -15,8 +15,26 @@ class Stage17LocalLlmProbeTest {
         assertEquals("litert-community/gemma-4-E2B-it-litert-lm", Stage17P0Candidate.MODEL_ID)
         assertEquals("gemma-4-E2B-it.litertlm", Stage17P0Candidate.MODEL_FILE)
         assertEquals(2_588_147_712L, Stage17P0Candidate.GALLERY_BASE_SIZE_BYTES)
+        assertEquals(
+            "181938105e0eefd105961417e8da75903deacda102c4fce9ce90f50b97139a63c",
+            Stage17P0Candidate.GALLERY_BASE_SHA256,
+        )
         assertEquals(8, Stage17P0Candidate.MIN_DEVICE_MEMORY_GB)
         assertEquals(32_000, Stage17P0Candidate.MAX_CONTEXT_TOKENS)
+    }
+
+    @Test
+    fun p0SmokeContextIsExplicitlyBounded() {
+        assertEquals(2_048, Stage17LocalLlmProbe.PROBE_MAX_CONTEXT_TOKENS)
+        assertEquals(64, Stage17LocalLlmProbe.PROBE_MAX_OUTPUT_TOKENS)
+        assertEquals(
+            Stage17LocalLlmProbe.PROBE_MAX_CONTEXT_TOKENS,
+            Stage17ProbeRequest(
+                modelPath = "/data/local/tmp/model.litertlm",
+                cacheDir = "/data/local/tmp/cache",
+                backend = ProbeBackend.CPU,
+            ).maxNumTokens,
+        )
     }
 
     @Test
@@ -37,6 +55,18 @@ class Stage17LocalLlmProbeTest {
                 modelPath = "/data/local/tmp/model.litertlm",
                 cacheDir = "",
                 backend = ProbeBackend.GPU,
+            )
+        }
+    }
+
+    @Test
+    fun probeRequestRejectsInvalidContextLimit() {
+        assertFailsWith<IllegalArgumentException> {
+            Stage17ProbeRequest(
+                modelPath = "/data/local/tmp/model.litertlm",
+                cacheDir = "/data/local/tmp/cache",
+                backend = ProbeBackend.CPU,
+                maxNumTokens = 0,
             )
         }
     }
