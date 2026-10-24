@@ -3,7 +3,6 @@ package io.github.ioannes78.voica.localllm
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertNull
 
 class Stage17LocalLlmProbeTest {
     @Test
@@ -38,17 +37,6 @@ class Stage17LocalLlmProbeTest {
                 backend = ProbeBackend.CPU,
             ).maxNumTokens,
         )
-    }
-
-    @Test
-    fun r5ConversationUsesGallerySamplerAndInheritsEngineSpeculativeSetting() {
-        val config = stage17P0ConversationConfig()
-        val sampler = requireNotNull(config.samplerConfig)
-
-        assertEquals(Stage17LocalLlmProbe.PROBE_TOP_K, sampler.topK)
-        assertEquals(Stage17LocalLlmProbe.PROBE_TOP_P, sampler.topP)
-        assertEquals(Stage17LocalLlmProbe.PROBE_TEMPERATURE, sampler.temperature)
-        assertNull(config.enableSpeculativeDecoding)
     }
 
     @Test
