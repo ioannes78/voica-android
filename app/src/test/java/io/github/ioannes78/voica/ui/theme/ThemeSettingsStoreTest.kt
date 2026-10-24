@@ -28,6 +28,7 @@ class ThemeSettingsStoreTest {
 
         assertEquals(VoicaThemeMode.SYSTEM, store.settings.value.mode)
         assertEquals(VoicaColorPreset.WENZHI_INK, store.settings.value.preset)
+        assertEquals(WenzhiPaperTone.XUAN_WARM, store.settings.value.paperTone)
     }
 
     @Test
@@ -58,6 +59,20 @@ class ThemeSettingsStoreTest {
     }
 
     @Test
+    fun paperToneSelectsWenzhiPaperAndPersists() {
+        val first = SharedPreferencesThemeSettingsStore(application)
+
+        first.setPaperTone(WenzhiPaperTone.ANTIQUE)
+
+        assertEquals(VoicaColorPreset.WENZHI_PAPER, first.settings.value.preset)
+        assertEquals(WenzhiPaperTone.ANTIQUE, first.settings.value.paperTone)
+
+        val restored = SharedPreferencesThemeSettingsStore(application)
+        assertEquals(VoicaColorPreset.WENZHI_PAPER, restored.settings.value.preset)
+        assertEquals(WenzhiPaperTone.ANTIQUE, restored.settings.value.paperTone)
+    }
+
+    @Test
     fun invalidOrUnknownStoredPresetFallsBackToWenzhiInk() {
         application
             .getSharedPreferences("voica-theme", Application.MODE_PRIVATE)
@@ -68,6 +83,19 @@ class ThemeSettingsStoreTest {
         val restored = SharedPreferencesThemeSettingsStore(application)
 
         assertEquals(VoicaColorPreset.WENZHI_INK, restored.settings.value.preset)
+    }
+
+    @Test
+    fun invalidPaperToneFallsBackToWarmXuan() {
+        application
+            .getSharedPreferences("voica-theme", Application.MODE_PRIVATE)
+            .edit()
+            .putString("paper-tone", "REMOVED_PAPER_TONE")
+            .commit()
+
+        val restored = SharedPreferencesThemeSettingsStore(application)
+
+        assertEquals(WenzhiPaperTone.XUAN_WARM, restored.settings.value.paperTone)
     }
 
     @Test
