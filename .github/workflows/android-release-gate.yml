@@ -289,7 +289,7 @@ jobs:
       - name: Upload production APK
         uses: actions/upload-artifact@v4
         with:
-          name: Voica-${{ env.VOICA_RELEASE_VERSION }}-${{ env.VOICA_PRODUCTION_CHANNEL }}-apk
+          name: WENZHI-${{ env.VOICA_RELEASE_VERSION }}-${{ env.VOICA_PRODUCTION_CHANNEL }}-apk
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 14
@@ -298,7 +298,7 @@ jobs:
       - name: Upload production AAB
         uses: actions/upload-artifact@v4
         with:
-          name: Voica-${{ env.VOICA_RELEASE_VERSION }}-${{ env.VOICA_PRODUCTION_CHANNEL }}-aab
+          name: WENZHI-${{ env.VOICA_RELEASE_VERSION }}-${{ env.VOICA_PRODUCTION_CHANNEL }}-aab
           path: app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
           retention-days: 14
@@ -307,7 +307,7 @@ jobs:
       - name: Upload production provenance and mapping
         uses: actions/upload-artifact@v4
         with:
-          name: Voica-${{ env.VOICA_RELEASE_VERSION }}-${{ env.VOICA_PRODUCTION_CHANNEL }}-provenance
+          name: WENZHI-${{ env.VOICA_RELEASE_VERSION }}-${{ env.VOICA_PRODUCTION_CHANNEL }}-provenance
           path: |
             build/production-release-provenance.txt
             app/build/outputs/mapping/release/mapping.txt
