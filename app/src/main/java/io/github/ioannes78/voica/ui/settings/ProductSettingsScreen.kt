@@ -156,7 +156,7 @@ fun ProductSettingsScreen(
         SettingsPage.ABOUT ->
             SettingsSubpage(
                 padding = padding,
-                title = "关于 Voica",
+                title = "关于闻知",
                 onBack = { page = SettingsPage.HOME },
             ) {
                 item {
@@ -166,7 +166,7 @@ fun ProductSettingsScreen(
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
                             Text(
-                                "Voica",
+                                "闻知 WENZHI",
                                 style = MaterialTheme.typography.titleLarge,
                             )
                             Text(
@@ -243,7 +243,7 @@ private fun SettingsHome(
                     )
                     HorizontalDivider()
                     SettingsRow(
-                        title = "关于 Voica",
+                        title = "关于闻知",
                         subtitle = BuildConfig.VERSION_NAME,
                         icon = { Icon(Icons.Outlined.Info, contentDescription = null) },
                         onClick = { onOpen(SettingsPage.ABOUT) },
