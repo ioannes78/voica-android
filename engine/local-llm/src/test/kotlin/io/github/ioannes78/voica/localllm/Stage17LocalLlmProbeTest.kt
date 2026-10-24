@@ -6,12 +6,13 @@ import kotlin.test.assertFailsWith
 
 class Stage17LocalLlmProbeTest {
     @Test
-    fun runtimeVersionIsPinnedForP0() {
-        assertEquals("0.18.1", BuildConfig.LITERT_LM_VERSION)
+    fun runtimeVersionMatchesGalleryForR4() {
+        assertEquals("0.18.0", BuildConfig.LITERT_LM_VERSION)
+        assertEquals("0.18.0", Stage17LocalLlmProbe.RUNTIME_VERSION)
     }
 
     @Test
-    fun p0CandidateMatchesVerifiedGalleryMetadata() {
+    fun p0CandidateMatchesVerifiedGalleryBaseMetadata() {
         assertEquals("litert-community/gemma-4-E2B-it-litert-lm", Stage17P0Candidate.MODEL_ID)
         assertEquals("gemma-4-E2B-it.litertlm", Stage17P0Candidate.MODEL_FILE)
         assertEquals(2_588_147_712L, Stage17P0Candidate.GALLERY_BASE_SIZE_BYTES)
@@ -24,14 +25,15 @@ class Stage17LocalLlmProbeTest {
     }
 
     @Test
-    fun p0SmokeContextIsExplicitlyBounded() {
-        assertEquals(2_048, Stage17LocalLlmProbe.PROBE_MAX_CONTEXT_TOKENS)
-        assertEquals(64, Stage17LocalLlmProbe.PROBE_MAX_OUTPUT_TOKENS)
+    fun r4SmokeConfigMatchesGalleryDefaults() {
+        assertEquals(4_000, Stage17LocalLlmProbe.PROBE_MAX_CONTEXT_TOKENS)
+        assertEquals(64, Stage17LocalLlmProbe.PROBE_TOP_K)
+        assertEquals(0.95, Stage17LocalLlmProbe.PROBE_TOP_P)
+        assertEquals(1.0, Stage17LocalLlmProbe.PROBE_TEMPERATURE)
         assertEquals(
             Stage17LocalLlmProbe.PROBE_MAX_CONTEXT_TOKENS,
             Stage17ProbeRequest(
                 modelPath = "/data/local/tmp/model.litertlm",
-                cacheDir = "/data/local/tmp/cache",
                 backend = ProbeBackend.CPU,
             ).maxNumTokens,
         )
@@ -42,19 +44,7 @@ class Stage17LocalLlmProbeTest {
         assertFailsWith<IllegalArgumentException> {
             Stage17ProbeRequest(
                 modelPath = " ",
-                cacheDir = "/data/local/tmp",
                 backend = ProbeBackend.CPU,
-            )
-        }
-    }
-
-    @Test
-    fun probeRequestRejectsBlankCacheDir() {
-        assertFailsWith<IllegalArgumentException> {
-            Stage17ProbeRequest(
-                modelPath = "/data/local/tmp/model.litertlm",
-                cacheDir = "",
-                backend = ProbeBackend.GPU,
             )
         }
     }
@@ -64,7 +54,6 @@ class Stage17LocalLlmProbeTest {
         assertFailsWith<IllegalArgumentException> {
             Stage17ProbeRequest(
                 modelPath = "/data/local/tmp/model.litertlm",
-                cacheDir = "/data/local/tmp/cache",
                 backend = ProbeBackend.CPU,
                 maxNumTokens = 0,
             )
@@ -72,7 +61,7 @@ class Stage17LocalLlmProbeTest {
     }
 
     @Test
-    fun probePromptIsFixedChineseSmokePrompt() {
-        assertEquals("请用一句中文回答：你现在运行在本地设备上。", Stage17LocalLlmProbe.PROBE_PROMPT)
+    fun probePromptIsFixedShortChineseSmokePrompt() {
+        assertEquals("请用一句简短中文回答：你现在运行在本地设备上。", Stage17LocalLlmProbe.PROBE_PROMPT)
     }
 }
