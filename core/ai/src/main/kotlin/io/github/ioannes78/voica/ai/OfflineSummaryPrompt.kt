@@ -59,6 +59,8 @@ class OfflineSummaryPromptRenderer {
                 appendLine("Evidence 规则：")
                 appendLine("- 允许的 Evidence Ref：$allowedEvidenceText")
                 appendLine("- evidenceRefs 只能使用上面列出的 Evidence Ref，绝对不得自行创造 Sxxxxx。")
+                appendLine("- 每个 Evidence Ref 必须从转写段头 [Sxxxxx] 原样复制；禁止根据顺序推算、递增、递减或补全编号。")
+                appendLine("- 如果没有完全匹配的合法 ref，就输出 evidenceRefs=[]，不要猜测。")
                 appendLine("- [NO_EVIDENCE] 表示该段可参与语义理解，但没有可靠的音频证据坐标。")
                 appendLine("- Uxxxxx 只是无证据段的输入单元标识，不是 Evidence Ref，禁止写入 evidenceRefs。")
                 appendLine("- TRANSCRIPT_STATED 条目必须至少包含一个允许的 Evidence Ref。")
