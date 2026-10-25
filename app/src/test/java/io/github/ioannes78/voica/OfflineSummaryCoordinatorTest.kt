@@ -115,7 +115,8 @@ class OfflineSummaryCoordinatorTest {
             assertEquals(2, generationCalls)
             assertEquals(2, prompts.size)
             assertTrue(prompts[1].contains("JSON 修复器"))
-            assertTrue(prompts[1].contains("errorCode=MISSING_FIELD"))
+            assertTrue(prompts[1].contains("error=MISSING_FIELD"))
+            assertTrue(prompts[1].contains("BEGIN_INVALID_JSON_DATA"))
             assertTrue(configs.all { it.backendPolicy == LocalLlmBackendPolicy.AUTO })
             assertEquals(1, persistence.completedEvidence.size)
         } finally {
