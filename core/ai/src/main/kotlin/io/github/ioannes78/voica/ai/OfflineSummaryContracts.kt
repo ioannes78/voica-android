@@ -22,7 +22,7 @@ enum class OfflineSummaryFailureCode {
 
 /** Frozen Stage 17.2 prompt/result contract identifiers. */
 object OfflineSummaryPromptContract {
-    const val PROMPT_VERSION: Int = 170202
+    const val PROMPT_VERSION: Int = 170203
     const val DEFAULT_OUTPUT_LANGUAGE_TAG: String = "zh-CN"
 
     /** Keep this coupled to the existing strict result codec rather than creating a second schema. */
