@@ -502,6 +502,7 @@ class AppContainer(
             transcriptionCoordinator.reconcileOnStartup()
             diarizationCoordinator.reconcileOnStartup()
             autoDiarizationPostProcessor.recoverPendingOnStartup()
+            runCatching { offlineSummaryCoordinator.reconcileOnStartup() }
             searchIndexRebuilder.rebuildIfRequired()
         }
     }
