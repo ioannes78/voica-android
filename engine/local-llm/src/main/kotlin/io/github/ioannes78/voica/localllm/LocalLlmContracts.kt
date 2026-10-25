@@ -80,6 +80,7 @@ data class LocalLlmModelIdentity(
 data class LocalLlmRuntimeConfig(
     val backendPolicy: LocalLlmBackendPolicy = LocalLlmBackendPolicy.AUTO,
     val maxNumTokens: Int = 4_000,
+    val maxOutputTokens: Int? = 1_024,
     val topK: Int = 64,
     val topP: Double = 0.95,
     val temperature: Double = 1.0,
@@ -87,6 +88,12 @@ data class LocalLlmRuntimeConfig(
 ) {
     init {
         require(maxNumTokens > 0) { "maxNumTokens must be positive" }
+        require(maxOutputTokens == null || maxOutputTokens > 0) {
+            "maxOutputTokens must be positive or null"
+        }
+        require(maxOutputTokens == null || maxOutputTokens <= maxNumTokens) {
+            "maxOutputTokens must not exceed maxNumTokens"
+        }
         require(topK > 0) { "topK must be positive" }
         require(topP.isFinite() && topP > 0.0 && topP <= 1.0) {
             "topP must be finite and in (0, 1]"
@@ -191,6 +198,7 @@ object LocalLlmValidatedPresets {
     val P0_BASELINE = LocalLlmRuntimeConfig(
         backendPolicy = LocalLlmBackendPolicy.AUTO,
         maxNumTokens = 4_000,
+        maxOutputTokens = null,
         topK = 64,
         topP = 0.95,
         temperature = 1.0,

@@ -233,6 +233,7 @@ class LiteRtLocalLlmRuntime {
                     topP = config.topP,
                     temperature = config.temperature,
                 ),
+            maxOutputToken = config.maxOutputTokens,
             enableSpeculativeDecoding = null,
         )
 

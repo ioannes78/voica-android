@@ -2,6 +2,7 @@ package io.github.ioannes78.voica.localllm
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -13,6 +14,7 @@ class LocalLlmContractsTest {
 
         assertEquals(LocalLlmBackendPolicy.AUTO, config.backendPolicy)
         assertEquals(4_000, config.maxNumTokens)
+        assertEquals(1_024, config.maxOutputTokens)
         assertEquals(64, config.topK)
         assertEquals(0.95, config.topP, 0.0)
         assertEquals(1.0, config.temperature, 0.0)
@@ -25,6 +27,7 @@ class LocalLlmContractsTest {
 
         assertEquals(LocalLlmBackendPolicy.AUTO, preset.backendPolicy)
         assertEquals(4_000, preset.maxNumTokens)
+        assertNull(preset.maxOutputTokens)
         assertFalse(preset.speculativeDecoding)
     }
 
@@ -85,9 +88,15 @@ class LocalLlmContractsTest {
     }
 
     @Test
-    fun `invalid sampler and context values are rejected`() {
+    fun `invalid sampler context and output values are rejected`() {
         assertThrows(IllegalArgumentException::class.java) {
             LocalLlmRuntimeConfig(maxNumTokens = 0)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            LocalLlmRuntimeConfig(maxOutputTokens = 0)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            LocalLlmRuntimeConfig(maxNumTokens = 1_000, maxOutputTokens = 1_001)
         }
         assertThrows(IllegalArgumentException::class.java) {
             LocalLlmRuntimeConfig(topK = 0)

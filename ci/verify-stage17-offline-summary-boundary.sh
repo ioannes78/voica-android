@@ -33,6 +33,8 @@ fi
 coordinator="app/src/main/java/io/github/ioannes78/voica/OfflineSummaryCoordinator.kt"
 contracts="core/ai/src/main/kotlin/io/github/ioannes78/voica/ai/OfflineSummaryContracts.kt"
 budget="core/ai/src/main/kotlin/io/github/ioannes78/voica/ai/OfflineSummaryBudget.kt"
+local_llm_contracts="engine/local-llm/src/main/kotlin/io/github/ioannes78/voica/localllm/LocalLlmContracts.kt"
+local_llm_runtime="engine/local-llm/src/main/kotlin/io/github/ioannes78/voica/localllm/LiteRtLocalLlmRuntime.kt"
 model_manager="app/src/main/java/io/github/ioannes78/voica/AppModelManager.kt"
 room_db="core/database/src/main/java/io/github/ioannes78/voica/database/VoicaDatabase.kt"
 
@@ -53,6 +55,11 @@ grep -Fq 'val runtimeTemplateReserveTokens: Int = 192' "$budget"
 grep -Fq 'val safetyReserveTokens: Int = 256' "$budget"
 grep -Fq 'requireFits(prompt)' "$coordinator"
 grep -Fq 'repairPromptRenderer.render' "$coordinator"
+
+# The 1,024-token output reserve must be enforced by LiteRT-LM, not merely reserved in estimation.
+grep -Fq 'val maxOutputTokens: Int? = 1_024' "$local_llm_contracts"
+grep -Fq 'maxOutputToken = config.maxOutputTokens' "$local_llm_runtime"
+grep -Fq 'maxOutputTokens = null' "$local_llm_contracts"
 
 # Gemma remains candidate-only until a separately authorized promotion.
 grep -Fq 'STAGE17_GEMMA_4_E2B_CANDIDATE_ID' "$model_manager"
@@ -82,6 +89,7 @@ printf '%s\n' \
   '  - no cloud/HTTP/API-key/upload/FGS/WorkManager dependency in formal inference path' \
   '  - P1 AppLocalLlmRuntime + AUTO remains sole LLM execution boundary' \
   '  - direct budget and exactly-one repair structure are frozen' \
+  '  - 1,024 output-token reserve is enforced in LiteRT-LM while P0 baseline remains uncapped' \
   '  - Gemma remains candidate-only' \
   '  - Room remains v16' \
   '  - restart recovery is interrupt-only'
