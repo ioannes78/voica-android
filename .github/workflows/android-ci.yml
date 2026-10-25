@@ -58,6 +58,7 @@ jobs:
           set -euo pipefail
           bash ci/verify-room-schemas.sh
           bash ci/verify-funasr-r2-runtime-source.sh
+          bash ci/verify-stage17-offline-summary-boundary.sh
           grep -Fq 'PRODUCTION_MODEL_CHANNEL_COMMIT' app/src/main/java/io/github/ioannes78/voica/AppModelManager.kt
           grep -Fq 'PRODUCTION_MANIFEST_VERSION = 10' app/src/main/java/io/github/ioannes78/voica/AppModelManager.kt
           if grep -Fq 'voica-model-channel/main/manifests/production.json' app/src/main/java/io/github/ioannes78/voica/AppModelManager.kt; then
@@ -165,6 +166,7 @@ jobs:
           set -euo pipefail
           bash ci/verify-room-schemas.sh
           bash ci/verify-funasr-r2-runtime-source.sh
+          bash ci/verify-stage17-offline-summary-boundary.sh
           version_code="$(sed -nE 's/^[[:space:]]*versionCode = ([0-9]+).*/\1/p' app/build.gradle.kts | head -n1)"
           release_version="$(sed -nE 's/^[[:space:]]*versionName = "([^"]+)".*/\1/p' app/build.gradle.kts | head -n1)"
           test -n "$version_code"
