@@ -6,6 +6,7 @@ import io.github.ioannes78.voica.ai.OfflineSummaryBudgetExceededException
 import io.github.ioannes78.voica.ai.OfflineSummaryDirectBudgetGate
 import io.github.ioannes78.voica.ai.OfflineSummaryFailureCode
 import io.github.ioannes78.voica.ai.OfflineSummaryPromptRenderer
+import io.github.ioannes78.voica.ai.OfflineSummaryRepairPromptRenderer
 import io.github.ioannes78.voica.ai.StructuredTranscriptInput
 import io.github.ioannes78.voica.ai.SummaryResultCodec
 import io.github.ioannes78.voica.ai.SummaryStructuredOutputErrorCode
@@ -24,6 +25,8 @@ import io.github.ioannes78.voica.localllm.LocalLlmRuntimeException
 import io.github.ioannes78.voica.protocol.RecordingStatus
 import java.util.concurrent.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -41,6 +44,7 @@ enum class OfflineSummaryRunPhase {
     VALIDATING,
     COMPLETED,
     FAILED,
+    CANCELLED,
 }
 
 data class OfflineSummaryRunState(
@@ -52,6 +56,7 @@ data class OfflineSummaryRunState(
     val estimatedPromptTokens: Int? = null,
     val resolvedBackend: String? = null,
     val fallbackAttempted: Boolean = false,
+    val repairAttempted: Boolean = false,
     val warning: String? = null,
 )
 
@@ -93,6 +98,10 @@ internal interface OfflineSummaryPersistencePort {
         code: OfflineSummaryFailureCode,
         sanitizedMessage: String?,
     )
+
+    suspend fun cancel(summaryId: String)
+
+    suspend fun interruptAllActive(): Int
 }
 
 private class RoomOfflineSummaryPersistencePort(
@@ -130,6 +139,13 @@ private class RoomOfflineSummaryPersistencePort(
     ) {
         delegate.fail(summaryId, code, sanitizedMessage)
     }
+
+    override suspend fun cancel(summaryId: String) {
+        delegate.cancel(summaryId)
+    }
+
+    override suspend fun interruptAllActive(): Int =
+        delegate.interruptAllActive().size
 }
 
 /**
@@ -206,10 +222,13 @@ class OfflineSummaryCoordinator internal constructor(
     private val onCompleted: suspend (recordingId: String, summaryId: String) -> Unit,
     private val criticalTaskReason: () -> String?,
     private val promptRenderer: OfflineSummaryPromptRenderer = OfflineSummaryPromptRenderer(),
+    private val repairPromptRenderer: OfflineSummaryRepairPromptRenderer =
+        OfflineSummaryRepairPromptRenderer(),
     private val budgetGate: OfflineSummaryDirectBudgetGate = OfflineSummaryDirectBudgetGate(),
 ) {
     private val ownershipMutex = Mutex()
     private val activeRecordingIds = mutableSetOf<String>()
+    private val activeJobs = mutableMapOf<String, Job>()
     private val mutableState = MutableStateFlow<Map<String, OfflineSummaryRunState>>(emptyMap())
 
     val state: StateFlow<Map<String, OfflineSummaryRunState>> = mutableState.asStateFlow()
@@ -272,16 +291,28 @@ class OfflineSummaryCoordinator internal constructor(
                 ),
             )
 
-            scope.launch {
-                execute(
-                    recordingId = normalizedRecordingId,
-                    summaryId = summaryId,
-                    input = input,
+            val job =
+                scope.launch(start = CoroutineStart.LAZY) {
+                    execute(
+                        recordingId = normalizedRecordingId,
+                        summaryId = summaryId,
+                        input = input,
+                    )
+                }
+            ownershipMutex.withLock {
+                activeJobs[normalizedRecordingId] = job
+            }
+            if (!job.start()) {
+                throw OfflineSummaryCoordinatorException(
+                    code = OfflineSummaryFailureCode.UNKNOWN,
+                    message = "应用级离线总结执行器不可用",
                 )
             }
             OfflineSummaryStartOutcome.Started(summaryId)
         } catch (cancelled: CancellationException) {
-            releaseOwnership(normalizedRecordingId)
+            withContext(NonCancellable) {
+                releaseOwnership(normalizedRecordingId)
+            }
             throw cancelled
         } catch (error: Throwable) {
             val failure = classifyFailure(error)
@@ -297,10 +328,28 @@ class OfflineSummaryCoordinator internal constructor(
                     ),
                 )
             }
-            releaseOwnership(normalizedRecordingId)
+            withContext(NonCancellable) {
+                releaseOwnership(normalizedRecordingId)
+            }
             OfflineSummaryStartOutcome.Rejected(failure.code, failure.message)
         }
     }
+
+    /** User cancellation is feature-owned but cleanup remains authoritative in the P1 runtime. */
+    suspend fun cancel(recordingId: String): Boolean {
+        val normalizedRecordingId = recordingId.trim()
+        if (normalizedRecordingId.isEmpty()) return false
+        val job =
+            ownershipMutex.withLock {
+                activeJobs[normalizedRecordingId]
+            } ?: return false
+        job.cancel(CancellationException("USER_CANCELLED_OFFLINE_SUMMARY"))
+        return true
+    }
+
+    /** Process restart never resumes generation; persisted active Stage 17.2 rows become INTERRUPTED. */
+    suspend fun reconcileOnStartup(): Int =
+        persistence.interruptAllActive()
 
     private suspend fun execute(
         recordingId: String,
@@ -310,6 +359,7 @@ class OfflineSummaryCoordinator internal constructor(
         var completedPersisted = false
         var estimatedPromptTokens: Int? = null
         var generation: LocalLlmGenerationResult? = null
+        var repairAttempted = false
         try {
             criticalTaskReason()?.let { reason ->
                 throw OfflineSummaryCoordinatorException(
@@ -341,13 +391,7 @@ class OfflineSummaryCoordinator internal constructor(
                     OfflineSummaryLocalLlmPreset.CONFIG,
                 )
             generation = generated
-            Stage172OfflineSummaryModelContract.requireMatches(generated.modelIdentity)
-            if (generated.modelIdentity != preparedIdentity) {
-                throw OfflineSummaryCoordinatorException(
-                    code = OfflineSummaryFailureCode.MODEL_NOT_READY,
-                    message = "离线总结运行期间本地模型身份发生变化",
-                )
-            }
+            requireGenerationIdentity(generated, preparedIdentity)
 
             persistence.markValidating(summaryId)
             putState(
@@ -361,11 +405,88 @@ class OfflineSummaryCoordinator internal constructor(
                 ),
             )
 
-            val result = SummaryResultCodec.decode(generated.text, prompt.allowedEvidenceRefs)
+            val result =
+                try {
+                    SummaryResultCodec.decode(generated.text, prompt.allowedEvidenceRefs)
+                } catch (firstFailure: SummaryStructuredOutputException) {
+                    if (!isRepairable(firstFailure, generated.text)) {
+                        throw firstFailure
+                    }
+                    repairAttempted = true
+                    val repairPrompt =
+                        repairPromptRenderer.render(
+                            input = input,
+                            invalidOutput = generated.text,
+                            validationError = firstFailure,
+                        )
+                    try {
+                        budgetGate.requireFits(repairPrompt)
+                    } catch (tooLarge: OfflineSummaryBudgetExceededException) {
+                        throw OfflineSummaryCoordinatorException(
+                            code = OfflineSummaryFailureCode.REPAIR_FAILED,
+                            message = "本地结构修复请求超过安全预算",
+                            cause = tooLarge,
+                        )
+                    }
+
+                    val repaired =
+                        try {
+                            generateLocal(
+                                repairPrompt.text,
+                                OfflineSummaryLocalLlmPreset.CONFIG,
+                            )
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (repairRuntimeFailure: Throwable) {
+                            throw OfflineSummaryCoordinatorException(
+                                code = OfflineSummaryFailureCode.REPAIR_FAILED,
+                                message =
+                                    "本地结构修复推理失败：" +
+                                        sanitizeMessage(
+                                            repairRuntimeFailure.message
+                                                ?: repairRuntimeFailure::class.java.simpleName,
+                                        ),
+                                cause = repairRuntimeFailure,
+                            )
+                        }
+                    generation = repaired
+                    try {
+                        requireGenerationIdentity(repaired, preparedIdentity)
+                    } catch (identityFailure: Throwable) {
+                        throw OfflineSummaryCoordinatorException(
+                            code = OfflineSummaryFailureCode.REPAIR_FAILED,
+                            message = "本地结构修复期间模型身份发生变化",
+                            cause = identityFailure,
+                        )
+                    }
+                    putState(
+                        OfflineSummaryRunState(
+                            recordingId = recordingId,
+                            summaryId = summaryId,
+                            phase = OfflineSummaryRunPhase.VALIDATING,
+                            estimatedPromptTokens = estimatedPromptTokens,
+                            resolvedBackend = repaired.backendResolution.resolvedBackend.name,
+                            fallbackAttempted = repaired.backendResolution.fallbackAttempted,
+                            repairAttempted = true,
+                        ),
+                    )
+                    try {
+                        SummaryResultCodec.decode(repaired.text, repairPrompt.allowedEvidenceRefs)
+                    } catch (secondFailure: SummaryStructuredOutputException) {
+                        throw OfflineSummaryCoordinatorException(
+                            code = OfflineSummaryFailureCode.REPAIR_FAILED,
+                            message =
+                                "一次本地结构修复后仍未通过校验：${secondFailure.code.name}",
+                            cause = secondFailure,
+                        )
+                    }
+                }
+
             val evidence = OfflineSummaryEvidenceMapper.map(input, result)
             persistence.complete(summaryId, result, evidence)
             completedPersisted = true
 
+            val finalGeneration = generation ?: generated
             try {
                 onCompleted(recordingId, summaryId)
                 putState(
@@ -374,8 +495,9 @@ class OfflineSummaryCoordinator internal constructor(
                         summaryId = summaryId,
                         phase = OfflineSummaryRunPhase.COMPLETED,
                         estimatedPromptTokens = estimatedPromptTokens,
-                        resolvedBackend = generated.backendResolution.resolvedBackend.name,
-                        fallbackAttempted = generated.backendResolution.fallbackAttempted,
+                        resolvedBackend = finalGeneration.backendResolution.resolvedBackend.name,
+                        fallbackAttempted = finalGeneration.backendResolution.fallbackAttempted,
+                        repairAttempted = repairAttempted,
                     ),
                 )
             } catch (postCompletionFailure: Throwable) {
@@ -385,8 +507,9 @@ class OfflineSummaryCoordinator internal constructor(
                         summaryId = summaryId,
                         phase = OfflineSummaryRunPhase.COMPLETED,
                         estimatedPromptTokens = estimatedPromptTokens,
-                        resolvedBackend = generated.backendResolution.resolvedBackend.name,
-                        fallbackAttempted = generated.backendResolution.fallbackAttempted,
+                        resolvedBackend = finalGeneration.backendResolution.resolvedBackend.name,
+                        fallbackAttempted = finalGeneration.backendResolution.fallbackAttempted,
+                        repairAttempted = repairAttempted,
                         warning =
                             "总结已保存，但内容版本/搜索索引后处理未完全完成：" +
                                 sanitizeMessage(postCompletionFailure.message ?: "未知错误"),
@@ -394,8 +517,39 @@ class OfflineSummaryCoordinator internal constructor(
                 )
             }
         } catch (cancelled: CancellationException) {
-            // P6 adds explicit user-cancellation persistence. Process/scope cancellation must not be
-            // mislabeled as a normal FAILED result here.
+            withContext(NonCancellable) {
+                if (!completedPersisted) {
+                    runCatching { persistence.cancel(summaryId) }
+                    putState(
+                        OfflineSummaryRunState(
+                            recordingId = recordingId,
+                            summaryId = summaryId,
+                            phase = OfflineSummaryRunPhase.CANCELLED,
+                            failureCode = OfflineSummaryFailureCode.GENERATION_CANCELLED,
+                            message = "离线总结已取消",
+                            estimatedPromptTokens = estimatedPromptTokens,
+                            resolvedBackend = generation?.backendResolution?.resolvedBackend?.name,
+                            fallbackAttempted =
+                                generation?.backendResolution?.fallbackAttempted ?: false,
+                            repairAttempted = repairAttempted,
+                        ),
+                    )
+                } else {
+                    putState(
+                        OfflineSummaryRunState(
+                            recordingId = recordingId,
+                            summaryId = summaryId,
+                            phase = OfflineSummaryRunPhase.COMPLETED,
+                            estimatedPromptTokens = estimatedPromptTokens,
+                            resolvedBackend = generation?.backendResolution?.resolvedBackend?.name,
+                            fallbackAttempted =
+                                generation?.backendResolution?.fallbackAttempted ?: false,
+                            repairAttempted = repairAttempted,
+                            warning = "总结已保存；取消发生在完成后的后处理阶段",
+                        ),
+                    )
+                }
+            }
             throw cancelled
         } catch (error: Throwable) {
             if (!completedPersisted) {
@@ -411,6 +565,7 @@ class OfflineSummaryCoordinator internal constructor(
                         estimatedPromptTokens = estimatedPromptTokens,
                         resolvedBackend = generation?.backendResolution?.resolvedBackend?.name,
                         fallbackAttempted = generation?.backendResolution?.fallbackAttempted ?: false,
+                        repairAttempted = repairAttempted,
                     ),
                 )
             }
@@ -421,12 +576,34 @@ class OfflineSummaryCoordinator internal constructor(
         }
     }
 
+    private fun requireGenerationIdentity(
+        generated: LocalLlmGenerationResult,
+        preparedIdentity: LocalLlmModelIdentity,
+    ) {
+        Stage172OfflineSummaryModelContract.requireMatches(generated.modelIdentity)
+        if (generated.modelIdentity != preparedIdentity) {
+            throw OfflineSummaryCoordinatorException(
+                code = OfflineSummaryFailureCode.MODEL_NOT_READY,
+                message = "离线总结运行期间本地模型身份发生变化",
+            )
+        }
+    }
+
+    private fun isRepairable(
+        failure: SummaryStructuredOutputException,
+        rawOutput: String,
+    ): Boolean {
+        if (rawOutput.isBlank()) return false
+        return failure.code != SummaryStructuredOutputErrorCode.EMPTY_FINAL_CONTENT
+    }
+
     private fun putState(state: OfflineSummaryRunState) {
         mutableState.update { current -> current + (state.recordingId to state) }
     }
 
     private suspend fun releaseOwnership(recordingId: String) {
         ownershipMutex.withLock {
+            activeJobs.remove(recordingId)
             activeRecordingIds.remove(recordingId)
         }
     }
