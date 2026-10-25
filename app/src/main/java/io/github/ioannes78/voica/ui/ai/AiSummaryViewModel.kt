@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import io.github.ioannes78.voica.ai.AiSummaryResult
+import io.github.ioannes78.voica.ai.OfflineSummaryPromptContract
 import io.github.ioannes78.voica.ai.SummaryResultCodec
 import io.github.ioannes78.voica.database.AiSummaryEntity
 import io.github.ioannes78.voica.database.AiSummaryEvidenceEntity
@@ -201,7 +202,18 @@ class AiSummaryViewModel(
                     )
                 }.getOrNull()
             }
-        mutableSelected.value = AiSummaryDocument(entity = entity, result = result, evidence = evidence)
+        val productEntity =
+            if (entity.promptVersion == OfflineSummaryPromptContract.PROMPT_VERSION) {
+                entity.copy(model = LOCAL_OFFLINE_MODEL_LABEL)
+            } else {
+                entity
+            }
+        mutableSelected.value =
+            AiSummaryDocument(
+                entity = productEntity,
+                result = result,
+                evidence = evidence,
+            )
     }
 
     private data class SummaryLineageRef(
@@ -216,5 +228,9 @@ class AiSummaryViewModel(
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
             AiSummaryViewModel(repository = repository, contentRepository = contentRepository) as T
+    }
+
+    private companion object {
+        const val LOCAL_OFFLINE_MODEL_LABEL = "Gemma 4 E2B · 本地"
     }
 }
