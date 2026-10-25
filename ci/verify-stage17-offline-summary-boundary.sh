@@ -57,8 +57,10 @@ grep -Fq 'repairPromptRenderer.render' "$coordinator"
 grep -Fq '必须从转写段头 [Sxxxxx] 原样复制' "$prompt"
 grep -Fq '如果没有完全匹配的合法 ref，就输出 evidenceRefs=[]，不要猜测' "$prompt"
 grep -Fq 'Evidence Catalogue' "$repair_prompt"
-grep -Fq '不得猜 ref' "$repair_prompt"
-grep -Fq 'unit.evidence ?: return@mapNotNull null' "$repair_prompt"
+grep -Fq '未列出的 ref 不得作为新的替换值' "$repair_prompt"
+grep -Fq 'val evidence = unit.evidence ?: return@mapIndexedNotNull null' "$repair_prompt"
+grep -Fq 'estimator.estimateTokens(trialPrompt) <= budgetSpec.maxEstimatedPromptTokens' "$repair_prompt"
+grep -Fq 'BEGIN_INVALID_JSON_DATA' "$repair_prompt"
 
 grep -Fq 'val maxOutputTokens: Int? = 1_024' "$local_llm_contracts"
 grep -Fq 'maxOutputToken = config.maxOutputTokens' "$local_llm_runtime"
@@ -88,8 +90,9 @@ printf '%s\n' \
   '  - no cloud/HTTP/API-key/upload/FGS/WorkManager dependency in formal inference path' \
   '  - P1 AppLocalLlmRuntime + AUTO remains sole LLM execution boundary' \
   '  - direct budget and exactly-one repair structure are frozen' \
-  '  - prompt 02 requires exact Evidence Ref copying; repair is grounded in frozen evidence catalogue' \
-  '  - 1,024 output-token reserve is enforced in LiteRT-LM while P0 baseline remains uncapped' \
+  '  - prompt 02 requires exact Evidence Ref copying' \
+  '  - repair keeps invalid JSON intact and bounds only grounded Evidence Catalogue context' \
+  '  - 1,024 output-token reserve remains enforced in LiteRT-LM while P0 baseline remains uncapped' \
   '  - Gemma remains candidate-only' \
   '  - Room remains v16' \
   '  - restart recovery is interrupt-only'
