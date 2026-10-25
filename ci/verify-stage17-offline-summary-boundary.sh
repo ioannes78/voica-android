@@ -7,16 +7,13 @@ cd "$root"
 formal_files=(
   "app/src/main/java/io/github/ioannes78/voica/OfflineSummaryCoordinator.kt"
   "app/src/main/java/io/github/ioannes78/voica/ui/ai/OfflineSummaryProductViewModel.kt"
-  "core/ai/src/main/kotlin/io/github/ioannes78/voica/OfflineSummaryContracts.kt"
-  "core/ai/src/main/kotlin/io/github/ioannes78/voica/ai/OfflineSummaryPromptRenderer.kt"
+  "core/ai/src/main/kotlin/io/github/ioannes78/voica/ai/OfflineSummaryContracts.kt"
+  "core/ai/src/main/kotlin/io/github/ioannes78/voica/ai/OfflineSummaryPrompt.kt"
   "core/ai/src/main/kotlin/io/github/ioannes78/voica/ai/OfflineSummaryRepairPrompt.kt"
   "core/ai/src/main/kotlin/io/github/ioannes78/voica/ai/OfflineSummaryBudget.kt"
   "core/database/src/main/java/io/github/ioannes78/voica/database/OfflineSummaryPersistenceRepository.kt"
   "core/database/src/main/java/io/github/ioannes78/voica/database/OfflineSummaryEvidenceMapper.kt"
 )
-
-# Contracts file lives under the ai package; fail loudly on path drift rather than silently scanning less.
-formal_files[2]="core/ai/src/main/kotlin/io/github/ioannes78/voica/ai/OfflineSummaryContracts.kt"
 
 for file in "${formal_files[@]}"; do
   test -f "$file" || {
