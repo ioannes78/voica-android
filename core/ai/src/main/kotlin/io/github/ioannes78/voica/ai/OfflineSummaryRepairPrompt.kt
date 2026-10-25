@@ -6,6 +6,9 @@ package io.github.ioannes78.voica.ai
  * This is intentionally not a second summarization prompt. The invalid model output is preserved in
  * full. Evidence catalogue context is selected deterministically inside the same direct-summary
  * prompt budget so repair never invents coordinates merely to make the request fit.
+ *
+ * A truncated JSON object is not repairable here: it means generation exhausted its output budget.
+ * Re-running the same local LLM would only repeat a long decode and can double user-visible latency.
  */
 class OfflineSummaryRepairPromptRenderer(
     private val estimator: OfflineSummaryTokenEstimator = ConservativeOfflineSummaryTokenEstimator,
@@ -17,6 +20,9 @@ class OfflineSummaryRepairPromptRenderer(
         validationError: SummaryStructuredOutputException,
     ): RenderedOfflineSummaryPrompt {
         require(invalidOutput.isNotBlank()) { "invalid output must not be blank for repair" }
+        if (validationError.code == SummaryStructuredOutputErrorCode.TRUNCATED_JSON) {
+            throw validationError
+        }
 
         val allowedEvidenceRefs =
             input.units
