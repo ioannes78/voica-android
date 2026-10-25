@@ -400,6 +400,13 @@ class AppContainer(
             realtimeState = stage16ARealtimeRuntime.state,
         )
 
+    val offlineSummaryCoordinator =
+        createOfflineSummaryCoordinator(
+            application = application,
+            container = this,
+            scope = applicationScope,
+        )
+
     val stage16ARecordingLifecycleCoordinator =
         Stage16ARecordingLifecycleCoordinator(
             scope = applicationScope,
