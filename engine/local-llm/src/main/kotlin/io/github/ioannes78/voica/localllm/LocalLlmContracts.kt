@@ -85,6 +85,8 @@ data class LocalLlmRuntimeConfig(
     val topP: Double = 0.95,
     val temperature: Double = 1.0,
     val speculativeDecoding: Boolean = false,
+    /** Optional LiteRT-LM JSON Schema response format. Null preserves unconstrained generation. */
+    val responseJsonSchema: String? = null,
 ) {
     init {
         require(maxNumTokens > 0) { "maxNumTokens must be positive" }
@@ -101,6 +103,9 @@ data class LocalLlmRuntimeConfig(
         require(temperature.isFinite() && temperature >= 0.0) {
             "temperature must be finite and non-negative"
         }
+        require(responseJsonSchema == null || responseJsonSchema.isNotBlank()) {
+            "responseJsonSchema must be non-blank or null"
+        }
     }
 }
 
@@ -111,7 +116,7 @@ data class LocalLlmBackendResolution(
     val fallbackAttempted: Boolean = false,
 ) {
     init {
-        require(reason.isNotBlank()) { "backend resolution reason must not be blank" }
+        require(reason.isNotBlank()) { "reason must not be blank" }
         if (requestedPolicy == LocalLlmBackendPolicy.CPU) {
             require(resolvedBackend == LocalLlmBackend.CPU) {
                 "explicit CPU policy must resolve to CPU"
@@ -203,5 +208,6 @@ object LocalLlmValidatedPresets {
         topP = 0.95,
         temperature = 1.0,
         speculativeDecoding = false,
+        responseJsonSchema = null,
     )
 }
