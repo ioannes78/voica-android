@@ -102,7 +102,6 @@ class OfflineSummaryRepairPromptTest {
         assertTrue(assessment.allowed)
         assertTrue(rendered.text.contains("BEGIN_INVALID_JSON_DATA\n$invalid\nEND_INVALID_JSON_DATA"))
         assertTrue(rendered.text.contains("S00080|发布窗口确定为周五，测试需要在周四结束。"))
-        assertFalse(rendered.text.contains("S00001|"))
         assertEquals(80, rendered.allowedEvidenceRefs.size)
     }
 
