@@ -16,22 +16,24 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.ioannes78.voica.OfflineSummaryRunPhase
+import io.github.ioannes78.voica.VoicaApplication
 import io.github.ioannes78.voica.database.SearchDocumentEntity
 
 internal val LocalAiSummarySearchTarget = compositionLocalOf<SearchDocumentEntity?> { null }
 
 @Composable
 fun AiSummaryProductCard(
-    recordingId: String,
     transcriptionId: String,
     recordingName: String,
     viewModel: AiSummaryViewModel,
     contentViewModel: AiSummaryContentViewModel,
-    offlineSummaryViewModel: OfflineSummaryProductViewModel,
     onOpenSettings: () -> Unit,
     onSeekEvidence: (Long) -> Unit,
     showTransientHeader: Boolean = true,
@@ -39,15 +41,29 @@ fun AiSummaryProductCard(
     dismissedStaleSummaryFingerprint: String? = null,
     onIgnoreStale: (String) -> Unit = {},
 ) {
+    val application = LocalContext.current.applicationContext as VoicaApplication
+    val offlineSummaryViewModel: OfflineSummaryProductViewModel =
+        viewModel(
+            factory =
+                remember(
+                    application.container.offlineSummaryCoordinator,
+                    application.container.modelManager,
+                ) {
+                    OfflineSummaryProductViewModel.Factory(
+                        coordinator = application.container.offlineSummaryCoordinator,
+                        modelManager = application.container.modelManager,
+                    )
+                },
+        )
     val selected by viewModel.selected.collectAsState()
     val history by viewModel.history.collectAsState()
     val offlineState by offlineSummaryViewModel.state.collectAsState()
 
     LaunchedEffect(transcriptionId) {
         viewModel.bind(transcriptionId)
-    }
-    LaunchedEffect(recordingId) {
-        offlineSummaryViewModel.bind(recordingId)
+        application.container.aiSummaryRepository
+            .recordingIdForTranscription(transcriptionId)
+            ?.let(offlineSummaryViewModel::bind)
     }
 
     Column(
