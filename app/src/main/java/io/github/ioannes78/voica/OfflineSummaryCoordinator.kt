@@ -7,6 +7,7 @@ import io.github.ioannes78.voica.ai.OfflineSummaryDirectBudgetGate
 import io.github.ioannes78.voica.ai.OfflineSummaryFailureCode
 import io.github.ioannes78.voica.ai.OfflineSummaryPromptRenderer
 import io.github.ioannes78.voica.ai.OfflineSummaryRepairPromptRenderer
+import io.github.ioannes78.voica.ai.OfflineSummaryResponseFormat
 import io.github.ioannes78.voica.ai.StructuredTranscriptInput
 import io.github.ioannes78.voica.ai.SummaryResultCodec
 import io.github.ioannes78.voica.ai.SummaryStructuredOutputErrorCode
@@ -188,14 +189,16 @@ internal object Stage172OfflineSummaryModelContract {
 
 /** Separately named product preset; values intentionally stay inside the P0/P1 validated envelope. */
 internal object OfflineSummaryLocalLlmPreset {
-    val CONFIG =
+    fun configFor(allowedEvidenceRefs: Set<String>): LocalLlmRuntimeConfig =
         LocalLlmRuntimeConfig(
             backendPolicy = LocalLlmBackendPolicy.AUTO,
             maxNumTokens = 4_000,
+            maxOutputTokens = 1_024,
             topK = 64,
             topP = 0.95,
             temperature = 1.0,
             speculativeDecoding = false,
+            responseJsonSchema = OfflineSummaryResponseFormat.jsonSchema(allowedEvidenceRefs),
         )
 }
 
@@ -388,7 +391,7 @@ class OfflineSummaryCoordinator internal constructor(
             val generated =
                 generateLocal(
                     prompt.text,
-                    OfflineSummaryLocalLlmPreset.CONFIG,
+                    OfflineSummaryLocalLlmPreset.configFor(prompt.allowedEvidenceRefs),
                 )
             generation = generated
             requireGenerationIdentity(generated, preparedIdentity)
@@ -433,7 +436,7 @@ class OfflineSummaryCoordinator internal constructor(
                         try {
                             generateLocal(
                                 repairPrompt.text,
-                                OfflineSummaryLocalLlmPreset.CONFIG,
+                                OfflineSummaryLocalLlmPreset.configFor(repairPrompt.allowedEvidenceRefs),
                             )
                         } catch (cancelled: CancellationException) {
                             throw cancelled
