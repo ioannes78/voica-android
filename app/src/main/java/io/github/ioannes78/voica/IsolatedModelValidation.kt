@@ -6,10 +6,13 @@ import android.app.Service
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.ServiceConnection
 import android.os.Binder
 import android.os.IBinder
 import android.os.SystemClock
+import io.github.ioannes78.voica.localllm.LiteRtLmModelCandidateValidator
+import io.github.ioannes78.voica.localllm.LiteRtLmModelValidationException
+import io.github.ioannes78.voica.localllm.LiteRtLmModelValidationStage
+import io.github.ioannes78.voica.localllm.LiteRtLmRuntimeContract
 import io.github.ioannes78.voica.model.ModelCandidateValidator
 import io.github.ioannes78.voica.model.ModelDescriptor
 import io.github.ioannes78.voica.model.ModelStorage
@@ -218,6 +221,15 @@ class IsolatedModelValidationService : Service() {
                     status = IsolatedModelValidationStatus.OUT_OF_MEMORY,
                     message = oom.message ?: "模型加载或推理时内存不足",
                 )
+            } catch (error: LiteRtLmModelValidationException) {
+                ValidationResult(
+                    status =
+                        when (error.stage) {
+                            LiteRtLmModelValidationStage.NATIVE_INIT ->
+                                IsolatedModelValidationStatus.NATIVE_INIT_FAILED
+                        },
+                    message = error.cause?.message ?: error.message.orEmpty(),
+                )
             } catch (error: SherpaModelValidationException) {
                 ValidationResult(
                     status =
@@ -244,10 +256,10 @@ class IsolatedModelValidationService : Service() {
 }
 
 private fun modelCandidateValidatorFor(descriptor: ModelDescriptor): ModelCandidateValidator =
-    if (descriptor.runtimeId == Stage16BCandidateRuntimes.FSMN_VAD_ID) {
-        createFsmnValidator()
-    } else {
-        SherpaModelCandidateValidator()
+    when (descriptor.runtimeId) {
+        LiteRtLmRuntimeContract.RUNTIME_ID -> LiteRtLmModelCandidateValidator()
+        Stage16BCandidateRuntimes.FSMN_VAD_ID -> createFsmnValidator()
+        else -> SherpaModelCandidateValidator()
     }
 
 private fun createFsmnValidator(): ModelCandidateValidator {
