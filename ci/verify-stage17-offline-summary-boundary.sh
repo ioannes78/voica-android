@@ -48,7 +48,7 @@ if grep -Eq 'LiteRtLocalLlmRuntime\s*\(' "$coordinator"; then
   exit 1
 fi
 
-grep -Fq 'const val PROMPT_VERSION: Int = 170203' "$contracts"
+grep -Fq 'const val PROMPT_VERSION: Int = 170204' "$contracts"
 grep -Fq 'val runtimeMaxTokens: Int = 4_000' "$budget"
 grep -Fq 'val outputReserveTokens: Int = 1_024' "$budget"
 grep -Fq 'val runtimeTemplateReserveTokens: Int = 192' "$budget"
@@ -57,15 +57,24 @@ grep -Fq 'requireFits(prompt)' "$coordinator"
 grep -Fq 'repairPromptRenderer.render' "$coordinator"
 
 grep -Fq 'constrained-decoding schema' "$prompt"
+grep -Fq '只保留最重要的信息，宁少勿滥' "$prompt"
 grep -Fq 'Evidence Catalogue' "$repair_prompt"
 grep -Fq '未列出的 ref 不得作为新的替换值' "$repair_prompt"
 grep -Fq 'val evidence = unit.evidence ?: return@mapIndexedNotNull null' "$repair_prompt"
 grep -Fq 'estimator.estimateTokens(trialPrompt) <= budgetSpec.maxEstimatedPromptTokens' "$repair_prompt"
 grep -Fq 'BEGIN_INVALID_JSON_DATA' "$repair_prompt"
+grep -Fq 'validationError.code == SummaryStructuredOutputErrorCode.TRUNCATED_JSON' "$repair_prompt"
 
 grep -Fq 'OfflineSummaryResponseFormat.jsonSchema(allowedEvidenceRefs)' "$coordinator"
+grep -Fq 'const val MAX_SECTIONS = 4' "$response_format"
+grep -Fq 'const val MAX_ITEMS_PER_SECTION = 2' "$response_format"
+grep -Fq 'const val MAX_EVIDENCE_REFS_PER_ITEM = 3' "$response_format"
+grep -Fq 'const val MAX_OVERVIEW_CHARS = 120' "$response_format"
+grep -Fq 'const val MAX_ITEM_TEXT_CHARS = 80' "$response_format"
+grep -Fq '"x-guidance":{"whitespace_flexible":false}' "$response_format"
 grep -Fq '"evidenceRefs":{"type":"array",$evidenceItems}' "$response_format"
 grep -Fq 'enumJson(allowedEvidenceRefs.toList())' "$response_format"
+grep -Fq '"attributes":{"type":"object","additionalProperties":false}' "$response_format"
 grep -Fq 'val responseJsonSchema: String? = null' "$local_llm_contracts"
 grep -Fq 'ResponseFormat.json(schema)' "$local_llm_runtime"
 grep -Fq 'enableResponseFormat = config.responseJsonSchema != null' "$local_llm_runtime"
@@ -97,9 +106,10 @@ printf '%s\n' \
   'Verified Stage 17.2 offline-summary boundary:' \
   '  - no cloud/HTTP/API-key/upload/FGS/WorkManager dependency in formal inference path' \
   '  - P1 AppLocalLlmRuntime + AUTO remains sole LLM execution boundary' \
-  '  - direct budget and exactly-one repair structure are frozen' \
-  '  - prompt 03 uses concise semantics while native JSON Schema owns structural syntax' \
-  '  - native response format constrains JSON shape and request-specific Evidence Ref allowlist' \
+  '  - direct budget and at-most-one repair structure are frozen' \
+  '  - prompt 04 requires concise output while native JSON Schema owns structural syntax' \
+  '  - native response format constrains JSON shape, document size and request-specific Evidence Ref allowlist' \
+  '  - truncated JSON is never sent through a second long LLM repair' \
   '  - strict SummaryResultCodec validation remains downstream of constrained decoding' \
   '  - 1,024 output-token reserve remains enforced in LiteRT-LM while P0 baseline remains uncapped' \
   '  - Gemma remains candidate-only' \
