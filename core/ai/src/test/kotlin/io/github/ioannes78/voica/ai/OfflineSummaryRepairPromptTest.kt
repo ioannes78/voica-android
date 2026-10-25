@@ -18,7 +18,7 @@ class OfflineSummaryRepairPromptTest {
 
         val rendered = OfflineSummaryRepairPromptRenderer().render(input, invalid, error)
 
-        assertEquals(170202, rendered.promptVersion)
+        assertEquals(170203, rendered.promptVersion)
         assertEquals(setOf("S00001"), rendered.allowedEvidenceRefs)
         assertTrue(rendered.text.contains("error=INVALID_EVIDENCE_REF"))
         assertTrue(rendered.text.contains("Evidence Catalogue"))
@@ -79,11 +79,17 @@ class OfflineSummaryRepairPromptTest {
                     detectedLanguage = "zh",
                 )
             }
+        val largeInput =
+            input(withEvidence = true).copy(
+                totalSampleCount = 80L * 8_000L,
+                units = units,
+            )
         val invalid =
-            """{"schemaVersion":1,"contentType":"MEETING","classificationConfidence":0.9,"title":"发布安排","overview":"确认发布与测试窗口","sections":[{"id":"s1","type":"ACTION_ITEM","label":"行动项","items":[{"id":"i1","text":"周四完成测试，周五发布。","evidenceRefs":["S99999"],"epistemicStatus":"TRANSCRIPT_STATED","attributes":{}}]}]}"""
+            """{"schemaVersion":1,"contentType":"GENERAL","classificationConfidence":null,"title":"发布","overview":"发布窗口确定为周五，测试需要在周四结束。","sections":[],"bad":"S99999"}"""
+
         val rendered =
             OfflineSummaryRepairPromptRenderer().render(
-                input = input(units),
+                input = largeInput,
                 invalidOutput = invalid,
                 validationError =
                     SummaryStructuredOutputException(
@@ -93,18 +99,26 @@ class OfflineSummaryRepairPromptTest {
             )
 
         val assessment = OfflineSummaryDirectBudgetGate().requireFits(rendered)
-        val catalogueEntryCount = Regex("(?m)^S\\d{5}\\|").findAll(rendered.text).count()
-
         assertTrue(assessment.allowed)
-        assertEquals(80, rendered.allowedEvidenceRefs.size)
-        assertEquals(80, rendered.sourceUnitCount)
-        assertTrue(catalogueEntryCount in 1 until 80)
+        assertTrue(rendered.text.contains("BEGIN_INVALID_JSON_DATA\n$invalid\nEND_INVALID_JSON_DATA"))
         assertTrue(rendered.text.contains("S00080|发布窗口确定为周五，测试需要在周四结束。"))
-        assertTrue(rendered.text.contains(invalid))
+        assertFalse(rendered.text.contains("S00001|"))
+        assertEquals(80, rendered.allowedEvidenceRefs.size)
     }
 
     private fun input(withEvidence: Boolean): StructuredTranscriptInput =
-        input(
+        StructuredTranscriptInput(
+            recordingId = "recording-1",
+            transcriptionId = "transcription-1",
+            transcriptionRevisionId = null,
+            inputContentDigest = "a".repeat(64),
+            transcriptionMode = "HIGH_QUALITY",
+            canonicalAssetId = "canonical-1",
+            canonicalSha256 = "b".repeat(64),
+            canonicalProfileId = "CANONICAL_PCM16_16000_MONO_WAV_V1",
+            totalSampleCount = 16_000L,
+            languageConfig = "zh",
+            alignmentId = null,
             units =
                 listOf(
                     StructuredTranscriptUnit(
@@ -120,7 +134,7 @@ class OfflineSummaryRepairPromptTest {
                                     overlap = false,
                                     ambiguous = false,
                                     startSampleIndex = 0L,
-                                    endSampleIndexExclusive = 8_000L,
+                                    endSampleIndexExclusive = 16_000L,
                                 )
                             } else {
                                 null
@@ -129,21 +143,5 @@ class OfflineSummaryRepairPromptTest {
                         detectedLanguage = "zh",
                     ),
                 ),
-        )
-
-    private fun input(units: List<StructuredTranscriptUnit>): StructuredTranscriptInput =
-        StructuredTranscriptInput(
-            recordingId = "recording-1",
-            transcriptionId = "transcription-1",
-            transcriptionRevisionId = "revision-1",
-            inputContentDigest = "a".repeat(64),
-            transcriptionMode = "HIGH_QUALITY",
-            canonicalAssetId = "canonical-1",
-            canonicalSha256 = "b".repeat(64),
-            canonicalProfileId = "pcm16k-mono",
-            totalSampleCount = 640_000L,
-            languageConfig = "zh",
-            alignmentId = "alignment-1",
-            units = units,
         )
 }
