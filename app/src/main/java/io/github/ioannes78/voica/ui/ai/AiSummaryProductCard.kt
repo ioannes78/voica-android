@@ -55,6 +55,8 @@ fun AiSummaryProductCard(
     showTransientHeader: Boolean = true,
     dismissedStaleSummaryFingerprint: String? = null,
     onIgnoreStale: (String) -> Unit = {},
+    onRegenerate: (() -> Unit)? = null,
+    regenerateEnabled: Boolean = false,
 ) {
     val history by viewModel.history.collectAsState()
     val selected by viewModel.selected.collectAsState()
@@ -175,7 +177,7 @@ fun AiSummaryProductCard(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         Text(
-                            "存在尚未采用的总结版本",
+                            "已生成新的总结",
                             modifier = Modifier.weight(1f),
                             style = MaterialTheme.typography.bodyMedium,
                         )
@@ -222,35 +224,6 @@ fun AiSummaryProductCard(
                 }
             }
 
-            if (history.isNotEmpty()) {
-                Box {
-                    OutlinedButton(onClick = { historyExpanded = true }) {
-                        Text("版本 ${history.size}")
-                    }
-                    DropdownMenu(
-                        expanded = historyExpanded,
-                        onDismissRequest = { historyExpanded = false },
-                    ) {
-                        history.forEach { summary ->
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        summaryHistoryLabel(
-                                            summary = summary,
-                                            selected = selected?.entity?.id == summary.id,
-                                        ),
-                                    )
-                                },
-                                onClick = {
-                                    historyExpanded = false
-                                    viewModel.selectSummary(summary.id)
-                                },
-                            )
-                        }
-                    }
-                }
-            }
-
             Button(
                 enabled =
                     contentState.document != null &&
@@ -268,6 +241,17 @@ fun AiSummaryProductCard(
                     expanded = menuExpanded,
                     onDismissRequest = { menuExpanded = false },
                 ) {
+                    onRegenerate?.let { regenerate ->
+                        DropdownMenuItem(
+                            text = { Text("重新生成") },
+                            enabled = regenerateEnabled,
+                            onClick = {
+                                menuExpanded = false
+                                regenerate()
+                            },
+                        )
+                        HorizontalDivider()
+                    }
                     DropdownMenuItem(
                         text = { Text("复制") },
                         enabled = exportDocument?.plainText?.isNotBlank() == true,
@@ -392,7 +376,7 @@ fun AiSummaryProductCard(
                         },
                     )
                     DropdownMenuItem(
-                        text = { Text("删除当前版本") },
+                        text = { Text("删除总结") },
                         enabled = selected != null,
                         onClick = {
                             menuExpanded = false
@@ -424,7 +408,7 @@ fun AiSummaryProductCard(
 
                 else ->
                     Text(
-                        "该总结版本没有可显示的内容。",
+                        "该总结没有可显示的内容。",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
             }
@@ -471,8 +455,8 @@ fun AiSummaryProductCard(
     if (deleteVersionOpen) {
         AlertDialog(
             onDismissRequest = { deleteVersionOpen = false },
-            title = { Text("删除总结版本？") },
-            text = { Text("该操作只删除当前总结版本及其修订，不会删除录音或转写。") },
+            title = { Text("删除当前总结？") },
+            text = { Text("该操作只删除当前总结及其修订，不会删除录音或转写。") },
             confirmButton = {
                 TextButton(
                     onClick = {
