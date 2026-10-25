@@ -66,19 +66,24 @@ fun AiSummaryProductCard(
             ?.let(offlineSummaryViewModel::bind)
     }
 
+    val hasCompletedSummary = selected != null || history.isNotEmpty()
+    val active = offlineState.run.isActiveOfflineSummaryGeneration()
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        OfflineSummaryGenerationPanel(
-            hasCompletedSummary = selected != null || history.isNotEmpty(),
-            state = offlineState,
-            onGenerate = offlineSummaryViewModel::generate,
-            onCancel = offlineSummaryViewModel::cancel,
-            onOpenSettings = onOpenSettings,
-        )
+        if (!hasCompletedSummary || active || offlineState.shouldShowCompletedSummaryNotice()) {
+            OfflineSummaryGenerationPanel(
+                hasCompletedSummary = hasCompletedSummary,
+                state = offlineState,
+                onGenerate = offlineSummaryViewModel::generate,
+                onCancel = offlineSummaryViewModel::cancel,
+                onOpenSettings = onOpenSettings,
+            )
+        }
 
-        if (selected != null || history.isNotEmpty()) {
+        if (hasCompletedSummary) {
             CompositionLocalProvider(LocalAiSummarySearchTarget provides searchTarget) {
                 AiSummaryProductCard(
                     transcriptionId = transcriptionId,
@@ -89,6 +94,8 @@ fun AiSummaryProductCard(
                     showTransientHeader = showTransientHeader,
                     dismissedStaleSummaryFingerprint = dismissedStaleSummaryFingerprint,
                     onIgnoreStale = onIgnoreStale,
+                    onRegenerate = offlineSummaryViewModel::generate,
+                    regenerateEnabled = offlineState.modelReady == true && !active,
                 )
             }
         }
@@ -104,10 +111,7 @@ private fun OfflineSummaryGenerationPanel(
     onOpenSettings: () -> Unit,
 ) {
     val run = state.run
-    val active =
-        run?.phase == OfflineSummaryRunPhase.PREPARING ||
-            run?.phase == OfflineSummaryRunPhase.ANALYZING ||
-            run?.phase == OfflineSummaryRunPhase.VALIDATING
+    val active = run.isActiveOfflineSummaryGeneration()
 
     if (active) {
         Surface(
@@ -147,10 +151,33 @@ private fun OfflineSummaryGenerationPanel(
         return
     }
 
+    if (hasCompletedSummary) {
+        val message =
+            when (run?.phase) {
+                OfflineSummaryRunPhase.FAILED ->
+                    run.message?.let { "重新生成失败：$it" } ?: "离线总结重新生成失败"
+
+                else -> state.notice
+            }
+        if (message != null) {
+            Text(
+                message,
+                style = MaterialTheme.typography.bodySmall,
+                color =
+                    if (run?.phase == OfflineSummaryRunPhase.FAILED) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+            )
+        }
+        return
+    }
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        tonalElevation = if (hasCompletedSummary) 0.dp else 1.dp,
+        tonalElevation = 1.dp,
     ) {
         Column(
             modifier = Modifier.padding(14.dp),
@@ -172,7 +199,7 @@ private fun OfflineSummaryGenerationPanel(
                     }
                 }
 
-                state.modelReady == null && !hasCompletedSummary -> {
+                state.modelReady == null -> {
                     Text(
                         "正在检查离线 AI 模型…",
                         style = MaterialTheme.typography.bodyMedium,
@@ -182,7 +209,7 @@ private fun OfflineSummaryGenerationPanel(
 
                 else -> {
                     Text(
-                        if (hasCompletedSummary) "重新生成离线总结" else "从当前转写生成离线总结",
+                        "从当前转写生成离线总结",
                         style = MaterialTheme.typography.titleMedium,
                     )
                     Text(
@@ -194,7 +221,7 @@ private fun OfflineSummaryGenerationPanel(
                         enabled = state.modelReady == true,
                         onClick = onGenerate,
                     ) {
-                        Text(if (hasCompletedSummary) "重新生成" else "生成总结")
+                        Text("生成总结")
                     }
                 }
             }
@@ -227,3 +254,11 @@ private fun OfflineSummaryGenerationPanel(
         }
     }
 }
+
+private fun OfflineSummaryRunState?.isActiveOfflineSummaryGeneration(): Boolean =
+    this?.phase == OfflineSummaryRunPhase.PREPARING ||
+        this?.phase == OfflineSummaryRunPhase.ANALYZING ||
+        this?.phase == OfflineSummaryRunPhase.VALIDATING
+
+private fun OfflineSummaryProductUiState.shouldShowCompletedSummaryNotice(): Boolean =
+    run?.phase == OfflineSummaryRunPhase.FAILED || notice != null
