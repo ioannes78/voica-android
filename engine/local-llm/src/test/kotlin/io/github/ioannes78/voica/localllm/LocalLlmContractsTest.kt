@@ -19,6 +19,7 @@ class LocalLlmContractsTest {
         assertEquals(0.95, config.topP, 0.0)
         assertEquals(1.0, config.temperature, 0.0)
         assertFalse(config.speculativeDecoding)
+        assertNull(config.responseJsonSchema)
     }
 
     @Test
@@ -28,7 +29,19 @@ class LocalLlmContractsTest {
         assertEquals(LocalLlmBackendPolicy.AUTO, preset.backendPolicy)
         assertEquals(4_000, preset.maxNumTokens)
         assertNull(preset.maxOutputTokens)
+        assertNull(preset.responseJsonSchema)
         assertFalse(preset.speculativeDecoding)
+    }
+
+    @Test
+    fun `structured json response schema is opt in and rejects blank contract`() {
+        val schema = "{\"type\":\"object\"}"
+        val config = LocalLlmRuntimeConfig(responseJsonSchema = schema)
+
+        assertEquals(schema, config.responseJsonSchema)
+        assertThrows(IllegalArgumentException::class.java) {
+            LocalLlmRuntimeConfig(responseJsonSchema = "   ")
+        }
     }
 
     @Test
@@ -118,7 +131,6 @@ class LocalLlmContractsTest {
             requestedPolicy = LocalLlmBackendPolicy.AUTO,
             resolvedBackend = LocalLlmBackend.GPU,
             fallbackAttempted = false,
-            causeClassName = "java.lang.IllegalStateException",
         )
 
         assertEquals(LocalLlmFailureCode.ENGINE_INIT_FAILED, failure.code)
