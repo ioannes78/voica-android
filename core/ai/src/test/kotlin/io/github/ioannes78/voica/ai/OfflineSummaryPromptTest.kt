@@ -51,7 +51,7 @@ class OfflineSummaryPromptTest {
 
         val rendered = OfflineSummaryPromptRenderer().render(input)
 
-        assertEquals(170201, rendered.promptVersion)
+        assertEquals(170202, rendered.promptVersion)
         assertEquals(1, rendered.resultSchemaVersion)
         assertEquals(linkedSetOf("S00001", "S00002"), rendered.allowedEvidenceRefs)
         assertEquals(2, rendered.sourceUnitCount)
