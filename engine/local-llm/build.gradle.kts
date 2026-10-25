@@ -35,6 +35,7 @@ kotlin {
 }
 
 dependencies {
+    implementation(project(":core:model"))
     implementation("com.google.ai.edge.litertlm:litertlm-android:$liteRtLmVersion")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 

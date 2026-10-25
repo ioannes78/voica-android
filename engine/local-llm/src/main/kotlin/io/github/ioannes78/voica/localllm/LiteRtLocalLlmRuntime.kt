@@ -69,7 +69,7 @@ class LiteRtLocalLlmRuntime {
                     }
                 val engineConfig =
                     EngineConfig(
-                        modelPath = modelPath,
+                        modelPath = requestModelPath(modelPath),
                         backend = backend,
                         maxNumTokens = request.config.maxNumTokens,
                         cacheDir = null,
@@ -172,6 +172,54 @@ class LiteRtLocalLlmRuntime {
                 }
             }
         }
+
+    /**
+     * Candidate activation smoke test. CPU is deliberately used only for deterministic install
+     * validation; normal product inference remains AUTO (GPU preferred, CPU fallback).
+     *
+     * P0 showed that Engine.initialize() alone is insufficient because the historical R4-R6 abort
+     * occurred while creating the Conversation. Therefore validation crosses that JNI boundary and
+     * closes immediately without running a product prompt.
+     */
+    suspend fun validateModel(
+        modelPath: String,
+        maxNumTokens: Int = LocalLlmValidatedPresets.P0_BASELINE.maxNumTokens,
+    ) = withContext(Dispatchers.IO) {
+        require(modelPath.isNotBlank()) { "modelPath must not be blank" }
+        require(maxNumTokens > 0) { "maxNumTokens must be positive" }
+
+        val previousSpeculativeDecoding = ExperimentalFlags.enableSpeculativeDecoding
+        val previousConversationConstrainedDecoding =
+            ExperimentalFlags.enableConversationConstrainedDecoding
+        ExperimentalFlags.enableSpeculativeDecoding = false
+        ExperimentalFlags.enableConversationConstrainedDecoding = false
+
+        try {
+            val config =
+                LocalLlmValidatedPresets.P0_BASELINE.copy(
+                    backendPolicy = LocalLlmBackendPolicy.CPU,
+                    maxNumTokens = maxNumTokens,
+                )
+            Engine(
+                EngineConfig(
+                    modelPath = requestModelPath(modelPath),
+                    backend = Backend.CPU(),
+                    maxNumTokens = maxNumTokens,
+                    cacheDir = null,
+                ),
+            ).use { engine ->
+                engine.initialize()
+                ExperimentalFlags.enableConversationConstrainedDecoding = false
+                engine.createConversation(conversationConfig(config)).use { }
+            }
+        } finally {
+            ExperimentalFlags.enableConversationConstrainedDecoding =
+                previousConversationConstrainedDecoding
+            ExperimentalFlags.enableSpeculativeDecoding = previousSpeculativeDecoding
+        }
+    }
+
+    private fun requestModelPath(modelPath: String): String = modelPath
 
     private fun currentPssKb(): Long = Debug.getPss().toLong()
 
