@@ -58,17 +58,19 @@ class LocalLlmBackendPolicyTest {
     fun `auto retries cpu after safe gpu initialization failure`() = runBlocking {
         val attempted = mutableListOf<LocalLlmBackend>()
         val controller =
-            LocalLlmExecutionController { _, request, resolution ->
-                attempted += resolution.resolvedBackend
-                if (resolution.resolvedBackend == LocalLlmBackend.GPU) {
-                    throw runtimeFailure(
-                        code = LocalLlmFailureCode.ENGINE_INIT_FAILED,
-                        phase = LocalLlmFailurePhase.ENGINE_INITIALIZING,
-                        backend = LocalLlmBackend.GPU,
-                    )
-                }
-                success(request, resolution)
-            }
+            LocalLlmExecutionController(
+                attempt = { _, request, resolution ->
+                    attempted += resolution.resolvedBackend
+                    if (resolution.resolvedBackend == LocalLlmBackend.GPU) {
+                        throw runtimeFailure(
+                            code = LocalLlmFailureCode.ENGINE_INIT_FAILED,
+                            phase = LocalLlmFailurePhase.ENGINE_INITIALIZING,
+                            backend = LocalLlmBackend.GPU,
+                        )
+                    }
+                    success(request, resolution)
+                },
+            )
 
         val result = controller.generate("/model", request(), gate.evaluate(snapshot()))
 
@@ -82,14 +84,16 @@ class LocalLlmBackendPolicyTest {
     fun `auto does not retry cpu after generation failure`() = runBlocking {
         val attempted = mutableListOf<LocalLlmBackend>()
         val controller =
-            LocalLlmExecutionController { _, _, resolution ->
-                attempted += resolution.resolvedBackend
-                throw runtimeFailure(
-                    code = LocalLlmFailureCode.GENERATION_FAILED,
-                    phase = LocalLlmFailurePhase.GENERATING,
-                    backend = resolution.resolvedBackend,
-                )
-            }
+            LocalLlmExecutionController(
+                attempt = { _, _, resolution ->
+                    attempted += resolution.resolvedBackend
+                    throw runtimeFailure(
+                        code = LocalLlmFailureCode.GENERATION_FAILED,
+                        phase = LocalLlmFailurePhase.GENERATING,
+                        backend = resolution.resolvedBackend,
+                    )
+                },
+            )
 
         val failure =
             runCatching {
@@ -104,19 +108,21 @@ class LocalLlmBackendPolicyTest {
     fun `auto does not retry cpu after out of memory evidence`() = runBlocking {
         val attempted = mutableListOf<LocalLlmBackend>()
         val controller =
-            LocalLlmExecutionController { _, _, resolution ->
-                attempted += resolution.resolvedBackend
-                throw LocalLlmRuntimeException(
-                    LocalLlmFailure(
-                        code = LocalLlmFailureCode.ENGINE_INIT_FAILED,
-                        phase = LocalLlmFailurePhase.ENGINE_INITIALIZING,
-                        message = "oom",
-                        requestedPolicy = LocalLlmBackendPolicy.AUTO,
-                        resolvedBackend = resolution.resolvedBackend,
-                        causeClassName = OutOfMemoryError::class.java.name,
-                    ),
-                )
-            }
+            LocalLlmExecutionController(
+                attempt = { _, _, resolution ->
+                    attempted += resolution.resolvedBackend
+                    throw LocalLlmRuntimeException(
+                        LocalLlmFailure(
+                            code = LocalLlmFailureCode.ENGINE_INIT_FAILED,
+                            phase = LocalLlmFailurePhase.ENGINE_INITIALIZING,
+                            message = "oom",
+                            requestedPolicy = LocalLlmBackendPolicy.AUTO,
+                            resolvedBackend = resolution.resolvedBackend,
+                            causeClassName = OutOfMemoryError::class.java.name,
+                        ),
+                    )
+                },
+            )
 
         controller.runCatchingGenerate()
         assertEquals(listOf(LocalLlmBackend.GPU), attempted)
@@ -126,15 +132,17 @@ class LocalLlmBackendPolicyTest {
     fun `explicit gpu never silently changes to cpu`() = runBlocking {
         val attempted = mutableListOf<LocalLlmBackend>()
         val controller =
-            LocalLlmExecutionController { _, _, resolution ->
-                attempted += resolution.resolvedBackend
-                throw runtimeFailure(
-                    code = LocalLlmFailureCode.ENGINE_INIT_FAILED,
-                    phase = LocalLlmFailurePhase.ENGINE_INITIALIZING,
-                    backend = resolution.resolvedBackend,
-                    policy = LocalLlmBackendPolicy.GPU,
-                )
-            }
+            LocalLlmExecutionController(
+                attempt = { _, _, resolution ->
+                    attempted += resolution.resolvedBackend
+                    throw runtimeFailure(
+                        code = LocalLlmFailureCode.ENGINE_INIT_FAILED,
+                        phase = LocalLlmFailurePhase.ENGINE_INITIALIZING,
+                        backend = resolution.resolvedBackend,
+                        policy = LocalLlmBackendPolicy.GPU,
+                    )
+                },
+            )
         val request = request(LocalLlmBackendPolicy.GPU)
 
         runCatching {
