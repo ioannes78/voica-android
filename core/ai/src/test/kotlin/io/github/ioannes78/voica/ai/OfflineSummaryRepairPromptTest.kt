@@ -18,7 +18,7 @@ class OfflineSummaryRepairPromptTest {
 
         val rendered = OfflineSummaryRepairPromptRenderer().render(input, invalid, error)
 
-        assertEquals(170203, rendered.promptVersion)
+        assertEquals(170204, rendered.promptVersion)
         assertEquals(setOf("S00001"), rendered.allowedEvidenceRefs)
         assertTrue(rendered.text.contains("error=INVALID_EVIDENCE_REF"))
         assertTrue(rendered.text.contains("Evidence Catalogue"))
@@ -41,14 +41,34 @@ class OfflineSummaryRepairPromptTest {
                 invalidOutput = "{bad json",
                 validationError =
                     SummaryStructuredOutputException(
-                        SummaryStructuredOutputErrorCode.TRUNCATED_JSON,
-                        "truncated",
+                        SummaryStructuredOutputErrorCode.INVALID_JSON,
+                        "invalid",
                     ),
             )
 
         assertTrue(rendered.allowedEvidenceRefs.isEmpty())
         assertTrue(rendered.text.contains("无可用音频 Evidence"))
         assertTrue(rendered.text.contains("所有新 evidenceRefs 必须为 []"))
+    }
+
+    @Test
+    fun truncatedJsonIsNotSentThroughSecondLlmRepair() {
+        val failure =
+            SummaryStructuredOutputException(
+                SummaryStructuredOutputErrorCode.TRUNCATED_JSON,
+                "truncated",
+            )
+
+        val thrown =
+            runCatching {
+                OfflineSummaryRepairPromptRenderer().render(
+                    input = input(withEvidence = true),
+                    invalidOutput = "{\"schemaVersion\":1",
+                    validationError = failure,
+                )
+            }.exceptionOrNull()
+
+        assertTrue(thrown === failure)
     }
 
     @Test
