@@ -52,10 +52,12 @@ import io.github.ioannes78.voica.R
 import io.github.ioannes78.voica.Stage159FinalGateActivity
 import io.github.ioannes78.voica.Stage16A16AudioCalibrationActivity
 import io.github.ioannes78.voica.Stage17P0LocalLlmActivity
+import io.github.ioannes78.voica.Stage17P1LocalLlmActivity
 import io.github.ioannes78.voica.StorageManagementCoordinator
 import io.github.ioannes78.voica.stage159QaEntryVisible
 import io.github.ioannes78.voica.stage16A16AudioCalibrationEntryVisible
 import io.github.ioannes78.voica.stage17P0LocalLlmEntryVisible
+import io.github.ioannes78.voica.stage17P1LocalLlmEntryVisible
 import io.github.ioannes78.voica.model.ModelManager
 import io.github.ioannes78.voica.sherpa.SherpaRuntime
 import io.github.ioannes78.voica.ui.model.ModelManagerCard
@@ -366,6 +368,7 @@ private fun AdvancedSettingsPage(
     val showStage16A16AudioCalibration =
         stage16A16AudioCalibrationEntryVisible(BuildConfig.APPLICATION_ID)
     val showStage17P0 = stage17P0LocalLlmEntryVisible(BuildConfig.APPLICATION_ID)
+    val showStage17P1 = stage17P1LocalLlmEntryVisible(BuildConfig.APPLICATION_ID)
     var runtimeProbeRunning by remember { mutableStateOf(false) }
     var runtimeProbeResult by remember { mutableStateOf<String?>(null) }
     val runtimeAvailableText = stringResource(R.string.settings_sherpa_runtime_available)
@@ -455,6 +458,34 @@ private fun AdvancedSettingsPage(
                 }
             }
         }
+        if (showStage17P1) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                ) {
+                    ListItem(
+                        headlineContent = { Text("Stage 17 P1 · Local LLM Runtime") },
+                        supportingContent = {
+                            Text("QA：Managed Gemma、AUTO GPU→CPU、取消与资源诊断")
+                        },
+                        leadingContent = {
+                            Icon(Icons.Outlined.Psychology, contentDescription = null)
+                        },
+                        trailingContent = {
+                            Icon(Icons.Outlined.ChevronRight, contentDescription = null)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                context.startActivity(
+                                    Intent(context, Stage17P1LocalLlmActivity::class.java),
+                                )
+                            },
+                    )
+                }
+            }
+        }
         if (showStage17P0) {
             item {
                 Card(
@@ -464,7 +495,7 @@ private fun AdvancedSettingsPage(
                     ListItem(
                         headlineContent = { Text("Stage 17 P0 · 本地 LLM") },
                         supportingContent = {
-                            Text("QA：Gemma 4 E2B / LiteRT-LM CPU、GPU、PSS 与延迟")
+                            Text("历史回归：Gemma 4 E2B / LiteRT-LM CPU、GPU、PSS 与延迟")
                         },
                         leadingContent = {
                             Icon(Icons.Outlined.Psychology, contentDescription = null)

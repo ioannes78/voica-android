@@ -6,12 +6,14 @@ import kotlin.test.assertTrue
 
 class Stage17P0EntryPolicyTest {
     @Test
-    fun qaApplicationCanOpenP0Harness() {
+    fun qaApplicationCanOpenStage17Harnesses() {
         assertTrue(stage17P0LocalLlmEntryVisible("io.github.ioannes78.voica.qa"))
+        assertTrue(stage17P1LocalLlmEntryVisible("io.github.ioannes78.voica.qa"))
     }
 
     @Test
-    fun productionApplicationCannotOpenP0Harness() {
+    fun productionApplicationCannotOpenStage17Harnesses() {
         assertFalse(stage17P0LocalLlmEntryVisible("io.github.ioannes78.voica"))
+        assertFalse(stage17P1LocalLlmEntryVisible("io.github.ioannes78.voica"))
     }
 }
