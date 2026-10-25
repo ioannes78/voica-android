@@ -32,6 +32,7 @@ fi
 
 coordinator="app/src/main/java/io/github/ioannes78/voica/OfflineSummaryCoordinator.kt"
 contracts="core/ai/src/main/kotlin/io/github/ioannes78/voica/ai/OfflineSummaryContracts.kt"
+repair_prompt="core/ai/src/main/kotlin/io/github/ioannes78/voica/ai/OfflineSummaryRepairPrompt.kt"
 budget="core/ai/src/main/kotlin/io/github/ioannes78/voica/ai/OfflineSummaryBudget.kt"
 local_llm_contracts="engine/local-llm/src/main/kotlin/io/github/ioannes78/voica/localllm/LocalLlmContracts.kt"
 local_llm_runtime="engine/local-llm/src/main/kotlin/io/github/ioannes78/voica/localllm/LiteRtLocalLlmRuntime.kt"
@@ -48,13 +49,18 @@ if grep -Eq 'LiteRtLocalLlmRuntime\s*\(' "$coordinator"; then
 fi
 
 # Frozen Stage 17.2 prompt/model/direct-budget identity.
-grep -Fq 'const val PROMPT_VERSION: Int = 170201' "$contracts"
+grep -Fq 'const val PROMPT_VERSION: Int = 170202' "$contracts"
 grep -Fq 'val runtimeMaxTokens: Int = 4_000' "$budget"
 grep -Fq 'val outputReserveTokens: Int = 1_024' "$budget"
 grep -Fq 'val runtimeTemplateReserveTokens: Int = 192' "$budget"
 grep -Fq 'val safetyReserveTokens: Int = 256' "$budget"
 grep -Fq 'requireFits(prompt)' "$coordinator"
 grep -Fq 'repairPromptRenderer.render' "$coordinator"
+
+# Repair must remain grounded in the frozen evidence catalogue; invalid refs are never guessed/replaced.
+grep -Fq 'Evidence Catalogue' "$repair_prompt"
+grep -Fq '不得猜 ref' "$repair_prompt"
+grep -Fq 'unit.evidence ?: return@mapNotNull null' "$repair_prompt"
 
 # The 1,024-token output reserve must be enforced by LiteRT-LM, not merely reserved in estimation.
 grep -Fq 'val maxOutputTokens: Int? = 1_024' "$local_llm_contracts"
@@ -89,6 +95,7 @@ printf '%s\n' \
   '  - no cloud/HTTP/API-key/upload/FGS/WorkManager dependency in formal inference path' \
   '  - P1 AppLocalLlmRuntime + AUTO remains sole LLM execution boundary' \
   '  - direct budget and exactly-one repair structure are frozen' \
+  '  - prompt 02 repair is grounded in frozen evidence catalogue; invalid refs are not guessed' \
   '  - 1,024 output-token reserve is enforced in LiteRT-LM while P0 baseline remains uncapped' \
   '  - Gemma remains candidate-only' \
   '  - Room remains v16' \
