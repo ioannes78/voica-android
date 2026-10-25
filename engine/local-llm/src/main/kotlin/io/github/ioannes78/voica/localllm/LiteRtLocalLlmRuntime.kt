@@ -10,6 +10,7 @@ import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.ExperimentalApi
 import com.google.ai.edge.litertlm.ExperimentalFlags
+import com.google.ai.edge.litertlm.ResponseFormat
 import com.google.ai.edge.litertlm.SamplerConfig
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Dispatchers
@@ -62,6 +63,8 @@ class LiteRtLocalLlmRuntime {
                 ExperimentalFlags.enableSpeculativeDecoding = request.config.speculativeDecoding
                 ExperimentalFlags.enableConversationConstrainedDecoding = false
 
+                val responseFormat =
+                    request.config.responseJsonSchema?.let { schema -> ResponseFormat.json(schema) }
                 val backend =
                     when (backendResolution.resolvedBackend) {
                         LocalLlmBackend.CPU -> Backend.CPU()
@@ -120,7 +123,10 @@ class LiteRtLocalLlmRuntime {
                             generationStartedNanos = SystemClock.elapsedRealtimeNanos()
                             onPhase(LocalLlmRuntimePhase.GENERATING)
                             conversation
-                                .sendMessageAsync(Contents.of(Content.Text(request.prompt)))
+                                .sendMessageAsync(
+                                    contents = Contents.of(Content.Text(request.prompt)),
+                                    responseFormat = responseFormat,
+                                )
                                 .collect { message ->
                                     coroutineContext.ensureActive()
                                     if (firstEmissionNanos == null) {
@@ -234,6 +240,7 @@ class LiteRtLocalLlmRuntime {
                     temperature = config.temperature,
                 ),
             maxOutputToken = config.maxOutputTokens,
+            enableResponseFormat = config.responseJsonSchema != null,
             enableSpeculativeDecoding = null,
         )
 
