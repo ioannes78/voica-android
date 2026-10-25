@@ -18,12 +18,16 @@ class OfflineSummaryRepairPromptTest {
 
         val rendered = OfflineSummaryRepairPromptRenderer().render(input, invalid, error)
 
+        assertEquals(170202, rendered.promptVersion)
         assertEquals(setOf("S00001"), rendered.allowedEvidenceRefs)
         assertTrue(rendered.text.contains("recordingId=recording-1"))
         assertTrue(rendered.text.contains("transcriptionId=transcription-1"))
         assertTrue(rendered.text.contains("inputContentDigest=${"a".repeat(64)}"))
         assertTrue(rendered.text.contains("errorCode=MISSING_FIELD"))
         assertTrue(rendered.text.contains("[\"S00001\"]"))
+        assertTrue(rendered.text.contains("Evidence Catalogue"))
+        assertTrue(rendered.text.contains("S00001 | text=\"测试内容\""))
+        assertTrue(rendered.text.contains("不得猜 ref"))
         assertTrue(rendered.text.contains("invalidOutput="))
         assertTrue(rendered.text.contains("这不是重新总结任务"))
         assertFalse(rendered.text.contains("startSampleIndex"))
@@ -46,6 +50,7 @@ class OfflineSummaryRepairPromptTest {
         assertTrue(rendered.allowedEvidenceRefs.isEmpty())
         assertTrue(rendered.text.contains("[]"))
         assertTrue(rendered.text.contains("所有 evidenceRefs 必须为 []"))
+        assertTrue(rendered.text.contains("（无可用音频 Evidence）"))
     }
 
     private fun input(withEvidence: Boolean): StructuredTranscriptInput =
