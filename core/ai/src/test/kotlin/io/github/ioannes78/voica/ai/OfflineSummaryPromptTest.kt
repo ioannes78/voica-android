@@ -52,7 +52,7 @@ class OfflineSummaryPromptTest {
 
         val rendered = OfflineSummaryPromptRenderer().render(input)
 
-        assertEquals(170203, rendered.promptVersion)
+        assertEquals(170204, rendered.promptVersion)
         assertEquals(1, rendered.resultSchemaVersion)
         assertEquals(linkedSetOf("S00001", "S00002"), rendered.allowedEvidenceRefs)
         assertEquals(2, rendered.sourceUnitCount)
@@ -61,6 +61,9 @@ class OfflineSummaryPromptTest {
         assertTrue(rendered.text.contains("[S00002][lang=zh]"))
         assertFalse(rendered.text.contains("[S00002][speaker="))
         assertTrue(rendered.text.contains("constrained-decoding schema"))
+        assertTrue(rendered.text.contains("sections 最多 4 个"))
+        assertTrue(rendered.text.contains("每个 section 最多 2 个 item"))
+        assertTrue(rendered.text.contains("attributes 固定输出 {}"))
         assertTrue(rendered.text.contains("TRANSCRIPT_STATED"))
         assertTrue(rendered.text.contains("不得生成时间戳"))
         assertTrue(rendered.text.contains("sample index"))
@@ -69,7 +72,7 @@ class OfflineSummaryPromptTest {
     }
 
     @Test
-    fun responseFormatSchemaConstrainsEvidenceToFrozenAllowlist() {
+    fun responseFormatSchemaConstrainsEvidenceAndBoundsDocumentSize() {
         val schema = OfflineSummaryResponseFormat.jsonSchema(linkedSetOf("S00001", "S00002"))
 
         Json.parseToJsonElement(schema)
@@ -78,6 +81,13 @@ class OfflineSummaryPromptTest {
         assertTrue(schema.contains("\"const\":1"))
         assertTrue(schema.contains("TRANSCRIPT_STATED"))
         assertTrue(schema.contains("ACTION_ITEM"))
+        assertTrue(schema.contains("\"whitespace_flexible\":false"))
+        assertTrue(schema.contains("\"maxItems\":4"))
+        assertTrue(schema.contains("\"maxItems\":2"))
+        assertTrue(schema.contains("\"maxItems\":3"))
+        assertTrue(schema.contains("\"maxLength\":120"))
+        assertTrue(schema.contains("\"maxLength\":80"))
+        assertTrue(schema.contains("\"attributes\":{\"type\":\"object\",\"additionalProperties\":false}"))
     }
 
     @Test
