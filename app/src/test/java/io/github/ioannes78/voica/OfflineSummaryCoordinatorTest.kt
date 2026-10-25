@@ -24,6 +24,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -65,6 +66,7 @@ class OfflineSummaryCoordinatorTest {
             val terminal = awaitTerminal(coordinator)
 
             assertEquals(OfflineSummaryRunPhase.COMPLETED, terminal.phase)
+            assertFalse(terminal.repairAttempted)
             assertEquals(1, resolveCalls)
             assertEquals(1, completionCalls)
             assertEquals(LocalLlmBackendPolicy.AUTO, observedConfig?.backendPolicy)
@@ -76,6 +78,106 @@ class OfflineSummaryCoordinatorTest {
             assertEquals(1, persistence.completedEvidence.size)
             assertEquals("S00001", persistence.completedEvidence.single().sourceRef)
             assertTrue(persistence.modelIdentitySnapshot.contains(Stage172OfflineSummaryModelContract.ARTIFACT_SHA256))
+        } finally {
+            appScope.cancel()
+        }
+    }
+
+    @Test
+    fun invalidFirstOutputGetsExactlyOneRepairAndCompletes() = runBlocking {
+        val appScope = appScope()
+        try {
+            val persistence = FakePersistence()
+            val prompts = mutableListOf<String>()
+            val configs = mutableListOf<LocalLlmRuntimeConfig>()
+            var generationCalls = 0
+            val coordinator =
+                coordinator(
+                    scope = appScope,
+                    persistence = persistence,
+                    generateLocal = { prompt, config ->
+                        prompts += prompt
+                        configs += config
+                        generationCalls += 1
+                        if (generationCalls == 1) {
+                            generation("""{"schemaVersion":1}""")
+                        } else {
+                            generation(validJson())
+                        }
+                    },
+                )
+
+            assertTrue(coordinator.start(RECORDING_ID) is OfflineSummaryStartOutcome.Started)
+            val terminal = awaitTerminal(coordinator)
+
+            assertEquals(OfflineSummaryRunPhase.COMPLETED, terminal.phase)
+            assertTrue(terminal.repairAttempted)
+            assertEquals(2, generationCalls)
+            assertEquals(2, prompts.size)
+            assertTrue(prompts[1].contains("JSON 修复器"))
+            assertTrue(prompts[1].contains("errorCode=MISSING_FIELD"))
+            assertTrue(configs.all { it.backendPolicy == LocalLlmBackendPolicy.AUTO })
+            assertEquals(1, persistence.completedEvidence.size)
+        } finally {
+            appScope.cancel()
+        }
+    }
+
+    @Test
+    fun secondInvalidOutputFailsRepairWithoutThirdGeneration() = runBlocking {
+        val appScope = appScope()
+        try {
+            val persistence = FakePersistence()
+            var generationCalls = 0
+            val coordinator =
+                coordinator(
+                    scope = appScope,
+                    persistence = persistence,
+                    generateLocal = { _, _ ->
+                        generationCalls += 1
+                        generation("""{"schemaVersion":1}""")
+                    },
+                )
+
+            assertTrue(coordinator.start(RECORDING_ID) is OfflineSummaryStartOutcome.Started)
+            val terminal = awaitTerminal(coordinator)
+
+            assertEquals(OfflineSummaryRunPhase.FAILED, terminal.phase)
+            assertEquals(OfflineSummaryFailureCode.REPAIR_FAILED, terminal.failureCode)
+            assertTrue(terminal.repairAttempted)
+            assertEquals(2, generationCalls)
+            assertEquals(OfflineSummaryFailureCode.REPAIR_FAILED, persistence.failedCode)
+            assertEquals(null, persistence.completedResult)
+        } finally {
+            appScope.cancel()
+        }
+    }
+
+    @Test
+    fun invalidEvidenceAfterRepairFailsWithoutPersistingEvidence() = runBlocking {
+        val appScope = appScope()
+        try {
+            val persistence = FakePersistence()
+            var generationCalls = 0
+            val invalidEvidenceJson = validJson(evidenceRef = "S99999")
+            val coordinator =
+                coordinator(
+                    scope = appScope,
+                    persistence = persistence,
+                    generateLocal = { _, _ ->
+                        generationCalls += 1
+                        generation(invalidEvidenceJson)
+                    },
+                )
+
+            assertTrue(coordinator.start(RECORDING_ID) is OfflineSummaryStartOutcome.Started)
+            val terminal = awaitTerminal(coordinator)
+
+            assertEquals(OfflineSummaryRunPhase.FAILED, terminal.phase)
+            assertEquals(OfflineSummaryFailureCode.REPAIR_FAILED, terminal.failureCode)
+            assertEquals(2, generationCalls)
+            assertTrue(persistence.completedEvidence.isEmpty())
+            assertEquals(null, persistence.completedResult)
         } finally {
             appScope.cancel()
         }
@@ -204,6 +306,37 @@ class OfflineSummaryCoordinatorTest {
     }
 
     @Test
+    fun userCancellationPersistsCancelledAndReleasesFeatureOwnership() = runBlocking {
+        val appScope = appScope()
+        try {
+            val persistence = FakePersistence()
+            val enteredRuntime = CompletableDeferred<Unit>()
+            val coordinator =
+                coordinator(
+                    scope = appScope,
+                    persistence = persistence,
+                    generateLocal = { _, _ ->
+                        enteredRuntime.complete(Unit)
+                        awaitCancellation()
+                    },
+                )
+
+            assertTrue(coordinator.start(RECORDING_ID) is OfflineSummaryStartOutcome.Started)
+            enteredRuntime.await()
+            assertTrue(coordinator.cancel(RECORDING_ID))
+            val terminal = awaitTerminal(coordinator)
+
+            assertEquals(OfflineSummaryRunPhase.CANCELLED, terminal.phase)
+            assertEquals(OfflineSummaryFailureCode.GENERATION_CANCELLED, terminal.failureCode)
+            assertTrue(persistence.cancelled)
+            assertTrue(persistence.transitions.contains("CANCELLED"))
+            assertFalse(coordinator.cancel(RECORDING_ID))
+        } finally {
+            appScope.cancel()
+        }
+    }
+
+    @Test
     fun generationIsOwnedByApplicationScopeNotCallerScope() = runBlocking {
         val appScope = appScope()
         val callerJob = Job()
@@ -235,6 +368,31 @@ class OfflineSummaryCoordinatorTest {
             assertEquals(OfflineSummaryRunPhase.COMPLETED, awaitTerminal(coordinator).phase)
         } finally {
             callerJob.cancel()
+            appScope.cancel()
+        }
+    }
+
+    @Test
+    fun startupReconciliationInterruptsWithoutAutoResumeOrDuplicateResume() = runBlocking {
+        val appScope = appScope()
+        try {
+            val persistence = FakePersistence().apply { interruptCount = 2 }
+            var generationCalls = 0
+            val coordinator =
+                coordinator(
+                    scope = appScope,
+                    persistence = persistence,
+                    generateLocal = { _, _ ->
+                        generationCalls += 1
+                        generation(validJson())
+                    },
+                )
+
+            assertEquals(2, coordinator.reconcileOnStartup())
+            assertEquals(0, coordinator.reconcileOnStartup())
+            assertEquals(0, generationCalls)
+            assertTrue(coordinator.state.value.isEmpty())
+        } finally {
             appScope.cancel()
         }
     }
@@ -300,7 +458,8 @@ class OfflineSummaryCoordinatorTest {
                 .filterNotNull()
                 .first {
                     it.phase == OfflineSummaryRunPhase.COMPLETED ||
-                        it.phase == OfflineSummaryRunPhase.FAILED
+                        it.phase == OfflineSummaryRunPhase.FAILED ||
+                        it.phase == OfflineSummaryRunPhase.CANCELLED
                 }
         }
 
@@ -377,7 +536,7 @@ class OfflineSummaryCoordinatorTest {
         )
     }
 
-    private fun validJson(): String =
+    private fun validJson(evidenceRef: String = "S00001"): String =
         """
         {
           "schemaVersion":1,
@@ -394,7 +553,7 @@ class OfflineSummaryCoordinatorTest {
                 {
                   "id":"item-1",
                   "text":"第一版计划周五发布。",
-                  "evidenceRefs":["S00001"],
+                  "evidenceRefs":["$evidenceRef"],
                   "epistemicStatus":"TRANSCRIPT_STATED",
                   "attributes":{}
                 }
@@ -410,6 +569,8 @@ class OfflineSummaryCoordinatorTest {
         var failedCode: OfflineSummaryFailureCode? = null
         var completedResult: AiSummaryResult? = null
         var completedEvidence: List<OfflineSummaryEvidencePersistenceDraft> = emptyList()
+        var cancelled = false
+        var interruptCount = 0
 
         override suspend fun create(
             input: StructuredTranscriptInput,
@@ -456,6 +617,19 @@ class OfflineSummaryCoordinatorTest {
             failedCode = code
             transitions += "FAILED:$code"
             assertFalse(sanitizedMessage?.contains('\n') == true)
+        }
+
+        override suspend fun cancel(summaryId: String) {
+            assertEquals("summary-1", summaryId)
+            cancelled = true
+            transitions += "CANCELLED"
+        }
+
+        override suspend fun interruptAllActive(): Int {
+            val count = interruptCount
+            interruptCount = 0
+            if (count > 0) transitions += "INTERRUPTED:$count"
+            return count
         }
     }
 
