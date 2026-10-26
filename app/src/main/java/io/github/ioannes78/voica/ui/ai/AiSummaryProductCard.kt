@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.AlertDialog
@@ -39,6 +41,7 @@ import io.github.ioannes78.voica.ContentTextExportCoordinator
 import io.github.ioannes78.voica.TextContentDocument
 import io.github.ioannes78.voica.TextExportFormat
 import io.github.ioannes78.voica.TextShareOutcome
+import io.github.ioannes78.voica.ai.OfflineSummaryPromptContract
 import io.github.ioannes78.voica.database.AiSummaryEntity
 import io.github.ioannes78.voica.database.AiSummaryStateValue
 import java.text.DateFormat
@@ -53,6 +56,8 @@ fun AiSummaryProductCard(
     contentViewModel: AiSummaryContentViewModel,
     onSeekEvidence: (Long) -> Unit,
     showTransientHeader: Boolean = true,
+    dismissedAiSummaryCandidateId: String? = null,
+    onIgnoreCandidate: (String) -> Unit = {},
     dismissedStaleSummaryFingerprint: String? = null,
     onIgnoreStale: (String) -> Unit = {},
     onRegenerate: (() -> Unit)? = null,
@@ -60,6 +65,7 @@ fun AiSummaryProductCard(
 ) {
     val history by viewModel.history.collectAsState()
     val selected by viewModel.selected.collectAsState()
+    val currentSummaryId by viewModel.currentSummaryId.collectAsState()
     val candidateId by viewModel.candidateId.collectAsState()
     val stale by viewModel.stale.collectAsState()
     val staleFingerprint by viewModel.staleFingerprint.collectAsState()
@@ -131,6 +137,12 @@ fun AiSummaryProductCard(
                 )
             }
 
+    val visibleCandidateId = candidateId?.takeUnless { it == dismissedAiSummaryCandidateId }
+    val selectedId = selected?.entity?.id
+    val selectedIsCurrent = selectedId != null && selectedId == currentSummaryId
+    val selectedIsCandidate = selectedId != null && selectedId == visibleCandidateId
+    val selectedIsHistorical = selectedId != null && !selectedIsCurrent && !selectedIsCandidate
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -165,7 +177,7 @@ fun AiSummaryProductCard(
         }
 
         if (showTransientHeader) {
-            candidateId?.let { newSummaryId ->
+            visibleCandidateId?.let { newSummaryId ->
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = MaterialTheme.shapes.medium,
@@ -181,11 +193,51 @@ fun AiSummaryProductCard(
                             modifier = Modifier.weight(1f),
                             style = MaterialTheme.typography.bodyMedium,
                         )
-                        TextButton(onClick = { viewModel.selectSummary(newSummaryId) }) {
+                        TextButton(onClick = { viewModel.previewCandidate(newSummaryId) }) {
                             Text("查看")
                         }
-                        Button(onClick = { viewModel.adoptSummaryResult(newSummaryId) }) {
+                        Button(onClick = { viewModel.adoptCandidate(newSummaryId) }) {
                             Text("使用")
+                        }
+                        TextButton(
+                            onClick = {
+                                onIgnoreCandidate(newSummaryId)
+                                if (selectedId == newSummaryId) viewModel.showCurrent()
+                            },
+                        ) {
+                            Text("忽略")
+                        }
+                    }
+                }
+            }
+        }
+
+        if (selectedIsCandidate || selectedIsHistorical) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+                tonalElevation = 1.dp,
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        if (selectedIsCandidate) {
+                            "正在查看新结果 · 当前总结尚未切换"
+                        } else {
+                            "正在查看历史版本 · 当前总结未改变"
+                        },
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    TextButton(onClick = viewModel::showCurrent) {
+                        Text("返回当前")
+                    }
+                    selectedId?.let { id ->
+                        Button(onClick = { viewModel.adoptSummaryResult(id) }) {
+                            Text("使用此版本")
                         }
                     }
                 }
@@ -222,6 +274,13 @@ fun AiSummaryProductCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+
+            OutlinedButton(
+                enabled = history.isNotEmpty(),
+                onClick = { historyExpanded = true },
+            ) {
+                Text("总结版本")
             }
 
             Button(
@@ -430,6 +489,49 @@ fun AiSummaryProductCard(
         }
     }
 
+    if (historyExpanded) {
+        AlertDialog(
+            onDismissRequest = { historyExpanded = false },
+            title = { Text("总结版本") },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    history.forEach { summary ->
+                        val role =
+                            when (summary.id) {
+                                currentSummaryId -> "当前"
+                                visibleCandidateId -> "新结果"
+                                else -> "历史"
+                            }
+                        TextButton(
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = {
+                                historyExpanded = false
+                                viewModel.selectSummary(summary.id)
+                            },
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Text(summaryHistoryLabel(summary, role, summary.id == selectedId))
+                                Text(
+                                    summaryProductModelLabel(summary),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { historyExpanded = false }) {
+                    Text("关闭")
+                }
+            },
+        )
+    }
+
     if (editorOpen) {
         contentState.document?.let { document ->
             AiSummaryEditorDialog(
@@ -455,8 +557,8 @@ fun AiSummaryProductCard(
     if (deleteVersionOpen) {
         AlertDialog(
             onDismissRequest = { deleteVersionOpen = false },
-            title = { Text("删除当前总结？") },
-            text = { Text("该操作只删除当前总结及其修订，不会删除录音或转写。") },
+            title = { Text("删除当前查看的总结？") },
+            text = { Text("该操作只删除当前查看的总结及其修订，不会删除录音或转写。") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -480,11 +582,19 @@ fun AiSummaryProductCard(
 
 private fun summaryHistoryLabel(
     summary: AiSummaryEntity,
+    role: String,
     selected: Boolean,
 ): String {
     val prefix = if (selected) "✓ " else ""
     val time =
         DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
-            .format(Date(summary.createdAtMs))
-    return prefix + time
+            .format(Date(summary.completedAtMs ?: summary.createdAtMs))
+    return "$prefix$role · $time"
 }
+
+private fun summaryProductModelLabel(summary: AiSummaryEntity): String =
+    if (summary.promptVersion == OfflineSummaryPromptContract.PROMPT_VERSION) {
+        "Gemma 4 E2B · 本地"
+    } else {
+        summary.model.ifBlank { "未知模型" }
+    }
