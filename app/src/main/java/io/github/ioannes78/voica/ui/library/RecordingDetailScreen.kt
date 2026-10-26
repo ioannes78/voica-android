@@ -3,6 +3,13 @@ package io.github.ioannes78.voica.ui.library
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.ioannes78.voica.DiarizationBenchmarkRunner
 import io.github.ioannes78.voica.DiarizationRunState
 import io.github.ioannes78.voica.SpeechBenchmarkRunner
@@ -54,8 +61,36 @@ fun RecordingDetailScreen(
     navigationRequestToken: Int = 0,
     onDestinationChanged: (RecordingDetailDestination?) -> Unit = {},
 ) {
-    DisposableEffect(recording.id) {
-        onDispose { Stage13B5Qa4PageVisibility.clear(recording.id) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var latestDestination by remember(recording.id) {
+        mutableStateOf<RecordingDetailDestination?>(initialDestination)
+    }
+
+    DisposableEffect(lifecycleOwner, recording.id) {
+        val lifecycle = lifecycleOwner.lifecycle
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START,
+                Lifecycle.Event.ON_RESUME,
+                -> Stage13B5Qa4PageVisibility.update(recording.id, latestDestination)
+
+                Lifecycle.Event.ON_STOP,
+                Lifecycle.Event.ON_DESTROY,
+                -> Stage13B5Qa4PageVisibility.clear(recording.id)
+
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+        if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+            Stage13B5Qa4PageVisibility.update(recording.id, latestDestination)
+        } else {
+            Stage13B5Qa4PageVisibility.clear(recording.id)
+        }
+        onDispose {
+            lifecycle.removeObserver(observer)
+            Stage13B5Qa4PageVisibility.clear(recording.id)
+        }
     }
 
     RecordingDetailProductScreen(
@@ -85,7 +120,12 @@ fun RecordingDetailScreen(
         initialDestination = initialDestination,
         navigationRequestToken = navigationRequestToken,
         onDestinationChanged = { destination ->
-            Stage13B5Qa4PageVisibility.update(recording.id, destination)
+            latestDestination = destination
+            if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                Stage13B5Qa4PageVisibility.update(recording.id, destination)
+            } else {
+                Stage13B5Qa4PageVisibility.clear(recording.id)
+            }
             onDestinationChanged(destination)
         },
     )
