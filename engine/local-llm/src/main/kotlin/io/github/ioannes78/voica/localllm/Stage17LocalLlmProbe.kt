@@ -89,7 +89,7 @@ class Stage17LocalLlmProbe(
                 modelPath = request.modelPath,
                 request = generationRequest,
                 backendResolution = backendResolution,
-                onPhase = { phase -> onPhase(phase.toProbePhase()) },
+                onPhase = { phase -> phase.toProbePhase()?.let(onPhase) },
             )
         val diagnostics = result.diagnostics
         return Stage17ProbeResult(
@@ -120,7 +120,7 @@ class Stage17LocalLlmProbe(
     }
 }
 
-private fun LocalLlmRuntimePhase.toProbePhase(): Stage17ProbePhase =
+private fun LocalLlmRuntimePhase.toProbePhase(): Stage17ProbePhase? =
     when (this) {
         LocalLlmRuntimePhase.ENGINE_CONSTRUCTING -> Stage17ProbePhase.ENGINE_CONSTRUCTING
         LocalLlmRuntimePhase.ENGINE_INITIALIZING -> Stage17ProbePhase.ENGINE_INITIALIZING
@@ -132,6 +132,18 @@ private fun LocalLlmRuntimePhase.toProbePhase(): Stage17ProbePhase =
         -> Stage17ProbePhase.GENERATING
         LocalLlmRuntimePhase.GENERATED -> Stage17ProbePhase.GENERATED
         LocalLlmRuntimePhase.ENGINE_CLOSED -> Stage17ProbePhase.ENGINE_CLOSED
+
+        // R4-A native cancellation/release phases are intentionally internal to the production
+        // runtime. The legacy P0 probe surface stays source-compatible and does not mislabel an
+        // intermediate cancellation or release state as a successful probe phase.
+        LocalLlmRuntimePhase.CANCEL_REQUESTED,
+        LocalLlmRuntimePhase.NATIVE_CANCEL_SIGNAL_SENT,
+        LocalLlmRuntimePhase.NATIVE_CANCEL_TERMINAL_RECEIVED,
+        LocalLlmRuntimePhase.CONVERSATION_CLOSING,
+        LocalLlmRuntimePhase.CONVERSATION_CLOSED,
+        LocalLlmRuntimePhase.ENGINE_CLOSING,
+        LocalLlmRuntimePhase.RELEASE_UNCONFIRMED,
+        -> null
     }
 
 /**
