@@ -30,6 +30,8 @@ enum class LocalLlmRuntimePhase {
     CONVERSATION_CREATING,
     CONVERSATION_READY,
     GENERATING,
+    /** One observable emission crossed the LiteRT-LM Flow/JNI boundary. */
+    GENERATION_PROGRESS,
     GENERATED,
     ENGINE_CLOSED,
 }
@@ -132,6 +134,11 @@ class LiteRtLocalLlmRuntime {
                                     if (firstEmissionNanos == null) {
                                         firstEmissionNanos = SystemClock.elapsedRealtimeNanos()
                                     }
+                                    // This callback is intentionally emitted before appending the
+                                    // payload. A watchdog can therefore distinguish a native call
+                                    // that has never crossed back into Kotlin from a slow but live
+                                    // generation without inspecting or logging model content.
+                                    onPhase(LocalLlmRuntimePhase.GENERATION_PROGRESS)
                                     response.append(message.toString())
                                 }
                             generationFinishedNanos = SystemClock.elapsedRealtimeNanos()
