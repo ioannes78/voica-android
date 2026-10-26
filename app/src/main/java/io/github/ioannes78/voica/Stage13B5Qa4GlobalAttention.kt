@@ -124,6 +124,11 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
                 ) + completionItems + speakerAttentionItems,
             visibleDetail = visibleDetail,
         )
+    val visibleSummaryCandidates =
+        filterVisibleSummaryCandidates(
+            candidates = summaryCandidates,
+            visibleDetail = visibleDetail,
+        )
 
     // A navigation request alone is not proof that the user actually saw the result. Acknowledge
     // ordinary completion attention only when the result destination is visibly active.
@@ -157,9 +162,8 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
         }
     }
 
-    // Candidate business truth remains untouched. Visiting the relevant page only clears or
-    // suppresses that candidate's Android system notification; the in-app candidate remains until
-    // the user explicitly adopts or ignores it.
+    // Transcription Candidate preserves its established notification behavior. Visiting the
+    // transcript page clears only that Android notification; candidate business state remains.
     LaunchedEffect(
         visibleDetail,
         transcriptionCandidates.map(TranscriptionEntity::id),
@@ -176,21 +180,9 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
         }
     }
 
-    LaunchedEffect(
-        visibleDetail,
-        summaryCandidates.map(AiSummaryEntity::id),
-    ) {
-        val visible = visibleDetail ?: return@LaunchedEffect
-        if (visible.destination == RecordingDetailDestination.SUMMARY) {
-            summaryCandidates
-                .filter { it.recordingId == visible.recordingId }
-                .forEach { candidate ->
-                    val logicalKey = summaryCandidatePresentationKey(candidate.id)
-                    presentationStore.markSystemDismissed(logicalKey)
-                    notificationManager.cancel(summaryCandidateNotificationId(candidate.id))
-                }
-        }
-    }
+    // Summary Candidate is intentionally different: merely opening Summary is not a decision.
+    // Its Android notification remains until the user adopts/ignores the Candidate or manually
+    // dismisses the notification. The Candidate itself remains durable in Room either way.
 
     val visibleSummaryPresentation =
         summaryPresentation?.takeUnless { summary ->
@@ -220,6 +212,18 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
                     onOpen = {
                         AppRecordingNavigation.publish(
                             recordingId = summary.recordingId,
+                            destination = RecordingDetailDestination.SUMMARY,
+                        )
+                    },
+                )
+            }
+            if (visibleSummaryCandidates.isNotEmpty()) {
+                OfflineSummaryCandidateAttentionBar(
+                    candidates = visibleSummaryCandidates,
+                    recordings = recordings,
+                    onOpen = { candidate ->
+                        AppRecordingNavigation.publish(
+                            recordingId = candidate.recordingId,
                             destination = RecordingDetailDestination.SUMMARY,
                         )
                     },
@@ -275,6 +279,61 @@ private fun OfflineSummaryGlobalTaskStatusBar(
         }
     }
 }
+
+@Composable
+private fun OfflineSummaryCandidateAttentionBar(
+    candidates: List<AiSummaryEntity>,
+    recordings: List<RecordingLibraryItem>,
+    onOpen: (AiSummaryEntity) -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            Text(
+                if (candidates.size == 1) "任务通知" else "${candidates.size} 条任务通知",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            candidates.forEach { candidate ->
+                val recordingName =
+                    recordings.firstOrNull { it.id == candidate.recordingId }?.displayName ?: "录音"
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpen(candidate) }
+                            .padding(vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        "新的总结结果已生成 · $recordingName",
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                    )
+                    Text(
+                        "查看",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Text("›", style = MaterialTheme.typography.titleMedium)
+                }
+            }
+        }
+    }
+}
+
+internal fun filterVisibleSummaryCandidates(
+    candidates: List<AiSummaryEntity>,
+    visibleDetail: Qa4VisibleDetailContext?,
+): List<AiSummaryEntity> =
+    candidates.filterNot { candidate ->
+        visibleDetail?.recordingId == candidate.recordingId &&
+            visibleDetail.destination == RecordingDetailDestination.SUMMARY
+    }
 
 internal fun filterQa4GlobalAttentionItems(
     items: List<Qa4GlobalAttentionItem>,
