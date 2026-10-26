@@ -20,9 +20,11 @@ import java.util.WeakHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 internal data class OfflineSummaryTaskPresentation(
@@ -35,15 +37,18 @@ internal data class OfflineSummaryTaskPresentation(
         get() = phase.isOfflineSummaryTerminal()
 
     val label: String
-        get() =
-            when (phase) {
-                OfflineSummaryRunPhase.PREPARING -> "本地总结 · 正在准备"
-                OfflineSummaryRunPhase.ANALYZING -> "本地总结 · 正在总结"
-                OfflineSummaryRunPhase.VALIDATING -> "本地总结 · 正在校验"
-                OfflineSummaryRunPhase.COMPLETED -> "本地总结完成"
-                OfflineSummaryRunPhase.FAILED -> "本地总结失败"
-                OfflineSummaryRunPhase.CANCELLED -> "本地总结已取消"
-            }
+        get() {
+            val base =
+                when (phase) {
+                    OfflineSummaryRunPhase.PREPARING -> "本地总结 · 正在准备"
+                    OfflineSummaryRunPhase.ANALYZING -> "本地总结 · 正在总结"
+                    OfflineSummaryRunPhase.VALIDATING -> "本地总结 · 正在校验"
+                    OfflineSummaryRunPhase.COMPLETED -> "本地总结完成"
+                    OfflineSummaryRunPhase.FAILED -> "本地总结失败"
+                    OfflineSummaryRunPhase.CANCELLED -> "本地总结已取消"
+                }
+            return if (!terminal && !message.isNullOrBlank()) "$base · $message" else base
+        }
 
     val trailingLabel: String?
         get() =
@@ -78,6 +83,7 @@ internal class OfflineSummaryExecutionController(
 
     private val appContext = context.applicationContext
     private val coordinator = container.offlineSummaryCoordinator
+    private val localLlmRuntime = container.localLlmRuntime(appContext)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val notificationManager = appContext.getSystemService(NotificationManager::class.java)
     private val mutablePresentation = MutableStateFlow<OfflineSummaryTaskPresentation?>(null)
@@ -92,6 +98,12 @@ internal class OfflineSummaryExecutionController(
         createResultChannel()
         scope.launch {
             coordinator.state.collect { states -> reconcile(states.values.toList()) }
+        }
+        scope.launch {
+            while (isActive) {
+                delay(GENERATION_WATCHDOG_INTERVAL_MS)
+                updateGenerationStallPresentation()
+            }
         }
     }
 
@@ -195,6 +207,46 @@ internal class OfflineSummaryExecutionController(
         }
     }
 
+    private fun updateGenerationStallPresentation() {
+        val current = mutablePresentation.value ?: return
+        if (current.terminal || current.phase != OfflineSummaryRunPhase.ANALYZING) return
+        if (activeForegroundTask?.summaryId != current.summaryId) return
+
+        val progress = localLlmRuntime.generationProgress.value
+        if (!progress.active) return
+        val startedAt = progress.startedAtNanos ?: return
+        val now = System.nanoTime()
+        val stallMessage =
+            if (progress.firstEmissionAtNanos == null) {
+                if (now - startedAt >= FIRST_EMISSION_STALL_NANOS) {
+                    FIRST_EMISSION_STALL_MESSAGE
+                } else {
+                    null
+                }
+            } else {
+                val lastEmissionAt = progress.lastEmissionAtNanos ?: progress.firstEmissionAtNanos
+                if (lastEmissionAt != null && now - lastEmissionAt >= NO_PROGRESS_STALL_NANOS) {
+                    NO_PROGRESS_STALL_MESSAGE
+                } else {
+                    null
+                }
+            }
+
+        val currentIsStall = current.message == FIRST_EMISSION_STALL_MESSAGE ||
+            current.message == NO_PROGRESS_STALL_MESSAGE
+        if (stallMessage == null && !currentIsStall) return
+        if (stallMessage == current.message) return
+
+        val updated = current.copy(message = stallMessage)
+        mutablePresentation.value = updated
+        LocalAiForegroundService.update(
+            context = appContext,
+            recordingId = updated.recordingId,
+            summaryId = updated.summaryId,
+            label = updated.label,
+        )
+    }
+
     private fun ensureForeground(state: OfflineSummaryRunState) {
         val desired = ActiveForegroundTask(state.recordingId, state.summaryId)
         val label = state.toPresentation().label
@@ -289,6 +341,11 @@ internal class OfflineSummaryExecutionController(
         const val RESULT_CHANNEL_ID = "voica-offline-summary-result"
         const val RESULT_NOTIFICATION_BASE = 210_000_000
         const val RESULT_NOTIFICATION_RANGE = 9_000_000
+        const val GENERATION_WATCHDOG_INTERVAL_MS = 5_000L
+        const val FIRST_EMISSION_STALL_NANOS = 120_000_000_000L
+        const val NO_PROGRESS_STALL_NANOS = 90_000_000_000L
+        const val FIRST_EMISSION_STALL_MESSAGE = "本地模型长时间未返回首个输出"
+        const val NO_PROGRESS_STALL_MESSAGE = "本地模型长时间无输出进展"
     }
 }
 
