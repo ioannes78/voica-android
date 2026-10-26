@@ -32,10 +32,7 @@ internal data class OfflineSummaryTaskPresentation(
     val message: String? = null,
 ) {
     val terminal: Boolean
-        get() =
-            phase == OfflineSummaryRunPhase.COMPLETED ||
-                phase == OfflineSummaryRunPhase.FAILED ||
-                phase == OfflineSummaryRunPhase.CANCELLED
+        get() = phase.isOfflineSummaryTerminal()
 
     val label: String
         get() =
@@ -65,9 +62,9 @@ internal data class OfflineSummaryTaskPresentation(
  * truth into Android execution leases and presentation. It deliberately does not add WorkManager or
  * resumable checkpoints: process death still reconciles active Room rows to INTERRUPTED.
  */
-internal class OfflineSummaryExecutionController private constructor(
+internal class OfflineSummaryExecutionController(
     context: Context,
-    private val container: AppContainer,
+    container: AppContainer,
 ) {
     private data class ObservedState(
         val summaryId: String,
@@ -89,15 +86,12 @@ internal class OfflineSummaryExecutionController private constructor(
     private val foregroundFailures = mutableMapOf<String, String>()
     private var activeForegroundTask: ActiveForegroundTask? = null
 
-    val presentation: StateFlow<OfflineSummaryTaskPresentation?> =
-        mutablePresentation.asStateFlow()
+    val presentation: StateFlow<OfflineSummaryTaskPresentation?> = mutablePresentation.asStateFlow()
 
     init {
         createResultChannel()
         scope.launch {
-            coordinator.state.collect { states ->
-                reconcile(states.values.toList())
-            }
+            coordinator.state.collect { states -> reconcile(states.values.toList()) }
         }
     }
 
@@ -122,7 +116,9 @@ internal class OfflineSummaryExecutionController private constructor(
     ) {
         val message =
             "无法建立锁屏后台执行保护：" +
-                (failure.message ?: failure::class.java.simpleName).replace(Regex("\\s+"), " ").take(160)
+                (failure.message ?: failure::class.java.simpleName)
+                    .replace(Regex("\\s+"), " ")
+                    .take(160)
         foregroundFailures[summaryId] = message
         activeForegroundTask = null
         mutablePresentation.value =
@@ -149,18 +145,11 @@ internal class OfflineSummaryExecutionController private constructor(
                 previous == null ||
                     previous.summaryId != state.summaryId ||
                     previous.phase != state.phase
-            if (changed && state.phase.isOfflineSummaryTerminal()) {
-                changedTerminal += state
-            }
+            if (changed && state.phase.isOfflineSummaryTerminal()) changedTerminal += state
             observed[state.recordingId] = ObservedState(state.summaryId, state.phase)
         }
 
-        val running =
-            states.firstOrNull { state ->
-                state.phase == OfflineSummaryRunPhase.PREPARING ||
-                    state.phase == OfflineSummaryRunPhase.ANALYZING ||
-                    state.phase == OfflineSummaryRunPhase.VALIDATING
-            }
+        val running = states.firstOrNull { it.phase.isOfflineSummaryRunning() }
         if (running != null) {
             ensureForeground(running)
             if (!foregroundFailures.containsKey(running.summaryId)) {
@@ -170,7 +159,6 @@ internal class OfflineSummaryExecutionController private constructor(
         }
 
         releaseForeground()
-
         val terminal = changedTerminal.lastOrNull() ?: return
         val foregroundFailure = foregroundFailures[terminal.summaryId]
         val presentation =
@@ -316,10 +304,7 @@ internal object OfflineSummaryExecutionControllerRegistry {
             OfflineSummaryExecutionController(context.applicationContext, container)
         }
 
-    fun cancel(
-        context: Context,
-        recordingId: String,
-    ) {
+    fun cancel(context: Context, recordingId: String) {
         val app = context.applicationContext as? VoicaApplication ?: return
         val container = runCatching { app.container }.getOrNull() ?: return
         get(context, container).cancel(recordingId)
@@ -452,9 +437,7 @@ class LocalAiForegroundService : Service() {
     }
 
     private fun releaseWakeLock() {
-        runCatching {
-            if (wakeLock.isHeld) wakeLock.release()
-        }
+        runCatching { if (wakeLock.isHeld) wakeLock.release() }
     }
 
     companion object {
@@ -489,9 +472,7 @@ class LocalAiForegroundService : Service() {
             label: String,
         ) {
             runCatching {
-                context.startService(
-                    taskIntent(context, ACTION_UPDATE, recordingId, summaryId, label),
-                )
+                context.startService(taskIntent(context, ACTION_UPDATE, recordingId, summaryId, label))
             }.onFailure { failure ->
                 OfflineSummaryExecutionControllerRegistry.reportForegroundFailure(
                     context = context,
@@ -503,9 +484,7 @@ class LocalAiForegroundService : Service() {
         }
 
         fun release(context: Context) {
-            runCatching {
-                context.stopService(Intent(context, LocalAiForegroundService::class.java))
-            }
+            runCatching { context.stopService(Intent(context, LocalAiForegroundService::class.java)) }
         }
 
         private fun taskIntent(
@@ -535,6 +514,11 @@ class OfflineSummaryNotificationActionReceiver : BroadcastReceiver() {
         const val EXTRA_RECORDING_ID = "recordingId"
     }
 }
+
+private fun OfflineSummaryRunPhase.isOfflineSummaryRunning(): Boolean =
+    this == OfflineSummaryRunPhase.PREPARING ||
+        this == OfflineSummaryRunPhase.ANALYZING ||
+        this == OfflineSummaryRunPhase.VALIDATING
 
 private fun OfflineSummaryRunPhase.isOfflineSummaryTerminal(): Boolean =
     this == OfflineSummaryRunPhase.COMPLETED ||
