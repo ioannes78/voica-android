@@ -109,6 +109,7 @@ private fun Stage17P1LocalLlmScreen(
     fun start(
         policy: LocalLlmBackendPolicy,
         resourceOverride: LocalLlmResourceDecision? = null,
+        prompt: String = Stage17LocalLlmProbe.PROBE_PROMPT,
     ) {
         if (activeJob != null) return
         resultText = null
@@ -118,7 +119,7 @@ private fun Stage17P1LocalLlmScreen(
                 try {
                     val result =
                         runtime.generate(
-                            prompt = Stage17LocalLlmProbe.PROBE_PROMPT,
+                            prompt = prompt,
                             config =
                                 LocalLlmValidatedPresets.P0_BASELINE.copy(
                                     backendPolicy = policy,
@@ -212,6 +213,18 @@ private fun Stage17P1LocalLlmScreen(
                         Text("CPU")
                     }
                 }
+                OutlinedButton(
+                    enabled = !busy,
+                    onClick = {
+                        start(
+                            policy = LocalLlmBackendPolicy.GPU,
+                            prompt = R4C_LONG_GENERATION_PROMPT,
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("GPU 长生成")
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
                         enabled = !busy,
@@ -254,6 +267,12 @@ private fun Stage17P1LocalLlmScreen(
         }
     }
 }
+
+private const val R4C_LONG_GENERATION_PROMPT =
+    "请用中文写一篇不少于1500字的技术说明，系统讲解完全离线的语音转写与本地AI总结系统。" +
+        "请依次详细讨论音频采集、VAD、ASR、时间轴、说话人处理、标点与文本整理、本地大模型总结、" +
+        "任务取消与资源释放、后台运行、息屏与锁屏生命周期、错误恢复、内存和功耗管理、真机验证。" +
+        "每个主题都要解释处理流程、设计原因、主要风险和验证方法；不要省略章节，不要简短回答。"
 
 @Composable
 private fun P1Card(
