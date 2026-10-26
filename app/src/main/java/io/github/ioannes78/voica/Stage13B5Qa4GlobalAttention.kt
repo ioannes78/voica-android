@@ -23,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import io.github.ioannes78.voica.database.AiSummaryEntity
 import io.github.ioannes78.voica.database.RecordingLibraryItem
 import io.github.ioannes78.voica.database.TranscriptionEntity
 import io.github.ioannes78.voica.database.TranscriptionStateValue
@@ -90,6 +91,9 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
     val transcriptionCandidates by
         container.stage13B5Qa4Repository.observeTranscriptionCandidates()
             .collectAsState(initial = emptyList())
+    val summaryCandidates by
+        container.stage13B5Qa4Repository.observeAiSummaryCandidates()
+            .collectAsState(initial = emptyList())
     val completionNotices by container.taskCompletionNoticeStore.pending.collectAsState()
     val diarizationAttention by
         Stage13CDiarizationAttentionRuntime.repository.observeAll()
@@ -115,13 +119,14 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
                 buildQa4GlobalAttentionItems(
                     transcriptionAttention = transcriptionAttention,
                     transcriptionCandidates = transcriptionCandidates,
+                    summaryCandidates = summaryCandidates,
                     recordings = recordings,
                 ) + completionItems + speakerAttentionItems,
             visibleDetail = visibleDetail,
         )
 
     // A navigation request alone is not proof that the user actually saw the result. Acknowledge
-    // ordinary completion attention only when the transcript result destination is visibly active.
+    // ordinary completion attention only when the result destination is visibly active.
     LaunchedEffect(
         visibleDetail,
         completionNotices.map { notice -> "${notice.kind.name}:${notice.taskId}" },
@@ -135,7 +140,7 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
 
     // Stage 17.2 summary presentation is process-local, while Room remains the business truth.
     // A running task is merely hidden on its own Summary page; a terminal presentation is consumed
-    // only after the corresponding Summary page is actually visible.
+    // only after the corresponding Summary page is actually visible in the foreground.
     LaunchedEffect(
         visibleDetail,
         summaryPresentation?.summaryId,
@@ -152,9 +157,9 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
         }
     }
 
-    // Candidate business truth remains untouched. Visiting the transcript page only clears or
+    // Candidate business truth remains untouched. Visiting the relevant page only clears or
     // suppresses that candidate's Android system notification; the in-app candidate remains until
-    // the existing candidate lifecycle accepts/dismisses it.
+    // the user explicitly adopts or ignores it.
     LaunchedEffect(
         visibleDetail,
         transcriptionCandidates.map(TranscriptionEntity::id),
@@ -167,6 +172,22 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
                     val logicalKey = transcriptionCandidatePresentationKey(candidate.id)
                     presentationStore.markSystemDismissed(logicalKey)
                     notificationManager.cancel(transcriptionCandidateNotificationId(candidate.id))
+                }
+        }
+    }
+
+    LaunchedEffect(
+        visibleDetail,
+        summaryCandidates.map(AiSummaryEntity::id),
+    ) {
+        val visible = visibleDetail ?: return@LaunchedEffect
+        if (visible.destination == RecordingDetailDestination.SUMMARY) {
+            summaryCandidates
+                .filter { it.recordingId == visible.recordingId }
+                .forEach { candidate ->
+                    val logicalKey = summaryCandidatePresentationKey(candidate.id)
+                    presentationStore.markSystemDismissed(logicalKey)
+                    notificationManager.cancel(summaryCandidateNotificationId(candidate.id))
                 }
         }
     }
@@ -297,6 +318,7 @@ internal fun buildQa4GlobalAttentionItems(
     transcriptionAttention: List<TranscriptionEntity>,
     recordings: List<RecordingLibraryItem>,
     transcriptionCandidates: List<TranscriptionEntity> = emptyList(),
+    summaryCandidates: List<AiSummaryEntity> = emptyList(),
 ): List<Qa4GlobalAttentionItem> {
     fun recordingName(recordingId: String): String =
         recordings.firstOrNull { it.id == recordingId }?.displayName ?: "录音"
@@ -326,6 +348,17 @@ internal fun buildQa4GlobalAttentionItems(
                     recordingName = recordingName(transcription.recordingId),
                     label = "新的转写结果已生成",
                     destination = RecordingDetailDestination.TRANSCRIPT,
+                ),
+            )
+        }
+        summaryCandidates.forEach { summary ->
+            add(
+                Qa4GlobalAttentionItem(
+                    key = "summary-candidate:${summary.id}",
+                    recordingId = summary.recordingId,
+                    recordingName = recordingName(summary.recordingId),
+                    label = "新的总结结果已生成",
+                    destination = RecordingDetailDestination.SUMMARY,
                 ),
             )
         }
