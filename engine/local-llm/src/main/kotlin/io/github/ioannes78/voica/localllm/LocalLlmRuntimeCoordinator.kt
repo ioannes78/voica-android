@@ -12,6 +12,19 @@ class LocalLlmRuntimeException(
 ) : IllegalStateException(failure.message, cause)
 
 /**
+ * Non-content generation heartbeat. It intentionally stores timing/count metadata only and never
+ * stores generated text, so background diagnostics can detect a native stall without leaking model
+ * output into logs or process-global status surfaces.
+ */
+data class LocalLlmGenerationProgress(
+    val active: Boolean = false,
+    val startedAtNanos: Long? = null,
+    val firstEmissionAtNanos: Long? = null,
+    val lastEmissionAtNanos: Long? = null,
+    val emissionCount: Long = 0L,
+)
+
+/**
  * Process-local ownership boundary for heavy LiteRT-LM inference.
  *
  * Backend selection and resource policy are intentionally supplied by higher layers. This class is
@@ -40,7 +53,10 @@ class LocalLlmRuntimeCoordinator(
 
     private val ownerMutex = Mutex()
     private val _state = MutableStateFlow(LocalLlmRuntimeState.IDLE)
+    private val _generationProgress = MutableStateFlow(LocalLlmGenerationProgress())
     val state: StateFlow<LocalLlmRuntimeState> = _state.asStateFlow()
+    val generationProgress: StateFlow<LocalLlmGenerationProgress> =
+        _generationProgress.asStateFlow()
 
     suspend fun generate(
         modelPath: String,
@@ -60,6 +76,7 @@ class LocalLlmRuntimeCoordinator(
         }
 
         var lastPhase = LocalLlmFailurePhase.ACQUIRING
+        _generationProgress.value = LocalLlmGenerationProgress()
         _state.value = LocalLlmRuntimeState.ACQUIRING
         return try {
             attempt(
@@ -68,6 +85,7 @@ class LocalLlmRuntimeCoordinator(
                 backendResolution,
             ) { phase ->
                 lastPhase = phase.toFailurePhase()
+                updateGenerationProgress(phase)
                 _state.value = phase.toCoordinatorState()
             }
         } catch (cancelled: CancellationException) {
@@ -92,9 +110,42 @@ class LocalLlmRuntimeCoordinator(
                 cause = error,
             )
         } finally {
+            _generationProgress.value = _generationProgress.value.copy(active = false)
             _state.value = LocalLlmRuntimeState.RELEASING
             ownerMutex.unlock()
             _state.value = LocalLlmRuntimeState.IDLE
+        }
+    }
+
+    private fun updateGenerationProgress(phase: LocalLlmRuntimePhase) {
+        when (phase) {
+            LocalLlmRuntimePhase.GENERATING -> {
+                val now = System.nanoTime()
+                _generationProgress.value =
+                    LocalLlmGenerationProgress(
+                        active = true,
+                        startedAtNanos = now,
+                    )
+            }
+
+            LocalLlmRuntimePhase.GENERATION_PROGRESS -> {
+                val now = System.nanoTime()
+                val current = _generationProgress.value
+                _generationProgress.value =
+                    current.copy(
+                        active = true,
+                        startedAtNanos = current.startedAtNanos ?: now,
+                        firstEmissionAtNanos = current.firstEmissionAtNanos ?: now,
+                        lastEmissionAtNanos = now,
+                        emissionCount = current.emissionCount + 1L,
+                    )
+            }
+
+            LocalLlmRuntimePhase.GENERATED,
+            LocalLlmRuntimePhase.ENGINE_CLOSED,
+            -> _generationProgress.value = _generationProgress.value.copy(active = false)
+
+            else -> Unit
         }
     }
 }
@@ -108,7 +159,10 @@ private fun LocalLlmRuntimePhase.toCoordinatorState(): LocalLlmRuntimeState =
         -> LocalLlmRuntimeState.INITIALIZING
 
         LocalLlmRuntimePhase.CONVERSATION_READY -> LocalLlmRuntimeState.READY
-        LocalLlmRuntimePhase.GENERATING -> LocalLlmRuntimeState.GENERATING
+        LocalLlmRuntimePhase.GENERATING,
+        LocalLlmRuntimePhase.GENERATION_PROGRESS,
+        -> LocalLlmRuntimeState.GENERATING
+
         LocalLlmRuntimePhase.GENERATED,
         LocalLlmRuntimePhase.ENGINE_CLOSED,
         -> LocalLlmRuntimeState.RELEASING
@@ -126,6 +180,7 @@ private fun LocalLlmRuntimePhase.toFailurePhase(): LocalLlmFailurePhase =
         -> LocalLlmFailurePhase.CONVERSATION_CREATING
 
         LocalLlmRuntimePhase.GENERATING,
+        LocalLlmRuntimePhase.GENERATION_PROGRESS,
         LocalLlmRuntimePhase.GENERATED,
         -> LocalLlmFailurePhase.GENERATING
 
