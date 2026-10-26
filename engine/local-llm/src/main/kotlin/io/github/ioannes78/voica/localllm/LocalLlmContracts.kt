@@ -39,8 +39,17 @@ enum class LocalLlmFailureCode {
     GENERATION_FAILED,
     CANCELLED,
     NATIVE_PROCESS_FAILURE_EVIDENCE,
-    RUNTIME_POISONED,
     UNKNOWN,
+    ;
+
+    companion object {
+        /**
+         * R4-A compatibility alias. POISONED is a distinct runtime state, while product/persistence
+         * failure contracts continue to classify the condition under the existing native-process
+         * failure bucket instead of widening Stage 17.2's stored failure-code vocabulary.
+         */
+        val RUNTIME_POISONED: LocalLlmFailureCode = NATIVE_PROCESS_FAILURE_EVIDENCE
+    }
 }
 
 enum class LocalLlmFailurePhase {
