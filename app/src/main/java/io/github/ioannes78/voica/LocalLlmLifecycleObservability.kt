@@ -17,7 +17,10 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import io.github.ioannes78.voica.localllm.LocalLlmGenerationProgress
 import io.github.ioannes78.voica.localllm.LocalLlmRuntimeState
 import java.util.Locale
+import java.util.WeakHashMap
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,6 +47,23 @@ internal data class LocalLlmLifecycleSignalState(
     val activityResumed: Boolean
         get() = resumedActivityCount > 0
 }
+
+internal fun LocalLlmLifecycleSignalState.reduce(
+    transition: LocalLlmLifecycleTransition,
+): LocalLlmLifecycleSignalState =
+    when (transition) {
+        LocalLlmLifecycleTransition.PROCESS_FOREGROUND -> copy(processForeground = true)
+        LocalLlmLifecycleTransition.PROCESS_BACKGROUND -> copy(processForeground = false)
+        LocalLlmLifecycleTransition.ACTIVITY_RESUMED ->
+            copy(resumedActivityCount = resumedActivityCount + 1)
+        LocalLlmLifecycleTransition.ACTIVITY_PAUSED ->
+            copy(resumedActivityCount = (resumedActivityCount - 1).coerceAtLeast(0))
+        LocalLlmLifecycleTransition.INITIAL,
+        LocalLlmLifecycleTransition.SCREEN_ON,
+        LocalLlmLifecycleTransition.SCREEN_OFF,
+        LocalLlmLifecycleTransition.USER_PRESENT,
+        -> this
+    }
 
 internal data class LocalLlmLifecycleSnapshot(
     val processForeground: Boolean,
@@ -141,12 +161,12 @@ internal class LocalLlmLifecycleMonitor(
     }
 
     override fun onStart(owner: LifecycleOwner) {
-        signalState = signalState.copy(processForeground = true)
+        signalState = signalState.reduce(LocalLlmLifecycleTransition.PROCESS_FOREGROUND)
         publish(LocalLlmLifecycleTransition.PROCESS_FOREGROUND)
     }
 
     override fun onStop(owner: LifecycleOwner) {
-        signalState = signalState.copy(processForeground = false)
+        signalState = signalState.reduce(LocalLlmLifecycleTransition.PROCESS_BACKGROUND)
         publish(LocalLlmLifecycleTransition.PROCESS_BACKGROUND)
     }
 
@@ -155,16 +175,12 @@ internal class LocalLlmLifecycleMonitor(
     override fun onActivityStarted(activity: Activity) = Unit
 
     override fun onActivityResumed(activity: Activity) {
-        signalState =
-            signalState.copy(resumedActivityCount = signalState.resumedActivityCount + 1)
+        signalState = signalState.reduce(LocalLlmLifecycleTransition.ACTIVITY_RESUMED)
         publish(LocalLlmLifecycleTransition.ACTIVITY_RESUMED)
     }
 
     override fun onActivityPaused(activity: Activity) {
-        signalState =
-            signalState.copy(
-                resumedActivityCount = (signalState.resumedActivityCount - 1).coerceAtLeast(0),
-            )
+        signalState = signalState.reduce(LocalLlmLifecycleTransition.ACTIVITY_PAUSED)
         publish(LocalLlmLifecycleTransition.ACTIVITY_PAUSED)
     }
 
@@ -273,6 +289,38 @@ internal class LocalLlmLifecycleDiagnostics(
     private companion object {
         const val MAX_DIAGNOSTIC_EVENTS = 96
     }
+}
+
+internal data class LocalLlmLifecycleObservability(
+    val monitor: LocalLlmLifecycleMonitor,
+    val diagnostics: LocalLlmLifecycleDiagnostics,
+)
+
+/**
+ * QA registry keeps the observer alive across Activity stop/recreation without adding another LLM
+ * owner. The registry is only reached from the existing QA-only Stage 17 P1 activity.
+ */
+internal object LocalLlmLifecycleObservabilityRegistry {
+    private val byApplication = WeakHashMap<Application, LocalLlmLifecycleObservability>()
+
+    @Synchronized
+    fun get(
+        application: Application,
+        runtime: AppLocalLlmRuntime,
+    ): LocalLlmLifecycleObservability =
+        byApplication.getOrPut(application) {
+            val monitor = LocalLlmLifecycleMonitor(application)
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            LocalLlmLifecycleObservability(
+                monitor = monitor,
+                diagnostics =
+                    LocalLlmLifecycleDiagnostics(
+                        scope = scope,
+                        monitor = monitor,
+                        runtime = runtime,
+                    ),
+            )
+        }
 }
 
 internal fun formatLocalLlmLifecycleDiagnostics(
