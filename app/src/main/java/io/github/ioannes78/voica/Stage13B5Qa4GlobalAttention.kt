@@ -1,6 +1,18 @@
 package io.github.ioannes78.voica
 
 import android.app.NotificationManager
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.weight
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -8,7 +20,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.database.RecordingLibraryItem
 import io.github.ioannes78.voica.database.TranscriptionEntity
 import io.github.ioannes78.voica.database.TranscriptionStateValue
@@ -65,6 +80,11 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
     val context = LocalContext.current
     val notificationManager = remember(context) { context.getSystemService(NotificationManager::class.java) }
     val presentationStore = remember(context) { NotificationPresentationStore(context) }
+    val summaryExecutionController =
+        remember(context.applicationContext, container) {
+            OfflineSummaryExecutionControllerRegistry.get(context.applicationContext, container)
+        }
+    val summaryPresentation by summaryExecutionController.presentation.collectAsState()
     val transcriptionAttention by
         container.stage13B5Qa4Repository.observeTranscriptionAttention()
             .collectAsState(initial = emptyList())
@@ -114,6 +134,25 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
         )
     }
 
+    // Stage 17.2 summary presentation is process-local, while Room remains the business truth.
+    // A running task is merely hidden on its own Summary page; a terminal presentation is consumed
+    // only after the corresponding Summary page is actually visible.
+    LaunchedEffect(
+        visibleDetail,
+        summaryPresentation?.summaryId,
+        summaryPresentation?.phase,
+    ) {
+        val summary = summaryPresentation ?: return@LaunchedEffect
+        val visible = visibleDetail ?: return@LaunchedEffect
+        if (
+            summary.terminal &&
+            summary.recordingId == visible.recordingId &&
+            visible.destination == RecordingDetailDestination.SUMMARY
+        ) {
+            summaryExecutionController.acknowledge(summary.summaryId)
+        }
+    }
+
     // Candidate business truth remains untouched. Visiting the transcript page only clears or
     // suppresses that candidate's Android system notification; the in-app candidate remains until
     // the existing candidate lifecycle accepts/dismisses it.
@@ -133,6 +172,12 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
         }
     }
 
+    val visibleSummaryPresentation =
+        summaryPresentation?.takeUnless { summary ->
+            visibleDetail?.recordingId == summary.recordingId &&
+                visibleDetail?.destination == RecordingDetailDestination.SUMMARY
+        }
+
     CompositionLocalProvider(
         LocalQa4GlobalAttentionProjection provides
             Qa4GlobalAttentionProjection(
@@ -145,7 +190,69 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
                 },
             ),
     ) {
-        content()
+        Column(modifier = Modifier.fillMaxSize()) {
+            visibleSummaryPresentation?.let { summary ->
+                OfflineSummaryGlobalTaskStatusBar(
+                    presentation = summary,
+                    recordingName =
+                        recordings.firstOrNull { it.id == summary.recordingId }?.displayName
+                            ?: "录音",
+                    onOpen = {
+                        AppRecordingNavigation.publish(
+                            recordingId = summary.recordingId,
+                            destination = RecordingDetailDestination.SUMMARY,
+                        )
+                    },
+                )
+            }
+            Box(modifier = Modifier.weight(1f)) {
+                content()
+            }
+        }
+    }
+}
+
+@Composable
+private fun OfflineSummaryGlobalTaskStatusBar(
+    presentation: OfflineSummaryTaskPresentation,
+    recordingName: String,
+    onOpen: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            Text(
+                if (presentation.terminal) "任务通知" else "正在处理",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onOpen)
+                        .padding(vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    presentation.label + " · " + recordingName,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                )
+                presentation.trailingLabel?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                Text("›", style = MaterialTheme.typography.titleMedium)
+            }
+        }
     }
 }
 
