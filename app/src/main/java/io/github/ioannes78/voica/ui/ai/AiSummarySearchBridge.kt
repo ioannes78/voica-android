@@ -39,6 +39,8 @@ fun AiSummaryProductCard(
     onSeekEvidence: (Long) -> Unit,
     showTransientHeader: Boolean = true,
     searchTarget: SearchDocumentEntity?,
+    dismissedAiSummaryCandidateId: String? = null,
+    onIgnoreCandidate: (String) -> Unit = {},
     dismissedStaleSummaryFingerprint: String? = null,
     onIgnoreStale: (String) -> Unit = {},
 ) {
@@ -93,6 +95,8 @@ fun AiSummaryProductCard(
                     contentViewModel = contentViewModel,
                     onSeekEvidence = onSeekEvidence,
                     showTransientHeader = showTransientHeader,
+                    dismissedAiSummaryCandidateId = dismissedAiSummaryCandidateId,
+                    onIgnoreCandidate = onIgnoreCandidate,
                     dismissedStaleSummaryFingerprint = dismissedStaleSummaryFingerprint,
                     onIgnoreStale = onIgnoreStale,
                     onRegenerate = offlineSummaryViewModel::generate,
