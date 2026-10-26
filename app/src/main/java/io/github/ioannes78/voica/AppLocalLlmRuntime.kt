@@ -9,6 +9,7 @@ import io.github.ioannes78.voica.localllm.LocalLlmExecutionController
 import io.github.ioannes78.voica.localllm.LocalLlmFailure
 import io.github.ioannes78.voica.localllm.LocalLlmFailureCode
 import io.github.ioannes78.voica.localllm.LocalLlmFailurePhase
+import io.github.ioannes78.voica.localllm.LocalLlmGenerationProgress
 import io.github.ioannes78.voica.localllm.LocalLlmGenerationRequest
 import io.github.ioannes78.voica.localllm.LocalLlmGenerationResult
 import io.github.ioannes78.voica.localllm.LocalLlmModelIdentity
@@ -40,6 +41,7 @@ class AppLocalLlmRuntime internal constructor(
     private val executionController = LocalLlmExecutionController(coordinator)
 
     val state: StateFlow<LocalLlmRuntimeState> = coordinator.state
+    val generationProgress: StateFlow<LocalLlmGenerationProgress> = coordinator.generationProgress
 
     suspend fun generate(
         prompt: String,
