@@ -47,14 +47,24 @@ class AppLocalLlmRuntime internal constructor(
         resourceDecisionOverride: LocalLlmResourceDecision? = null,
     ): LocalLlmGenerationResult {
         require(prompt.isNotBlank()) { "prompt must not be blank" }
+
+        // Stage 17.2 QA Revision-2 safety isolation.
+        //
+        // Real-device QA reproduced a device-level reboot after manually locking the phone while
+        // the production summary path was generating on AUTO/GPU. P1's AUTO/GPU capability stays
+        // intact for unconstrained diagnostics and future re-validation; only the current
+        // structured-output product path is temporarily forced to CPU until the lock-screen GPU
+        // failure is understood. This is deliberately not a permanent architecture decision.
+        val effectiveConfig = applyStage172Revision2BackendSafety(config)
+
         val active =
             modelManager.activeModel(STAGE17_GEMMA_4_E2B_CANDIDATE_ID)
                 ?: throw modelFailure(
                     code = LocalLlmFailureCode.MODEL_NOT_INSTALLED,
                     message = "Gemma 4 E2B is not installed and active",
-                    policy = config.backendPolicy,
+                    policy = effectiveConfig.backendPolicy,
                 )
-        val resolved = resolveManagedLocalLlmModel(active, config.backendPolicy)
+        val resolved = resolveManagedLocalLlmModel(active, effectiveConfig.backendPolicy)
         val lease =
             modelUseRegistry.acquire(
                 modelId = active.descriptor.modelId,
@@ -66,7 +76,7 @@ class AppLocalLlmRuntime internal constructor(
                 LocalLlmGenerationRequest(
                     prompt = prompt,
                     modelIdentity = resolved.identity,
-                    config = config,
+                    config = effectiveConfig,
                 )
             val decision = resourceDecisionOverride ?: resourceGate.evaluate(resourceProbe.snapshot())
             return executionController.generate(
@@ -93,6 +103,25 @@ class AppLocalLlmRuntime internal constructor(
             ),
         )
 }
+
+/**
+ * Temporary Stage 17.2 R2 product safety policy.
+ *
+ * Stage 17.2 is currently the only production path using LiteRT-LM constrained JSON output. Keep
+ * explicit CPU/GPU diagnostic requests untouched and keep ordinary AUTO requests GPU-first. Once
+ * lock-screen GPU safety is re-validated, this override can be removed without changing P1.
+ */
+internal fun applyStage172Revision2BackendSafety(
+    config: LocalLlmRuntimeConfig,
+): LocalLlmRuntimeConfig =
+    if (
+        config.backendPolicy == LocalLlmBackendPolicy.AUTO &&
+        config.responseJsonSchema != null
+    ) {
+        config.copy(backendPolicy = LocalLlmBackendPolicy.CPU)
+    } else {
+        config
+    }
 
 internal data class ResolvedManagedLocalLlmModel(
     val identity: LocalLlmModelIdentity,
