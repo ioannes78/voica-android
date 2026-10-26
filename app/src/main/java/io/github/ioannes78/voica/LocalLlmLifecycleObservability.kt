@@ -250,18 +250,16 @@ internal class LocalLlmLifecycleDiagnostics(
                 }
         }
         scope.launch {
-            runtime.state
-                .distinctUntilChanged()
-                .collect { state ->
-                    record(
-                        source = LocalLlmLifecycleDiagnosticSource.RUNTIME,
-                        detail = state.name,
-                        timestampNanos = clockNanos(),
-                        lifecycle = monitor.snapshot.value,
-                        runtimeState = state,
-                        progress = runtime.generationProgress.value,
-                    )
-                }
+            runtime.state.collect { state ->
+                record(
+                    source = LocalLlmLifecycleDiagnosticSource.RUNTIME,
+                    detail = state.name,
+                    timestampNanos = clockNanos(),
+                    lifecycle = monitor.snapshot.value,
+                    runtimeState = state,
+                    progress = runtime.generationProgress.value,
+                )
+            }
         }
     }
 
