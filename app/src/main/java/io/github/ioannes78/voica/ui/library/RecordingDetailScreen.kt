@@ -82,7 +82,7 @@ fun RecordingDetailScreen(
             }
         }
         lifecycle.addObserver(observer)
-        if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+        if (isDetailLifecycleVisible(lifecycle.currentState)) {
             Stage13B5Qa4PageVisibility.update(recording.id, latestDestination)
         } else {
             Stage13B5Qa4PageVisibility.clear(recording.id)
@@ -121,7 +121,7 @@ fun RecordingDetailScreen(
         navigationRequestToken = navigationRequestToken,
         onDestinationChanged = { destination ->
             latestDestination = destination
-            if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+            if (isDetailLifecycleVisible(lifecycleOwner.lifecycle.currentState)) {
                 Stage13B5Qa4PageVisibility.update(recording.id, destination)
             } else {
                 Stage13B5Qa4PageVisibility.clear(recording.id)
@@ -130,6 +130,9 @@ fun RecordingDetailScreen(
         },
     )
 }
+
+internal fun isDetailLifecycleVisible(state: Lifecycle.State): Boolean =
+    state.isAtLeast(Lifecycle.State.STARTED)
 
 internal fun shouldShowTranscriptionStatus(
     state: TranscriptionRunState,
