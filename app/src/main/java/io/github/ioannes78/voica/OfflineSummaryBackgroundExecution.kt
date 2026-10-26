@@ -83,6 +83,7 @@ internal class OfflineSummaryExecutionController(
 
     private val appContext = context.applicationContext
     private val coordinator = container.offlineSummaryCoordinator
+    private val contentRepository = container.stage12CContentRepository
     private val localLlmRuntime = container.localLlmRuntime(appContext)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val notificationManager = appContext.getSystemService(NotificationManager::class.java)
@@ -149,7 +150,7 @@ internal class OfflineSummaryExecutionController(
         cancel(recordingId)
     }
 
-    private fun reconcile(states: List<OfflineSummaryRunState>) {
+    private suspend fun reconcile(states: List<OfflineSummaryRunState>) {
         val changedTerminal = mutableListOf<OfflineSummaryRunState>()
         states.forEach { state ->
             val previous = observed[state.recordingId]
@@ -184,8 +185,24 @@ internal class OfflineSummaryExecutionController(
             } else {
                 terminal.toPresentation()
             }
-        mutablePresentation.value = presentation
 
+        if (presentation.phase == OfflineSummaryRunPhase.COMPLETED) {
+            val currentSummaryId =
+                runCatching { contentRepository.resolveCurrentAiSummaryId(presentation.recordingId) }
+                    .getOrNull()
+            val completedAsCandidate =
+                currentSummaryId != null && currentSummaryId != presentation.summaryId
+            if (completedAsCandidate) {
+                // Regeneration keeps the existing Current. Durable candidate attention/notification
+                // owns the completion surface so we do not emit a duplicate terminal notification.
+                mutablePresentation.value = null
+                notificationManager.cancel(resultNotificationId(presentation.summaryId))
+                terminalNotified.add(presentation.summaryId)
+                return
+            }
+        }
+
+        mutablePresentation.value = presentation
         if (terminalNotified.add(terminal.summaryId)) {
             when (presentation.phase) {
                 OfflineSummaryRunPhase.COMPLETED ->
