@@ -127,7 +127,9 @@ private fun LocalLlmRuntimePhase.toProbePhase(): Stage17ProbePhase =
         LocalLlmRuntimePhase.ENGINE_INITIALIZED -> Stage17ProbePhase.ENGINE_INITIALIZED
         LocalLlmRuntimePhase.CONVERSATION_CREATING -> Stage17ProbePhase.CONVERSATION_CREATING
         LocalLlmRuntimePhase.CONVERSATION_READY -> Stage17ProbePhase.CONVERSATION_READY
-        LocalLlmRuntimePhase.GENERATING -> Stage17ProbePhase.GENERATING
+        LocalLlmRuntimePhase.GENERATING,
+        LocalLlmRuntimePhase.GENERATION_PROGRESS,
+        -> Stage17ProbePhase.GENERATING
         LocalLlmRuntimePhase.GENERATED -> Stage17ProbePhase.GENERATED
         LocalLlmRuntimePhase.ENGINE_CLOSED -> Stage17ProbePhase.ENGINE_CLOSED
     }
