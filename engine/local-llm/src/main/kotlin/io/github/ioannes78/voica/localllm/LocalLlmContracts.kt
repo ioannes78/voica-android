@@ -23,6 +23,7 @@ enum class LocalLlmRuntimeState {
     CANCELLING,
     RELEASING,
     FAILED,
+    POISONED,
 }
 
 enum class LocalLlmFailureCode {
@@ -38,6 +39,7 @@ enum class LocalLlmFailureCode {
     GENERATION_FAILED,
     CANCELLED,
     NATIVE_PROCESS_FAILURE_EVIDENCE,
+    RUNTIME_POISONED,
     UNKNOWN,
 }
 

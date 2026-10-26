@@ -1,5 +1,7 @@
 package io.github.ioannes78.voica.localllm
 
+import java.util.concurrent.CancellationException
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
@@ -22,6 +24,8 @@ class LocalLlmRuntimeCoordinatorTest {
                 onPhase(LocalLlmRuntimePhase.GENERATING)
                 entered.complete(Unit)
                 release.await()
+                onPhase(LocalLlmRuntimePhase.GENERATED)
+                onPhase(LocalLlmRuntimePhase.ENGINE_CLOSED)
                 success(request, resolution)
             }
 
@@ -55,6 +59,7 @@ class LocalLlmRuntimeCoordinatorTest {
                 entered.complete(Unit)
                 release.await()
                 onPhase(LocalLlmRuntimePhase.GENERATED)
+                onPhase(LocalLlmRuntimePhase.ENGINE_CLOSED)
                 success(request, resolution)
             }
 
@@ -76,13 +81,22 @@ class LocalLlmRuntimeCoordinatorTest {
     }
 
     @Test
-    fun `cancellation releases owner and returns to idle`() = runBlocking {
+    fun `cancellation with confirmed native terminal releases owner and returns to idle`() = runBlocking {
         val entered = CompletableDeferred<Unit>()
         val coordinator =
             LocalLlmRuntimeCoordinator { _, _, _, onPhase ->
                 onPhase(LocalLlmRuntimePhase.GENERATING)
                 entered.complete(Unit)
-                awaitCancellation()
+                try {
+                    awaitCancellation()
+                } catch (cancelled: CancellationException) {
+                    onPhase(LocalLlmRuntimePhase.CANCEL_REQUESTED)
+                    onPhase(LocalLlmRuntimePhase.NATIVE_CANCEL_SIGNAL_SENT)
+                    onPhase(LocalLlmRuntimePhase.NATIVE_CANCEL_TERMINAL_RECEIVED)
+                    onPhase(LocalLlmRuntimePhase.CONVERSATION_CLOSED)
+                    onPhase(LocalLlmRuntimePhase.ENGINE_CLOSED)
+                    throw cancelled
+                }
             }
 
         val job = launch {
@@ -93,6 +107,48 @@ class LocalLlmRuntimeCoordinatorTest {
 
         assertEquals(LocalLlmRuntimeState.IDLE, coordinator.state.value)
         assertFalse(coordinator.generationProgress.value.active)
+    }
+
+    @Test
+    fun `unconfirmed native release poisons runtime and blocks a second heavy inference`() = runBlocking {
+        val entered = CompletableDeferred<Unit>()
+        val attempts = AtomicInteger(0)
+        val coordinator =
+            LocalLlmRuntimeCoordinator { _, _, _, onPhase ->
+                attempts.incrementAndGet()
+                onPhase(LocalLlmRuntimePhase.GENERATING)
+                entered.complete(Unit)
+                try {
+                    awaitCancellation()
+                } catch (cancelled: CancellationException) {
+                    onPhase(LocalLlmRuntimePhase.CANCEL_REQUESTED)
+                    onPhase(LocalLlmRuntimePhase.NATIVE_CANCEL_SIGNAL_SENT)
+                    onPhase(LocalLlmRuntimePhase.RELEASE_UNCONFIRMED)
+                    throw cancelled
+                }
+            }
+
+        val job = launch {
+            coordinator.generate("/model", request(), gpuResolution())
+        }
+        entered.await()
+        job.cancelAndJoin()
+
+        assertEquals(LocalLlmRuntimeState.POISONED, coordinator.state.value)
+        assertFalse(coordinator.generationProgress.value.active)
+
+        val secondFailure =
+            runCatching {
+                coordinator.generate("/model", request(), gpuResolution())
+            }.exceptionOrNull()
+
+        assertTrue(secondFailure is LocalLlmRuntimeException)
+        assertEquals(
+            LocalLlmFailureCode.RUNTIME_POISONED,
+            (secondFailure as LocalLlmRuntimeException).failure.code,
+        )
+        assertEquals(1, attempts.get())
+        assertEquals(LocalLlmRuntimeState.POISONED, coordinator.state.value)
     }
 
     @Test
@@ -113,6 +169,27 @@ class LocalLlmRuntimeCoordinatorTest {
         assertEquals(LocalLlmFailureCode.CONVERSATION_CREATE_FAILED, classified.code)
         assertEquals(LocalLlmFailurePhase.CONVERSATION_CREATING, classified.phase)
         assertEquals(LocalLlmRuntimeState.IDLE, coordinator.state.value)
+    }
+
+    @Test
+    fun `release failure is classified as poisoned and does not return to idle`() = runBlocking {
+        val coordinator =
+            LocalLlmRuntimeCoordinator { _, _, _, onPhase ->
+                onPhase(LocalLlmRuntimePhase.GENERATING)
+                onPhase(LocalLlmRuntimePhase.RELEASE_UNCONFIRMED)
+                error("native release failed")
+            }
+
+        val failure =
+            runCatching {
+                coordinator.generate("/model", request(), gpuResolution())
+            }.exceptionOrNull()
+
+        assertTrue(failure is LocalLlmRuntimeException)
+        val classified = (failure as LocalLlmRuntimeException).failure
+        assertEquals(LocalLlmFailureCode.RUNTIME_POISONED, classified.code)
+        assertEquals(LocalLlmFailurePhase.RELEASING, classified.phase)
+        assertEquals(LocalLlmRuntimeState.POISONED, coordinator.state.value)
     }
 
     private fun request() =

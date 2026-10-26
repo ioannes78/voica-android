@@ -5,15 +5,21 @@ import android.os.SystemClock
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
+import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.ExperimentalApi
 import com.google.ai.edge.litertlm.ExperimentalFlags
+import com.google.ai.edge.litertlm.Message
+import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.ResponseFormat
 import com.google.ai.edge.litertlm.SamplerConfig
+import java.util.concurrent.CancellationException
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -21,6 +27,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.coroutineContext
 
 enum class LocalLlmRuntimePhase {
@@ -30,10 +37,17 @@ enum class LocalLlmRuntimePhase {
     CONVERSATION_CREATING,
     CONVERSATION_READY,
     GENERATING,
-    /** One observable emission crossed the LiteRT-LM Flow/JNI boundary. */
+    /** One observable emission crossed the LiteRT-LM callback/JNI boundary. */
     GENERATION_PROGRESS,
     GENERATED,
+    CANCEL_REQUESTED,
+    NATIVE_CANCEL_SIGNAL_SENT,
+    NATIVE_CANCEL_TERMINAL_RECEIVED,
+    CONVERSATION_CLOSING,
+    CONVERSATION_CLOSED,
+    ENGINE_CLOSING,
     ENGINE_CLOSED,
+    RELEASE_UNCONFIRMED,
 }
 
 /**
@@ -43,9 +57,17 @@ enum class LocalLlmRuntimePhase {
  * backend AUTO resolution and retry/fallback policy belong to the P1 coordinator layers built
  * above this adapter. Keeping those concerns outside prevents the LiteRT-LM JNI boundary from
  * leaking into UI, summary or Q&A code.
+ *
+ * R4-A deliberately uses LiteRT-LM's callback API rather than its Flow wrapper. In LiteRT-LM
+ * 0.18.0 the Flow wrapper's awaitClose block does not call Conversation.cancelProcess(), so a
+ * cancelled collector does not prove the native generation stopped. Here cancellation explicitly
+ * signals cancelProcess() and waits for a native terminal callback before releasing JNI ownership.
  */
 @OptIn(ExperimentalApi::class)
 class LiteRtLocalLlmRuntime {
+    @Volatile
+    private var quarantinedNativeSession: QuarantinedNativeSession? = null
+
     suspend fun generate(
         modelPath: String,
         request: LocalLlmGenerationRequest,
@@ -56,6 +78,9 @@ class LiteRtLocalLlmRuntime {
             require(modelPath.isNotBlank()) { "modelPath must not be blank" }
             require(request.config.backendPolicy == backendResolution.requestedPolicy) {
                 "backend resolution must preserve the request backend policy"
+            }
+            check(quarantinedNativeSession == null) {
+                "LiteRT-LM native ownership is quarantined until process restart"
             }
 
             coroutineScope {
@@ -95,94 +120,194 @@ class LiteRtLocalLlmRuntime {
                 var conversationCreateMs = 0L
                 var pssAfterInitializeKb = pssBeforeInitializeKb
                 var pssAfterGenerationKb = pssBeforeInitializeKb
-                var firstEmissionNanos: Long? = null
+                val firstEmissionNanos = AtomicLong(0L)
                 var generationStartedNanos = 0L
                 var generationFinishedNanos = 0L
                 val response = StringBuilder()
+                var engine: Engine? = null
+                var conversation: Conversation? = null
+                var quarantineNativeOwnership = false
 
                 try {
                     onPhase(LocalLlmRuntimePhase.ENGINE_CONSTRUCTING)
-                    Engine(engineConfig).use { engine ->
-                        onPhase(LocalLlmRuntimePhase.ENGINE_INITIALIZING)
-                        val initializeStartedNanos = SystemClock.elapsedRealtimeNanos()
-                        engine.initialize()
-                        val initializeFinishedNanos = SystemClock.elapsedRealtimeNanos()
-                        initializeMs = nanosToMillis(initializeFinishedNanos - initializeStartedNanos)
-                        pssAfterInitializeKb = currentPssKb()
-                        peakPssKb.updateAndGet { previous -> maxOf(previous, pssAfterInitializeKb) }
-                        onPhase(LocalLlmRuntimePhase.ENGINE_INITIALIZED)
+                    val liveEngine = Engine(engineConfig)
+                    engine = liveEngine
+                    onPhase(LocalLlmRuntimePhase.ENGINE_INITIALIZING)
+                    val initializeStartedNanos = SystemClock.elapsedRealtimeNanos()
+                    liveEngine.initialize()
+                    val initializeFinishedNanos = SystemClock.elapsedRealtimeNanos()
+                    initializeMs = nanosToMillis(initializeFinishedNanos - initializeStartedNanos)
+                    pssAfterInitializeKb = currentPssKb()
+                    peakPssKb.updateAndGet { previous -> maxOf(previous, pssAfterInitializeKb) }
+                    onPhase(LocalLlmRuntimePhase.ENGINE_INITIALIZED)
+                    coroutineContext.ensureActive()
 
-                        ExperimentalFlags.enableConversationConstrainedDecoding = false
-                        onPhase(LocalLlmRuntimePhase.CONVERSATION_CREATING)
-                        val conversationCreateStartedNanos = SystemClock.elapsedRealtimeNanos()
-                        engine.createConversation(conversationConfig(request.config)).use { conversation ->
-                            val conversationCreateFinishedNanos = SystemClock.elapsedRealtimeNanos()
-                            conversationCreateMs =
-                                nanosToMillis(
-                                    conversationCreateFinishedNanos - conversationCreateStartedNanos,
-                                )
-                            onPhase(LocalLlmRuntimePhase.CONVERSATION_READY)
-                            generationStartedNanos = SystemClock.elapsedRealtimeNanos()
-                            onPhase(LocalLlmRuntimePhase.GENERATING)
-                            conversation
-                                .sendMessageAsync(
-                                    contents = Contents.of(Content.Text(request.prompt)),
-                                    responseFormat = responseFormat,
-                                )
-                                .collect { message ->
-                                    coroutineContext.ensureActive()
-                                    if (firstEmissionNanos == null) {
-                                        firstEmissionNanos = SystemClock.elapsedRealtimeNanos()
-                                    }
-                                    // This callback is intentionally emitted before appending the
-                                    // payload. A watchdog can therefore distinguish a native call
-                                    // that has never crossed back into Kotlin from a slow but live
-                                    // generation without inspecting or logging model content.
+                    ExperimentalFlags.enableConversationConstrainedDecoding = false
+                    onPhase(LocalLlmRuntimePhase.CONVERSATION_CREATING)
+                    val conversationCreateStartedNanos = SystemClock.elapsedRealtimeNanos()
+                    val liveConversation =
+                        liveEngine.createConversation(conversationConfig(request.config))
+                    conversation = liveConversation
+                    val conversationCreateFinishedNanos = SystemClock.elapsedRealtimeNanos()
+                    conversationCreateMs =
+                        nanosToMillis(
+                            conversationCreateFinishedNanos - conversationCreateStartedNanos,
+                        )
+                    onPhase(LocalLlmRuntimePhase.CONVERSATION_READY)
+                    coroutineContext.ensureActive()
+
+                    val terminal = CompletableDeferred<GenerationTerminal>()
+                    generationStartedNanos = SystemClock.elapsedRealtimeNanos()
+                    onPhase(LocalLlmRuntimePhase.GENERATING)
+                    liveConversation.sendMessageAsync(
+                        contents = Contents.of(Content.Text(request.prompt)),
+                        callback =
+                            object : MessageCallback {
+                                override fun onMessage(message: Message) {
+                                    val now = SystemClock.elapsedRealtimeNanos()
+                                    firstEmissionNanos.compareAndSet(0L, now)
+                                    // Emit only lifecycle/progress metadata. Model content never
+                                    // crosses into process-global diagnostics.
                                     onPhase(LocalLlmRuntimePhase.GENERATION_PROGRESS)
-                                    response.append(message.toString())
+                                    synchronized(response) {
+                                        response.append(message.toString())
+                                    }
                                 }
+
+                                override fun onDone() {
+                                    terminal.complete(GenerationTerminal.Done)
+                                }
+
+                                override fun onError(throwable: Throwable) {
+                                    terminal.complete(GenerationTerminal.Error(throwable))
+                                }
+                            },
+                        responseFormat = responseFormat,
+                    )
+
+                    val terminalResult =
+                        try {
+                            terminal.await()
+                        } catch (cancelled: CancellationException) {
+                            onPhase(LocalLlmRuntimePhase.CANCEL_REQUESTED)
+                            val cancelSignalError =
+                                runCatching { liveConversation.cancelProcess() }.exceptionOrNull()
+                            if (cancelSignalError != null) {
+                                quarantineNativeOwnership = true
+                                quarantinedNativeSession =
+                                    QuarantinedNativeSession(
+                                        engine = engine,
+                                        conversation = conversation,
+                                    )
+                                onPhase(LocalLlmRuntimePhase.RELEASE_UNCONFIRMED)
+                                throw cancelled
+                            }
+                            onPhase(LocalLlmRuntimePhase.NATIVE_CANCEL_SIGNAL_SENT)
+
+                            val nativeTerminal =
+                                withContext(NonCancellable) {
+                                    withTimeoutOrNull(NATIVE_CANCEL_TERMINAL_TIMEOUT_MS) {
+                                        terminal.await()
+                                    }
+                                }
+                            if (nativeTerminal == null) {
+                                quarantineNativeOwnership = true
+                                quarantinedNativeSession =
+                                    QuarantinedNativeSession(
+                                        engine = engine,
+                                        conversation = conversation,
+                                    )
+                                onPhase(LocalLlmRuntimePhase.RELEASE_UNCONFIRMED)
+                                throw cancelled
+                            }
+
+                            // LiteRT-LM reports native kCancelled through MessageCallback.onError.
+                            // A raced normal completion/error is also a terminal acknowledgement:
+                            // native generation is no longer running, so teardown can proceed.
+                            onPhase(LocalLlmRuntimePhase.NATIVE_CANCEL_TERMINAL_RECEIVED)
+                            throw cancelled
+                        }
+
+                    when (terminalResult) {
+                        GenerationTerminal.Done -> {
                             generationFinishedNanos = SystemClock.elapsedRealtimeNanos()
                             onPhase(LocalLlmRuntimePhase.GENERATED)
                         }
-                        pssAfterGenerationKb = currentPssKb()
-                        peakPssKb.updateAndGet { previous -> maxOf(previous, pssAfterGenerationKb) }
+
+                        is GenerationTerminal.Error -> throw terminalResult.throwable
                     }
 
-                    val pssAfterCloseKb = currentPssKb()
-                    peakPssKb.updateAndGet { previous -> maxOf(previous, pssAfterCloseKb) }
-                    onPhase(LocalLlmRuntimePhase.ENGINE_CLOSED)
-
-                    val diagnostics =
-                        LocalLlmDiagnostics(
-                            runtimeVersion = BuildConfig.LITERT_LM_VERSION,
-                            modelIdentity = request.modelIdentity,
-                            backendResolution = backendResolution,
-                            initializeMs = initializeMs,
-                            conversationCreateMs = conversationCreateMs,
-                            timeToFirstEmissionMs =
-                                firstEmissionNanos?.let {
-                                    nanosToMillis(it - generationStartedNanos)
-                                },
-                            generationMs =
-                                nanosToMillis(generationFinishedNanos - generationStartedNanos),
-                            pssBeforeKb = pssBeforeInitializeKb,
-                            pssAfterInitializeKb = pssAfterInitializeKb,
-                            pssAfterGenerationKb = pssAfterGenerationKb,
-                            pssAfterCloseKb = pssAfterCloseKb,
-                            peakPssKb = peakPssKb.get(),
-                        )
-                    LocalLlmGenerationResult(
-                        text = response.toString(),
-                        modelIdentity = request.modelIdentity,
-                        backendResolution = backendResolution,
-                        diagnostics = diagnostics,
-                    )
+                    pssAfterGenerationKb = currentPssKb()
+                    peakPssKb.updateAndGet { previous -> maxOf(previous, pssAfterGenerationKb) }
                 } finally {
-                    sampler.cancelAndJoin()
+                    var releaseFailure: Throwable? = null
+                    if (!quarantineNativeOwnership) {
+                        try {
+                            conversation?.let { activeConversation ->
+                                if (activeConversation.isAlive) {
+                                    onPhase(LocalLlmRuntimePhase.CONVERSATION_CLOSING)
+                                    activeConversation.close()
+                                    onPhase(LocalLlmRuntimePhase.CONVERSATION_CLOSED)
+                                }
+                            }
+                            engine?.let { activeEngine ->
+                                if (activeEngine.isInitialized()) {
+                                    onPhase(LocalLlmRuntimePhase.ENGINE_CLOSING)
+                                    activeEngine.close()
+                                    onPhase(LocalLlmRuntimePhase.ENGINE_CLOSED)
+                                }
+                            }
+                        } catch (releaseError: Throwable) {
+                            quarantineNativeOwnership = true
+                            quarantinedNativeSession =
+                                QuarantinedNativeSession(
+                                    engine = engine,
+                                    conversation = conversation,
+                                )
+                            onPhase(LocalLlmRuntimePhase.RELEASE_UNCONFIRMED)
+                            releaseFailure = releaseError
+                        }
+                    }
+
+                    withContext(NonCancellable) {
+                        sampler.cancelAndJoin()
+                    }
                     ExperimentalFlags.enableConversationConstrainedDecoding =
                         previousConversationConstrainedDecoding
                     ExperimentalFlags.enableSpeculativeDecoding = previousSpeculativeDecoding
+
+                    releaseFailure?.let { throw it }
                 }
+
+                val pssAfterCloseKb = currentPssKb()
+                peakPssKb.updateAndGet { previous -> maxOf(previous, pssAfterCloseKb) }
+
+                val firstEmission = firstEmissionNanos.get().takeIf { it > 0L }
+                val diagnostics =
+                    LocalLlmDiagnostics(
+                        runtimeVersion = BuildConfig.LITERT_LM_VERSION,
+                        modelIdentity = request.modelIdentity,
+                        backendResolution = backendResolution,
+                        initializeMs = initializeMs,
+                        conversationCreateMs = conversationCreateMs,
+                        timeToFirstEmissionMs =
+                            firstEmission?.let {
+                                nanosToMillis(it - generationStartedNanos)
+                            },
+                        generationMs =
+                            nanosToMillis(generationFinishedNanos - generationStartedNanos),
+                        pssBeforeKb = pssBeforeInitializeKb,
+                        pssAfterInitializeKb = pssAfterInitializeKb,
+                        pssAfterGenerationKb = pssAfterGenerationKb,
+                        pssAfterCloseKb = pssAfterCloseKb,
+                        peakPssKb = peakPssKb.get(),
+                    )
+                LocalLlmGenerationResult(
+                    text = synchronized(response) { response.toString() },
+                    modelIdentity = request.modelIdentity,
+                    backendResolution = backendResolution,
+                    diagnostics = diagnostics,
+                )
             }
         }
 
@@ -251,7 +376,22 @@ class LiteRtLocalLlmRuntime {
             enableSpeculativeDecoding = null,
         )
 
+    private sealed interface GenerationTerminal {
+        data object Done : GenerationTerminal
+
+        data class Error(val throwable: Throwable) : GenerationTerminal
+    }
+
+    private data class QuarantinedNativeSession(
+        val engine: Engine?,
+        val conversation: Conversation?,
+    )
+
     private companion object {
         const val PSS_SAMPLE_INTERVAL_MS = 250L
+
+        // Initial R4-A safety window. QA will measure foreground native-cancel latency before any
+        // lifecycle/lock-screen gate changes this value.
+        const val NATIVE_CANCEL_TERMINAL_TIMEOUT_MS = 10_000L
     }
 }

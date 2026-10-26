@@ -1,6 +1,7 @@
 package io.github.ioannes78.voica.localllm
 
 import java.util.concurrent.CancellationException
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,9 +28,9 @@ data class LocalLlmGenerationProgress(
 /**
  * Process-local ownership boundary for heavy LiteRT-LM inference.
  *
- * Backend selection and resource policy are intentionally supplied by higher layers. This class is
- * responsible only for ensuring that one heavy attempt owns the runtime at a time and that all
- * success, cancellation and failure paths return ownership to IDLE.
+ * Backend selection and resource policy are intentionally supplied by higher layers. This class
+ * guarantees one heavy attempt at a time. R4-A also makes uncertain native release sticky for the
+ * life of this process: once RELEASE_UNCONFIRMED is observed, no second CPU/GPU Engine may start.
  */
 class LocalLlmRuntimeCoordinator(
     private val attempt:
@@ -52,6 +53,7 @@ class LocalLlmRuntimeCoordinator(
     )
 
     private val ownerMutex = Mutex()
+    private val poisoned = AtomicBoolean(false)
     private val _state = MutableStateFlow(LocalLlmRuntimeState.IDLE)
     private val _generationProgress = MutableStateFlow(LocalLlmGenerationProgress())
     val state: StateFlow<LocalLlmRuntimeState> = _state.asStateFlow()
@@ -63,6 +65,8 @@ class LocalLlmRuntimeCoordinator(
         request: LocalLlmGenerationRequest,
         backendResolution: LocalLlmBackendResolution,
     ): LocalLlmGenerationResult {
+        rejectIfPoisoned(request, backendResolution)
+
         if (!ownerMutex.tryLock()) {
             throw LocalLlmRuntimeException(
                 LocalLlmFailure(
@@ -75,7 +79,15 @@ class LocalLlmRuntimeCoordinator(
             )
         }
 
+        // A prior owner can poison the runtime immediately before unlocking. Re-check after taking
+        // the mutex so a racing caller never crosses the native ownership boundary.
+        if (poisoned.get()) {
+            ownerMutex.unlock()
+            rejectIfPoisoned(request, backendResolution)
+        }
+
         var lastPhase = LocalLlmFailurePhase.ACQUIRING
+        var releaseUnconfirmed = false
         _generationProgress.value = LocalLlmGenerationProgress()
         _state.value = LocalLlmRuntimeState.ACQUIRING
         return try {
@@ -83,25 +95,50 @@ class LocalLlmRuntimeCoordinator(
                 modelPath,
                 request,
                 backendResolution,
-            ) { phase ->
+            ) phaseCallback@{ phase ->
+                // RELEASE_UNCONFIRMED is sticky for the life of this process. A late native
+                // callback from a quarantined session must never move POISONED back to GENERATING.
+                if (poisoned.get() && phase != LocalLlmRuntimePhase.RELEASE_UNCONFIRMED) {
+                    return@phaseCallback
+                }
                 lastPhase = phase.toFailurePhase()
+                if (phase == LocalLlmRuntimePhase.RELEASE_UNCONFIRMED) {
+                    releaseUnconfirmed = true
+                    poisoned.set(true)
+                }
                 updateGenerationProgress(phase)
                 _state.value = phase.toCoordinatorState()
             }
         } catch (cancelled: CancellationException) {
-            _state.value = LocalLlmRuntimeState.CANCELLING
+            if (!releaseUnconfirmed) {
+                _state.value = LocalLlmRuntimeState.CANCELLING
+            }
             throw cancelled
         } catch (known: LocalLlmRuntimeException) {
-            _state.value = LocalLlmRuntimeState.FAILED
+            if (!releaseUnconfirmed) {
+                _state.value = LocalLlmRuntimeState.FAILED
+            }
             throw known
         } catch (error: Throwable) {
-            _state.value = LocalLlmRuntimeState.FAILED
+            if (!releaseUnconfirmed) {
+                _state.value = LocalLlmRuntimeState.FAILED
+            }
             throw LocalLlmRuntimeException(
                 failure =
                     LocalLlmFailure(
-                        code = lastPhase.defaultFailureCode(),
+                        code =
+                            if (releaseUnconfirmed) {
+                                LocalLlmFailureCode.RUNTIME_POISONED
+                            } else {
+                                lastPhase.defaultFailureCode()
+                            },
                         phase = lastPhase,
-                        message = error.message ?: error::class.java.name,
+                        message =
+                            if (releaseUnconfirmed) {
+                                "LiteRT-LM native ownership release could not be confirmed"
+                            } else {
+                                error.message ?: error::class.java.name
+                            },
                         requestedPolicy = request.config.backendPolicy,
                         resolvedBackend = backendResolution.resolvedBackend,
                         fallbackAttempted = backendResolution.fallbackAttempted,
@@ -111,10 +148,41 @@ class LocalLlmRuntimeCoordinator(
             )
         } finally {
             _generationProgress.value = _generationProgress.value.copy(active = false)
-            _state.value = LocalLlmRuntimeState.RELEASING
+            if (releaseUnconfirmed || poisoned.get()) {
+                poisoned.set(true)
+                _state.value = LocalLlmRuntimeState.POISONED
+            } else {
+                _state.value = LocalLlmRuntimeState.RELEASING
+            }
+
             ownerMutex.unlock()
-            _state.value = LocalLlmRuntimeState.IDLE
+
+            _state.value =
+                if (poisoned.get()) {
+                    LocalLlmRuntimeState.POISONED
+                } else {
+                    LocalLlmRuntimeState.IDLE
+                }
         }
+    }
+
+    private fun rejectIfPoisoned(
+        request: LocalLlmGenerationRequest,
+        backendResolution: LocalLlmBackendResolution,
+    ) {
+        if (!poisoned.get()) return
+        _state.value = LocalLlmRuntimeState.POISONED
+        throw LocalLlmRuntimeException(
+            LocalLlmFailure(
+                code = LocalLlmFailureCode.RUNTIME_POISONED,
+                phase = LocalLlmFailurePhase.ACQUIRING,
+                message =
+                    "local LLM runtime is poisoned because prior native ownership was not released; " +
+                        "process restart is required before another heavy inference",
+                requestedPolicy = request.config.backendPolicy,
+                resolvedBackend = backendResolution.resolvedBackend,
+            ),
+        )
     }
 
     private fun updateGenerationProgress(phase: LocalLlmRuntimePhase) {
@@ -142,7 +210,10 @@ class LocalLlmRuntimeCoordinator(
             }
 
             LocalLlmRuntimePhase.GENERATED,
+            LocalLlmRuntimePhase.CANCEL_REQUESTED,
+            LocalLlmRuntimePhase.NATIVE_CANCEL_TERMINAL_RECEIVED,
             LocalLlmRuntimePhase.ENGINE_CLOSED,
+            LocalLlmRuntimePhase.RELEASE_UNCONFIRMED,
             -> _generationProgress.value = _generationProgress.value.copy(active = false)
 
             else -> Unit
@@ -159,18 +230,30 @@ private fun LocalLlmRuntimePhase.toCoordinatorState(): LocalLlmRuntimeState =
         -> LocalLlmRuntimeState.INITIALIZING
 
         LocalLlmRuntimePhase.CONVERSATION_READY -> LocalLlmRuntimeState.READY
+
         LocalLlmRuntimePhase.GENERATING,
         LocalLlmRuntimePhase.GENERATION_PROGRESS,
         -> LocalLlmRuntimeState.GENERATING
 
+        LocalLlmRuntimePhase.CANCEL_REQUESTED,
+        LocalLlmRuntimePhase.NATIVE_CANCEL_SIGNAL_SENT,
+        LocalLlmRuntimePhase.NATIVE_CANCEL_TERMINAL_RECEIVED,
+        -> LocalLlmRuntimeState.CANCELLING
+
         LocalLlmRuntimePhase.GENERATED,
+        LocalLlmRuntimePhase.CONVERSATION_CLOSING,
+        LocalLlmRuntimePhase.CONVERSATION_CLOSED,
+        LocalLlmRuntimePhase.ENGINE_CLOSING,
         LocalLlmRuntimePhase.ENGINE_CLOSED,
         -> LocalLlmRuntimeState.RELEASING
+
+        LocalLlmRuntimePhase.RELEASE_UNCONFIRMED -> LocalLlmRuntimeState.POISONED
     }
 
 private fun LocalLlmRuntimePhase.toFailurePhase(): LocalLlmFailurePhase =
     when (this) {
         LocalLlmRuntimePhase.ENGINE_CONSTRUCTING -> LocalLlmFailurePhase.ENGINE_CONSTRUCTING
+
         LocalLlmRuntimePhase.ENGINE_INITIALIZING,
         LocalLlmRuntimePhase.ENGINE_INITIALIZED,
         -> LocalLlmFailurePhase.ENGINE_INITIALIZING
@@ -182,9 +265,17 @@ private fun LocalLlmRuntimePhase.toFailurePhase(): LocalLlmFailurePhase =
         LocalLlmRuntimePhase.GENERATING,
         LocalLlmRuntimePhase.GENERATION_PROGRESS,
         LocalLlmRuntimePhase.GENERATED,
+        LocalLlmRuntimePhase.CANCEL_REQUESTED,
+        LocalLlmRuntimePhase.NATIVE_CANCEL_SIGNAL_SENT,
+        LocalLlmRuntimePhase.NATIVE_CANCEL_TERMINAL_RECEIVED,
         -> LocalLlmFailurePhase.GENERATING
 
-        LocalLlmRuntimePhase.ENGINE_CLOSED -> LocalLlmFailurePhase.RELEASING
+        LocalLlmRuntimePhase.CONVERSATION_CLOSING,
+        LocalLlmRuntimePhase.CONVERSATION_CLOSED,
+        LocalLlmRuntimePhase.ENGINE_CLOSING,
+        LocalLlmRuntimePhase.ENGINE_CLOSED,
+        LocalLlmRuntimePhase.RELEASE_UNCONFIRMED,
+        -> LocalLlmFailurePhase.RELEASING
     }
 
 private fun LocalLlmFailurePhase.defaultFailureCode(): LocalLlmFailureCode =
@@ -197,5 +288,6 @@ private fun LocalLlmFailurePhase.defaultFailureCode(): LocalLlmFailureCode =
             LocalLlmFailureCode.CONVERSATION_CREATE_FAILED
 
         LocalLlmFailurePhase.GENERATING -> LocalLlmFailureCode.GENERATION_FAILED
+        LocalLlmFailurePhase.RELEASING -> LocalLlmFailureCode.RUNTIME_POISONED
         else -> LocalLlmFailureCode.UNKNOWN
     }
