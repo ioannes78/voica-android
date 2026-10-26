@@ -39,22 +39,27 @@ class Stage13B5Qa4DurableStateTest {
     }
 
     @Test
-    fun transcriptionCandidateAndStaleSummaryDismissalsAreDurableAndIndependent() = runBlocking {
+    fun candidateAndStaleSummaryDismissalsAreDurableAndIndependent() = runBlocking {
         repository.dismissTranscriptionCandidate(RECORDING_ID, "tx-candidate")
+        repository.dismissAiSummaryCandidate(RECORDING_ID, "summary-candidate")
         var attention = repository.observeCandidateAttention(RECORDING_ID).first()
         assertEquals("tx-candidate", attention?.dismissedTranscriptionCandidateId)
+        assertEquals("summary-candidate", attention?.dismissedAiSummaryCandidateId)
 
         repository.dismissStaleSummary(RECORDING_ID, "summary-current|tx-current|revision-1")
         attention = repository.observeCandidateAttention(RECORDING_ID).first()
         assertEquals("tx-candidate", attention?.dismissedTranscriptionCandidateId)
+        assertEquals("summary-candidate", attention?.dismissedAiSummaryCandidateId)
         assertEquals(
             "summary-current|tx-current|revision-1",
             attention?.dismissedStaleSummaryFingerprint,
         )
 
         repository.clearTranscriptionCandidateDismissal(RECORDING_ID)
+        repository.clearAiSummaryCandidateDismissal(RECORDING_ID)
         attention = repository.observeCandidateAttention(RECORDING_ID).first()
         assertNull(attention?.dismissedTranscriptionCandidateId)
+        assertNull(attention?.dismissedAiSummaryCandidateId)
         assertEquals(
             "summary-current|tx-current|revision-1",
             attention?.dismissedStaleSummaryFingerprint,
@@ -85,6 +90,30 @@ class Stage13B5Qa4DurableStateTest {
 
         repository.dismissTranscriptionCandidate(RECORDING_ID, "tx-candidate")
         assertTrue(repository.observeTranscriptionCandidates().first().isEmpty())
+    }
+
+    @Test
+    fun summaryCandidateProjectionIsDurableAndNewCandidateEscapesOldDismissal() = runBlocking {
+        val contentRepository = Stage12CContentRepository(database, nowMs = { clock++ })
+        insertSummary(id = "summary-current", createdAtMs = 100L)
+        contentRepository.onAiSummaryCompleted(RECORDING_ID, "summary-current")
+
+        insertSummary(id = "summary-candidate", createdAtMs = 200L)
+        contentRepository.onAiSummaryCompleted(RECORDING_ID, "summary-candidate")
+        assertEquals(
+            listOf("summary-candidate"),
+            repository.observeAiSummaryCandidates().first().map { it.id },
+        )
+
+        repository.dismissAiSummaryCandidate(RECORDING_ID, "summary-candidate")
+        assertTrue(repository.observeAiSummaryCandidates().first().isEmpty())
+
+        insertSummary(id = "summary-new", createdAtMs = 300L)
+        contentRepository.onAiSummaryCompleted(RECORDING_ID, "summary-new")
+        assertEquals(
+            listOf("summary-new"),
+            repository.observeAiSummaryCandidates().first().map { it.id },
+        )
     }
 
     @Test
@@ -175,6 +204,37 @@ class Stage13B5Qa4DurableStateTest {
                 completedAtMs = createdAtMs.takeIf { state !in TranscriptionStateValue.ACTIVE },
                 errorCode = null,
                 errorMessage = null,
+            ),
+        )
+    }
+
+    private suspend fun insertSummary(
+        id: String,
+        createdAtMs: Long,
+    ) {
+        database.aiSummaryDao().insertSummary(
+            AiSummaryEntity(
+                id = id,
+                recordingId = RECORDING_ID,
+                transcriptionId = null,
+                inputMode = AiSummaryInputModeValue.TRANSCRIPT_TEXT,
+                mode = AiSummaryModeValue.SMART,
+                model = "local-test",
+                promptVersion = 1,
+                resultSchemaVersion = 1,
+                contentType = null,
+                classificationConfidence = null,
+                structuredPayloadJson = null,
+                displayText = "summary $id",
+                status = AiSummaryStateValue.COMPLETED,
+                createdAtMs = createdAtMs,
+                startedAtMs = createdAtMs,
+                updatedAtMs = createdAtMs,
+                completedAtMs = createdAtMs,
+                errorCode = null,
+                sanitizedErrorMessage = null,
+                alignmentIdSnapshot = null,
+                sourceLineageSnapshot = "{}",
             ),
         )
     }
