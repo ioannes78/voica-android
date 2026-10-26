@@ -53,6 +53,11 @@ class Stage17P1LocalLlmActivity : ComponentActivity() {
         }
         val container = (application as VoicaApplication).container
         val runtime = container.localLlmRuntime(this)
+        val lifecycleObservability =
+            LocalLlmLifecycleObservabilityRegistry.get(
+                application = application,
+                runtime = runtime,
+            )
         setContent {
             val themeSettings by container.themeSettingsStore.settings.collectAsState()
             VoicaTheme(settings = themeSettings) {
@@ -60,6 +65,7 @@ class Stage17P1LocalLlmActivity : ComponentActivity() {
                     Stage17P1LocalLlmScreen(
                         container = container,
                         runtime = runtime,
+                        lifecycleObservability = lifecycleObservability,
                         onClose = ::finish,
                     )
                 }
@@ -75,11 +81,14 @@ internal fun stage17P1LocalLlmEntryVisible(applicationId: String): Boolean =
 private fun Stage17P1LocalLlmScreen(
     container: AppContainer,
     runtime: AppLocalLlmRuntime,
+    lifecycleObservability: LocalLlmLifecycleObservability,
     onClose: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
     val runtimeState by runtime.state.collectAsState()
+    val lifecycleSnapshot by lifecycleObservability.monitor.snapshot.collectAsState()
+    val lifecycleEvents by lifecycleObservability.diagnostics.events.collectAsState()
     var modelStatus by remember { mutableStateOf("检查中…") }
     var activeJob by remember { mutableStateOf<Job?>(null) }
     var operation by remember { mutableStateOf<String?>(null) }
@@ -161,6 +170,31 @@ private fun Stage17P1LocalLlmScreen(
                     onClick = { scope.launch { refreshModelStatus() } },
                 ) {
                     Text("刷新模型状态")
+                }
+            }
+        }
+        item {
+            P1Card("R4 Lifecycle") {
+                Text(
+                    "foreground=${lifecycleSnapshot.processForeground} · " +
+                        "resumed=${lifecycleSnapshot.activityResumed} · " +
+                        "interactive=${lifecycleSnapshot.interactive}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    "keyguard=${lifecycleSnapshot.keyguardShowing} · " +
+                        "deviceLocked=${lifecycleSnapshot.deviceLocked} · " +
+                        "last=${lifecycleSnapshot.lastTransition}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedButton(
+                    onClick = {
+                        clipboard.setText(
+                            AnnotatedString(formatLocalLlmLifecycleDiagnostics(lifecycleEvents)),
+                        )
+                    },
+                ) {
+                    Text("复制生命周期诊断")
                 }
             }
         }
