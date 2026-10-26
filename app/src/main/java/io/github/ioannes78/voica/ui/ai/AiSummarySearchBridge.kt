@@ -16,7 +16,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -25,7 +27,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.ioannes78.voica.OfflineSummaryRunPhase
 import io.github.ioannes78.voica.OfflineSummaryRunState
 import io.github.ioannes78.voica.VoicaApplication
+import io.github.ioannes78.voica.database.RecordingCandidateAttentionEntity
 import io.github.ioannes78.voica.database.SearchDocumentEntity
+import kotlinx.coroutines.launch
 
 internal val LocalAiSummarySearchTarget = compositionLocalOf<SearchDocumentEntity?> { null }
 
@@ -45,6 +49,7 @@ fun AiSummaryProductCard(
     onIgnoreStale: (String) -> Unit = {},
 ) {
     val application = LocalContext.current.applicationContext as VoicaApplication
+    val scope = rememberCoroutineScope()
     val offlineSummaryViewModel: OfflineSummaryProductViewModel =
         viewModel(
             factory =
@@ -61,6 +66,20 @@ fun AiSummaryProductCard(
     val selected by viewModel.selected.collectAsState()
     val history by viewModel.history.collectAsState()
     val offlineState by offlineSummaryViewModel.state.collectAsState()
+    val recordingId = selected?.entity?.recordingId ?: history.firstOrNull()?.recordingId
+    val candidateAttention by
+        produceState<RecordingCandidateAttentionEntity?>(
+            initialValue = null,
+            recordingId,
+        ) {
+            if (recordingId == null) {
+                value = null
+            } else {
+                application.container.stage13B5Qa4Repository
+                    .observeCandidateAttention(recordingId)
+                    .collect { value = it }
+            }
+        }
 
     LaunchedEffect(transcriptionId) {
         viewModel.bind(transcriptionId)
@@ -71,6 +90,8 @@ fun AiSummaryProductCard(
 
     val hasCompletedSummary = selected != null || history.isNotEmpty()
     val active = offlineState.run.isActiveOfflineSummaryGeneration()
+    val effectiveDismissedCandidateId =
+        dismissedAiSummaryCandidateId ?: candidateAttention?.dismissedAiSummaryCandidateId
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -95,8 +116,17 @@ fun AiSummaryProductCard(
                     contentViewModel = contentViewModel,
                     onSeekEvidence = onSeekEvidence,
                     showTransientHeader = showTransientHeader,
-                    dismissedAiSummaryCandidateId = dismissedAiSummaryCandidateId,
-                    onIgnoreCandidate = onIgnoreCandidate,
+                    dismissedAiSummaryCandidateId = effectiveDismissedCandidateId,
+                    onIgnoreCandidate = { candidateId ->
+                        val id = recordingId
+                        if (id != null) {
+                            scope.launch {
+                                application.container.stage13B5Qa4Repository
+                                    .dismissAiSummaryCandidate(id, candidateId)
+                            }
+                        }
+                        onIgnoreCandidate(candidateId)
+                    },
                     dismissedStaleSummaryFingerprint = dismissedStaleSummaryFingerprint,
                     onIgnoreStale = onIgnoreStale,
                     onRegenerate = offlineSummaryViewModel::generate,
