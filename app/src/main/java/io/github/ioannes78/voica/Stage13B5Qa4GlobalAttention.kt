@@ -1,6 +1,7 @@
 package io.github.ioannes78.voica
 
 import android.app.NotificationManager
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -202,7 +203,12 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
                 },
             ),
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background),
+        ) {
             visibleSummaryPresentation?.let { summary ->
                 OfflineSummaryGlobalTaskStatusBar(
                     presentation = summary,
