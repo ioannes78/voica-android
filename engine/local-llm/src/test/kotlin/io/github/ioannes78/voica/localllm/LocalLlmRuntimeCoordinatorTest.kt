@@ -7,6 +7,8 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -42,6 +44,38 @@ class LocalLlmRuntimeCoordinatorTest {
     }
 
     @Test
+    fun `generation progress records first and latest emission without content`() = runBlocking {
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val coordinator =
+            LocalLlmRuntimeCoordinator { _, request, resolution, onPhase ->
+                onPhase(LocalLlmRuntimePhase.GENERATING)
+                onPhase(LocalLlmRuntimePhase.GENERATION_PROGRESS)
+                onPhase(LocalLlmRuntimePhase.GENERATION_PROGRESS)
+                entered.complete(Unit)
+                release.await()
+                onPhase(LocalLlmRuntimePhase.GENERATED)
+                success(request, resolution)
+            }
+
+        val job = async { coordinator.generate("/model", request(), gpuResolution()) }
+        entered.await()
+
+        val progress = coordinator.generationProgress.value
+        assertTrue(progress.active)
+        assertNotNull(progress.startedAtNanos)
+        assertNotNull(progress.firstEmissionAtNanos)
+        assertNotNull(progress.lastEmissionAtNanos)
+        assertEquals(2L, progress.emissionCount)
+        assertTrue(checkNotNull(progress.lastEmissionAtNanos) >= checkNotNull(progress.firstEmissionAtNanos))
+
+        release.complete(Unit)
+        job.await()
+        assertFalse(coordinator.generationProgress.value.active)
+        assertEquals(2L, coordinator.generationProgress.value.emissionCount)
+    }
+
+    @Test
     fun `cancellation releases owner and returns to idle`() = runBlocking {
         val entered = CompletableDeferred<Unit>()
         val coordinator =
@@ -58,6 +92,7 @@ class LocalLlmRuntimeCoordinatorTest {
         job.cancelAndJoin()
 
         assertEquals(LocalLlmRuntimeState.IDLE, coordinator.state.value)
+        assertFalse(coordinator.generationProgress.value.active)
     }
 
     @Test
