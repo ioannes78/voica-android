@@ -31,10 +31,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
+import io.github.ioannes78.voica.ai.ConservativeOfflineSummaryTokenEstimator
 import io.github.ioannes78.voica.localllm.LocalLlmBackendPolicy
 import io.github.ioannes78.voica.localllm.LocalLlmGenerationResult
 import io.github.ioannes78.voica.localllm.LocalLlmResourceDecision
 import io.github.ioannes78.voica.localllm.LocalLlmResourceReason
+import io.github.ioannes78.voica.localllm.LocalLlmRuntimeDiagnosticObserverRegistry
 import io.github.ioannes78.voica.localllm.LocalLlmRuntimeException
 import io.github.ioannes78.voica.localllm.LocalLlmRuntimeState
 import io.github.ioannes78.voica.localllm.LocalLlmValidatedPresets
@@ -61,6 +63,7 @@ class Stage17P1LocalLlmActivity : ComponentActivity() {
                 application = application,
                 runtime = runtime,
             )
+        val r5CrashBreadcrumbs = Stage17R5CrashBreadcrumbStore(this)
         setContent {
             val themeSettings by container.themeSettingsStore.settings.collectAsState()
             VoicaTheme(settings = themeSettings) {
@@ -69,6 +72,7 @@ class Stage17P1LocalLlmActivity : ComponentActivity() {
                         container = container,
                         runtime = runtime,
                         lifecycleObservability = lifecycleObservability,
+                        r5CrashBreadcrumbs = r5CrashBreadcrumbs,
                         onClose = ::finish,
                     )
                 }
@@ -85,6 +89,7 @@ private fun Stage17P1LocalLlmScreen(
     container: AppContainer,
     runtime: AppLocalLlmRuntime,
     lifecycleObservability: LocalLlmLifecycleObservability,
+    r5CrashBreadcrumbs: Stage17R5CrashBreadcrumbStore,
     onClose: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -92,6 +97,7 @@ private fun Stage17P1LocalLlmScreen(
     val runtimeState by runtime.state.collectAsState()
     val lifecycleSnapshot by lifecycleObservability.monitor.snapshot.collectAsState()
     val lifecycleEvents by lifecycleObservability.diagnostics.events.collectAsState()
+    val r5Breadcrumb by r5CrashBreadcrumbs.last.collectAsState()
     var modelStatus by remember { mutableStateOf("检查中…") }
     var activeJob by remember { mutableStateOf<Job?>(null) }
     var operation by remember { mutableStateOf<String?>(null) }
@@ -117,16 +123,21 @@ private fun Stage17P1LocalLlmScreen(
         if (activeJob != null) return
         resultText = null
         operation = "$policy · 运行中"
+        val config =
+            LocalLlmValidatedPresets.P0_BASELINE.copy(
+                backendPolicy = policy,
+            )
+        r5CrashBreadcrumbs.arm(
+            estimatedPromptTokens = ConservativeOfflineSummaryTokenEstimator.estimateTokens(prompt),
+        )
+        LocalLlmRuntimeDiagnosticObserverRegistry.install(r5CrashBreadcrumbs::record)
         activeJob =
             scope.launch {
                 try {
                     val result =
                         runtime.generate(
                             prompt = prompt,
-                            config =
-                                LocalLlmValidatedPresets.P0_BASELINE.copy(
-                                    backendPolicy = policy,
-                                ),
+                            config = config,
                             resourceDecisionOverride = resourceOverride,
                         )
                     resultText = result.toP1DiagnosticsText()
@@ -140,6 +151,8 @@ private fun Stage17P1LocalLlmScreen(
                     resultText = "${error::class.java.name}: ${error.message ?: "n/a"}"
                     operation = "$policy · 失败"
                 } finally {
+                    LocalLlmRuntimeDiagnosticObserverRegistry.install(null)
+                    r5CrashBreadcrumbs.disarm()
                     activeJob = null
                     refreshModelStatus()
                 }
@@ -199,6 +212,40 @@ private fun Stage17P1LocalLlmScreen(
                     },
                 ) {
                     Text("复制生命周期诊断")
+                }
+            }
+        }
+        item {
+            P1Card("R5 Crash Breadcrumb") {
+                Text(
+                    "仅 QA 持久化标量元数据；不会保存 prompt、转写内容或模型输出。进程被 native crash 杀死后，重新进入本页可读取上一进程最后成功写入的 runtime phase。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                val breadcrumb = r5Breadcrumb
+                if (breadcrumb == null) {
+                    Text("暂无持久化 breadcrumb", style = MaterialTheme.typography.bodySmall)
+                } else {
+                    val diagnosticText =
+                        breadcrumb.toQaDisplayText(
+                            previousProcess = r5CrashBreadcrumbs.isPreviousProcess(breadcrumb),
+                        )
+                    Text(diagnosticText, style = MaterialTheme.typography.bodySmall)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = {
+                                clipboard.setText(AnnotatedString(diagnosticText))
+                            },
+                        ) {
+                            Text("复制 breadcrumb")
+                        }
+                        OutlinedButton(
+                            enabled = !busy,
+                            onClick = r5CrashBreadcrumbs::clear,
+                        ) {
+                            Text("清除")
+                        }
+                    }
                 }
             }
         }

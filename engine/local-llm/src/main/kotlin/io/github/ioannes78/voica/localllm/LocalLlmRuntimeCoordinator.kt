@@ -107,6 +107,17 @@ class LocalLlmRuntimeCoordinator(
                     poisoned.set(true)
                 }
                 updateGenerationProgress(phase)
+                val progress = _generationProgress.value
+                LocalLlmRuntimeDiagnosticObserverRegistry.emit(
+                    LocalLlmRuntimeDiagnosticPhase(
+                        phase = phase,
+                        requestedPolicy = request.config.backendPolicy,
+                        resolvedBackend = backendResolution.resolvedBackend,
+                        schemaEnabled = request.config.responseJsonSchema != null,
+                        schemaSizeChars = request.config.responseJsonSchema?.length ?: 0,
+                        emissionCount = progress.emissionCount,
+                    ),
+                )
                 _state.value = phase.toCoordinatorState()
             }
         } catch (cancelled: CancellationException) {
