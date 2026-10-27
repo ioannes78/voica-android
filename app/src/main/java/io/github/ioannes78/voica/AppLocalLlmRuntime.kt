@@ -50,14 +50,26 @@ class AppLocalLlmRuntime internal constructor(
     ): LocalLlmGenerationResult {
         require(prompt.isNotBlank()) { "prompt must not be blank" }
 
+        // Stage 17.2 R4 final safety containment.
+        //
+        // R4-C real-device QA validated explicit/unconstrained GPU generation across foreground,
+        // Home/background, natural screen-off, manual lock, locked-state cancellation, repeated
+        // lock/unlock, subsequent inference, and process restart. R4-15 then reproduced an app
+        // process restart when the formal Stage 17.2 structured-summary path restored AUTO/GPU
+        // constrained JSON generation. That evidence does not justify extending the generic GPU
+        // lifecycle result to constrained structured output. Keep diagnostics and unconstrained AUTO
+        // GPU-first, but force the current AUTO + responseJsonSchema product path to CPU until
+        // structured-output GPU is independently repaired and re-qualified.
+        val effectiveConfig = applyStage172R4StructuredSummarySafety(config)
+
         val active =
             modelManager.activeModel(STAGE17_GEMMA_4_E2B_CANDIDATE_ID)
                 ?: throw modelFailure(
                     code = LocalLlmFailureCode.MODEL_NOT_INSTALLED,
                     message = "Gemma 4 E2B is not installed and active",
-                    policy = config.backendPolicy,
+                    policy = effectiveConfig.backendPolicy,
                 )
-        val resolved = resolveManagedLocalLlmModel(active, config.backendPolicy)
+        val resolved = resolveManagedLocalLlmModel(active, effectiveConfig.backendPolicy)
         val lease =
             modelUseRegistry.acquire(
                 modelId = active.descriptor.modelId,
@@ -69,7 +81,7 @@ class AppLocalLlmRuntime internal constructor(
                 LocalLlmGenerationRequest(
                     prompt = prompt,
                     modelIdentity = resolved.identity,
-                    config = config,
+                    config = effectiveConfig,
                 )
             val decision = resourceDecisionOverride ?: resourceGate.evaluate(resourceProbe.snapshot())
             return executionController.generate(
@@ -96,6 +108,25 @@ class AppLocalLlmRuntime internal constructor(
             ),
         )
 }
+
+/**
+ * R4 final product boundary after R4-15 real-device failure.
+ *
+ * Only AUTO requests using native JSON Schema constrained decoding are contained. Explicit GPU/CPU
+ * diagnostics and unconstrained AUTO remain untouched, preserving the GPU lifecycle capability that
+ * R4-C actually proved.
+ */
+internal fun applyStage172R4StructuredSummarySafety(
+    config: LocalLlmRuntimeConfig,
+): LocalLlmRuntimeConfig =
+    if (
+        config.backendPolicy == LocalLlmBackendPolicy.AUTO &&
+        config.responseJsonSchema != null
+    ) {
+        config.copy(backendPolicy = LocalLlmBackendPolicy.CPU)
+    } else {
+        config
+    }
 
 internal data class ResolvedManagedLocalLlmModel(
     val identity: LocalLlmModelIdentity,
