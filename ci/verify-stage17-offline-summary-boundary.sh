@@ -91,20 +91,22 @@ if grep -Fq 'STAGE17_GEMMA_4_E2B_CANDIDATE_ID' <<<"$product_block"; then
   exit 1
 fi
 
-grep -Eq 'version\s*=\s*16' "$room_db"
+grep -Eq 'version\s*=\s*17' "$room_db"
+grep -Fq '.addMigrations(MIGRATION_16_17)' "$room_db"
 test -f 'core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/16.json'
+test -f 'core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/17.json'
 
 generate_calls="$(grep -c 'generateLocal(' "$coordinator")"
 if [[ "$generate_calls" -ne 2 ]]; then
-  echo "::error::$coordinator must contain exactly two generateLocal call sites (initial + one repair); found $generate_calls"
+  echo "::error::$coordinator must contain exactly two Stage 17.2 generateLocal call sites (initial + one repair); found $generate_calls"
   exit 1
 fi
 
 grep -Fq 'persistence.interruptAllActive()' "$coordinator"
 
 printf '%s\n' \
-  'Verified Stage 17.2 offline-summary boundary:' \
-  '  - no cloud/HTTP/API-key/upload/FGS/WorkManager dependency in formal inference path' \
+  'Verified Stage 17.2 offline-summary boundary carried into Stage 17.3 P2:' \
+  '  - no cloud/HTTP/API-key/upload/FGS/WorkManager dependency in the frozen direct inference path' \
   '  - P1 AppLocalLlmRuntime + AUTO remains sole LLM execution boundary' \
   '  - direct budget and at-most-one repair structure are frozen' \
   '  - prompt 04 requires concise output while native JSON Schema owns structural syntax' \
@@ -113,5 +115,5 @@ printf '%s\n' \
   '  - strict SummaryResultCodec validation remains downstream of constrained decoding' \
   '  - 1,024 output-token reserve remains enforced in LiteRT-LM while P0 baseline remains uncapped' \
   '  - Gemma remains candidate-only' \
-  '  - Room remains v16' \
-  '  - restart recovery is interrupt-only'
+  '  - Room v17 adds only the Stage 17.3 additive checkpoint boundary over frozen v16 data' \
+  '  - Stage 17.2 direct restart recovery remains interrupt-only at P2'
