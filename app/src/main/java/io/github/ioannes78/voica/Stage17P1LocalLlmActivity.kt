@@ -36,11 +36,14 @@ import io.github.ioannes78.voica.localllm.LocalLlmGenerationResult
 import io.github.ioannes78.voica.localllm.LocalLlmResourceDecision
 import io.github.ioannes78.voica.localllm.LocalLlmResourceReason
 import io.github.ioannes78.voica.localllm.LocalLlmRuntimeException
+import io.github.ioannes78.voica.localllm.LocalLlmRuntimeState
 import io.github.ioannes78.voica.localllm.LocalLlmValidatedPresets
 import io.github.ioannes78.voica.localllm.Stage17LocalLlmProbe
 import io.github.ioannes78.voica.ui.theme.VoicaTheme
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /** QA-only P1 surface for the managed Gemma model and production runtime foundation. */
@@ -225,6 +228,25 @@ private fun Stage17P1LocalLlmScreen(
                 ) {
                     Text("GPU 长生成")
                 }
+                OutlinedButton(
+                    enabled = !busy,
+                    onClick = {
+                        start(
+                            policy = LocalLlmBackendPolicy.GPU,
+                            prompt = R4C_LONG_GENERATION_PROMPT,
+                        )
+                        scope.launch {
+                            runtime.state.first { state ->
+                                state == LocalLlmRuntimeState.GENERATING
+                            }
+                            delay(R4C_LOCKED_CANCEL_DELAY_MS)
+                            activeJob?.cancel()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("GPU 长生成 · 8秒后自动取消")
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
                         enabled = !busy,
@@ -273,6 +295,8 @@ private const val R4C_LONG_GENERATION_PROMPT =
         "请依次详细讨论音频采集、VAD、ASR、时间轴、说话人处理、标点与文本整理、本地大模型总结、" +
         "任务取消与资源释放、后台运行、息屏与锁屏生命周期、错误恢复、内存和功耗管理、真机验证。" +
         "每个主题都要解释处理流程、设计原因、主要风险和验证方法；不要省略章节，不要简短回答。"
+
+private const val R4C_LOCKED_CANCEL_DELAY_MS = 8_000L
 
 @Composable
 private fun P1Card(
