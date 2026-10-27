@@ -27,13 +27,7 @@ data class OfflineSummaryProductUiState(
     val notice: String? = null,
 )
 
-/**
- * UI-only observer/controller for Stage 17 local summaries.
- *
- * It never owns LiteRT-LM resources. The application-scoped [OfflineSummaryCoordinator] remains the
- * sole generation owner when this ViewModel or the composable leaves the screen. Resume is always
- * explicit and only offered for a persisted Stage 17.3 LONG task in FAILED/INTERRUPTED state.
- */
+/** UI-only observer/controller. The application-scoped coordinator remains the sole LLM owner. */
 class OfflineSummaryProductViewModel internal constructor(
     private val coordinator: OfflineSummaryCoordinator,
     private val modelManager: ModelManager,
@@ -49,10 +43,8 @@ class OfflineSummaryProductViewModel internal constructor(
         val normalized = recordingId.trim()
         require(normalized.isNotEmpty()) { "recordingId must not be blank" }
         if (mutableState.value.recordingId == normalized) {
-            mutableState.value =
-                mutableState.value.copy(run = coordinator.state.value[normalized])
+            mutableState.value = mutableState.value.copy(run = coordinator.state.value[normalized])
             refreshModelStatus()
-            refreshResumableSummary()
             return
         }
 
@@ -109,10 +101,7 @@ class OfflineSummaryProductViewModel internal constructor(
                         modelManager.activeModel(Stage172OfflineSummaryModelContract.MODEL_ID)
                             ?: return@runCatching false
                     val identity =
-                        resolveManagedLocalLlmModel(
-                            active = active,
-                            policy = LocalLlmBackendPolicy.AUTO,
-                        ).identity
+                        resolveManagedLocalLlmModel(active, LocalLlmBackendPolicy.AUTO).identity
                     Stage172OfflineSummaryModelContract.requireMatches(identity)
                     true
                 }.getOrDefault(false)
@@ -120,42 +109,17 @@ class OfflineSummaryProductViewModel internal constructor(
         }
     }
 
-    fun refreshResumableSummary() {
-        val recordingId = mutableState.value.recordingId ?: return
-        viewModelScope.launch {
-            val summaries = mutableListOf<io.github.ioannes78.voica.database.AiSummaryEntity>()
-            val currentResumable = mutableState.value.resumableSummaryId
-            if (currentResumable != null && aiSummaryRepository.isResumableOfflineSummary(currentResumable)) {
-                return@launch
-            }
-            aiSummaryRepository.find(currentResumable.orEmpty())
-            val current = mutableState.value
-            if (current.recordingId == recordingId && summaries.isEmpty()) {
-                // The Room Flow collector above owns the authoritative candidate refresh. Clearing a
-                // stale id here prevents a disappeared task from leaving a misleading Continue CTA.
-                if (currentResumable != null && !aiSummaryRepository.isResumableOfflineSummary(currentResumable)) {
-                    mutableState.value = current.copy(resumableSummaryId = null)
-                }
-            }
-        }
-    }
-
     fun generate() {
         val recordingId = mutableState.value.recordingId ?: return
         viewModelScope.launch {
             when (val outcome = coordinator.start(recordingId)) {
-                is OfflineSummaryStartOutcome.Started -> {
-                    mutableState.value =
-                        mutableState.value.copy(
-                            run = coordinator.state.value[recordingId],
-                            notice = null,
-                        )
-                }
-
-                is OfflineSummaryStartOutcome.Rejected -> {
-                    mutableState.value =
-                        mutableState.value.copy(notice = outcome.message)
-                }
+                is OfflineSummaryStartOutcome.Started ->
+                    mutableState.value = mutableState.value.copy(
+                        run = coordinator.state.value[recordingId],
+                        notice = null,
+                    )
+                is OfflineSummaryStartOutcome.Rejected ->
+                    mutableState.value = mutableState.value.copy(notice = outcome.message)
             }
         }
     }
@@ -165,18 +129,14 @@ class OfflineSummaryProductViewModel internal constructor(
         val summaryId = mutableState.value.resumableSummaryId ?: return
         viewModelScope.launch {
             when (val outcome = coordinator.resume(recordingId, summaryId)) {
-                is OfflineSummaryStartOutcome.Started -> {
-                    mutableState.value =
-                        mutableState.value.copy(
-                            run = coordinator.state.value[recordingId],
-                            resumableSummaryId = null,
-                            notice = null,
-                        )
-                }
-
-                is OfflineSummaryStartOutcome.Rejected -> {
+                is OfflineSummaryStartOutcome.Started ->
+                    mutableState.value = mutableState.value.copy(
+                        run = coordinator.state.value[recordingId],
+                        resumableSummaryId = null,
+                        notice = null,
+                    )
+                is OfflineSummaryStartOutcome.Rejected ->
                     mutableState.value = mutableState.value.copy(notice = outcome.message)
-                }
             }
         }
     }
@@ -201,10 +161,6 @@ class OfflineSummaryProductViewModel internal constructor(
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            OfflineSummaryProductViewModel(
-                coordinator = coordinator,
-                modelManager = modelManager,
-                aiSummaryRepository = aiSummaryRepository,
-            ) as T
+            OfflineSummaryProductViewModel(coordinator, modelManager, aiSummaryRepository) as T
     }
 }
