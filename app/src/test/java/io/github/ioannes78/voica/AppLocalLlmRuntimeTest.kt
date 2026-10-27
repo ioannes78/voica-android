@@ -3,6 +3,7 @@ package io.github.ioannes78.voica
 import io.github.ioannes78.voica.localllm.LiteRtLmRuntimeContract
 import io.github.ioannes78.voica.localllm.LocalLlmBackendPolicy
 import io.github.ioannes78.voica.localllm.LocalLlmFailureCode
+import io.github.ioannes78.voica.localllm.LocalLlmRuntimeConfig
 import io.github.ioannes78.voica.localllm.LocalLlmRuntimeException
 import io.github.ioannes78.voica.model.ActiveModel
 import io.github.ioannes78.voica.model.ModelCapabilities
@@ -19,11 +20,55 @@ import org.junit.Test
 
 class AppLocalLlmRuntimeTest {
     @Test
-    fun stage172StructuredSummaryPresetRemainsAutoAfterR4D() {
+    fun stage172StructuredSummaryPresetRequestsAutoBeforeRuntimeSafetyBoundary() {
         val config = OfflineSummaryLocalLlmPreset.configFor(setOf("S00001"))
 
         assertEquals(LocalLlmBackendPolicy.AUTO, config.backendPolicy)
         assertTrue(config.responseJsonSchema?.isNotBlank() == true)
+    }
+
+    @Test
+    fun r4FinalSafetyContainsAutoStructuredOutputOnCpu() {
+        val original =
+            LocalLlmRuntimeConfig(
+                backendPolicy = LocalLlmBackendPolicy.AUTO,
+                responseJsonSchema = "{\"type\":\"object\"}",
+            )
+
+        val effective = applyStage172R4StructuredSummarySafety(original)
+
+        assertEquals(LocalLlmBackendPolicy.CPU, effective.backendPolicy)
+        assertEquals(original.responseJsonSchema, effective.responseJsonSchema)
+        assertEquals(original.maxNumTokens, effective.maxNumTokens)
+        assertEquals(original.maxOutputTokens, effective.maxOutputTokens)
+    }
+
+    @Test
+    fun r4FinalSafetyLeavesUnconstrainedAutoGpuCapabilityUntouched() {
+        val original = LocalLlmRuntimeConfig(backendPolicy = LocalLlmBackendPolicy.AUTO)
+
+        val effective = applyStage172R4StructuredSummarySafety(original)
+
+        assertEquals(LocalLlmBackendPolicy.AUTO, effective.backendPolicy)
+    }
+
+    @Test
+    fun r4FinalSafetyDoesNotOverrideExplicitDiagnosticBackend() {
+        val explicitGpu =
+            LocalLlmRuntimeConfig(
+                backendPolicy = LocalLlmBackendPolicy.GPU,
+                responseJsonSchema = "{\"type\":\"object\"}",
+            )
+        val explicitCpu = explicitGpu.copy(backendPolicy = LocalLlmBackendPolicy.CPU)
+
+        assertEquals(
+            LocalLlmBackendPolicy.GPU,
+            applyStage172R4StructuredSummarySafety(explicitGpu).backendPolicy,
+        )
+        assertEquals(
+            LocalLlmBackendPolicy.CPU,
+            applyStage172R4StructuredSummarySafety(explicitCpu).backendPolicy,
+        )
     }
 
     @Test
