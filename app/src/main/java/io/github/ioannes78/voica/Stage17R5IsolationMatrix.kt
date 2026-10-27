@@ -68,7 +68,7 @@ internal suspend fun AppContainer.loadStage17R5IsolationSources(
     val recordings =
         recordingLibraryRepository.recordings
             .first()
-            .sortedByDescending(RecordingLibraryItem::qaRecencyKey)
+            .sortedByDescending { it.qaRecencyKey() }
 
     val sources = mutableListOf<Stage17R5IsolationSource>()
     for (recording in recordings) {
