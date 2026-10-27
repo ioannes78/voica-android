@@ -45,7 +45,8 @@ class Stage17R5IsolationMatrixTest {
             )
 
         assertNotEquals(source.formalPrompt.text, request.prompt)
-        assertTrue(request.prompt.length < source.formalPrompt.text.length)
+        assertTrue(request.prompt.contains("本地结构化输出诊断"))
+        assertTrue(request.prompt.contains("evidenceRefs 必须为空数组"))
         assertEquals(LocalLlmBackendPolicy.GPU, request.config.backendPolicy)
         val schema = request.config.responseJsonSchema
         assertNotNull(schema)
@@ -83,7 +84,7 @@ class Stage17R5IsolationMatrixTest {
                     resultSchemaVersion = OfflineSummaryPromptContract.RESULT_SCHEMA_VERSION,
                     text =
                         "FORMAL_STAGE_17_2_PROMPT\n" +
-                            "这是用于测试的正式转写上下文，长度故意大于 B2 小 prompt。\n" +
+                            "这是用于测试的正式转写上下文。\n" +
                             "[S00001] 示例证据。",
                     allowedEvidenceRefs = linkedSetOf("S00001"),
                     sourceUnitCount = 1,
