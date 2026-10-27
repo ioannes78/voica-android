@@ -130,6 +130,35 @@ Repeated failures were captured at:
 
 A fresh-process B3 could sometimes succeed, while a later B3 in the same process could fail. A fresh-process B1 was also later observed to fail, so the final boundary is broader than constrained decoding alone.
 
+### Post-closure repeat evidence
+
+After the initial closure decision, the same B3 configuration was re-run on the current device without changing the model/runtime/schema/prompt contract.
+
+One repeat completed successfully:
+
+- `source=CURRENT_PROCESS`
+- GPU resolved
+- schema enabled
+- schema size `2112` chars
+- prompt estimate `2008` tokens
+- `runtimePhase=ENGINE_CLOSED`
+- `emissionCount=524`
+- no process restart / no ANR
+
+A subsequent repeat on the same device failed again:
+
+- `source=PREVIOUS_PROCESS`
+- GPU resolved
+- schema enabled
+- schema size `2112` chars
+- prompt estimate `2008` tokens
+- `runtimePhase=GENERATING`
+- `emissionCount=0`
+- foreground / interactive / unlocked
+- `exitReason=ANR(6)`
+
+This PASS-then-FAIL sequence confirms that the current-device failure is **intermittent under an otherwise equivalent structured-GPU workload**. A successful single run must not be treated as production qualification.
+
 ## 5. Exit classification
 
 Android `ApplicationExitInfo` classified the captured process termination as:
@@ -139,30 +168,43 @@ Android `ApplicationExitInfo` classified the captured process termination as:
 - not `LOW_MEMORY`
 - not classified as native crash
 
-A subsequent QA-only ANR trace classifier confirmed:
+A subsequent QA-only ANR trace classifier confirmed two observed graphics-side ANR shapes.
 
-### Main thread
+### Captured ANR shape A
 
-State: `Native`
+Main thread:
 
-Top frames included:
-
+- state `Native`
 - `pthread_cond_wait`
 - `libhwui.so`
 
-### RenderThread
+RenderThread:
 
-State: `Native`
-
-Top frames included:
-
+- state `Native`
 - `poll / __ppoll`
 - `libsync.so:sync_wait`
 - `libui.so`
 - `libgui.so`
 - `IGraphicBufferProducer::QueueBuffer...`
 
-The evidence is consistent with an Android graphics/GPU synchronization stall that propagates into HWUI / RenderThread and ultimately causes a foreground ANR.
+### Captured ANR shape B
+
+Main thread:
+
+- state `Native`
+- `__epoll_pwait`
+- `libutils.so`
+- `libandroid_runtime.so`
+- `art_quick_generic_jni_trampoline`
+
+RenderThread:
+
+- state `Native`
+- `__epoll_pwait`
+- `libutils.so`
+- `libhwui.so`
+
+The evidence is consistent with an Android graphics/GPU synchronization or rendering stall that propagates into HWUI / RenderThread and ultimately causes a foreground ANR.
 
 R5 does **not** claim a specific vendor GPU driver defect because the privacy-trimmed evidence does not identify a definitive vendor-driver fault site.
 
@@ -181,7 +223,9 @@ The evidence is sufficient to reject the following earlier hypotheses as complet
 
 The accepted current boundary is:
 
-> On the current real device, sufficiently heavy LiteRT-LM GPU inference can intermittently stall the Android graphics synchronization pipeline during generation startup/prefill, before the first model emission. Formal structured summary increases the relevant workload surface but is not the only configuration capable of reproducing the ANR.
+> On the current real device, sufficiently heavy LiteRT-LM GPU inference can intermittently stall the Android graphics/render synchronization path during generation startup/prefill, before the first model emission. Formal structured summary increases the relevant workload surface but is not the only configuration capable of reproducing the ANR.
+
+The same formal structured-GPU request can complete normally in one run and ANR in a later equivalent run. Therefore reliability, not basic functional capability, is the blocking qualification criterion.
 
 ## 7. Product policy after R5
 
@@ -201,6 +245,8 @@ The following are **not production-qualified**:
 - automatic restoration of GPU after an unknown/ANR native session
 
 No same-session automatic CPU fallback is permitted after an ANR/unknown GPU ownership event.
+
+A single successful structured-GPU run does not override this containment; production qualification requires repeat stability.
 
 ## 8. Cross-device GPU requalification policy
 
