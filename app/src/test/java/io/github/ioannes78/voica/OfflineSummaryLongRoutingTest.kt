@@ -139,7 +139,7 @@ class OfflineSummaryLongRoutingTest {
                 }
         }
 
-    private class FakeLongRunner : OfflineSummaryLongRunnerPort {
+    private inner class FakeLongRunner : OfflineSummaryLongRunnerPort {
         var newExecutions = 0
         var resumeExecutions = 0
         var prepareResumeCalls = 0
