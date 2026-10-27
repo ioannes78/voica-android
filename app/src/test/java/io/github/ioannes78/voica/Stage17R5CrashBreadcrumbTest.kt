@@ -107,17 +107,17 @@ class Stage17R5CrashBreadcrumbTest {
             """
             ----- pid 123 at 2026-10-27 19:58:00 -----
             Cmd line: io.github.ioannes78.voica.qa
-            \"main\" prio=5 tid=1 Native
-              | group=\"main\" sCount=1 ucsCount=0 flags=1 obj=0x123 self=0x456
+            "main" prio=5 tid=1 Native
+              | group="main" sCount=1 ucsCount=0 flags=1 obj=0x123 self=0x456
               native: #00 pc 0000000000090d88 /apex/com.android.runtime/lib64/bionic/libc.so (__epoll_pwait+8)
               at android.os.MessageQueue.nativePollOnce(Native method)
               at android.os.MessageQueue.next(MessageQueue.java:335)
               at android.os.Looper.loopOnce(Looper.java:186)
               at android.os.Looper.loop(Looper.java:313)
-            \"RenderThread\" prio=5 tid=17 Native
+            "RenderThread" prio=5 tid=17 Native
               native: #00 pc 0000000000012345 /vendor/lib64/egl/libGLES_mali.so (mali_wait+16)
               at android.graphics.HardwareRenderer.nSyncAndDrawFrame(Native method)
-            \"FinalizerDaemon\" prio=5 tid=10 Waiting
+            "FinalizerDaemon" prio=5 tid=10 Waiting
               at java.lang.Object.wait(Native method)
             """.trimIndent()
 
