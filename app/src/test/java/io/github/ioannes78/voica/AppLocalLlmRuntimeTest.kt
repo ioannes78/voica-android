@@ -3,7 +3,6 @@ package io.github.ioannes78.voica
 import io.github.ioannes78.voica.localllm.LiteRtLmRuntimeContract
 import io.github.ioannes78.voica.localllm.LocalLlmBackendPolicy
 import io.github.ioannes78.voica.localllm.LocalLlmFailureCode
-import io.github.ioannes78.voica.localllm.LocalLlmRuntimeConfig
 import io.github.ioannes78.voica.localllm.LocalLlmRuntimeException
 import io.github.ioannes78.voica.model.ActiveModel
 import io.github.ioannes78.voica.model.ModelCapabilities
@@ -20,47 +19,11 @@ import org.junit.Test
 
 class AppLocalLlmRuntimeTest {
     @Test
-    fun stage172Revision2ForcesAutoStructuredOutputToCpu() {
-        val original =
-            LocalLlmRuntimeConfig(
-                backendPolicy = LocalLlmBackendPolicy.AUTO,
-                responseJsonSchema = "{\"type\":\"object\"}",
-            )
+    fun stage172StructuredSummaryPresetRemainsAutoAfterR4D() {
+        val config = OfflineSummaryLocalLlmPreset.configFor(setOf("S00001"))
 
-        val effective = applyStage172Revision2BackendSafety(original)
-
-        assertEquals(LocalLlmBackendPolicy.CPU, effective.backendPolicy)
-        assertEquals(original.responseJsonSchema, effective.responseJsonSchema)
-        assertEquals(original.maxNumTokens, effective.maxNumTokens)
-        assertEquals(original.maxOutputTokens, effective.maxOutputTokens)
-    }
-
-    @Test
-    fun stage172Revision2LeavesUnconstrainedAutoGpuFirstCapabilityUntouched() {
-        val original = LocalLlmRuntimeConfig(backendPolicy = LocalLlmBackendPolicy.AUTO)
-
-        val effective = applyStage172Revision2BackendSafety(original)
-
-        assertEquals(LocalLlmBackendPolicy.AUTO, effective.backendPolicy)
-    }
-
-    @Test
-    fun stage172Revision2DoesNotOverrideExplicitDiagnosticBackend() {
-        val explicitGpu =
-            LocalLlmRuntimeConfig(
-                backendPolicy = LocalLlmBackendPolicy.GPU,
-                responseJsonSchema = "{\"type\":\"object\"}",
-            )
-        val explicitCpu = explicitGpu.copy(backendPolicy = LocalLlmBackendPolicy.CPU)
-
-        assertEquals(
-            LocalLlmBackendPolicy.GPU,
-            applyStage172Revision2BackendSafety(explicitGpu).backendPolicy,
-        )
-        assertEquals(
-            LocalLlmBackendPolicy.CPU,
-            applyStage172Revision2BackendSafety(explicitCpu).backendPolicy,
-        )
+        assertEquals(LocalLlmBackendPolicy.AUTO, config.backendPolicy)
+        assertTrue(config.responseJsonSchema?.isNotBlank() == true)
     }
 
     @Test
