@@ -21,7 +21,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.ioannes78.voica.OfflineSummaryRunPhase
 import io.github.ioannes78.voica.OfflineSummaryRunState
 import io.github.ioannes78.voica.VoicaApplication
@@ -53,8 +52,8 @@ fun AiSummaryProductCard(
     val coordinator = application.container.offlineSummaryCoordinator
     val modelManager = application.container.modelManager
     val aiSummaryRepository = application.container.aiSummaryRepository
-    val runtimeViewModel: OfflineSummaryProductViewModel =
-        viewModel(
+    val runtimeViewModel =
+        androidx.lifecycle.viewmodel.compose.viewModel<OfflineSummaryProductViewModel>(
             key = "offline-summary-runtime:$transcriptionId",
             factory =
                 remember(coordinator, modelManager, aiSummaryRepository) {
