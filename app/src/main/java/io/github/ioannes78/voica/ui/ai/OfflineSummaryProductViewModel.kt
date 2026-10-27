@@ -7,9 +7,11 @@ import io.github.ioannes78.voica.OfflineSummaryCoordinator
 import io.github.ioannes78.voica.OfflineSummaryRunState
 import io.github.ioannes78.voica.OfflineSummaryStartOutcome
 import io.github.ioannes78.voica.Stage172OfflineSummaryModelContract
-import io.github.ioannes78.voica.resolveManagedLocalLlmModel
+import io.github.ioannes78.voica.database.AiSummaryRepository
+import io.github.ioannes78.voica.database.AiSummaryStateValue
 import io.github.ioannes78.voica.localllm.LocalLlmBackendPolicy
 import io.github.ioannes78.voica.model.ModelManager
+import io.github.ioannes78.voica.resolveManagedLocalLlmModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,23 +23,27 @@ data class OfflineSummaryProductUiState(
     val recordingId: String? = null,
     val run: OfflineSummaryRunState? = null,
     val modelReady: Boolean? = null,
+    val resumableSummaryId: String? = null,
     val notice: String? = null,
 )
 
 /**
- * UI-only observer/controller for Stage 17.2.
+ * UI-only observer/controller for Stage 17 local summaries.
  *
  * It never owns LiteRT-LM resources. The application-scoped [OfflineSummaryCoordinator] remains the
- * generation owner when this ViewModel or the composable leaves the screen.
+ * sole generation owner when this ViewModel or the composable leaves the screen. Resume is always
+ * explicit and only offered for a persisted Stage 17.3 LONG task in FAILED/INTERRUPTED state.
  */
 class OfflineSummaryProductViewModel internal constructor(
     private val coordinator: OfflineSummaryCoordinator,
     private val modelManager: ModelManager,
+    private val aiSummaryRepository: AiSummaryRepository,
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(OfflineSummaryProductUiState())
     val state: StateFlow<OfflineSummaryProductUiState> = mutableState.asStateFlow()
 
     private var coordinatorJob: Job? = null
+    private var summaryJob: Job? = null
 
     fun bind(recordingId: String) {
         val normalized = recordingId.trim()
@@ -46,10 +52,12 @@ class OfflineSummaryProductViewModel internal constructor(
             mutableState.value =
                 mutableState.value.copy(run = coordinator.state.value[normalized])
             refreshModelStatus()
+            refreshResumableSummary()
             return
         }
 
         coordinatorJob?.cancel()
+        summaryJob?.cancel()
         mutableState.value =
             OfflineSummaryProductUiState(
                 recordingId = normalized,
@@ -62,6 +70,31 @@ class OfflineSummaryProductViewModel internal constructor(
                     val current = mutableState.value
                     if (current.recordingId == normalized) {
                         mutableState.value = current.copy(run = runs[normalized])
+                    }
+                }
+            }
+        summaryJob =
+            viewModelScope.launch {
+                aiSummaryRepository.observeForRecording(normalized).collectLatest { summaries ->
+                    val candidates =
+                        summaries
+                            .asSequence()
+                            .filter {
+                                it.status == AiSummaryStateValue.FAILED ||
+                                    it.status == AiSummaryStateValue.INTERRUPTED
+                            }
+                            .sortedByDescending { it.updatedAtMs }
+                            .toList()
+                    var resumable: String? = null
+                    for (summary in candidates) {
+                        if (aiSummaryRepository.isResumableOfflineSummary(summary.id)) {
+                            resumable = summary.id
+                            break
+                        }
+                    }
+                    val current = mutableState.value
+                    if (current.recordingId == normalized) {
+                        mutableState.value = current.copy(resumableSummaryId = resumable)
                     }
                 }
             }
@@ -87,6 +120,26 @@ class OfflineSummaryProductViewModel internal constructor(
         }
     }
 
+    fun refreshResumableSummary() {
+        val recordingId = mutableState.value.recordingId ?: return
+        viewModelScope.launch {
+            val summaries = mutableListOf<io.github.ioannes78.voica.database.AiSummaryEntity>()
+            val currentResumable = mutableState.value.resumableSummaryId
+            if (currentResumable != null && aiSummaryRepository.isResumableOfflineSummary(currentResumable)) {
+                return@launch
+            }
+            aiSummaryRepository.find(currentResumable.orEmpty())
+            val current = mutableState.value
+            if (current.recordingId == recordingId && summaries.isEmpty()) {
+                // The Room Flow collector above owns the authoritative candidate refresh. Clearing a
+                // stale id here prevents a disappeared task from leaving a misleading Continue CTA.
+                if (currentResumable != null && !aiSummaryRepository.isResumableOfflineSummary(currentResumable)) {
+                    mutableState.value = current.copy(resumableSummaryId = null)
+                }
+            }
+        }
+    }
+
     fun generate() {
         val recordingId = mutableState.value.recordingId ?: return
         viewModelScope.launch {
@@ -102,6 +155,27 @@ class OfflineSummaryProductViewModel internal constructor(
                 is OfflineSummaryStartOutcome.Rejected -> {
                     mutableState.value =
                         mutableState.value.copy(notice = outcome.message)
+                }
+            }
+        }
+    }
+
+    fun resume() {
+        val recordingId = mutableState.value.recordingId ?: return
+        val summaryId = mutableState.value.resumableSummaryId ?: return
+        viewModelScope.launch {
+            when (val outcome = coordinator.resume(recordingId, summaryId)) {
+                is OfflineSummaryStartOutcome.Started -> {
+                    mutableState.value =
+                        mutableState.value.copy(
+                            run = coordinator.state.value[recordingId],
+                            resumableSummaryId = null,
+                            notice = null,
+                        )
+                }
+
+                is OfflineSummaryStartOutcome.Rejected -> {
+                    mutableState.value = mutableState.value.copy(notice = outcome.message)
                 }
             }
         }
@@ -123,12 +197,14 @@ class OfflineSummaryProductViewModel internal constructor(
     class Factory(
         private val coordinator: OfflineSummaryCoordinator,
         private val modelManager: ModelManager,
+        private val aiSummaryRepository: AiSummaryRepository,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
             OfflineSummaryProductViewModel(
                 coordinator = coordinator,
                 modelManager = modelManager,
+                aiSummaryRepository = aiSummaryRepository,
             ) as T
     }
 }
