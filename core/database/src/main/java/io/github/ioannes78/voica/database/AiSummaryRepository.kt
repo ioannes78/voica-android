@@ -11,6 +11,7 @@ class AiSummaryRepository(
     private val transcriptionDao = database.transcriptionDao()
     private val structuredTranscriptInputBuilder = StructuredTranscriptInputBuilder(database)
     private val offlineSummaryPersistence = OfflineSummaryPersistenceRepository(database)
+    private val offlineSummaryLongPersistence = OfflineSummaryLongPersistenceRepository(database)
 
     fun observeForRecording(recordingId: String): Flow<List<AiSummaryEntity>> =
         dao.observeForRecording(recordingId)
@@ -34,7 +35,11 @@ class AiSummaryRepository(
             revisionId = revisionId,
         )
 
-    /** Single Room-v16 write boundary reused by the application-scoped offline summary coordinator. */
+    /** Single existing final-summary write boundary reused by Direct and Long execution. */
     fun offlineSummaryPersistenceRepository(): OfflineSummaryPersistenceRepository =
         offlineSummaryPersistence
+
+    /** Stage 17.3 durable MAP/REDUCE checkpoint boundary over Room v17. */
+    fun offlineSummaryLongPersistenceRepository(): OfflineSummaryLongPersistenceRepository =
+        offlineSummaryLongPersistence
 }
