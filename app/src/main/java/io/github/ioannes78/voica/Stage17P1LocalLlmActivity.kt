@@ -32,10 +32,13 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.ai.ConservativeOfflineSummaryTokenEstimator
+import io.github.ioannes78.voica.ai.SummaryResultCodec
+import io.github.ioannes78.voica.ai.SummaryStructuredOutputException
 import io.github.ioannes78.voica.localllm.LocalLlmBackendPolicy
 import io.github.ioannes78.voica.localllm.LocalLlmGenerationResult
 import io.github.ioannes78.voica.localllm.LocalLlmResourceDecision
 import io.github.ioannes78.voica.localllm.LocalLlmResourceReason
+import io.github.ioannes78.voica.localllm.LocalLlmRuntimeConfig
 import io.github.ioannes78.voica.localllm.LocalLlmRuntimeDiagnosticObserverRegistry
 import io.github.ioannes78.voica.localllm.LocalLlmRuntimeException
 import io.github.ioannes78.voica.localllm.LocalLlmRuntimeState
@@ -102,6 +105,9 @@ private fun Stage17P1LocalLlmScreen(
     var activeJob by remember { mutableStateOf<Job?>(null) }
     var operation by remember { mutableStateOf<String?>(null) }
     var resultText by remember { mutableStateOf<String?>(null) }
+    var isolationSources by remember { mutableStateOf<List<Stage17R5IsolationSource>>(emptyList()) }
+    var isolationSourceIndex by remember { mutableStateOf(0) }
+    var isolationSourceStatus by remember { mutableStateOf("正在查找可用于正式 Summary prompt 的转写…") }
 
     suspend fun refreshModelStatus() {
         val active = container.modelManager.activeModel(STAGE17_GEMMA_4_E2B_CANDIDATE_ID)
@@ -113,23 +119,42 @@ private fun Stage17P1LocalLlmScreen(
             }
     }
 
-    LaunchedEffect(Unit) { refreshModelStatus() }
+    suspend fun refreshIsolationSources() {
+        isolationSourceStatus = "正在查找可用于正式 Summary prompt 的转写…"
+        val loaded =
+            runCatching { container.loadStage17R5IsolationSources() }
+                .getOrElse { error ->
+                    isolationSourceStatus =
+                        "加载失败：${error.message ?: error::class.java.simpleName}"
+                    emptyList()
+                }
+        isolationSources = loaded
+        isolationSourceIndex = 0
+        if (loaded.isNotEmpty()) {
+            isolationSourceStatus = "READY · ${loaded.size} 条可用转写"
+        } else if (!isolationSourceStatus.startsWith("加载失败")) {
+            isolationSourceStatus = "没有找到已完成且符合 Stage 17.2 单次预算的转写"
+        }
+    }
 
-    fun start(
-        policy: LocalLlmBackendPolicy,
+    LaunchedEffect(Unit) {
+        refreshModelStatus()
+        refreshIsolationSources()
+    }
+
+    fun startRequest(
+        label: String,
+        prompt: String,
+        config: LocalLlmRuntimeConfig,
         resourceOverride: LocalLlmResourceDecision? = null,
-        prompt: String = Stage17LocalLlmProbe.PROBE_PROMPT,
+        includeResponseInDiagnostics: Boolean = true,
+        structuredValidationRefs: Set<String>? = null,
+        estimatedPromptTokens: Int = ConservativeOfflineSummaryTokenEstimator.estimateTokens(prompt),
     ) {
         if (activeJob != null) return
         resultText = null
-        operation = "$policy · 运行中"
-        val config =
-            LocalLlmValidatedPresets.P0_BASELINE.copy(
-                backendPolicy = policy,
-            )
-        r5CrashBreadcrumbs.arm(
-            estimatedPromptTokens = ConservativeOfflineSummaryTokenEstimator.estimateTokens(prompt),
-        )
+        operation = "$label · 运行中"
+        r5CrashBreadcrumbs.arm(estimatedPromptTokens = estimatedPromptTokens)
         LocalLlmRuntimeDiagnosticObserverRegistry.install(r5CrashBreadcrumbs::record)
         activeJob =
             scope.launch {
@@ -140,16 +165,46 @@ private fun Stage17P1LocalLlmScreen(
                             config = config,
                             resourceDecisionOverride = resourceOverride,
                         )
-                    resultText = result.toP1DiagnosticsText()
-                    operation = "$policy · 完成"
+                    val validationFailure =
+                        structuredValidationRefs?.let { refs ->
+                            runCatching { SummaryResultCodec.decode(result.text, refs) }
+                                .exceptionOrNull()
+                        }
+                    val validationText =
+                        if (structuredValidationRefs == null) {
+                            null
+                        } else if (validationFailure == null) {
+                            "structuredValidation=PASS"
+                        } else {
+                            val code =
+                                (validationFailure as? SummaryStructuredOutputException)
+                                    ?.code
+                                    ?.name
+                                    ?: validationFailure::class.java.simpleName
+                            "structuredValidation=FAIL:$code"
+                        }
+                    resultText =
+                        buildString {
+                            append(result.toP1DiagnosticsText(includeResponseInDiagnostics))
+                            if (validationText != null) {
+                                appendLine()
+                                append(validationText)
+                            }
+                        }
+                    operation =
+                        when {
+                            validationText == null -> "$label · 完成"
+                            validationFailure == null -> "$label · 完成 · JSON PASS"
+                            else -> "$label · 完成 · JSON FAIL"
+                        }
                 } catch (_: CancellationException) {
-                    operation = "$policy · 已取消"
+                    operation = "$label · 已取消"
                 } catch (error: LocalLlmRuntimeException) {
                     resultText = error.failure.toString()
-                    operation = "$policy · 失败 · ${error.failure.code}"
+                    operation = "$label · 失败 · ${error.failure.code}"
                 } catch (error: Throwable) {
                     resultText = "${error::class.java.name}: ${error.message ?: "n/a"}"
-                    operation = "$policy · 失败"
+                    operation = "$label · 失败"
                 } finally {
                     LocalLlmRuntimeDiagnosticObserverRegistry.install(null)
                     r5CrashBreadcrumbs.disarm()
@@ -159,7 +214,42 @@ private fun Stage17P1LocalLlmScreen(
             }
     }
 
+    fun start(
+        policy: LocalLlmBackendPolicy,
+        resourceOverride: LocalLlmResourceDecision? = null,
+        prompt: String = Stage17LocalLlmProbe.PROBE_PROMPT,
+    ) {
+        startRequest(
+            label = policy.name,
+            prompt = prompt,
+            config =
+                LocalLlmValidatedPresets.P0_BASELINE.copy(
+                    backendPolicy = policy,
+                ),
+            resourceOverride = resourceOverride,
+        )
+    }
+
+    fun startIsolation(testCase: Stage17R5IsolationCase) {
+        val source = isolationSources.getOrNull(isolationSourceIndex) ?: return
+        val request = buildStage17R5IsolationRequest(testCase, source)
+        startRequest(
+            label = "R5-${testCase.code}",
+            prompt = request.prompt,
+            config = request.config,
+            includeResponseInDiagnostics = false,
+            structuredValidationRefs =
+                if (request.testCase.requiresStructuredValidation) {
+                    request.allowedEvidenceRefs
+                } else {
+                    null
+                },
+            estimatedPromptTokens = request.estimatedPromptTokens,
+        )
+    }
+
     val busy = activeJob != null
+    val selectedIsolationSource = isolationSources.getOrNull(isolationSourceIndex)
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 18.dp),
@@ -245,6 +335,87 @@ private fun Stage17P1LocalLlmScreen(
                         ) {
                             Text("清除")
                         }
+                    }
+                }
+            }
+        }
+        item {
+            P1Card("R5-B Foreground Isolation Matrix") {
+                Text(
+                    "只用于前台亮屏、无锁屏、无 Home/background 的回归隔离。正式 Summary 的 AUTO+schema→CPU containment 不受影响。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(isolationSourceStatus, style = MaterialTheme.typography.bodySmall)
+                if (selectedIsolationSource != null) {
+                    Text("录音=${selectedIsolationSource.displayName}")
+                    Text(
+                        "duration=${formatQaDuration(selectedIsolationSource.durationMs)} · " +
+                            "formalPromptTokens=" +
+                            ConservativeOfflineSummaryTokenEstimator.estimateTokens(
+                                selectedIsolationSource.formalPrompt.text,
+                            ) +
+                            " · evidenceRefs=${selectedIsolationSource.formalPrompt.allowedEvidenceRefs.size}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            enabled = !busy && isolationSourceIndex > 0,
+                            onClick = { isolationSourceIndex -= 1 },
+                        ) {
+                            Text("上一条")
+                        }
+                        OutlinedButton(
+                            enabled = !busy && isolationSourceIndex < isolationSources.lastIndex,
+                            onClick = { isolationSourceIndex += 1 },
+                        ) {
+                            Text("下一条")
+                        }
+                        OutlinedButton(
+                            enabled = !busy,
+                            onClick = { scope.launch { refreshIsolationSources() } },
+                        ) {
+                            Text("刷新")
+                        }
+                    }
+                    Text(
+                        "严格按 B1 → B2 → B3，一次只运行一项；任一 process restart / POISONED / RELEASE_UNCONFIRMED 即停止。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Button(
+                        enabled = !busy,
+                        onClick = {
+                            startIsolation(Stage17R5IsolationCase.B1_FORMAL_PROMPT_GPU_NO_SCHEMA)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("B1 · 正式 prompt + GPU + 无 schema")
+                    }
+                    OutlinedButton(
+                        enabled = !busy,
+                        onClick = {
+                            startIsolation(Stage17R5IsolationCase.B2_SMALL_PROMPT_GPU_FORMAL_SCHEMA)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("B2 · 小 prompt + GPU + 正式 schema")
+                    }
+                    OutlinedButton(
+                        enabled = !busy,
+                        onClick = {
+                            startIsolation(Stage17R5IsolationCase.B3_FORMAL_PROMPT_GPU_FORMAL_SCHEMA)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("B3 · 正式 prompt + GPU + 正式 schema")
+                    }
+                } else {
+                    OutlinedButton(
+                        enabled = !busy,
+                        onClick = { scope.launch { refreshIsolationSources() } },
+                    ) {
+                        Text("重新查找转写")
                     }
                 }
             }
@@ -364,7 +535,9 @@ private fun P1Card(
     }
 }
 
-private fun LocalLlmGenerationResult.toP1DiagnosticsText(): String {
+private fun LocalLlmGenerationResult.toP1DiagnosticsText(
+    includeResponse: Boolean = true,
+): String {
     val d = diagnostics
     return buildString {
         appendLine("runtime=${d.runtimeVersion}")
@@ -383,6 +556,18 @@ private fun LocalLlmGenerationResult.toP1DiagnosticsText(): String {
         appendLine("pssGeneratedKb=${d.pssAfterGenerationKb ?: "n/a"}")
         appendLine("pssClosedKb=${d.pssAfterCloseKb ?: "n/a"}")
         appendLine("peakPssKb=${d.peakPssKb ?: "n/a"}")
-        appendLine("response=${text.take(512)}")
+        if (includeResponse) {
+            appendLine("response=${text.take(512)}")
+        } else {
+            appendLine("response=<omitted>")
+        }
     }.trimEnd()
+}
+
+private fun formatQaDuration(durationMs: Long?): String {
+    if (durationMs == null || durationMs < 0L) return "n/a"
+    val totalSeconds = durationMs / 1_000L
+    val minutes = totalSeconds / 60L
+    val seconds = totalSeconds % 60L
+    return "%d:%02d".format(minutes, seconds)
 }
