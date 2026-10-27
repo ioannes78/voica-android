@@ -10,6 +10,7 @@ import android.os.PowerManager
 import android.os.Process
 import io.github.ioannes78.voica.localllm.LocalLlmRuntimeDiagnosticPhase
 import io.github.ioannes78.voica.localllm.LocalLlmRuntimePhase
+import java.io.BufferedReader
 import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,7 +24,9 @@ import kotlinx.coroutines.flow.asStateFlow
  * identify the last phase that completed a durable write before native process death.
  *
  * R5-C also enriches a breadcrumb recovered from a prior process with Android's scalar
- * ApplicationExitInfo metadata when available. Tombstone/trace content is deliberately not read.
+ * ApplicationExitInfo metadata when available. For ANR exits, only a bounded, content-free thread
+ * classification is derived from the system trace: thread state plus sanitized main/RenderThread
+ * top frames. The raw trace is never persisted, displayed, logged or uploaded.
  */
 internal data class Stage17R5CrashBreadcrumb(
     val pid: Int,
@@ -48,6 +51,19 @@ internal data class Stage17R5CrashBreadcrumb(
     val exitPssKb: Long? = null,
     val exitRssKb: Long? = null,
     val exitTimestampEpochMs: Long? = null,
+    val anrTraceAvailable: Boolean? = null,
+    val anrMainState: String? = null,
+    val anrMainTopFrames: List<String> = emptyList(),
+    val anrRenderThreadState: String? = null,
+    val anrRenderThreadTopFrames: List<String> = emptyList(),
+)
+
+internal data class Stage17R5AnrTraceSummary(
+    val traceAvailable: Boolean,
+    val mainState: String? = null,
+    val mainTopFrames: List<String> = emptyList(),
+    val renderThreadState: String? = null,
+    val renderThreadTopFrames: List<String> = emptyList(),
 )
 
 internal class Stage17R5CrashBreadcrumbStore(
@@ -202,6 +218,13 @@ internal class Stage17R5CrashBreadcrumbStore(
             return breadcrumb
         }
 
+        val anrSummary =
+            if (exitInfo.reason == ApplicationExitInfo.REASON_ANR) {
+                readStage17R5AnrTraceSummary(exitInfo)
+            } else {
+                null
+            }
+
         return breadcrumb.copy(
             exitReason = exitInfo.reason,
             exitReasonLabel = stage17R5ExitReasonLabel(exitInfo.reason),
@@ -210,7 +233,27 @@ internal class Stage17R5CrashBreadcrumbStore(
             exitPssKb = exitInfo.pss.coerceAtLeast(0L),
             exitRssKb = exitInfo.rss.coerceAtLeast(0L),
             exitTimestampEpochMs = exitInfo.timestamp,
+            anrTraceAvailable = anrSummary?.traceAvailable,
+            anrMainState = anrSummary?.mainState,
+            anrMainTopFrames = anrSummary?.mainTopFrames.orEmpty(),
+            anrRenderThreadState = anrSummary?.renderThreadState,
+            anrRenderThreadTopFrames = anrSummary?.renderThreadTopFrames.orEmpty(),
         )
+    }
+
+    private fun readStage17R5AnrTraceSummary(
+        exitInfo: ApplicationExitInfo,
+    ): Stage17R5AnrTraceSummary {
+        val rawTrace =
+            runCatching {
+                exitInfo.traceInputStream
+                    ?.bufferedReader(Charsets.UTF_8)
+                    ?.use(::readBoundedStage17R5AnrTrace)
+            }.getOrNull()
+        if (rawTrace.isNullOrBlank()) {
+            return Stage17R5AnrTraceSummary(traceAvailable = false)
+        }
+        return parseStage17R5AnrTraceSummary(rawTrace)
     }
 
     private companion object {
@@ -265,6 +308,95 @@ internal fun stage17R5ExitReasonLabel(reason: Int): String =
         else -> "REASON_$reason"
     }
 
+internal fun parseStage17R5AnrTraceSummary(trace: String): Stage17R5AnrTraceSummary {
+    var activeThread: Stage17R5TraceThread? = null
+    var mainState: String? = null
+    var renderState: String? = null
+    val mainFrames = mutableListOf<String>()
+    val renderFrames = mutableListOf<String>()
+
+    trace.lineSequence().forEach { rawLine ->
+        val line = rawLine.trim()
+        if (line.startsWith('"')) {
+            activeThread =
+                when {
+                    line.startsWith("\"main\"") -> Stage17R5TraceThread.MAIN
+                    line.startsWith("\"RenderThread\"") -> Stage17R5TraceThread.RENDER_THREAD
+                    else -> null
+                }
+            val state = extractStage17R5ThreadState(line)
+            when (activeThread) {
+                Stage17R5TraceThread.MAIN -> mainState = mainState ?: state
+                Stage17R5TraceThread.RENDER_THREAD -> renderState = renderState ?: state
+                null -> Unit
+            }
+            return@forEach
+        }
+
+        val frame = sanitizeStage17R5TraceFrame(line) ?: return@forEach
+        when (activeThread) {
+            Stage17R5TraceThread.MAIN -> {
+                if (mainFrames.size < R5_ANR_TOP_FRAME_LIMIT) mainFrames += frame
+            }
+            Stage17R5TraceThread.RENDER_THREAD -> {
+                if (renderFrames.size < R5_ANR_TOP_FRAME_LIMIT) renderFrames += frame
+            }
+            null -> Unit
+        }
+    }
+
+    return Stage17R5AnrTraceSummary(
+        traceAvailable = true,
+        mainState = mainState,
+        mainTopFrames = mainFrames,
+        renderThreadState = renderState,
+        renderThreadTopFrames = renderFrames,
+    )
+}
+
+private fun readBoundedStage17R5AnrTrace(reader: BufferedReader): String =
+    buildString {
+        var lineCount = 0
+        while (length < R5_ANR_TRACE_MAX_CHARS && lineCount < R5_ANR_TRACE_MAX_LINES) {
+            val line = reader.readLine() ?: break
+            val remaining = R5_ANR_TRACE_MAX_CHARS - length
+            if (remaining <= 0) break
+            append(line.take(remaining))
+            append('\n')
+            lineCount += 1
+        }
+    }
+
+private fun extractStage17R5ThreadState(header: String): String? =
+    R5_ANR_THREAD_STATES.firstOrNull { state ->
+        Regex("(?:^|\\s)${Regex.escape(state)}(?:\\s|$)").containsMatchIn(header)
+    }
+
+private fun sanitizeStage17R5TraceFrame(line: String): String? {
+    if (line.startsWith("at ")) {
+        return line.take(R5_ANR_FRAME_MAX_CHARS)
+    }
+    if (!line.startsWith("native:")) return null
+
+    val library =
+        line.split(' ')
+            .firstOrNull { token -> token.startsWith('/') && token.contains(".so") }
+            ?.substringAfterLast('/')
+            ?.take(R5_ANR_LIBRARY_MAX_CHARS)
+    val symbol =
+        Regex("\\(([^()+]+)(?:\\+[^)]*)?\\)")
+            .find(line)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.trim()
+            ?.take(R5_ANR_SYMBOL_MAX_CHARS)
+    return buildString {
+        append("native")
+        if (!library.isNullOrBlank()) append(":$library")
+        if (!symbol.isNullOrBlank()) append(":$symbol")
+    }
+}
+
 internal fun Stage17R5CrashBreadcrumb.toQaDisplayText(previousProcess: Boolean): String =
     buildString {
         appendLine("source=${if (previousProcess) "PREVIOUS_PROCESS" else "CURRENT_PROCESS"}")
@@ -290,7 +422,22 @@ internal fun Stage17R5CrashBreadcrumb.toQaDisplayText(previousProcess: Boolean):
                 appendLine("exitImportance=${exitImportance ?: "n/a"}")
                 appendLine("exitPssKb=${exitPssKb ?: "n/a"}")
                 appendLine("exitRssKb=${exitRssKb ?: "n/a"}")
-                append("exitTimestampEpochMs=${exitTimestampEpochMs ?: "n/a"}")
+                appendLine("exitTimestampEpochMs=${exitTimestampEpochMs ?: "n/a"}")
+                if (exitReason == ApplicationExitInfo.REASON_ANR) {
+                    appendLine("anrTraceAvailable=${anrTraceAvailable ?: false}")
+                    appendLine("anrMainState=${anrMainState ?: "n/a"}")
+                    appendLine(
+                        "anrMainTopFrames=" +
+                            anrMainTopFrames.joinToString(" | ").ifBlank { "n/a" },
+                    )
+                    appendLine("anrRenderThreadState=${anrRenderThreadState ?: "n/a"}")
+                    append(
+                        "anrRenderThreadTopFrames=" +
+                            anrRenderThreadTopFrames.joinToString(" | ").ifBlank { "n/a" },
+                    )
+                } else {
+                    append("anrTraceAvailable=n/a")
+                }
             } else {
                 append("exitReason=UNAVAILABLE")
             }
@@ -299,5 +446,18 @@ internal fun Stage17R5CrashBreadcrumb.toQaDisplayText(previousProcess: Boolean):
         }
     }
 
+private enum class Stage17R5TraceThread {
+    MAIN,
+    RENDER_THREAD,
+}
+
 private const val R5_PROGRESS_EMISSION_INTERVAL = 16L
 private const val R5_PROGRESS_TIME_INTERVAL_MS = 1_000L
+private const val R5_ANR_TRACE_MAX_CHARS = 96_000
+private const val R5_ANR_TRACE_MAX_LINES = 2_000
+private const val R5_ANR_TOP_FRAME_LIMIT = 5
+private const val R5_ANR_FRAME_MAX_CHARS = 180
+private const val R5_ANR_LIBRARY_MAX_CHARS = 64
+private const val R5_ANR_SYMBOL_MAX_CHARS = 96
+private val R5_ANR_THREAD_STATES =
+    listOf("Runnable", "Blocked", "Waiting", "TimedWaiting", "Sleeping", "Native", "Suspended")
