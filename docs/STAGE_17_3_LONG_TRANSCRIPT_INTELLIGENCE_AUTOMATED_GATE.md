@@ -115,8 +115,9 @@ Stage 17.3 P6 已增加 Long FINAL 兼容回归，验证长路径不会分叉成
 - P6 Long completion compatibility：Android PR CI `#2802` — SUCCESS
 - P6 Revision/export compatibility：Android PR CI `#2803` — SUCCESS
 - P7 long-summary runtime boundary：Android PR CI `#2804` — SUCCESS
+- P7 final unified product/evidence boundary：Android PR CI `#2809` — SUCCESS
 
-Fast PR Gate continues to run the full repository unit/debug compile matrix plus the Stage 17 boundary script and FSMN candidate runtime boundary.
+Fast PR Gate continues to run the full repository unit/debug compile matrix plus the Stage 17 boundary script and FSMN candidate runtime boundary。
 
 ---
 
