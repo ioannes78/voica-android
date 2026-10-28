@@ -4,6 +4,33 @@ import io.github.ioannes78.voica.ai.OfflineSummaryLongContract
 import io.github.ioannes78.voica.ai.StructuredTranscriptInput
 import kotlinx.coroutines.flow.Flow
 
+/** Structured Stage 17.3 product phase derived from Room business-state truth. */
+enum class OfflineSummaryLongProductStage {
+    PLANNING,
+    MAPPING,
+    REDUCING,
+    VALIDATING,
+}
+
+data class OfflineSummaryLongProductProgress(
+    val stage: OfflineSummaryLongProductStage,
+    /** 1-based active/pending step within [total], when the phase has bounded work. */
+    val current: Int? = null,
+    val total: Int? = null,
+    /** REDUCE tree level; null outside REDUCING. */
+    val level: Int? = null,
+) {
+    init {
+        require((current == null) == (total == null)) { "current/total must be present together" }
+        if (current != null && total != null) {
+            require(total > 0)
+            require(current in 1..total)
+        }
+        require(level == null || level > 0)
+        require(stage == OfflineSummaryLongProductStage.REDUCING || level == null)
+    }
+}
+
 /** Provider-neutral access to retained historical summary content. */
 class AiSummaryRepository(
     private val database: VoicaDatabase,
@@ -49,6 +76,15 @@ class AiSummaryRepository(
             task.intermediateSchemaVersion == OfflineSummaryLongContract.INTERMEDIATE_SCHEMA_VERSION
     }
 
+    /**
+     * Returns the current long-summary product phase/progress directly from the durable Room task.
+     * Direct summaries and terminal Long tasks return null. UI must never infer this from message text.
+     */
+    suspend fun offlineSummaryLongProductProgress(summaryId: String): OfflineSummaryLongProductProgress? {
+        val snapshot = offlineSummaryLongPersistence.snapshot(summaryId) ?: return null
+        return buildOfflineSummaryLongProductProgress(snapshot.task, snapshot.nodes)
+    }
+
     /** Builds the exact already-resolved effective transcription lineage; it never re-selects current. */
     suspend fun buildStructuredTranscriptSnapshot(
         transcriptionId: String,
@@ -66,4 +102,68 @@ class AiSummaryRepository(
     /** Stage 17.3 durable MAP/REDUCE checkpoint boundary over Room v17. */
     fun offlineSummaryLongPersistenceRepository(): OfflineSummaryLongPersistenceRepository =
         offlineSummaryLongPersistence
+}
+
+internal fun buildOfflineSummaryLongProductProgress(
+    task: OfflineSummaryTaskEntity,
+    nodes: List<OfflineSummaryNodeEntity>,
+): OfflineSummaryLongProductProgress? {
+    if (task.route != OfflineSummaryTaskRouteValue.LONG) return null
+    return when (task.status) {
+        OfflineSummaryTaskStateValue.PLANNING ->
+            OfflineSummaryLongProductProgress(OfflineSummaryLongProductStage.PLANNING)
+
+        OfflineSummaryTaskStateValue.MAPPING -> {
+            val mapNodes =
+                nodes
+                    .filter { it.nodeType == OfflineSummaryNodeTypeValue.MAP && it.level == 0 }
+                    .sortedBy { it.ordinal }
+            val total = task.totalLeafChunks.takeIf { it > 0 } ?: mapNodes.size.takeIf { it > 0 }
+            val current = total?.let { productStep(mapNodes, it) }
+            OfflineSummaryLongProductProgress(
+                stage = OfflineSummaryLongProductStage.MAPPING,
+                current = current,
+                total = total,
+            )
+        }
+
+        OfflineSummaryTaskStateValue.REDUCING -> {
+            val level = task.currentLevel.takeIf { it > 0 }
+            val levelNodes =
+                level?.let { currentLevel ->
+                    nodes
+                        .filter {
+                            it.nodeType == OfflineSummaryNodeTypeValue.REDUCE &&
+                                it.level == currentLevel
+                        }
+                        .sortedBy { it.ordinal }
+                }.orEmpty()
+            val total = levelNodes.size.takeIf { it > 0 }
+            val current = total?.let { productStep(levelNodes, it) }
+            OfflineSummaryLongProductProgress(
+                stage = OfflineSummaryLongProductStage.REDUCING,
+                current = current,
+                total = total,
+                level = level,
+            )
+        }
+
+        OfflineSummaryTaskStateValue.VALIDATING ->
+            OfflineSummaryLongProductProgress(OfflineSummaryLongProductStage.VALIDATING)
+
+        else -> null
+    }
+}
+
+private fun productStep(
+    nodes: List<OfflineSummaryNodeEntity>,
+    total: Int,
+): Int {
+    val runningIndex = nodes.indexOfFirst { it.status == OfflineSummaryNodeStateValue.RUNNING }
+    if (runningIndex >= 0) return (runningIndex + 1).coerceIn(1, total)
+
+    val nextIndex = nodes.indexOfFirst { it.status != OfflineSummaryNodeStateValue.VALIDATED }
+    if (nextIndex >= 0) return (nextIndex + 1).coerceIn(1, total)
+
+    return total
 }

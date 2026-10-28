@@ -27,6 +27,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.ioannes78.voica.OfflineSummaryRunPhase
 import io.github.ioannes78.voica.OfflineSummaryRunState
 import io.github.ioannes78.voica.VoicaApplication
+import io.github.ioannes78.voica.ai.OfflineSummaryDirectBudgetSpec
+import io.github.ioannes78.voica.database.OfflineSummaryLongProductProgress
+import io.github.ioannes78.voica.database.OfflineSummaryLongProductStage
 import io.github.ioannes78.voica.database.RecordingCandidateAttentionEntity
 import io.github.ioannes78.voica.database.SearchDocumentEntity
 import kotlinx.coroutines.launch
@@ -83,6 +86,20 @@ fun AiSummaryProductCard(
                     .collect { value = it }
             }
         }
+    val longProgress by
+        produceState<OfflineSummaryLongProductProgress?>(
+            initialValue = null,
+            offlineState.run,
+        ) {
+            val run = offlineState.run
+            value =
+                if (run == null) {
+                    null
+                } else {
+                    aiSummaryRepository.offlineSummaryLongProductProgress(run.summaryId)
+                        ?: run.longPlanningFallback()
+                }
+        }
 
     LaunchedEffect(transcriptionId) {
         viewModel.bind(transcriptionId)
@@ -109,6 +126,7 @@ fun AiSummaryProductCard(
             OfflineSummaryGenerationPanel(
                 hasCompletedSummary = hasCompletedSummary,
                 state = offlineState,
+                longProgress = longProgress,
                 onGenerate = offlineSummaryViewModel::generate,
                 onResume = offlineSummaryViewModel::resume,
                 onCancel = offlineSummaryViewModel::cancel,
@@ -153,6 +171,7 @@ fun AiSummaryProductCard(
 private fun OfflineSummaryGenerationPanel(
     hasCompletedSummary: Boolean,
     state: OfflineSummaryProductUiState,
+    longProgress: OfflineSummaryLongProductProgress?,
     onGenerate: () -> Unit,
     onResume: () -> Unit,
     onCancel: () -> Unit,
@@ -177,15 +196,10 @@ private fun OfflineSummaryGenerationPanel(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     Text(
-                        when (run?.phase) {
-                            OfflineSummaryRunPhase.PREPARING -> "正在准备"
-                            OfflineSummaryRunPhase.ANALYZING -> "正在本地分析"
-                            OfflineSummaryRunPhase.VALIDATING -> "正在生成最终总结"
-                            else -> "正在生成离线总结"
-                        },
+                        offlineSummaryRuntimeTitle(run, longProgress),
                         style = MaterialTheme.typography.titleMedium,
                     )
-                    run?.message?.takeIf { it.isNotBlank() }?.let { progress ->
+                    offlineSummaryRuntimeDetail(run, longProgress)?.takeIf { it.isNotBlank() }?.let { progress ->
                         Text(
                             progress,
                             style = MaterialTheme.typography.bodyMedium,
@@ -355,10 +369,69 @@ private fun OfflineSummaryGenerationPanel(
     }
 }
 
+internal fun offlineSummaryRuntimeTitle(
+    run: OfflineSummaryRunState?,
+    longProgress: OfflineSummaryLongProductProgress?,
+): String =
+    when (longProgress?.stage) {
+        OfflineSummaryLongProductStage.PLANNING -> "正在规划长文本"
+        OfflineSummaryLongProductStage.MAPPING -> "正在分段分析"
+        OfflineSummaryLongProductStage.REDUCING -> "正在层级合并"
+        OfflineSummaryLongProductStage.VALIDATING -> "正在生成最终总结"
+        null ->
+            when (run?.phase) {
+                OfflineSummaryRunPhase.PREPARING -> "正在准备"
+                OfflineSummaryRunPhase.ANALYZING -> "正在本地分析"
+                OfflineSummaryRunPhase.VALIDATING -> "正在生成最终总结"
+                else -> "正在生成离线总结"
+            }
+    }
+
+internal fun offlineSummaryRuntimeDetail(
+    run: OfflineSummaryRunState?,
+    longProgress: OfflineSummaryLongProductProgress?,
+): String? =
+    when (longProgress?.stage) {
+        OfflineSummaryLongProductStage.MAPPING ->
+            if (longProgress.current != null && longProgress.total != null) {
+                "分段 ${longProgress.current}/${longProgress.total}"
+            } else {
+                run?.message
+            }
+
+        OfflineSummaryLongProductStage.REDUCING -> {
+            val level = longProgress.level?.let { "第 $it 层" }
+            val step =
+                if (longProgress.current != null && longProgress.total != null) {
+                    "${longProgress.current}/${longProgress.total}"
+                } else {
+                    null
+                }
+            listOfNotNull(level, step).joinToString(" · ").ifBlank { run?.message.orEmpty() }.ifBlank { null }
+        }
+
+        OfflineSummaryLongProductStage.PLANNING,
+        OfflineSummaryLongProductStage.VALIDATING,
+        null,
+        -> run?.message
+    }
+
 private fun OfflineSummaryRunState?.isActiveOfflineSummaryGeneration(): Boolean =
     this?.phase == OfflineSummaryRunPhase.PREPARING ||
         this?.phase == OfflineSummaryRunPhase.ANALYZING ||
         this?.phase == OfflineSummaryRunPhase.VALIDATING
+
+private fun OfflineSummaryRunState.longPlanningFallback(): OfflineSummaryLongProductProgress? {
+    val directLimit = OfflineSummaryDirectBudgetSpec().maxEstimatedPromptTokens
+    return if (
+        phase == OfflineSummaryRunPhase.ANALYZING &&
+        (estimatedPromptTokens ?: 0) > directLimit
+    ) {
+        OfflineSummaryLongProductProgress(OfflineSummaryLongProductStage.PLANNING)
+    } else {
+        null
+    }
+}
 
 private fun OfflineSummaryProductUiState.shouldShowCompletedSummaryNotice(): Boolean =
     run?.phase == OfflineSummaryRunPhase.FAILED || notice != null
