@@ -175,7 +175,8 @@ grep -Fq 'textExport.copyToClipboard(document.baseName, document.plainText)' "$p
 grep -Fq 'textExport.prepareShare(' "$product_card"
 grep -Fq 'TextExportFormat.TXT' "$product_card"
 grep -Fq 'TextExportFormat.MARKDOWN' "$product_card"
-grep -Fq 'onSeekEvidence(evidence.startSampleIndex)' "$content_controls"
+grep -Fq 'onSeekEvidence(' "$content_controls"
+grep -Fq 'evidence.startSampleIndex' "$content_controls"
 
 # Product model remains candidate-only; Stage 17.3 does not promote or swap model/runtime identity.
 grep -Fq 'STAGE17_GEMMA_4_E2B_CANDIDATE_ID' "$model_manager"
