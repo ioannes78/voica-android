@@ -50,16 +50,19 @@ fun AiSummaryProductCard(
 ) {
     val application = LocalContext.current.applicationContext as VoicaApplication
     val scope = rememberCoroutineScope()
+    val aiSummaryRepository = application.container.aiSummaryRepository
     val offlineSummaryViewModel: OfflineSummaryProductViewModel =
         viewModel(
             factory =
                 remember(
                     application.container.offlineSummaryCoordinator,
                     application.container.modelManager,
+                    aiSummaryRepository,
                 ) {
                     OfflineSummaryProductViewModel.Factory(
                         coordinator = application.container.offlineSummaryCoordinator,
                         modelManager = application.container.modelManager,
+                        aiSummaryRepository = aiSummaryRepository,
                     )
                 },
         )
@@ -83,7 +86,7 @@ fun AiSummaryProductCard(
 
     LaunchedEffect(transcriptionId) {
         viewModel.bind(transcriptionId)
-        application.container.aiSummaryRepository
+        aiSummaryRepository
             .recordingIdForTranscription(transcriptionId)
             ?.let(offlineSummaryViewModel::bind)
     }
