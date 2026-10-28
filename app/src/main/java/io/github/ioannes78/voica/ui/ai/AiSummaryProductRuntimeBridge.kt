@@ -208,4 +208,3 @@ private fun offlineSummaryRuntimeTitle(run: OfflineSummaryRunState): String =
         OfflineSummaryRunPhase.FAILED -> "总结失败"
         OfflineSummaryRunPhase.CANCELLED -> "总结已取消"
     }
-}
