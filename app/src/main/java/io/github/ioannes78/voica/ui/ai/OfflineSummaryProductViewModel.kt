@@ -136,7 +136,10 @@ class OfflineSummaryProductViewModel internal constructor(
                         notice = null,
                     )
                 is OfflineSummaryStartOutcome.Rejected ->
-                    mutableState.value = mutableState.value.copy(notice = outcome.message)
+                    mutableState.value = mutableState.value.copy(
+                        resumableSummaryId = null,
+                        notice = outcome.message,
+                    )
             }
         }
     }

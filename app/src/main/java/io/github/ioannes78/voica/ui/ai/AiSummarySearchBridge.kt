@@ -52,7 +52,7 @@ fun AiSummaryProductCard(
     val scope = rememberCoroutineScope()
     val aiSummaryRepository = application.container.aiSummaryRepository
     val offlineSummaryViewModel: OfflineSummaryProductViewModel =
-        viewModel(
+        androidx.lifecycle.viewmodel.compose.viewModel(
             factory =
                 remember(
                     application.container.offlineSummaryCoordinator,
@@ -100,11 +100,17 @@ fun AiSummaryProductCard(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        if (!hasCompletedSummary || active || offlineState.shouldShowCompletedSummaryNotice()) {
+        if (
+            !hasCompletedSummary ||
+            active ||
+            offlineState.resumableSummaryId != null ||
+            offlineState.shouldShowCompletedSummaryNotice()
+        ) {
             OfflineSummaryGenerationPanel(
                 hasCompletedSummary = hasCompletedSummary,
                 state = offlineState,
                 onGenerate = offlineSummaryViewModel::generate,
+                onResume = offlineSummaryViewModel::resume,
                 onCancel = offlineSummaryViewModel::cancel,
                 onOpenSettings = onOpenSettings,
             )
@@ -133,7 +139,10 @@ fun AiSummaryProductCard(
                     dismissedStaleSummaryFingerprint = dismissedStaleSummaryFingerprint,
                     onIgnoreStale = onIgnoreStale,
                     onRegenerate = offlineSummaryViewModel::generate,
-                    regenerateEnabled = offlineState.modelReady == true && !active,
+                    regenerateEnabled =
+                        offlineState.modelReady == true &&
+                            !active &&
+                            offlineState.resumableSummaryId == null,
                 )
             }
         }
@@ -145,6 +154,7 @@ private fun OfflineSummaryGenerationPanel(
     hasCompletedSummary: Boolean,
     state: OfflineSummaryProductUiState,
     onGenerate: () -> Unit,
+    onResume: () -> Unit,
     onCancel: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
@@ -169,12 +179,19 @@ private fun OfflineSummaryGenerationPanel(
                     Text(
                         when (run?.phase) {
                             OfflineSummaryRunPhase.PREPARING -> "正在准备"
-                            OfflineSummaryRunPhase.ANALYZING -> "正在分析"
-                            OfflineSummaryRunPhase.VALIDATING -> "正在校验"
+                            OfflineSummaryRunPhase.ANALYZING -> "正在本地分析"
+                            OfflineSummaryRunPhase.VALIDATING -> "正在生成最终总结"
                             else -> "正在生成离线总结"
                         },
                         style = MaterialTheme.typography.titleMedium,
                     )
+                    run?.message?.takeIf { it.isNotBlank() }?.let { progress ->
+                        Text(
+                            progress,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     Text(
                         "内容仅在本机处理",
                         style = MaterialTheme.typography.bodySmall,
@@ -183,6 +200,51 @@ private fun OfflineSummaryGenerationPanel(
                 }
                 OutlinedButton(onClick = onCancel) {
                     Text("取消")
+                }
+            }
+        }
+        return
+    }
+
+    if (state.resumableSummaryId != null) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.medium,
+            tonalElevation = 1.dp,
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("长文本总结可继续", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "已验证的分段检查点会保留；继续时只重试未完成或失败的节点。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                when (state.modelReady) {
+                    true -> Button(onClick = onResume) { Text("继续") }
+                    false -> {
+                        Text(
+                            "继续前需要恢复 Gemma 4 E2B 本地模型。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        OutlinedButton(onClick = onOpenSettings) { Text("前往本地模型") }
+                    }
+                    null ->
+                        Text(
+                            "正在检查离线 AI 模型…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                }
+                state.notice?.let { notice ->
+                    Text(
+                        notice,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
                 }
             }
         }
