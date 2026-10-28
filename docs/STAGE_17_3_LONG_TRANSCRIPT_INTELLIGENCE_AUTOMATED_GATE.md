@@ -1,10 +1,10 @@
 # Stage 17.3 — Long Transcript Intelligence Automated Gate
 
-状态：**IMPLEMENTED / AUTOMATED REGRESSION PASS / REAL-DEVICE QA PENDING**
+状态：**IMPLEMENTED / AUTOMATED REGRESSION PASS / QA APK PASS / REAL-DEVICE QA PENDING**
 
 修订日期：2026-10-28
 
-本文件记录 Stage 17.3 的自动化关闭边界。它不是 Freeze/Handoff；在 QA APK 与真机回归通过前，Stage 17.3 仍不得标记 CLOSED。
+本文件记录 Stage 17.3 的自动化关闭边界与 QA APK 交接证据。它不是 Freeze/Handoff；在真机回归通过前，Stage 17.3 仍不得标记 CLOSED。
 
 ---
 
@@ -116,14 +116,30 @@ Stage 17.3 P6 已增加 Long FINAL 兼容回归，验证长路径不会分叉成
 - P6 Revision/export compatibility：Android PR CI `#2803` — SUCCESS
 - P7 long-summary runtime boundary：Android PR CI `#2804` — SUCCESS
 - P7 final unified product/evidence boundary：Android PR CI `#2809` — SUCCESS
+- final P7 documentation HEAD Fast PR Gate：Android PR CI `#2810` — SUCCESS
 
 Fast PR Gate continues to run the full repository unit/debug compile matrix plus the Stage 17 boundary script and FSMN candidate runtime boundary。
 
+### 6.1 QA APK Gate
+
+Stage 17.3 QA APK 已在最终 P7 HEAD 上构建并通过 production-like 验证：
+
+- source HEAD：`76a4afe4d8761a946eee381090bd2db5b8065f0f`
+- Android PR CI：`#2811`
+- QA APK Gate：**SUCCESS**
+- artifact id：`12792663235`
+- artifact name：`WENZHI-1.1.0-stage16a2-export-qa-apk`
+- GitHub artifact digest：`sha256:104f7997f3fabe5144fb2c39b381d4a113f3bffede901128ce2f3094861f7eb7`
+- artifact retention：1 day；GitHub expiry `2026-10-29T04:45:31Z`
+- extracted APK SHA-256：`a11fabcfa5fdd2afc434ed1d4a7dd8fe9199ab39ab909639fdb2826fdf709a90`
+
+QA Gate 已通过 build、R8/release artifact、安全检查与 Sherpa package verification。该结果只授权进入真机 QA，不代表 Stage 17.3 CLOSED。
+
 ---
 
-## 7. QA APK / 真机回归清单
+## 7. 真机回归清单
 
-P7 自动化通过后才进入 QA APK Gate。真机按以下顺序执行，一项失败即停止并回到开发分支修订：
+QA APK Gate 已通过。真机按以下顺序执行，一项失败即停止并回到开发分支修订：
 
 1. **Direct sanity**：短转写仍走 Direct，结果/证据/历史与 Stage 17.2 一致。
 2. **Long route**：超 Direct 预算输入进入 Long；UI 显示“规划 → 分段分析 X/N → 层级合并 → 最终总结”。
