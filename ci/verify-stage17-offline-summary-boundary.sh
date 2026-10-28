@@ -45,6 +45,7 @@ long_contracts="core/ai/src/main/kotlin/io/github/ioannes78/voica/ai/OfflineSumm
 chunk_planner="core/ai/src/main/kotlin/io/github/ioannes78/voica/ai/OfflineSummaryChunkPlanner.kt"
 long_prompts="core/ai/src/main/kotlin/io/github/ioannes78/voica/ai/OfflineSummaryLongPrompts.kt"
 intermediate="core/ai/src/main/kotlin/io/github/ioannes78/voica/ai/OfflineSummaryIntermediate.kt"
+long_entities="core/database/src/main/java/io/github/ioannes78/voica/database/OfflineSummaryLongEntities.kt"
 long_persistence="core/database/src/main/java/io/github/ioannes78/voica/database/OfflineSummaryLongPersistenceRepository.kt"
 prompt="core/ai/src/main/kotlin/io/github/ioannes78/voica/ai/OfflineSummaryPrompt.kt"
 repair_prompt="core/ai/src/main/kotlin/io/github/ioannes78/voica/ai/OfflineSummaryRepairPrompt.kt"
@@ -54,6 +55,8 @@ local_llm_contracts="engine/local-llm/src/main/kotlin/io/github/ioannes78/voica/
 local_llm_runtime="engine/local-llm/src/main/kotlin/io/github/ioannes78/voica/localllm/LiteRtLocalLlmRuntime.kt"
 model_manager="app/src/main/java/io/github/ioannes78/voica/AppModelManager.kt"
 room_db="core/database/src/main/java/io/github/ioannes78/voica/database/VoicaDatabase.kt"
+product_card="app/src/main/java/io/github/ioannes78/voica/ui/ai/AiSummaryProductCard.kt"
+content_controls="app/src/main/java/io/github/ioannes78/voica/ui/ai/AiSummaryContentControls.kt"
 
 # One application runtime owner. Long execution receives the same generateLocal function.
 grep -Fq 'container.localLlmRuntime(application)' "$coordinator"
@@ -154,6 +157,26 @@ if grep -A8 -F 'suspend fun reconcileOnStartup()' "$long_persistence" | grep -Eq
   exit 1
 fi
 
+# Room v17 remains the sole additive checkpoint schema boundary.
+grep -Fq 'tableName = "offline_summary_tasks"' "$long_entities"
+grep -Fq 'tableName = "offline_summary_nodes"' "$long_entities"
+grep -Fq 'validatedPayloadJson' "$long_entities"
+grep -Eq 'version\s*=\s*17' "$room_db"
+grep -Fq '.addMigrations(MIGRATION_16_17)' "$room_db"
+test -f 'core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/16.json'
+test -f 'core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/17.json'
+
+# Long FINAL deliberately collapses back into the existing summary/product surface.
+grep -Fq 'directPersistence.complete(summaryId, result, evidence)' "$long_runner"
+grep -Fq 'longPersistence.markCompletedAndCleanup(summaryId)' "$long_runner"
+grep -Fq 'container.stage12CContentRepository.onAiSummaryCompleted(recordingId, summaryId)' "$coordinator"
+grep -Fq 'AiSummaryContentExportFormatter.build(' "$product_card"
+grep -Fq 'textExport.copyToClipboard(document.baseName, document.plainText)' "$product_card"
+grep -Fq 'textExport.prepareShare(' "$product_card"
+grep -Fq 'TextExportFormat.TXT' "$product_card"
+grep -Fq 'TextExportFormat.MARKDOWN' "$product_card"
+grep -Fq 'onSeekEvidence(evidence.startSampleIndex)' "$content_controls"
+
 # Product model remains candidate-only; Stage 17.3 does not promote or swap model/runtime identity.
 grep -Fq 'STAGE17_GEMMA_4_E2B_CANDIDATE_ID' "$model_manager"
 grep -Fq 'DEBUG_CANDIDATE_MODEL_IDS' "$model_manager"
@@ -162,12 +185,6 @@ if grep -Fq 'STAGE17_GEMMA_4_E2B_CANDIDATE_ID' <<<"$product_block"; then
   echo "::error::Stage 17.3 must not promote Gemma into PRODUCT_MODEL_IDS"
   exit 1
 fi
-
-# Room v17 remains the sole additive checkpoint schema boundary.
-grep -Eq 'version\s*=\s*17' "$room_db"
-grep -Fq '.addMigrations(MIGRATION_16_17)' "$room_db"
-test -f 'core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/16.json'
-test -f 'core/database/schemas/io.github.ioannes78.voica.database.VoicaDatabase/17.json'
 
 grep -Fq 'persistence.interruptAllActive()' "$coordinator"
 
@@ -181,5 +198,6 @@ printf '%s\n' \
   '  - MAP/REDUCE execution remains serial; no coroutine fan-out is allowed' \
   '  - each Long structured node has at most one repair generation' \
   '  - startup reconciliation is persistence-only; Resume remains explicit and identity-checked' \
-  '  - Gemma remains candidate-only and Long does not force a GPU/CPU backend' \
-  '  - Room v17 remains the additive durable checkpoint boundary'
+  '  - Room v17 remains the additive durable checkpoint boundary' \
+  '  - Long FINAL reuses the existing summary/history/revision/export/evidence product surface' \
+  '  - Gemma remains candidate-only and Long does not force a GPU/CPU backend'
