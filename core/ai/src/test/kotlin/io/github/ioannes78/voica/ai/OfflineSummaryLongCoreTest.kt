@@ -103,9 +103,60 @@ class OfflineSummaryLongCoreTest {
     }
 
     @Test
+    fun intermediateCodecRejectsNonsenseSynopsis() {
+        val raw =
+            """{"schemaVersion":1,"synopsis":":[{","items":[{"id":"i1","type":"FACT","text":"有效事实","sourceRefs":["U00001"],"evidenceRefs":[],"epistemicStatus":"UNCONFIRMED"}]}"""
+
+        val failure =
+            runCatching {
+                OfflineSummaryIntermediateCodec.decode(
+                    raw = raw,
+                    allowedSourceRefs = setOf("U00001"),
+                    allowedEvidenceRefs = emptySet(),
+                )
+            }.exceptionOrNull() as OfflineSummaryIntermediateException
+
+        assertEquals(OfflineSummaryIntermediateErrorCode.INVALID_SYNOPSIS, failure.code)
+    }
+
+    @Test
+    fun intermediateCodecRejectsFrontLoadedCoverageForLongInput() {
+        val allowed = (1..9).mapTo(LinkedHashSet()) { "U" + it.toString().padStart(5, '0') }
+        val raw =
+            """{"schemaVersion":1,"synopsis":"本段包含多项重要事实。","items":[{"id":"i1","type":"FACT","text":"只引用了开头内容。","sourceRefs":["U00001"],"evidenceRefs":[],"epistemicStatus":"UNCONFIRMED"},{"id":"i2","type":"FACT","text":"仍然只引用开头。","sourceRefs":["U00002"],"evidenceRefs":[],"epistemicStatus":"UNCONFIRMED"}]}"""
+
+        val failure =
+            runCatching {
+                OfflineSummaryIntermediateCodec.decode(
+                    raw = raw,
+                    allowedSourceRefs = allowed,
+                    allowedEvidenceRefs = emptySet(),
+                )
+            }.exceptionOrNull() as OfflineSummaryIntermediateException
+
+        assertEquals(OfflineSummaryIntermediateErrorCode.INSUFFICIENT_SOURCE_COVERAGE, failure.code)
+    }
+
+    @Test
+    fun intermediateCodecAcceptsDistributedCoverageForLongInput() {
+        val allowed = (1..9).mapTo(LinkedHashSet()) { "U" + it.toString().padStart(5, '0') }
+        val raw =
+            """{"schemaVersion":1,"synopsis":"本段提炼了前中后主要信息。","items":[{"id":"i1","type":"KEY_POINT","text":"开头的重要信息。","sourceRefs":["U00001"],"evidenceRefs":[],"epistemicStatus":"UNCONFIRMED"},{"id":"i2","type":"KEY_POINT","text":"中部的重要信息。","sourceRefs":["U00004"],"evidenceRefs":[],"epistemicStatus":"UNCONFIRMED"},{"id":"i3","type":"KEY_POINT","text":"结尾的重要信息。","sourceRefs":["U00007"],"evidenceRefs":[],"epistemicStatus":"UNCONFIRMED"}]}"""
+
+        val decoded =
+            OfflineSummaryIntermediateCodec.decode(
+                raw = raw,
+                allowedSourceRefs = allowed,
+                allowedEvidenceRefs = emptySet(),
+            )
+
+        assertEquals(3, decoded.items.size)
+    }
+
+    @Test
     fun intermediateCodecFailsClosedOnUnknownSourceOrEvidenceRefs() {
         fun raw(sourceRef: String, evidenceRef: String) =
-            """{"schemaVersion":1,"synopsis":"摘要","items":[{"id":"i1","type":"FACT","text":"事实","sourceRefs":["$sourceRef"],"evidenceRefs":["$evidenceRef"],"epistemicStatus":"TRANSCRIPT_STATED"}]}"""
+            """{"schemaVersion":1,"synopsis":"摘要内容","items":[{"id":"i1","type":"FACT","text":"事实","sourceRefs":["$sourceRef"],"evidenceRefs":["$evidenceRef"],"epistemicStatus":"TRANSCRIPT_STATED"}]}"""
 
         val sourceFailure =
             runCatching {
@@ -152,11 +203,14 @@ class OfflineSummaryLongCoreTest {
 
         assertTrue(schema.contains("\"maxItems\":${OfflineSummaryLongContract.MAX_INTERMEDIATE_ITEMS}"))
         assertTrue(schema.contains("\"maxLength\":${OfflineSummaryLongContract.MAX_INTERMEDIATE_SYNOPSIS_CHARS}"))
-        assertEquals(173101, map.promptVersion)
-        assertEquals(173201, reduce.promptVersion)
-        assertEquals(173301, final.promptVersion)
+        assertEquals(173102, map.promptVersion)
+        assertEquals(173202, reduce.promptVersion)
+        assertEquals(173302, final.promptVersion)
         assertEquals(OfflineSummaryLongContract.INTERMEDIATE_SCHEMA_VERSION, map.resultSchemaVersion)
         assertEquals(OfflineSummaryPromptContract.RESULT_SCHEMA_VERSION, final.resultSchemaVersion)
+        assertTrue(map.text.contains("前、中、后三部分"))
+        assertTrue(reduce.text.contains("所有 NODE"))
+        assertTrue(final.text.contains("综合所有 NODE"))
         assertTrue(final.text.contains("不得生成时间戳"))
     }
 
