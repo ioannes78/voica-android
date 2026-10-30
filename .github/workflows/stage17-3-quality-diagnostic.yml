@@ -3,7 +3,7 @@ name: Stage 17.3 Quality Diagnostic APK
 on:
   pull_request:
     branches: [ main ]
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, edited]
   workflow_dispatch:
 
 permissions:
