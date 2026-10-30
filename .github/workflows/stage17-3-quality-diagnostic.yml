@@ -97,12 +97,14 @@ jobs:
         shell: bash
         run: bash ci/prepare-opus-source.sh
 
-      - name: Compile diagnostic instrumentation
+      - name: Compile diagnostic instrumentation and build releaseQa
         shell: bash
         run: |
           set -euo pipefail
+          # Full regression remains owned by Android PR CI. This dedicated gate only proves
+          # that the transient Stage 17.3 diagnostic instrumentation compiles and packages.
           gradle \
-            :app:testDebugUnitTest \
+            :app:compileDebugKotlin \
             :app:assembleReleaseQa \
             --configuration-cache \
             --stacktrace
