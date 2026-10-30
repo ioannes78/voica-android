@@ -1,0 +1,133 @@
+name: Stage 17.3 Quality Diagnostic APK
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  diagnostic-apk:
+    name: Stage 17.3 Quality Diagnostic APK
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' || github.head_ref == 'stage17-fully-offline-intelligence' }}
+    concurrency:
+      group: stage17-3-quality-diagnostic-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      VOICA_BUILD_GIT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Verify unmodified Stage 17.3 source contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ci/verify-room-schemas.sh
+          bash ci/verify-funasr-r2-runtime-source.sh
+          bash ci/verify-stage17-offline-summary-boundary.sh
+
+      - name: Apply temporary Stage 17.3 quality diagnostic instrumentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --check ci/stage17_3_quality_diagnostic.patch
+          git apply ci/stage17_3_quality_diagnostic.patch
+          git diff --check
+          grep -Fq 'Stage173FileOfflineSummaryLongDiagnosticRecorder' \
+            app/src/main/java/io/github/ioannes78/voica/OfflineSummaryCoordinator.kt
+          grep -Fq 'FINAL OUTPUT' \
+            app/src/main/java/io/github/ioannes78/voica/OfflineSummaryLongRunner.kt
+
+      - name: Resolve version identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          version_code="$(sed -nE 's/^[[:space:]]*versionCode = ([0-9]+).*/\1/p' app/build.gradle.kts | head -n1)"
+          release_version="$(sed -nE 's/^[[:space:]]*versionName = "([^"]+)".*/\1/p' app/build.gradle.kts | head -n1)"
+          test -n "$version_code"
+          test -n "$release_version"
+          echo "VOICA_VERSION_CODE=$version_code" >> "$GITHUB_ENV"
+          echo "VOICA_RELEASE_VERSION=$release_version" >> "$GITHUB_ENV"
+          echo "VOICA_RELEASEQA_VERSION=${release_version}-stage17.3-quality-diagnostic-qa" >> "$GITHUB_ENV"
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+
+      - name: Install Android build and native toolchains
+        shell: bash
+        run: |
+          sdkmanager \
+            "platforms;android-37.1" \
+            "build-tools;36.0.0" \
+            "ndk;28.2.13676358" \
+            "cmake;3.22.1"
+
+      - name: Setup Gradle 9.6
+        uses: gradle/actions/setup-gradle@v5.0.2
+        with:
+          gradle-version: "9.6.0"
+          cache-read-only: false
+          cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+
+      - name: Restore pinned Opus 1.6.1 source
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/voica-deps/opus-1.6.1.tar.gz
+          key: voica-opus-${{ runner.os }}-1.6.1-6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1
+
+      - name: Prefetch and verify Opus 1.6.1 source
+        shell: bash
+        run: bash ci/prepare-opus-source.sh
+
+      - name: Compile diagnostic instrumentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle \
+            :app:testDebugUnitTest \
+            :app:assembleReleaseQa \
+            --configuration-cache \
+            --stacktrace
+
+      - name: Verify diagnostic QA APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="app/build/outputs/apk/releaseQa/app-releaseQa.apk"
+          bash ci/verify-r8-outputs.sh releaseQa
+          bash ci/verify-release-artifact.sh \
+            "$apk" \
+            io.github.ioannes78.voica.qa \
+            "$VOICA_VERSION_CODE" \
+            "$VOICA_RELEASEQA_VERSION" \
+            qa
+          bash ci/verify-release-security.sh "$apk"
+          bash ci/verify-sherpa-package.sh apk "$apk"
+          sha256sum "$apk" | tee stage17-3-quality-diagnostic-apk.sha256
+
+      - name: Upload diagnostic QA APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: WENZHI-Stage17.3-Quality-Diagnostic-APK
+          path: |
+            app/build/outputs/apk/releaseQa/app-releaseQa.apk
+            stage17-3-quality-diagnostic-apk.sha256
+          if-no-files-found: error
+          retention-days: 1
