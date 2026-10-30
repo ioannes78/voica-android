@@ -19,6 +19,8 @@ enum class OfflineSummaryIntermediateErrorCode {
     WRONG_FIELD_TYPE,
     INVALID_ENUM,
     INVALID_VALUE,
+    INVALID_SYNOPSIS,
+    INSUFFICIENT_SOURCE_COVERAGE,
     INVALID_SOURCE_REF,
     INVALID_EVIDENCE_REF,
     DUPLICATE_ID,
@@ -94,6 +96,9 @@ object OfflineSummaryIntermediateResponseFormat {
 
 object OfflineSummaryIntermediateCodec {
     private const val MAX_ITEM_ID_CHARS = 16
+    private const val MIN_NATURAL_SYNOPSIS_CHARS = 4
+    private const val DISTRIBUTED_COVERAGE_MIN_SOURCE_REFS = 6
+    private const val DISTRIBUTED_COVERAGE_BUCKETS = 3
     private val json = Json { ignoreUnknownKeys = false; isLenient = false }
 
     fun decode(
@@ -185,6 +190,12 @@ object OfflineSummaryIntermediateCodec {
             maxChars = OfflineSummaryLongContract.MAX_INTERMEDIATE_SYNOPSIS_CHARS,
             field = "synopsis",
         )
+        if (synopsis.count { it.isLetterOrDigit() } < MIN_NATURAL_SYNOPSIS_CHARS) {
+            throw OfflineSummaryIntermediateException(
+                OfflineSummaryIntermediateErrorCode.INVALID_SYNOPSIS,
+                "synopsis must contain natural-language content",
+            )
+        }
 
         val itemIds = mutableSetOf<String>()
         val itemElements = root.required("items").jsonArray
@@ -254,11 +265,34 @@ object OfflineSummaryIntermediateCodec {
                 )
             }
 
+        requireDistributedSourceCoverage(items, allowedSourceRefs)
+
         return OfflineSummaryIntermediate(
             schemaVersion = schemaVersion,
             synopsis = synopsis,
             items = items,
         )
+    }
+
+    private fun requireDistributedSourceCoverage(
+        items: List<OfflineSummaryIntermediateItem>,
+        allowedSourceRefs: Set<String>,
+    ) {
+        val orderedAllowed = allowedSourceRefs.toList()
+        if (orderedAllowed.size < DISTRIBUTED_COVERAGE_MIN_SOURCE_REFS) return
+
+        val covered = items.flatMapTo(LinkedHashSet()) { it.sourceRefs }
+        repeat(DISTRIBUTED_COVERAGE_BUCKETS) { bucketIndex ->
+            val start = orderedAllowed.size * bucketIndex / DISTRIBUTED_COVERAGE_BUCKETS
+            val end = orderedAllowed.size * (bucketIndex + 1) / DISTRIBUTED_COVERAGE_BUCKETS
+            val bucket = orderedAllowed.subList(start, end)
+            if (bucket.none(covered::contains)) {
+                throw OfflineSummaryIntermediateException(
+                    OfflineSummaryIntermediateErrorCode.INSUFFICIENT_SOURCE_COVERAGE,
+                    "intermediate sourceRefs must cover the beginning, middle and end of longer input",
+                )
+            }
+        }
     }
 
     private fun requireTextBounds(
