@@ -58,7 +58,7 @@ jobs:
           test -n "$release_version"
           echo "VOICA_VERSION_CODE=$version_code" >> "$GITHUB_ENV"
           echo "VOICA_RELEASE_VERSION=$release_version" >> "$GITHUB_ENV"
-          echo "VOICA_RELEASEQA_VERSION=${release_version}-stage17.3-quality-diagnostic-qa" >> "$GITHUB_ENV"
+          echo "VOICA_RELEASEQA_VERSION=${release_version}-export-qa" >> "$GITHUB_ENV"
 
       - name: Setup JDK 17
         uses: actions/setup-java@v5
