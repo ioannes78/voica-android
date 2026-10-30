@@ -39,13 +39,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git apply --check ci/stage17_3_quality_diagnostic.patch
-          git apply ci/stage17_3_quality_diagnostic.patch
+          python3 ci/stage17_3_quality_diagnostic.py
           git diff --check
           grep -Fq 'Stage173FileOfflineSummaryLongDiagnosticRecorder' \
             app/src/main/java/io/github/ioannes78/voica/OfflineSummaryCoordinator.kt
           grep -Fq 'FINAL OUTPUT' \
             app/src/main/java/io/github/ioannes78/voica/OfflineSummaryLongRunner.kt
+          grep -Fq 'WENZHI-Stage17.3-LongSummary-Diagnostic' \
+            app/src/main/java/io/github/ioannes78/voica/Stage173LongSummaryDiagnostics.kt
 
       - name: Resolve version identity
         shell: bash
