@@ -105,7 +105,7 @@ class OfflineSummaryLongCoreTest {
     @Test
     fun intermediateCodecRejectsNonsenseSynopsis() {
         val raw =
-            """{"schemaVersion":1,"synopsis":":[{","items":[{"id":"i1","type":"FACT","text":"有效事实","sourceRefs":["U00001"],"evidenceRefs":[],"epistemicStatus":"UNCONFIRMED"}]}"""
+            """{"schemaVersion":1,"synopsis":[{","items":[{"id":"i1","type":"FACT","text":"有效事实","sourceRefs":["U00001"],"evidenceRefs":[],"epistemicStatus":"UNCONFIRMED"}]}"""
 
         val failure =
             runCatching {
@@ -120,8 +120,11 @@ class OfflineSummaryLongCoreTest {
     }
 
     @Test
-    fun intermediateCodecRejectsFrontLoadedCoverageForLongInput() {
-        val allowed = (1..9).mapTo(LinkedHashSet()) { "U" + it.toString().padStart(5, '0') }
+    fun generationCodecRejectsFrontLoadedCoverageForLongInput() {
+        val allowed =
+            offlineSummaryGenerationSourceRefs(
+                (1..9).map { "U" + it.toString().padStart(5, '0') },
+            )
         val raw =
             """{"schemaVersion":1,"synopsis":"本段包含多项重要事实。","items":[{"id":"i1","type":"FACT","text":"只引用了开头内容。","sourceRefs":["U00001"],"evidenceRefs":[],"epistemicStatus":"UNCONFIRMED"},{"id":"i2","type":"FACT","text":"仍然只引用开头。","sourceRefs":["U00002"],"evidenceRefs":[],"epistemicStatus":"UNCONFIRMED"}]}"""
 
@@ -138,8 +141,11 @@ class OfflineSummaryLongCoreTest {
     }
 
     @Test
-    fun intermediateCodecAcceptsDistributedCoverageForLongInput() {
-        val allowed = (1..9).mapTo(LinkedHashSet()) { "U" + it.toString().padStart(5, '0') }
+    fun generationCodecAcceptsDistributedCoverageForLongInput() {
+        val allowed =
+            offlineSummaryGenerationSourceRefs(
+                (1..9).map { "U" + it.toString().padStart(5, '0') },
+            )
         val raw =
             """{"schemaVersion":1,"synopsis":"本段提炼了前中后主要信息。","items":[{"id":"i1","type":"KEY_POINT","text":"开头的重要信息。","sourceRefs":["U00001"],"evidenceRefs":[],"epistemicStatus":"UNCONFIRMED"},{"id":"i2","type":"KEY_POINT","text":"中部的重要信息。","sourceRefs":["U00004"],"evidenceRefs":[],"epistemicStatus":"UNCONFIRMED"},{"id":"i3","type":"KEY_POINT","text":"结尾的重要信息。","sourceRefs":["U00007"],"evidenceRefs":[],"epistemicStatus":"UNCONFIRMED"}]}"""
 
@@ -151,6 +157,22 @@ class OfflineSummaryLongCoreTest {
             )
 
         assertEquals(3, decoded.items.size)
+    }
+
+    @Test
+    fun checkpointCodecDoesNotReapplyGenerationCoverageAgainstFullLineage() {
+        val lineage = (1..9).mapTo(LinkedHashSet()) { "U" + it.toString().padStart(5, '0') }
+        val raw =
+            """{"schemaVersion":1,"synopsis":"检查点只保留压缩后的有效信息。","items":[{"id":"i1","type":"FACT","text":"压缩后的首项事实。","sourceRefs":["U00001"],"evidenceRefs":[],"epistemicStatus":"UNCONFIRMED"},{"id":"i2","type":"FACT","text":"压缩后的第二项事实。","sourceRefs":["U00002"],"evidenceRefs":[],"epistemicStatus":"UNCONFIRMED"}]}"""
+
+        val decoded =
+            OfflineSummaryIntermediateCodec.decode(
+                raw = raw,
+                allowedSourceRefs = lineage,
+                allowedEvidenceRefs = emptySet(),
+            )
+
+        assertEquals(listOf("U00001", "U00002"), decoded.items.flatMap { it.sourceRefs })
     }
 
     @Test
@@ -204,8 +226,8 @@ class OfflineSummaryLongCoreTest {
         assertTrue(schema.contains("\"maxItems\":${OfflineSummaryLongContract.MAX_INTERMEDIATE_ITEMS}"))
         assertTrue(schema.contains("\"maxLength\":${OfflineSummaryLongContract.MAX_INTERMEDIATE_SYNOPSIS_CHARS}"))
         assertEquals(173103, map.promptVersion)
-        assertEquals(173203, reduce.promptVersion)
-        assertEquals(173302, final.promptVersion)
+        assertEquals(173204, reduce.promptVersion)
+        assertEquals(173303, final.promptVersion)
         assertEquals(OfflineSummaryLongContract.INTERMEDIATE_SCHEMA_VERSION, map.resultSchemaVersion)
         assertEquals(OfflineSummaryPromptContract.RESULT_SCHEMA_VERSION, final.resultSchemaVersion)
         assertTrue(map.text.contains("前、中、后三部分"))
