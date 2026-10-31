@@ -149,12 +149,14 @@ class OfflineSummaryFinalPromptRenderer {
 
 private fun payloadVisibleSourceRefs(nodes: List<OfflineSummaryValidatedIntermediateNode>): Set<String> =
     nodes.flatMapTo(LinkedHashSet()) { node ->
-        node.summary.items.flatMap { item -> item.sourceRefs }
+        val visible = node.summary.items.flatMap { item -> item.sourceRefs }.toSet()
+        node.sourceRefs.filter(visible::contains)
     }
 
 private fun payloadVisibleEvidenceRefs(nodes: List<OfflineSummaryValidatedIntermediateNode>): Set<String> =
     nodes.flatMapTo(LinkedHashSet()) { node ->
-        node.summary.items.flatMap { item -> item.evidenceRefs }
+        val visible = node.summary.items.flatMap { item -> item.evidenceRefs }.toSet()
+        node.evidenceRefs.filter(visible::contains)
     }
 
 private fun sanitizeHeaderValue(value: String): String =
