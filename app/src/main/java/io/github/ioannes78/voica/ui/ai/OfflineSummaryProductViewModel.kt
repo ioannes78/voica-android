@@ -128,6 +128,13 @@ class OfflineSummaryProductViewModel internal constructor(
         val recordingId = mutableState.value.recordingId ?: return
         val summaryId = mutableState.value.resumableSummaryId ?: return
         viewModelScope.launch {
+            if (!aiSummaryRepository.isResumableOfflineSummary(summaryId)) {
+                mutableState.value = mutableState.value.copy(
+                    resumableSummaryId = null,
+                    notice = "该长文本总结已不可继续，请重新生成总结",
+                )
+                return@launch
+            }
             when (val outcome = coordinator.resume(recordingId, summaryId)) {
                 is OfflineSummaryStartOutcome.Started ->
                     mutableState.value = mutableState.value.copy(
