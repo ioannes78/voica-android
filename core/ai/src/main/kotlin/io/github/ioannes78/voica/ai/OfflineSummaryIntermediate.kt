@@ -94,6 +94,22 @@ object OfflineSummaryIntermediateResponseFormat {
     private val EVIDENCE_REF_PATTERN = Regex("""S\d{5,}""")
 }
 
+/**
+ * Marks source refs that belong to a live MAP/REDUCE generation request.
+ *
+ * Distributed beginning/middle/end coverage is a generation-time quality gate. Durable Room
+ * checkpoint reads intentionally use ordinary sets: they revalidate schema and lineage membership
+ * without incorrectly treating refs compressed out of a child payload as model-visible input.
+ */
+internal class OfflineSummaryGenerationSourceRefs(values: Iterable<String>) : LinkedHashSet<String>() {
+    init {
+        values.forEach(::add)
+    }
+}
+
+internal fun offlineSummaryGenerationSourceRefs(values: Iterable<String>): Set<String> =
+    OfflineSummaryGenerationSourceRefs(values)
+
 object OfflineSummaryIntermediateCodec {
     private const val MAX_ITEM_ID_CHARS = 16
     private const val MIN_NATURAL_SYNOPSIS_CHARS = 4
@@ -265,7 +281,9 @@ object OfflineSummaryIntermediateCodec {
                 )
             }
 
-        requireDistributedSourceCoverage(items, allowedSourceRefs)
+        if (allowedSourceRefs is OfflineSummaryGenerationSourceRefs) {
+            requireDistributedSourceCoverage(items, allowedSourceRefs)
+        }
 
         return OfflineSummaryIntermediate(
             schemaVersion = schemaVersion,
