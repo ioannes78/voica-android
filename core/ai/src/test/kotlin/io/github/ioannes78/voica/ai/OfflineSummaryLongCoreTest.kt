@@ -105,7 +105,7 @@ class OfflineSummaryLongCoreTest {
     @Test
     fun intermediateCodecRejectsNonsenseSynopsis() {
         val raw =
-            """{"schemaVersion":1,"synopsis":[{","items":[{"id":"i1","type":"FACT","text":"有效事实","sourceRefs":["U00001"],"evidenceRefs":[],"epistemicStatus":"UNCONFIRMED"}]}"""
+            """{"schemaVersion":1,"synopsis":"[]{}","items":[{"id":"i1","type":"FACT","text":"有效事实","sourceRefs":["U00001"],"evidenceRefs":[],"epistemicStatus":"UNCONFIRMED"}]}"""
 
         val failure =
             runCatching {
