@@ -3,7 +3,8 @@ package io.github.ioannes78.voica.ai
 class OfflineSummaryMapPromptRenderer {
     fun render(fragments: List<OfflineSummaryLongSourceFragment>): RenderedOfflineSummaryLongPrompt {
         require(fragments.isNotEmpty())
-        val allowedSourceRefs = fragments.mapTo(LinkedHashSet()) { it.sourceRef }
+        val allowedSourceRefs =
+            offlineSummaryGenerationSourceRefs(fragments.map { it.sourceRef })
         val allowedEvidenceRefs = fragments.mapNotNullTo(LinkedHashSet()) { it.evidenceRef }
         val prompt =
             buildString {
@@ -65,7 +66,8 @@ class OfflineSummaryMapPromptRenderer {
 class OfflineSummaryReducePromptRenderer {
     fun render(nodes: List<OfflineSummaryValidatedIntermediateNode>): RenderedOfflineSummaryLongPrompt {
         require(nodes.isNotEmpty())
-        val allowedSourceRefs = payloadVisibleSourceRefs(nodes)
+        val allowedSourceRefs =
+            offlineSummaryGenerationSourceRefs(payloadVisibleSourceRefs(nodes))
         val allowedEvidenceRefs = payloadVisibleEvidenceRefs(nodes)
         val prompt =
             buildString {
