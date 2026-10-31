@@ -65,8 +65,8 @@ class OfflineSummaryMapPromptRenderer {
 class OfflineSummaryReducePromptRenderer {
     fun render(nodes: List<OfflineSummaryValidatedIntermediateNode>): RenderedOfflineSummaryLongPrompt {
         require(nodes.isNotEmpty())
-        val allowedSourceRefs = nodes.flatMapTo(LinkedHashSet()) { it.sourceRefs }
-        val allowedEvidenceRefs = nodes.flatMapTo(LinkedHashSet()) { it.evidenceRefs }
+        val allowedSourceRefs = payloadVisibleSourceRefs(nodes)
+        val allowedEvidenceRefs = payloadVisibleEvidenceRefs(nodes)
         val prompt =
             buildString {
                 appendLine("你是“闻知 WENZHI”的长转写离线总结 REDUCE 引擎。")
@@ -108,8 +108,8 @@ class OfflineSummaryReducePromptRenderer {
 class OfflineSummaryFinalPromptRenderer {
     fun render(nodes: List<OfflineSummaryValidatedIntermediateNode>): RenderedOfflineSummaryLongPrompt {
         require(nodes.isNotEmpty())
-        val allowedSourceRefs = nodes.flatMapTo(LinkedHashSet()) { it.sourceRefs }
-        val allowedEvidenceRefs = nodes.flatMapTo(LinkedHashSet()) { it.evidenceRefs }
+        val allowedSourceRefs = payloadVisibleSourceRefs(nodes)
+        val allowedEvidenceRefs = payloadVisibleEvidenceRefs(nodes)
         val prompt =
             buildString {
                 appendLine("你是“闻知 WENZHI”的长转写离线总结 FINAL 引擎。")
@@ -144,6 +144,16 @@ class OfflineSummaryFinalPromptRenderer {
         )
     }
 }
+
+private fun payloadVisibleSourceRefs(nodes: List<OfflineSummaryValidatedIntermediateNode>): Set<String> =
+    nodes.flatMapTo(LinkedHashSet()) { node ->
+        node.summary.items.flatMap { item -> item.sourceRefs }
+    }
+
+private fun payloadVisibleEvidenceRefs(nodes: List<OfflineSummaryValidatedIntermediateNode>): Set<String> =
+    nodes.flatMapTo(LinkedHashSet()) { node ->
+        node.summary.items.flatMap { item -> item.evidenceRefs }
+    }
 
 private fun sanitizeHeaderValue(value: String): String =
     value
