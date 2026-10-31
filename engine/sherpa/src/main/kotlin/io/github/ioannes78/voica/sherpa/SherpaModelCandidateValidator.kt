@@ -46,6 +46,8 @@ class SherpaModelCandidateValidator : ModelCandidateValidator {
                 validateSpeaker(descriptor, installedDirectory)
             ModelKind.ASR_LARGE ->
                 validateLargeOfflineAsr(descriptor, installedDirectory)
+            ModelKind.LOCAL_LLM ->
+                error("LOCAL_LLM candidates must be validated by the LiteRT-LM validator")
         }
     }
 

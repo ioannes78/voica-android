@@ -264,9 +264,11 @@ object SummaryResultCodec {
         buildJsonObject {
             put("schemaVersion", result.schemaVersion)
             put("contentType", result.contentType.name)
-            result.classificationConfidence?.let {
-                put("classificationConfidence", it)
-            } ?: put("classificationConfidence", JsonNull)
+            if (result.classificationConfidence != null) {
+                put("classificationConfidence", result.classificationConfidence)
+            } else {
+                put("classificationConfidence", JsonNull)
+            }
             put("title", result.title)
             put("overview", result.overview)
             put(

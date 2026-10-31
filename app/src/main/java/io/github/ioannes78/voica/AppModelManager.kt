@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.pm.ApplicationInfo
 import android.os.Build
 import androidx.core.content.pm.PackageInfoCompat
+import io.github.ioannes78.voica.localllm.LiteRtLmRuntimeContract
 import io.github.ioannes78.voica.model.DecodingModelCatalogProvider
 import io.github.ioannes78.voica.model.DefaultModelInstallBackend
 import io.github.ioannes78.voica.model.DefaultModelManager
@@ -31,6 +32,9 @@ object VoicaModelChannel {
         "https://raw.githubusercontent.com/ioannes78/voica-model-channel/" +
             PRODUCTION_MODEL_CHANNEL_COMMIT +
             "/manifests/production.json"
+    const val STAGE17_P1_CANDIDATE_MANIFEST_URL =
+        "https://github.com/ioannes78/voica-model-channel/releases/download/" +
+            "candidate-stage17-gemma-p1-r1/production.json"
 
     private const val PREFERENCES_NAME = "voica-model-channel"
     private const val KEY_DEBUG_MANIFEST_URL = "debug-manifest-url"
@@ -73,11 +77,24 @@ object VoicaModelChannel {
         return normalized.takeIf(::isAllowedDebugManifestUrl)
     }
 
+    internal fun releaseQaCandidateManifestUrl(
+        buildAllowsCandidateChannel: Boolean,
+        buildConfiguredUrl: String,
+    ): String {
+        if (!buildAllowsCandidateChannel) return buildConfiguredUrl
+        return buildConfiguredUrl.trim().takeIf { it.isNotEmpty() }
+            ?: STAGE17_P1_CANDIDATE_MANIFEST_URL
+    }
+
     fun resolveManifestUrl(application: Application): String =
         configuredDebugManifestUrl(application)
             ?: defaultCandidateManifestUrl(
                 candidateChannelAllowed = isCandidateModelChannelAllowed(application),
-                buildConfiguredUrl = BuildConfig.QA_DEFAULT_MODEL_MANIFEST_URL,
+                buildConfiguredUrl =
+                    releaseQaCandidateManifestUrl(
+                        buildAllowsCandidateChannel = BuildConfig.ALLOW_CANDIDATE_MODEL_CHANNEL,
+                        buildConfiguredUrl = BuildConfig.QA_DEFAULT_MODEL_MANIFEST_URL,
+                    ),
             )
             ?: PRODUCTION_MANIFEST_URL
 
@@ -137,6 +154,7 @@ internal fun candidateModelChannelAllowed(
 internal const val STAGE16B_FUNASR_NANO_CANDIDATE_ID = "funasr-nano-int8"
 internal const val STAGE16B_FSMN_VAD_CANDIDATE_ID = "fsmn-vad-int8"
 internal const val STAGE16B_TEN_VAD_CANDIDATE_ID = "ten-vad-fp32"
+internal const val STAGE17_GEMMA_4_E2B_CANDIDATE_ID = "gemma-4-e2b-it-litertlm"
 
 private val PRODUCT_MODEL_IDS =
     setOf(
@@ -154,6 +172,7 @@ private val PRODUCT_MODEL_IDS =
 private val DEBUG_CANDIDATE_MODEL_IDS =
     setOf(
         STAGE16B_TEN_VAD_CANDIDATE_ID,
+        STAGE17_GEMMA_4_E2B_CANDIDATE_ID,
     )
 
 internal fun allowedModelIdsForManifest(productionManifestPinned: Boolean): Set<String> =
@@ -217,6 +236,8 @@ fun createVoicaModelManager(
                 mapOf(
                     Stage16BCandidateRuntimes.FSMN_VAD_ID to
                         Stage16BCandidateRuntimes.FSMN_VAD_VERSION,
+                    LiteRtLmRuntimeContract.RUNTIME_ID to
+                        LiteRtLmRuntimeContract.RUNTIME_VERSION,
                 ),
         )
     val storage = ModelStorage(File(application.noBackupFilesDir, "models"))

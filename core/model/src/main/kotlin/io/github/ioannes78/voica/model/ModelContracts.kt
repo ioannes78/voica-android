@@ -9,6 +9,7 @@ enum class ModelKind {
     PUNCTUATION,
     SPEAKER,
     ASR_LARGE,
+    LOCAL_LLM,
 }
 
 enum class SpeakerModelRole {

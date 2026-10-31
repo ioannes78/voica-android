@@ -1,5 +1,6 @@
 package io.github.ioannes78.voica.ui.library
 
+import androidx.lifecycle.Lifecycle
 import io.github.ioannes78.voica.DiarizationRunState
 import io.github.ioannes78.voica.Stage13AOfflineModelIds
 import io.github.ioannes78.voica.TranscriptionRunState
@@ -13,6 +14,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RecordingTaskVisibilityTest {
+    @Test
+    fun detailAttentionVisibilityRequiresStartedOrResumedLifecycle() {
+        assertFalse(isDetailLifecycleVisible(Lifecycle.State.DESTROYED))
+        assertFalse(isDetailLifecycleVisible(Lifecycle.State.INITIALIZED))
+        assertFalse(isDetailLifecycleVisible(Lifecycle.State.CREATED))
+        assertTrue(isDetailLifecycleVisible(Lifecycle.State.STARTED))
+        assertTrue(isDetailLifecycleVisible(Lifecycle.State.RESUMED))
+    }
+
     @Test
     fun transcriptionStatusOnlyShowsActiveOrFailedStateForSameRecording() {
         val running =
