@@ -1,10 +1,10 @@
 package io.github.ioannes78.voica.ai
 
 object OfflineSummaryLongContract {
-    const val PIPELINE_VERSION = 173002
+    const val PIPELINE_VERSION = 173003
     const val PLANNER_VERSION = 173001
-    const val MAP_PROMPT_VERSION = 173102
-    const val REDUCE_PROMPT_VERSION = 173202
+    const val MAP_PROMPT_VERSION = 173103
+    const val REDUCE_PROMPT_VERSION = 173203
     const val FINAL_PROMPT_VERSION = 173302
     const val INTERMEDIATE_SCHEMA_VERSION = 1
 
