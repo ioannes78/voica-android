@@ -17,6 +17,8 @@ class OfflineSummaryMapPromptRenderer {
                 appendLine("synopsis 必须是自然语言概括，禁止 JSON 符号片段、标签、sourceRef 列表或机械抄原文开头。")
                 appendLine("sourceRefs 仅复制输入 Uxxxxx/Uxxxxx:Fxxx；evidenceRefs 仅复制 Sxxxxx。")
                 appendLine("无可靠 Sxxxxx 时 evidenceRefs 为空；不得生成时间戳、sample index 或播放位置。")
+                appendLine("若重试提示 error=INSUFFICIENT_SOURCE_COVERAGE：所有 items 的 sourceRefs 合并后必须至少覆盖允许来源序列前 1/3、中 1/3、后 1/3 各一个引用；只复制已有编号。")
+                appendLine("若重试提示 error=INVALID_SYNOPSIS：synopsis 必须改写为有实际信息的自然语言概括，不得使用占位词、标签、符号串或 sourceRef 列表。")
                 appendLine("保留冲突、待确认和不确定性。")
                 appendLine("精炼去重；结构和长度由 response schema 约束。")
                 appendLine("<TRANSCRIPT_CHUNK>")
@@ -79,6 +81,8 @@ class OfflineSummaryReducePromptRenderer {
                 appendLine("synopsis 必须是自然语言概括，禁止 JSON 符号片段、标签或 sourceRef 列表。")
                 appendLine("sourceRefs/evidenceRefs 仅复制子节点已有引用，不得创造编号。")
                 appendLine("不得生成时间戳、sample index 或播放位置。")
+                appendLine("若重试提示 error=INSUFFICIENT_SOURCE_COVERAGE：所有 items 的 sourceRefs 合并后必须至少覆盖允许来源序列前 1/3、中 1/3、后 1/3 各一个引用；只复制已有编号。")
+                appendLine("若重试提示 error=INVALID_SYNOPSIS：synopsis 必须改写为有实际信息的自然语言概括，不得使用占位词、标签、符号串或 sourceRef 列表。")
                 appendLine("结构和长度由 response schema 约束。")
                 appendLine("<INTERMEDIATE_DATA>")
                 nodes.forEachIndexed { index, node ->
