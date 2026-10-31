@@ -40,6 +40,8 @@ fi
 
 coordinator="app/src/main/java/io/github/ioannes78/voica/OfflineSummaryCoordinator.kt"
 long_runner="app/src/main/java/io/github/ioannes78/voica/OfflineSummaryLongRunner.kt"
+product_view_model="app/src/main/java/io/github/ioannes78/voica/ui/ai/OfflineSummaryProductViewModel.kt"
+summary_repository="core/database/src/main/java/io/github/ioannes78/voica/database/AiSummaryRepository.kt"
 contracts="core/ai/src/main/kotlin/io/github/ioannes78/voica/ai/OfflineSummaryContracts.kt"
 long_contracts="core/ai/src/main/kotlin/io/github/ioannes78/voica/ai/OfflineSummaryLongContracts.kt"
 chunk_planner="core/ai/src/main/kotlin/io/github/ioannes78/voica/ai/OfflineSummaryChunkPlanner.kt"
@@ -108,11 +110,11 @@ grep -Fq 'maxOutputToken = config.maxOutputTokens' "$local_llm_runtime"
 grep -Fq 'maxOutputTokens = null' "$local_llm_contracts"
 grep -Fq 'responseJsonSchema = null' "$local_llm_contracts"
 
-# Stage 17.3 R5 hierarchical quality contract and budget identity.
-grep -Fq 'const val PIPELINE_VERSION = 173002' "$long_contracts"
+# Stage 17.3 R6 deterministic repair/resume contract and budget identity.
+grep -Fq 'const val PIPELINE_VERSION = 173003' "$long_contracts"
 grep -Fq 'const val PLANNER_VERSION = 173001' "$long_contracts"
-grep -Fq 'const val MAP_PROMPT_VERSION = 173102' "$long_contracts"
-grep -Fq 'const val REDUCE_PROMPT_VERSION = 173202' "$long_contracts"
+grep -Fq 'const val MAP_PROMPT_VERSION = 173103' "$long_contracts"
+grep -Fq 'const val REDUCE_PROMPT_VERSION = 173203' "$long_contracts"
 grep -Fq 'const val FINAL_PROMPT_VERSION = 173302' "$long_contracts"
 grep -Fq 'const val INTERMEDIATE_SCHEMA_VERSION = 1' "$long_contracts"
 grep -Fq 'const val PLANNER_TARGET_ESTIMATED_PROMPT_TOKENS = 2_048' "$long_contracts"
@@ -124,12 +126,18 @@ grep -Fq 'REDUCE 引擎' "$long_prompts"
 grep -Fq 'FINAL 引擎' "$long_prompts"
 grep -Fq '前、中、后三部分' "$long_prompts"
 grep -Fq '综合所有 NODE' "$long_prompts"
+grep -Fq 'error=INSUFFICIENT_SOURCE_COVERAGE' "$long_prompts"
+grep -Fq 'error=INVALID_SYNOPSIS' "$long_prompts"
 grep -Fq 'INVALID_SYNOPSIS' "$intermediate"
 grep -Fq 'INSUFFICIENT_SOURCE_COVERAGE' "$intermediate"
 grep -Fq 'requireDistributedSourceCoverage(items, allowedSourceRefs)' "$intermediate"
 grep -Fq 'OfflineSummaryIntermediateResponseFormat.jsonSchema' "$coordinator"
 grep -Fq 'OfflineSummaryIntermediateCodec.decode' "$long_runner"
 grep -Fq 'SummaryResultCodec.decode' "$long_runner"
+grep -Fq 'isTerminalOfflineSummaryResumeFailure(summary.errorCode)' "$summary_repository"
+grep -Fq 'errorCode == OfflineSummaryFailureCode.REPAIR_FAILED.name' "$summary_repository"
+grep -Fq 'aiSummaryRepository.isResumableOfflineSummary(summaryId)' "$product_view_model"
+grep -Fq '该长文本总结已不可继续，请重新生成总结' "$product_view_model"
 
 # Long nodes are deliberately serial. No coroutine fan-out is allowed around MAP/REDUCE.
 if grep -En '\b(async|launch)\s*\(' "$long_runner"; then
@@ -195,14 +203,15 @@ fi
 grep -Fq 'persistence.interruptAllActive()' "$coordinator"
 
 printf '%s\n' \
-  'Verified Stage 17.2 + Stage 17.3 R5 offline-summary boundary:' \
+  'Verified Stage 17.2 + Stage 17.3 R6 offline-summary boundary:' \
   '  - no cloud/HTTP/API-key/upload/WorkManager dependency in Direct or Long inference/checkpoint paths' \
   '  - P1 AppLocalLlmRuntime + AUTO remains the sole LLM execution boundary' \
   '  - Direct budget and at-most-one repair contract remain frozen' \
-  '  - Long R5 pipeline/prompt versions are explicit; planner/schema identity remains controlled' \
+  '  - Long R6 pipeline/prompt versions are explicit; planner/schema identity remains controlled' \
   '  - Long hard prompt budget remains exactly the Direct prompt budget' \
   '  - MAP/REDUCE execution remains serial; no coroutine fan-out is allowed' \
-  '  - intermediate synopsis must be natural language and longer nodes require distributed source coverage' \
+  '  - repair guidance explicitly addresses distributed source coverage and natural-language synopsis failures' \
+  '  - exhausted structured repair is not offered as product Resume; interruptions and ordinary generation failures keep normal Resume eligibility' \
   '  - each Long structured node has at most one repair generation' \
   '  - startup reconciliation is persistence-only; Resume remains explicit and identity-checked' \
   '  - Room v17 remains the additive durable checkpoint boundary' \
