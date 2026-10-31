@@ -1,5 +1,6 @@
 package io.github.ioannes78.voica.database
 
+import io.github.ioannes78.voica.ai.OfflineSummaryFailureCode
 import io.github.ioannes78.voica.ai.OfflineSummaryLongContract
 import io.github.ioannes78.voica.ai.StructuredTranscriptInput
 import kotlinx.coroutines.flow.Flow
@@ -65,6 +66,9 @@ class AiSummaryRepository(
         if (summary.status !in setOf(AiSummaryStateValue.FAILED, AiSummaryStateValue.INTERRUPTED)) {
             return false
         }
+        if (isTerminalOfflineSummaryResumeFailure(summary.errorCode)) {
+            return false
+        }
         val task = offlineSummaryLongPersistence.snapshot(summaryId)?.task ?: return false
         return task.route == OfflineSummaryTaskRouteValue.LONG &&
             task.status in setOf(OfflineSummaryTaskStateValue.FAILED, OfflineSummaryTaskStateValue.INTERRUPTED) &&
@@ -103,6 +107,9 @@ class AiSummaryRepository(
     fun offlineSummaryLongPersistenceRepository(): OfflineSummaryLongPersistenceRepository =
         offlineSummaryLongPersistence
 }
+
+internal fun isTerminalOfflineSummaryResumeFailure(errorCode: String?): Boolean =
+    errorCode == OfflineSummaryFailureCode.REPAIR_FAILED.name
 
 internal fun buildOfflineSummaryLongProductProgress(
     task: OfflineSummaryTaskEntity,
