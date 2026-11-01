@@ -315,6 +315,19 @@ class OfflineSummaryReductionPlanner(
 
     fun group(nodes: List<OfflineSummaryValidatedIntermediateNode>): List<OfflineSummaryReduceGroup> {
         require(nodes.isNotEmpty())
+        val preferred = groupWithinLimit(nodes, targetEstimatedPromptTokens)
+        if (nodes.size <= 1 || preferred.size < nodes.size) return preferred
+
+        // 2048 is a soft planning target. If every node remains a singleton at that target,
+        // retry deterministically against the frozen 2528 hard ceiling so the tree can make
+        // progress without ever exceeding the validated direct-summary prompt budget.
+        return groupWithinLimit(nodes, hardMaxEstimatedPromptTokens)
+    }
+
+    private fun groupWithinLimit(
+        nodes: List<OfflineSummaryValidatedIntermediateNode>,
+        limit: Int,
+    ): List<OfflineSummaryReduceGroup> {
         val groups = mutableListOf<OfflineSummaryReduceGroup>()
         var current = mutableListOf<OfflineSummaryValidatedIntermediateNode>()
         nodes.forEach { node ->
@@ -322,7 +335,7 @@ class OfflineSummaryReductionPlanner(
                 current += node
             } else {
                 val candidate = current + node
-                if (estimate(candidate) <= targetEstimatedPromptTokens) {
+                if (estimate(candidate) <= limit) {
                     current += node
                 } else {
                     groups += buildGroup(groups.size, current)
