@@ -38,6 +38,36 @@ class OfflineSummaryReductionPlannerFallbackTest {
     }
 
     @Test
+    fun plannerPrefersLegacyGroupingBeforeCompactFallbackForCheckpointCompatibility() {
+        val estimator =
+            object : OfflineSummaryTokenEstimator {
+                override val id = "LEGACY_COMPAT_TEST"
+
+                override fun estimateTokens(text: String): Int {
+                    val nodeCount = Regex("\\[NODE=").findAll(text).count()
+                    val legacyShape = text.contains("[id=")
+                    return if (legacyShape) {
+                        when (nodeCount) {
+                            0 -> 0
+                            1 -> 700
+                            2 -> 1_700
+                            else -> 2_600
+                        }
+                    } else {
+                        400 + nodeCount * 100
+                    }
+                }
+            }
+        val nodes = (1..4).map(::validatedNode)
+
+        val groups = OfflineSummaryReductionPlanner(estimator = estimator).group(nodes)
+
+        assertEquals(listOf(2, 2), groups.map { it.nodes.size })
+        assertEquals(nodes.map { it.nodeId }, groups.flatMap { it.nodes }.map { it.nodeId })
+        assertTrue(groups.all { it.estimatedPromptTokens < 1_000 })
+    }
+
+    @Test
     fun compactReduceEncodingKeepsWorstCaseAdjacentPairInsideHardBudget() {
         val nodes = listOf(worstCaseValidatedNode(1), worstCaseValidatedNode(2))
         val rendered = OfflineSummaryReducePromptRenderer().render(nodes)
@@ -48,6 +78,8 @@ class OfflineSummaryReductionPlannerFallbackTest {
         assertEquals(1, groups.size)
         assertEquals(2, groups.single().nodes.size)
         assertFalse(rendered.text.contains("\"schemaVersion\""))
+        assertTrue(rendered.text.contains("schemaVersion 必须为 1"))
+        assertTrue(rendered.text.contains("error=INVALID_VALUE"))
         assertTrue(rendered.text.contains("[NODE=1]"))
         assertTrue(rendered.text.contains("I6|FOLLOW_UP|UNCONFIRMED|"))
         assertTrue(rendered.text.contains("U00001:F999"))
