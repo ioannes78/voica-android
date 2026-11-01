@@ -40,10 +40,15 @@ jobs:
         run: |
           set -euo pipefail
           python3 ci/stage17_3_quality_diagnostic.py
+          python3 ci/stage17_3_failure_diagnostic.py
           git diff --check
           grep -Fq 'Stage173FileOfflineSummaryLongDiagnosticRecorder' \
             app/src/main/java/io/github/ioannes78/voica/OfflineSummaryCoordinator.kt
           grep -Fq 'FINAL OUTPUT' \
+            app/src/main/java/io/github/ioannes78/voica/OfflineSummaryLongRunner.kt
+          grep -Fq 'recordFailureDiagnostic' \
+            app/src/main/java/io/github/ioannes78/voica/OfflineSummaryLongRunner.kt
+          grep -Fq 'REDUCE level=$level ${index + 1}/${groups.size}' \
             app/src/main/java/io/github/ioannes78/voica/OfflineSummaryLongRunner.kt
           grep -Fq 'WENZHI-Stage17.3-LongSummary-Diagnostic' \
             app/src/main/java/io/github/ioannes78/voica/Stage173LongSummaryDiagnostics.kt
