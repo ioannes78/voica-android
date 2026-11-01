@@ -54,6 +54,15 @@ data class OfflineSummaryLongRunResult(
     val warning: String? = null,
 )
 
+internal fun shouldFinalizeOnReductionStall(
+    finalEstimate: Int,
+    currentNodeCount: Int,
+    reducedGroupCount: Int,
+): Boolean =
+    currentNodeCount > 1 &&
+        reducedGroupCount >= currentNodeCount &&
+        finalEstimate <= OfflineSummaryLongContract.HARD_MAX_ESTIMATED_PROMPT_TOKENS
+
 internal interface OfflineSummaryLongRunnerPort {
     suspend fun executeNew(
         summaryId: String,
@@ -393,6 +402,27 @@ internal class OfflineSummaryLongRunner(
 
             val groups = reductionPlanner.group(current)
             if (groups.size >= current.size && current.size > 1) {
+                if (
+                    existingAtLevel.isEmpty() &&
+                    shouldFinalizeOnReductionStall(
+                        finalEstimate = finalEstimate,
+                        currentNodeCount = current.size,
+                        reducedGroupCount = groups.size,
+                    )
+                ) {
+                    val finalDraft = finalDraft(summaryId, level, current, finalEstimate)
+                    store.insertNodes(summaryId, listOf(finalDraft))
+                    val finalNode = requireSnapshot(summaryId).nodes.single { it.id == finalDraft.id }
+                    return runFinal(
+                        summaryId = summaryId,
+                        input = input,
+                        preparedIdentity = preparedIdentity,
+                        current = current,
+                        finalNode = finalNode,
+                        inheritedRepairAttempted = anyRepair,
+                        onProgress = onProgress,
+                    )
+                }
                 throw OfflineSummaryLongPlanningException("long-summary reduce tree cannot make deterministic progress")
             }
             val expectedDrafts = groups.map { group -> reduceDraft(summaryId, level, group) }
