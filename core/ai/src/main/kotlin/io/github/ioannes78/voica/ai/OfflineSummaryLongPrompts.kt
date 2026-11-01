@@ -77,7 +77,7 @@ class OfflineSummaryReducePromptRenderer {
             buildString {
                 appendLine("你是“闻知 WENZHI”的长转写离线总结 REDUCE 引擎。")
                 appendLine("输入为按原转写顺序排列的已校验子摘要；只合并、去重、压缩，不得引入新事实。")
-                appendLine("读完全部 NODE 后选最多 ${OfflineSummaryLongContract.MAX_INTERMEDIATE_ITEMS} 条最重要信息；每个含非重复重要信息的 NODE 都必须被 sourceRef 覆盖，重复可合并。")
+                appendLine("读完所有 NODE 后选最多 ${OfflineSummaryLongContract.MAX_INTERMEDIATE_ITEMS} 条最重要信息；每个含非重复重要信息的 NODE 都必须被 sourceRef 覆盖，重复可合并。")
                 appendLine("优先数据、判断、结论、决定、行动项和风险；忽略寒暄、附和、语气词、断句残片、过渡句。保留冲突和不确定性。")
                 appendLine("synopsis 用自然语言；sourceRefs/evidenceRefs 只能复制输入编号；不得生成时间戳、sample index 或播放位置。")
                 appendLine("紧凑格式：S=概览；I 行依次为 类型|认知状态|文本|sourceRefs|evidenceRefs。反斜杠仅用于转义文本分隔符。")
