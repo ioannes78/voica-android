@@ -79,9 +79,14 @@ class OfflineSummaryReducePromptRenderer {
                 appendLine("输入为按原转写顺序排列的已校验子摘要；只合并、去重、压缩，不得引入新事实。")
                 appendLine("读完所有 NODE 后选最多 ${OfflineSummaryLongContract.MAX_INTERMEDIATE_ITEMS} 条最重要信息；每个含非重复重要信息的 NODE 都必须被 sourceRef 覆盖，重复可合并。")
                 appendLine("优先数据、判断、结论、决定、行动项和风险；忽略寒暄、附和、语气词、断句残片、过渡句。保留冲突和不确定性。")
-                appendLine("synopsis 用自然语言；sourceRefs/evidenceRefs 只能复制输入编号；不得生成时间戳、sample index 或播放位置。")
-                appendLine("紧凑格式：S=概览；I 行依次为 类型|认知状态|文本|sourceRefs|evidenceRefs。反斜杠仅用于转义文本分隔符。")
-                appendLine("重试码：error=INSUFFICIENT_SOURCE_COVERAGE；error=INVALID_SYNOPSIS。结构和长度由 response schema 约束。")
+                appendLine("输出固定为 root{schemaVersion,synopsis,items}；schemaVersion 必须为 ${OfflineSummaryLongContract.INTERMEDIATE_SCHEMA_VERSION}，不得增加其他字段。")
+                appendLine("items 1..${OfflineSummaryLongContract.MAX_INTERMEDIATE_ITEMS}；每项固定为 {id,type,text,sourceRefs,evidenceRefs,epistemicStatus}，id 唯一且不超过 16 字符。")
+                appendLine("type 仅可为 KEY_POINT/DECISION/ACTION_ITEM/RISK/QUESTION/FACT/FOLLOW_UP/OTHER；epistemicStatus 仅可为 TRANSCRIPT_STATED/AI_SYNTHESIS/UNCONFIRMED。")
+                appendLine("synopsis 1..${OfflineSummaryLongContract.MAX_INTERMEDIATE_SYNOPSIS_CHARS} 字符；text 1..${OfflineSummaryLongContract.MAX_INTERMEDIATE_ITEM_TEXT_CHARS} 字符；sourceRefs 每项 1..${OfflineSummaryLongContract.MAX_SOURCE_REFS_PER_ITEM} 个且唯一；evidenceRefs 每项 0..${OfflineSummaryLongContract.MAX_EVIDENCE_REFS_PER_ITEM} 个且唯一。")
+                appendLine("synopsis 用自然语言；sourceRefs/evidenceRefs 只能逐字复制输入编号；不得生成时间戳、sample index 或播放位置。")
+                appendLine("紧凑输入格式：S=概览；I 行依次为 类型|认知状态|文本|sourceRefs|evidenceRefs。反斜杠仅用于转义文本分隔符；它不是输出格式。")
+                appendLine("若 error=INVALID_VALUE，优先检查 schemaVersion、字段集合、字符上限、items 数量以及 refs 数量/去重；不得靠新增事实修复。")
+                appendLine("重试码：error=INSUFFICIENT_SOURCE_COVERAGE；error=INVALID_SYNOPSIS；error=INVALID_VALUE。")
                 appendLine("<INTERMEDIATE_DATA>")
                 nodes.forEachIndexed { index, node ->
                     append(renderCompactIntermediateNode(index, node))
@@ -97,6 +102,44 @@ class OfflineSummaryReducePromptRenderer {
             allowedEvidenceRefs = allowedEvidenceRefs,
             inputNodeCount = nodes.size,
         )
+    }
+
+    /**
+     * R14 planner-only compatibility view.
+     *
+     * R13 intentionally compacted model-facing REDUCE input to regain hard-budget convergence. The
+     * deterministic tree planner must not let that representation change retroactively regroup
+     * already-persisted R12/R13 checkpoints. This method reproduces the pre-R13 REDUCE text shape
+     * only for token estimation. It is never sent to the model.
+     */
+    internal fun renderLegacyPlanningText(nodes: List<OfflineSummaryValidatedIntermediateNode>): String {
+        require(nodes.isNotEmpty())
+        return buildString {
+            appendLine("你是“闻知 WENZHI”的长转写离线总结 REDUCE 引擎。")
+            appendLine("输入是按原转写顺序排列的已校验子摘要。")
+            appendLine("只合并、去重、压缩现有内容，不得引入新事实。")
+            appendLine("先读完所有 NODE，再选最多 ${OfflineSummaryLongContract.MAX_INTERMEDIATE_ITEMS} 条最重要信息；禁止只抄第一个 NODE 或按顺序填满上限。")
+            appendLine("各 NODE 有非重复重要信息时必须覆盖；重复可合并，sourceRefs 应体现相关来源。")
+            appendLine("较长输入的 sourceRefs 必须覆盖整体前、中、后三部分。")
+            appendLine("合并相同事实/决定/行动项；保留冲突和不确定性。")
+            appendLine("寒暄、附和、语气词、断句残片、过渡句不得优先于数据、判断或结论。")
+            appendLine("synopsis 必须是自然语言概括，禁止 JSON 符号片段、标签或 sourceRef 列表。")
+            appendLine("sourceRefs/evidenceRefs 仅复制子节点已有引用，不得创造编号。")
+            appendLine("不得生成时间戳、sample index 或播放位置。")
+            appendLine("重试码：error=INSUFFICIENT_SOURCE_COVERAGE（前中后）；error=INVALID_SYNOPSIS（自然概括）。")
+            appendLine("结构和长度由 response schema 约束。")
+            appendLine("<INTERMEDIATE_DATA>")
+            nodes.forEachIndexed { index, node ->
+                append("[NODE=")
+                append(index + 1)
+                append("][id=")
+                append(sanitizeHeaderValue(node.nodeId))
+                appendLine("]")
+                appendLine(OfflineSummaryIntermediateCodec.encode(node.summary))
+            }
+            appendLine("</INTERMEDIATE_DATA>")
+            append("仅返回完整 JSON 对象，不要 Markdown、代码围栏、前言或后记。")
+        }
     }
 }
 
