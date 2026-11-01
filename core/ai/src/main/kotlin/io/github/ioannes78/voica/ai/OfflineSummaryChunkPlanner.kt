@@ -315,18 +315,30 @@ class OfflineSummaryReductionPlanner(
 
     fun group(nodes: List<OfflineSummaryValidatedIntermediateNode>): List<OfflineSummaryReduceGroup> {
         require(nodes.isNotEmpty())
-        val preferred = groupWithinLimit(nodes, targetEstimatedPromptTokens)
-        if (nodes.size <= 1 || preferred.size < nodes.size) return preferred
 
-        // 2048 is a soft planning target. If every node remains a singleton at that target,
-        // retry deterministically against the frozen 2528 hard ceiling so the tree can make
-        // progress without ever exceeding the validated direct-summary prompt budget.
-        return groupWithinLimit(nodes, hardMaxEstimatedPromptTokens)
+        // Preserve the exact pre-R13 planning representation first. Existing durable checkpoints
+        // were grouped from that text shape, so using it before the compact representation keeps
+        // explicit Resume deterministic across the R13 prompt-size bugfix.
+        val legacyPreferred = groupWithinLimit(nodes, targetEstimatedPromptTokens, ::legacyEstimate)
+        if (nodes.size <= 1 || legacyPreferred.size < nodes.size) return legacyPreferred
+
+        val legacyHard = groupWithinLimit(nodes, hardMaxEstimatedPromptTokens, ::legacyEstimate)
+        if (legacyHard.size < nodes.size) return legacyHard
+
+        // The legacy representation can legitimately stall because full child JSON duplicates a
+        // large amount of structural overhead. Only when it cannot combine even two adjacent nodes
+        // at the frozen 2528 ceiling do we switch to the R13 compact model-facing representation.
+        // This preserves old checkpoints for all already-progressing levels while guaranteeing that
+        // a previously-stalled level can still make deterministic progress without relaxing budget.
+        val compactPreferred = groupWithinLimit(nodes, targetEstimatedPromptTokens, ::compactEstimate)
+        if (nodes.size <= 1 || compactPreferred.size < nodes.size) return compactPreferred
+        return groupWithinLimit(nodes, hardMaxEstimatedPromptTokens, ::compactEstimate)
     }
 
     private fun groupWithinLimit(
         nodes: List<OfflineSummaryValidatedIntermediateNode>,
         limit: Int,
+        planningEstimate: (List<OfflineSummaryValidatedIntermediateNode>) -> Int,
     ): List<OfflineSummaryReduceGroup> {
         val groups = mutableListOf<OfflineSummaryReduceGroup>()
         var current = mutableListOf<OfflineSummaryValidatedIntermediateNode>()
@@ -335,7 +347,7 @@ class OfflineSummaryReductionPlanner(
                 current += node
             } else {
                 val candidate = current + node
-                if (estimate(candidate) <= limit) {
+                if (planningEstimate(candidate) <= limit) {
                     current += node
                 } else {
                     groups += buildGroup(groups.size, current)
@@ -351,7 +363,7 @@ class OfflineSummaryReductionPlanner(
         index: Int,
         nodes: List<OfflineSummaryValidatedIntermediateNode>,
     ): OfflineSummaryReduceGroup {
-        val estimated = estimate(nodes)
+        val estimated = compactEstimate(nodes)
         if (estimated > hardMaxEstimatedPromptTokens) {
             throw OfflineSummaryLongPlanningException(
                 "reduce group $index exceeds hard prompt budget: $estimated > $hardMaxEstimatedPromptTokens",
@@ -364,6 +376,9 @@ class OfflineSummaryReductionPlanner(
         )
     }
 
-    private fun estimate(nodes: List<OfflineSummaryValidatedIntermediateNode>): Int =
+    private fun legacyEstimate(nodes: List<OfflineSummaryValidatedIntermediateNode>): Int =
+        estimator.estimateTokens(reducePromptRenderer.renderLegacyPlanningText(nodes))
+
+    private fun compactEstimate(nodes: List<OfflineSummaryValidatedIntermediateNode>): Int =
         estimator.estimateTokens(reducePromptRenderer.render(nodes).text)
 }
