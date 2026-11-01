@@ -234,8 +234,9 @@ class OfflineSummaryLongCoreTest {
         assertTrue(map.text.contains("error=INSUFFICIENT_SOURCE_COVERAGE"))
         assertTrue(map.text.contains("error=INVALID_SYNOPSIS"))
         assertTrue(reduce.text.contains("所有 NODE"))
-        assertTrue(reduce.text.contains("error=INSUFFICIENT_SOURCE_COVERAGE"))
-        assertTrue(reduce.text.contains("error=INVALID_SYNOPSIS"))
+        assertTrue(reduce.text.contains("INSUFFICIENT_SOURCE_COVERAGE"))
+        assertTrue(reduce.text.contains("INVALID_SYNOPSIS"))
+        assertTrue(reduce.text.contains("INVALID_VALUE"))
         assertTrue(final.text.contains("综合所有 NODE"))
         assertTrue(final.text.contains("不得生成时间戳"))
     }
