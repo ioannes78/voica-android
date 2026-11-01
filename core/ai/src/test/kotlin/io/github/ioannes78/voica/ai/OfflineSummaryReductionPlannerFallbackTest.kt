@@ -68,18 +68,25 @@ class OfflineSummaryReductionPlannerFallbackTest {
     }
 
     @Test
-    fun compactReduceEncodingKeepsWorstCaseAdjacentPairInsideHardBudget() {
+    fun compactReduceEncodingAndRepairKeepWorstCaseAdjacentPairInsideHardBudget() {
         val nodes = listOf(worstCaseValidatedNode(1), worstCaseValidatedNode(2))
         val rendered = OfflineSummaryReducePromptRenderer().render(nodes)
         val estimated = ConservativeOfflineSummaryTokenEstimator.estimateTokens(rendered.text)
+        val repairPrompt =
+            rendered.text +
+                "\n\n上一次输出未通过本地结构校验（error=INVALID_VALUE）。" +
+                "请基于完全相同的输入重新输出一次；不得新增事实或引用。" +
+                "仍然只返回完整 JSON 对象。"
+        val repairEstimated = ConservativeOfflineSummaryTokenEstimator.estimateTokens(repairPrompt)
         val groups = OfflineSummaryReductionPlanner().group(nodes)
 
         assertTrue(estimated <= OfflineSummaryLongContract.HARD_MAX_ESTIMATED_PROMPT_TOKENS)
+        assertTrue(repairEstimated <= OfflineSummaryLongContract.HARD_MAX_ESTIMATED_PROMPT_TOKENS)
         assertEquals(1, groups.size)
         assertEquals(2, groups.single().nodes.size)
         assertFalse(rendered.text.contains("\"schemaVersion\""))
-        assertTrue(rendered.text.contains("schemaVersion 必须为 1"))
-        assertTrue(rendered.text.contains("error=INVALID_VALUE"))
+        assertTrue(rendered.text.contains("schemaVersion=1"))
+        assertTrue(rendered.text.contains("INVALID_VALUE"))
         assertTrue(rendered.text.contains("[NODE=1]"))
         assertTrue(rendered.text.contains("I6|FOLLOW_UP|UNCONFIRMED|"))
         assertTrue(rendered.text.contains("U00001:F999"))
