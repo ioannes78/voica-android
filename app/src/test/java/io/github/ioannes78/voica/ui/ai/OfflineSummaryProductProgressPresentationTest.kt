@@ -3,6 +3,8 @@ package io.github.ioannes78.voica.ui.ai
 import io.github.ioannes78.voica.OfflineSummaryRunPhase
 import io.github.ioannes78.voica.OfflineSummaryRunState
 import io.github.ioannes78.voica.OfflineSummaryTaskPresentation
+import io.github.ioannes78.voica.database.AiSummaryEntity
+import io.github.ioannes78.voica.database.AiSummaryStateValue
 import io.github.ioannes78.voica.database.OfflineSummaryLongProductProgress
 import io.github.ioannes78.voica.database.OfflineSummaryLongProductStage
 import org.junit.Assert.assertEquals
@@ -69,6 +71,39 @@ class OfflineSummaryProductProgressPresentationTest {
             )
 
         assertEquals("本地总结 · 正在总结 · 正在分析分段 2/5", presentation.label)
+    }
+
+    @Test
+    fun resumableFailureNoticeCarriesPersistedCodeAndMessage() {
+        val summary =
+            AiSummaryEntity(
+                id = "summary",
+                recordingId = "recording",
+                transcriptionId = "transcription",
+                inputMode = "TRANSCRIPT_TEXT",
+                mode = "SMART",
+                model = "Gemma 4 E2B",
+                promptVersion = 1,
+                resultSchemaVersion = 1,
+                contentType = null,
+                classificationConfidence = null,
+                structuredPayloadJson = null,
+                displayText = null,
+                status = AiSummaryStateValue.FAILED,
+                createdAtMs = 1L,
+                startedAtMs = 2L,
+                updatedAtMs = 3L,
+                completedAtMs = null,
+                errorCode = "GENERATION_FAILED",
+                sanitizedErrorMessage = "native generation failed",
+                alignmentIdSnapshot = null,
+                sourceLineageSnapshot = "lineage",
+            )
+
+        assertEquals(
+            "失败诊断 · GENERATION_FAILED · native generation failed",
+            offlineSummaryResumableFailureNotice(summary),
+        )
     }
 
     private fun run(message: String?): OfflineSummaryRunState =
