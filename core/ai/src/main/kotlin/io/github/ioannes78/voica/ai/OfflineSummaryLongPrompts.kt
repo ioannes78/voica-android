@@ -66,8 +66,12 @@ class OfflineSummaryMapPromptRenderer {
 class OfflineSummaryReducePromptRenderer {
     fun render(nodes: List<OfflineSummaryValidatedIntermediateNode>): RenderedOfflineSummaryLongPrompt {
         require(nodes.isNotEmpty())
+        val visibleSourceRefsByNode = nodes.map { node -> payloadVisibleSourceRefs(listOf(node)) }
         val allowedSourceRefs =
-            offlineSummaryGenerationSourceRefs(payloadVisibleSourceRefs(nodes))
+            offlineSummaryGenerationSourceRefs(
+                values = visibleSourceRefsByNode.flatMapTo(LinkedHashSet()) { it },
+                requiredCoverageGroups = visibleSourceRefsByNode,
+            )
         val allowedEvidenceRefs = payloadVisibleEvidenceRefs(nodes)
         val prompt =
             buildString {
