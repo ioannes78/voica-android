@@ -7,6 +7,7 @@ import io.github.ioannes78.voica.OfflineSummaryCoordinator
 import io.github.ioannes78.voica.OfflineSummaryRunState
 import io.github.ioannes78.voica.OfflineSummaryStartOutcome
 import io.github.ioannes78.voica.Stage172OfflineSummaryModelContract
+import io.github.ioannes78.voica.database.AiSummaryEntity
 import io.github.ioannes78.voica.database.AiSummaryRepository
 import io.github.ioannes78.voica.database.AiSummaryStateValue
 import io.github.ioannes78.voica.localllm.LocalLlmBackendPolicy
@@ -77,16 +78,23 @@ class OfflineSummaryProductViewModel internal constructor(
                             }
                             .sortedByDescending { it.updatedAtMs }
                             .toList()
-                    var resumable: String? = null
+                    var resumable: AiSummaryEntity? = null
                     for (summary in candidates) {
                         if (aiSummaryRepository.isResumableOfflineSummary(summary.id)) {
-                            resumable = summary.id
+                            resumable = summary
                             break
                         }
                     }
                     val current = mutableState.value
                     if (current.recordingId == normalized) {
-                        mutableState.value = current.copy(resumableSummaryId = resumable)
+                        mutableState.value =
+                            current.copy(
+                                resumableSummaryId = resumable?.id,
+                                notice =
+                                    resumable
+                                        ?.let(::offlineSummaryResumableFailureNotice)
+                                        ?: current.notice,
+                            )
                     }
                 }
             }
@@ -172,5 +180,16 @@ class OfflineSummaryProductViewModel internal constructor(
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
             OfflineSummaryProductViewModel(coordinator, modelManager, aiSummaryRepository) as T
+    }
+}
+
+internal fun offlineSummaryResumableFailureNotice(summary: AiSummaryEntity): String? {
+    val code = summary.errorCode?.trim()?.takeIf { it.isNotEmpty() }
+    val message = summary.sanitizedErrorMessage?.trim()?.takeIf { it.isNotEmpty() }
+    if (code == null && message == null) return null
+    return buildString {
+        append("失败诊断")
+        code?.let { append(" · ").append(it) }
+        message?.let { append(" · ").append(it) }
     }
 }
