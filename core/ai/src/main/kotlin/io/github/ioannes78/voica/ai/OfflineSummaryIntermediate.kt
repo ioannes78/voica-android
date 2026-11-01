@@ -97,18 +97,31 @@ object OfflineSummaryIntermediateResponseFormat {
 /**
  * Marks source refs that belong to a live MAP/REDUCE generation request.
  *
- * Distributed beginning/middle/end coverage is a generation-time quality gate. Durable Room
- * checkpoint reads intentionally use ordinary sets: they revalidate schema and lineage membership
- * without incorrectly treating refs compressed out of a child payload as model-visible input.
+ * MAP uses distributed beginning/middle/end coverage. REDUCE may instead provide explicit
+ * per-child-node coverage groups. Durable Room checkpoint reads intentionally use ordinary sets:
+ * they revalidate schema and lineage membership without reapplying generation-time quality gates.
  */
-internal class OfflineSummaryGenerationSourceRefs(values: Iterable<String>) : LinkedHashSet<String>() {
+internal class OfflineSummaryGenerationSourceRefs(
+    values: Iterable<String>,
+    val requiredCoverageGroups: List<Set<String>>? = null,
+) : LinkedHashSet<String>() {
     init {
         values.forEach(::add)
+        requiredCoverageGroups?.forEach { group ->
+            require(group.isNotEmpty())
+            require(group.all { it in this })
+        }
     }
 }
 
 internal fun offlineSummaryGenerationSourceRefs(values: Iterable<String>): Set<String> =
     OfflineSummaryGenerationSourceRefs(values)
+
+internal fun offlineSummaryGenerationSourceRefs(
+    values: Iterable<String>,
+    requiredCoverageGroups: List<Set<String>>,
+): Set<String> =
+    OfflineSummaryGenerationSourceRefs(values, requiredCoverageGroups)
 
 object OfflineSummaryIntermediateCodec {
     private const val MAX_ITEM_ID_CHARS = 16
@@ -282,7 +295,12 @@ object OfflineSummaryIntermediateCodec {
             }
 
         if (allowedSourceRefs is OfflineSummaryGenerationSourceRefs) {
-            requireDistributedSourceCoverage(items, allowedSourceRefs)
+            val requiredCoverageGroups = allowedSourceRefs.requiredCoverageGroups
+            if (requiredCoverageGroups == null) {
+                requireDistributedSourceCoverage(items, allowedSourceRefs)
+            } else {
+                requireExplicitSourceCoverage(items, requiredCoverageGroups)
+            }
         }
 
         return OfflineSummaryIntermediate(
@@ -308,6 +326,21 @@ object OfflineSummaryIntermediateCodec {
                 throw OfflineSummaryIntermediateException(
                     OfflineSummaryIntermediateErrorCode.INSUFFICIENT_SOURCE_COVERAGE,
                     "intermediate sourceRefs must cover the beginning, middle and end of longer input",
+                )
+            }
+        }
+    }
+
+    private fun requireExplicitSourceCoverage(
+        items: List<OfflineSummaryIntermediateItem>,
+        requiredCoverageGroups: List<Set<String>>,
+    ) {
+        val covered = items.flatMapTo(LinkedHashSet()) { it.sourceRefs }
+        requiredCoverageGroups.forEachIndexed { index, group ->
+            if (group.none(covered::contains)) {
+                throw OfflineSummaryIntermediateException(
+                    OfflineSummaryIntermediateErrorCode.INSUFFICIENT_SOURCE_COVERAGE,
+                    "intermediate sourceRefs must represent every input node; missing node ${index + 1}",
                 )
             }
         }
