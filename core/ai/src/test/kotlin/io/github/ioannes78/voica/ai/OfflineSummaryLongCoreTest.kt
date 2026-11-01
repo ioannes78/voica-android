@@ -248,7 +248,7 @@ class OfflineSummaryLongCoreTest {
                 override fun estimateTokens(text: String): Int = text.length
             }
         val nodes =
-            (1..10).map { index ->
+            (1..20).map { index ->
                 validatedNode(
                     nodeId = "N$index",
                     sourceRef = "U" + index.toString().padStart(5, '0'),
@@ -260,6 +260,7 @@ class OfflineSummaryLongCoreTest {
         val groups = OfflineSummaryReductionPlanner(estimator = estimator).group(nodes)
 
         assertTrue(groups.size > 1)
+        assertTrue(groups.size < nodes.size)
         assertEquals(nodes.map { it.nodeId }, groups.flatMap { it.nodes }.map { it.nodeId })
         assertTrue(groups.all {
             it.estimatedPromptTokens <= OfflineSummaryLongContract.HARD_MAX_ESTIMATED_PROMPT_TOKENS
