@@ -76,26 +76,15 @@ class OfflineSummaryReducePromptRenderer {
         val prompt =
             buildString {
                 appendLine("你是“闻知 WENZHI”的长转写离线总结 REDUCE 引擎。")
-                appendLine("输入是按原转写顺序排列的已校验子摘要。")
-                appendLine("只合并、去重、压缩现有内容，不得引入新事实。")
-                appendLine("先读完所有 NODE，再选最多 ${OfflineSummaryLongContract.MAX_INTERMEDIATE_ITEMS} 条最重要信息；禁止只抄第一个 NODE 或按顺序填满上限。")
-                appendLine("各 NODE 有非重复重要信息时必须覆盖；重复可合并，sourceRefs 应体现相关来源。")
-                appendLine("较长输入的 sourceRefs 必须覆盖整体前、中、后三部分。")
-                appendLine("合并相同事实/决定/行动项；保留冲突和不确定性。")
-                appendLine("寒暄、附和、语气词、断句残片、过渡句不得优先于数据、判断或结论。")
-                appendLine("synopsis 必须是自然语言概括，禁止 JSON 符号片段、标签或 sourceRef 列表。")
-                appendLine("sourceRefs/evidenceRefs 仅复制子节点已有引用，不得创造编号。")
-                appendLine("不得生成时间戳、sample index 或播放位置。")
-                appendLine("重试码：error=INSUFFICIENT_SOURCE_COVERAGE（前中后）；error=INVALID_SYNOPSIS（自然概括）。")
-                appendLine("结构和长度由 response schema 约束。")
+                appendLine("输入为按原转写顺序排列的已校验子摘要；只合并、去重、压缩，不得引入新事实。")
+                appendLine("读完全部 NODE 后选最多 ${OfflineSummaryLongContract.MAX_INTERMEDIATE_ITEMS} 条最重要信息；每个含非重复重要信息的 NODE 都必须被 sourceRef 覆盖，重复可合并。")
+                appendLine("优先数据、判断、结论、决定、行动项和风险；忽略寒暄、附和、语气词、断句残片、过渡句。保留冲突和不确定性。")
+                appendLine("synopsis 用自然语言；sourceRefs/evidenceRefs 只能复制输入编号；不得生成时间戳、sample index 或播放位置。")
+                appendLine("紧凑格式：S=概览；I 行依次为 类型|认知状态|文本|sourceRefs|evidenceRefs。反斜杠仅用于转义文本分隔符。")
+                appendLine("重试码：error=INSUFFICIENT_SOURCE_COVERAGE；error=INVALID_SYNOPSIS。结构和长度由 response schema 约束。")
                 appendLine("<INTERMEDIATE_DATA>")
                 nodes.forEachIndexed { index, node ->
-                    append("[NODE=")
-                    append(index + 1)
-                    append("][id=")
-                    append(sanitizeHeaderValue(node.nodeId))
-                    appendLine("]")
-                    appendLine(OfflineSummaryIntermediateCodec.encode(node.summary))
+                    append(renderCompactIntermediateNode(index, node))
                 }
                 appendLine("</INTERMEDIATE_DATA>")
                 append("仅返回完整 JSON 对象，不要 Markdown、代码围栏、前言或后记。")
@@ -150,6 +139,39 @@ class OfflineSummaryFinalPromptRenderer {
         )
     }
 }
+
+private fun renderCompactIntermediateNode(
+    index: Int,
+    node: OfflineSummaryValidatedIntermediateNode,
+): String =
+    buildString {
+        append("[NODE=")
+        append(index + 1)
+        appendLine("]")
+        append("S:")
+        appendLine(encodeCompactField(node.summary.synopsis))
+        node.summary.items.forEachIndexed { itemIndex, item ->
+            append('I')
+            append(itemIndex + 1)
+            append('|')
+            append(item.type.name)
+            append('|')
+            append(item.epistemicStatus.name)
+            append('|')
+            append(encodeCompactField(item.text))
+            append('|')
+            append(item.sourceRefs.joinToString(","))
+            append('|')
+            appendLine(item.evidenceRefs.joinToString(","))
+        }
+    }
+
+private fun encodeCompactField(value: String): String =
+    value
+        .replace("\\", "\\\\")
+        .replace("|", "\\|")
+        .replace("\r", "\\r")
+        .replace("\n", "\\n")
 
 private fun payloadVisibleSourceRefs(nodes: List<OfflineSummaryValidatedIntermediateNode>): Set<String> =
     nodes.flatMapTo(LinkedHashSet()) { node ->
