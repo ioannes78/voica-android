@@ -77,7 +77,7 @@ class OfflineSummaryReducePromptRenderer {
         val prompt =
             buildString {
                 appendLine("闻知 WENZHI 长文本 REDUCE：只合并、去重、压缩输入事实，不新增。")
-                appendLine("数据中每个 NODE 是已校验独立要点；相关可合并，但每个非重复语义都须保留，输出 sourceRefs 并集须命中每个 NODE 至少一个原引用。")
+                appendLine("数据中每个 [NODE=n] 是已校验独立要点；相关可合并，但每个非重复语义都须保留，输出 sourceRefs 并集须命中每个 NODE 至少一个原引用。")
                 appendLine("优先数字、比例、金额、日期、专名、案例、领域、决定、行动、风险、结论；容量不足先去重再缩句，最多 ${OfflineSummaryLongContract.MAX_INTERMEDIATE_ITEMS} 条。")
                 appendLine("仅 JSON；schemaVersion=${OfflineSummaryLongContract.INTERMEDIATE_SCHEMA_VERSION}；键、枚举、长度、数量按 response schema。")
                 appendLine("refs 只复制输入；禁时间戳/sample index/播放位置。")
