@@ -71,6 +71,76 @@ class OfflineSummarySemanticRetentionR16Test {
     }
 
     @Test
+    fun reduceValidationAllowsOneMissingSemanticNodeAcrossSevenNodeGroup() {
+        val first =
+            validatedNode(
+                "N1",
+                (1..6).map { index ->
+                    item(
+                        id = "i$index",
+                        text = "第${index}个独立语义要点",
+                        sourceRef = "U" + index.toString().padStart(5, '0'),
+                        evidenceRef = "S" + index.toString().padStart(5, '0'),
+                    )
+                },
+            )
+        val second =
+            validatedNode(
+                "N2",
+                listOf(item("i7", "第七个独立语义要点", "U00007", "S00007")),
+            )
+        val rendered = OfflineSummaryReducePromptRenderer().render(listOf(first, second))
+        val raw =
+            """{"schemaVersion":1,"synopsis":"保留七个语义节点中的六个主要要点。","items":[{"id":"a","type":"KEY_POINT","text":"覆盖前三个主要要点。","sourceRefs":["U00001","U00002","U00003"],"evidenceRefs":["S00001","S00002","S00003"],"epistemicStatus":"TRANSCRIPT_STATED"},{"id":"b","type":"KEY_POINT","text":"覆盖随后三个主要要点。","sourceRefs":["U00004","U00005","U00006"],"evidenceRefs":["S00004","S00005","S00006"],"epistemicStatus":"TRANSCRIPT_STATED"}]}"""
+
+        val decoded =
+            OfflineSummaryIntermediateCodec.decode(
+                raw = raw,
+                allowedSourceRefs = rendered.allowedSourceRefs,
+                allowedEvidenceRefs = rendered.allowedEvidenceRefs,
+            )
+
+        assertEquals(2, decoded.items.size)
+        assertEquals(6, decoded.items.flatMap { it.sourceRefs }.distinct().size)
+    }
+
+    @Test
+    fun reduceValidationStillRejectsDroppingTwoSemanticNodesAcrossSevenNodeGroup() {
+        val first =
+            validatedNode(
+                "N1",
+                (1..6).map { index ->
+                    item(
+                        id = "i$index",
+                        text = "第${index}个独立语义要点",
+                        sourceRef = "U" + index.toString().padStart(5, '0'),
+                        evidenceRef = "S" + index.toString().padStart(5, '0'),
+                    )
+                },
+            )
+        val second =
+            validatedNode(
+                "N2",
+                listOf(item("i7", "第七个独立语义要点", "U00007", "S00007")),
+            )
+        val rendered = OfflineSummaryReducePromptRenderer().render(listOf(first, second))
+        val raw =
+            """{"schemaVersion":1,"synopsis":"只覆盖七个语义节点中的五个。","items":[{"id":"a","type":"KEY_POINT","text":"覆盖前三个主要要点。","sourceRefs":["U00001","U00002","U00003"],"evidenceRefs":["S00001","S00002","S00003"],"epistemicStatus":"TRANSCRIPT_STATED"},{"id":"b","type":"KEY_POINT","text":"覆盖另外两个主要要点。","sourceRefs":["U00004","U00005"],"evidenceRefs":["S00004","S00005"],"epistemicStatus":"TRANSCRIPT_STATED"}]}"""
+
+        val failure =
+            runCatching {
+                OfflineSummaryIntermediateCodec.decode(
+                    raw = raw,
+                    allowedSourceRefs = rendered.allowedSourceRefs,
+                    allowedEvidenceRefs = rendered.allowedEvidenceRefs,
+                )
+            }.exceptionOrNull() as OfflineSummaryIntermediateException
+
+        assertEquals(OfflineSummaryIntermediateErrorCode.INSUFFICIENT_SOURCE_COVERAGE, failure.code)
+        assertTrue(failure.message.orEmpty().contains("at least 6/7"))
+    }
+
+    @Test
     fun finalRendererKeepsEveryIntermediateItemVisibleAsSemanticNode() {
         val node =
             validatedNode(
