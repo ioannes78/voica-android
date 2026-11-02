@@ -110,12 +110,12 @@ grep -Fq 'maxOutputToken = config.maxOutputTokens' "$local_llm_runtime"
 grep -Fq 'maxOutputTokens = null' "$local_llm_contracts"
 grep -Fq 'responseJsonSchema = null' "$local_llm_contracts"
 
-# Stage 17.3 R7 visible-ref reduce/final contract and deterministic repair/resume identity.
-grep -Fq 'const val PIPELINE_VERSION = 173004' "$long_contracts"
-grep -Fq 'const val PLANNER_VERSION = 173001' "$long_contracts"
+# Stage 17.3 R16 semantic-item retention contract and deterministic repair/resume identity.
+grep -Fq 'const val PIPELINE_VERSION = 173005' "$long_contracts"
+grep -Fq 'const val PLANNER_VERSION = 173002' "$long_contracts"
 grep -Fq 'const val MAP_PROMPT_VERSION = 173103' "$long_contracts"
-grep -Fq 'const val REDUCE_PROMPT_VERSION = 173204' "$long_contracts"
-grep -Fq 'const val FINAL_PROMPT_VERSION = 173303' "$long_contracts"
+grep -Fq 'const val REDUCE_PROMPT_VERSION = 173205' "$long_contracts"
+grep -Fq 'const val FINAL_PROMPT_VERSION = 173304' "$long_contracts"
 grep -Fq 'const val INTERMEDIATE_SCHEMA_VERSION = 1' "$long_contracts"
 grep -Fq 'const val PLANNER_TARGET_ESTIMATED_PROMPT_TOKENS = 2_048' "$long_contracts"
 grep -Fq 'const val HARD_MAX_ESTIMATED_PROMPT_TOKENS = 2_528' "$long_contracts"
@@ -125,7 +125,10 @@ grep -Fq 'MAP 引擎' "$long_prompts"
 grep -Fq 'REDUCE 引擎' "$long_prompts"
 grep -Fq 'FINAL 引擎' "$long_prompts"
 grep -Fq '前、中、后三部分' "$long_prompts"
-grep -Fq '综合所有 NODE' "$long_prompts"
+grep -Fq '每个 [NODE=n]' "$long_prompts"
+grep -Fq '不要刻意极简' "$long_prompts"
+grep -Fq 'semanticItems = nodes.flatMap { it.summary.items }' "$long_prompts"
+grep -Fq 'requiredCoverageGroups = visibleSourceRefsBySemanticNode' "$long_prompts"
 grep -Fq 'error=INSUFFICIENT_SOURCE_COVERAGE' "$long_prompts"
 grep -Fq 'error=INVALID_SYNOPSIS' "$long_prompts"
 grep -Fq 'payloadVisibleSourceRefs(nodes)' "$long_prompts"
@@ -205,13 +208,15 @@ fi
 grep -Fq 'persistence.interruptAllActive()' "$coordinator"
 
 printf '%s\n' \
-  'Verified Stage 17.2 + Stage 17.3 R7 offline-summary boundary:' \
+  'Verified Stage 17.2 + Stage 17.3 R16 offline-summary boundary:' \
   '  - no cloud/HTTP/API-key/upload/WorkManager dependency in Direct or Long inference/checkpoint paths' \
   '  - P1 AppLocalLlmRuntime + AUTO remains the sole LLM execution boundary' \
   '  - Direct budget and at-most-one repair contract remain frozen' \
-  '  - Long R7 pipeline/prompt versions are explicit; planner/schema identity remains controlled' \
+  '  - Long R16 pipeline/planner/prompt versions are explicit; schema identity remains controlled' \
   '  - Long hard prompt budget remains exactly the Direct prompt budget' \
   '  - MAP/REDUCE execution remains serial; no coroutine fan-out is allowed' \
+  '  - REDUCE turns each validated child item into a model-visible semantic NODE with one required source-ref coverage group' \
+  '  - FINAL keeps every intermediate item model-visible and explicitly resists over-compression of numbers, entities and cases' \
   '  - REDUCE/FINAL model-facing refs are restricted to refs actually visible in child payload JSON while Room retains full lineage' \
   '  - repair guidance explicitly addresses distributed source coverage and natural-language synopsis failures' \
   '  - exhausted structured repair is not offered as product Resume; interruptions and ordinary generation failures keep normal Resume eligibility' \
