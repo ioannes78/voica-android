@@ -76,29 +76,21 @@ class OfflineSummaryReducePromptRenderer {
         val allowedEvidenceRefs = payloadVisibleEvidenceRefs(nodes)
         val prompt =
             buildString {
-                appendLine("你是“闻知 WENZHI”的长转写离线总结 REDUCE 引擎。")
-                appendLine("输入中的每个 [NODE=n] 都是一个已经校验过的独立语义要点；它不是原始逐句转写。")
-                appendLine("只合并、去重、压缩已有事实；不得新增。允许合并相关 NODE，但每个 NODE 的非重复语义都必须保留。")
-                appendLine("输出 sourceRefs 的并集必须至少命中每个 [NODE=n] 自带 sourceRefs 中的一个；缺任一 NODE 都算覆盖失败。")
-                appendLine("优先保留数字、比例、金额、日期/时间跨度、专名、具体案例、应用领域、决定、行动、风险和结论。")
-                appendLine("当容量紧张时先去重复、再压缩措辞；不得先把多个独立事实泛化成一句空洞总括。最多 ${OfflineSummaryLongContract.MAX_INTERMEDIATE_ITEMS} 条。")
-                appendLine("只输出 JSON：根键=schemaVersion,synopsis,items；schemaVersion=${OfflineSummaryLongContract.INTERMEDIATE_SCHEMA_VERSION}。")
-                appendLine("item键=id,type,text,sourceRefs,evidenceRefs,epistemicStatus；id唯一≤16字符。")
-                appendLine("type=KEY_POINT/DECISION/ACTION_ITEM/RISK/QUESTION/FACT/FOLLOW_UP/OTHER。")
-                appendLine("epistemicStatus=TRANSCRIPT_STATED/AI_SYNTHESIS/UNCONFIRMED。")
-                appendLine("限额：items 1..${OfflineSummaryLongContract.MAX_INTERMEDIATE_ITEMS}；synopsis 1..${OfflineSummaryLongContract.MAX_INTERMEDIATE_SYNOPSIS_CHARS}字符；text 1..${OfflineSummaryLongContract.MAX_INTERMEDIATE_ITEM_TEXT_CHARS}字符；sourceRefs 1..${OfflineSummaryLongContract.MAX_SOURCE_REFS_PER_ITEM}唯一；evidenceRefs 0..${OfflineSummaryLongContract.MAX_EVIDENCE_REFS_PER_ITEM}唯一。")
-                appendLine("refs 仅复制输入编号；禁止时间戳/sample index/播放位置。")
-                appendLine("输入格式：GROUP=上层子摘要；S=概览；NODE=必须保真的语义要点；I=类型|状态|文本|sourceRefs|evidenceRefs。")
-                appendLine("INVALID_VALUE→检查键/版本/长度/数量/唯一性；INSUFFICIENT_SOURCE_COVERAGE→按 error 指出的 missing node 补该 NODE 来源；INVALID_SYNOPSIS→自然语言概括。")
+                appendLine("闻知 WENZHI 长文本 REDUCE：只合并、去重、压缩输入事实，不新增。")
+                appendLine("数据中每个 NODE 是已校验独立要点；相关可合并，但每个非重复语义都须保留，输出 sourceRefs 并集须命中每个 NODE 至少一个原引用。")
+                appendLine("优先数字、比例、金额、日期、专名、案例、领域、决定、行动、风险、结论；容量不足先去重再缩句，最多 ${OfflineSummaryLongContract.MAX_INTERMEDIATE_ITEMS} 条。")
+                appendLine("仅 JSON；schemaVersion=${OfflineSummaryLongContract.INTERMEDIATE_SCHEMA_VERSION}；键、枚举、长度、数量按 response schema。")
+                appendLine("refs 只复制输入；禁时间戳/sample index/播放位置。")
+                appendLine("INVALID_VALUE=结构/版本/限额；INSUFFICIENT_SOURCE_COVERAGE=补 missing node 来源；INVALID_SYNOPSIS=自然概括。")
                 appendLine("<INTERMEDIATE_DATA>")
                 var semanticNodeIndex = 0
-                nodes.forEachIndexed { index, node ->
-                    val rendered = renderCompactIntermediateSemanticNodes(index, node, semanticNodeIndex)
+                nodes.forEach { node ->
+                    val rendered = renderCompactSemanticItems(node, semanticNodeIndex)
                     append(rendered.text)
                     semanticNodeIndex = rendered.nextSemanticNodeIndex
                 }
                 appendLine("</INTERMEDIATE_DATA>")
-                append("仅返回完整 JSON 对象，不要 Markdown、代码围栏、前言或后记。")
+                append("只返回完整 JSON 对象。")
             }
         return RenderedOfflineSummaryLongPrompt(
             promptVersion = OfflineSummaryLongContract.REDUCE_PROMPT_VERSION,
@@ -171,8 +163,8 @@ class OfflineSummaryFinalPromptRenderer {
                 appendLine("最终 JSON 必须符合现有 WENZHI AiSummaryResult schema。")
                 appendLine("<INTERMEDIATE_DATA>")
                 var semanticNodeIndex = 0
-                nodes.forEachIndexed { index, node ->
-                    val rendered = renderCompactIntermediateSemanticNodes(index, node, semanticNodeIndex)
+                nodes.forEach { node ->
+                    val rendered = renderCompactSemanticItems(node, semanticNodeIndex)
                     append(rendered.text)
                     semanticNodeIndex = rendered.nextSemanticNodeIndex
                 }
@@ -195,25 +187,20 @@ private data class RenderedSemanticNodes(
     val nextSemanticNodeIndex: Int,
 )
 
-private fun renderCompactIntermediateSemanticNodes(
-    groupIndex: Int,
+private fun renderCompactSemanticItems(
     node: OfflineSummaryValidatedIntermediateNode,
     semanticNodeStartIndex: Int,
 ): RenderedSemanticNodes {
     var semanticNodeIndex = semanticNodeStartIndex
     val text =
         buildString {
-            append("[GROUP=")
-            append(groupIndex + 1)
-            appendLine("]")
-            append("S:")
-            appendLine(encodeCompactField(node.summary.synopsis))
-            node.summary.items.forEach { item ->
+            node.summary.items.forEachIndexed { itemIndex, item ->
                 semanticNodeIndex += 1
                 append("[NODE=")
                 append(semanticNodeIndex)
-                appendLine("]")
-                append("I|")
+                append("]I")
+                append(itemIndex + 1)
+                append('|')
                 append(item.type.name)
                 append('|')
                 append(item.epistemicStatus.name)
