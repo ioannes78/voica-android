@@ -253,13 +253,18 @@ object OfflineSummaryIntermediateCodec {
                     maxChars = OfflineSummaryLongContract.MAX_INTERMEDIATE_ITEM_TEXT_CHARS,
                     field = "item.text",
                 )
-                val sourceRefs = item.required("sourceRefs").jsonArray.map { it.jsonPrimitive.content }
+                // R16.3: duplicate refs are semantically redundant, not a structural failure.
+                // Canonicalize exactly like SummaryResultCodec does for final evidenceRefs, preserving
+                // first-seen order while keeping empty/true-cardinality/unknown-ref validation strict.
+                val sourceRefs =
+                    item.required("sourceRefs").jsonArray
+                        .map { it.jsonPrimitive.content }
+                        .distinct()
                 if (
                     sourceRefs.isEmpty() ||
-                    sourceRefs.size > OfflineSummaryLongContract.MAX_SOURCE_REFS_PER_ITEM ||
-                    sourceRefs.size != sourceRefs.distinct().size
+                    sourceRefs.size > OfflineSummaryLongContract.MAX_SOURCE_REFS_PER_ITEM
                 ) {
-                    invalid("sourceRefs must be non-empty, unique and bounded")
+                    invalid("sourceRefs must be non-empty and bounded")
                 }
                 val invalidSourceRefs = sourceRefs.filterNot(allowedSourceRefs::contains)
                 if (invalidSourceRefs.isNotEmpty()) {
@@ -268,12 +273,12 @@ object OfflineSummaryIntermediateCodec {
                         "unknown source refs: ${invalidSourceRefs.joinToString()}",
                     )
                 }
-                val evidenceRefs = item.required("evidenceRefs").jsonArray.map { it.jsonPrimitive.content }
-                if (
-                    evidenceRefs.size > OfflineSummaryLongContract.MAX_EVIDENCE_REFS_PER_ITEM ||
-                    evidenceRefs.size != evidenceRefs.distinct().size
-                ) {
-                    invalid("evidenceRefs must be unique and bounded")
+                val evidenceRefs =
+                    item.required("evidenceRefs").jsonArray
+                        .map { it.jsonPrimitive.content }
+                        .distinct()
+                if (evidenceRefs.size > OfflineSummaryLongContract.MAX_EVIDENCE_REFS_PER_ITEM) {
+                    invalid("evidenceRefs must be bounded")
                 }
                 val invalidEvidenceRefs = evidenceRefs.filterNot(allowedEvidenceRefs::contains)
                 if (invalidEvidenceRefs.isNotEmpty()) {
