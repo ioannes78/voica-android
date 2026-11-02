@@ -98,7 +98,7 @@ object OfflineSummaryIntermediateResponseFormat {
  * Marks source refs that belong to a live MAP/REDUCE generation request.
  *
  * MAP uses distributed beginning/middle/end coverage. REDUCE may instead provide explicit
- * per-child-node coverage groups. Durable Room checkpoint reads intentionally use ordinary sets:
+ * per-semantic-node coverage groups. Durable Room checkpoint reads intentionally use ordinary sets:
  * they revalidate schema and lineage membership without reapplying generation-time quality gates.
  */
 internal class OfflineSummaryGenerationSourceRefs(
@@ -128,6 +128,7 @@ object OfflineSummaryIntermediateCodec {
     private const val MIN_NATURAL_SYNOPSIS_CHARS = 4
     private const val DISTRIBUTED_COVERAGE_MIN_SOURCE_REFS = 6
     private const val DISTRIBUTED_COVERAGE_BUCKETS = 3
+    private const val EXPLICIT_COVERAGE_PERCENT = 80
     private val json = Json { ignoreUnknownKeys = false; isLenient = false }
 
     fun decode(
@@ -336,14 +337,18 @@ object OfflineSummaryIntermediateCodec {
         requiredCoverageGroups: List<Set<String>>,
     ) {
         val covered = items.flatMapTo(LinkedHashSet()) { it.sourceRefs }
-        requiredCoverageGroups.forEachIndexed { index, group ->
-            if (group.none(covered::contains)) {
-                throw OfflineSummaryIntermediateException(
-                    OfflineSummaryIntermediateErrorCode.INSUFFICIENT_SOURCE_COVERAGE,
-                    "intermediate sourceRefs must represent every input node; missing node ${index + 1}",
-                )
-            }
-        }
+        val coveredGroups = requiredCoverageGroups.map { group -> group.any(covered::contains) }
+        val minimumCoveredGroupCount =
+            (requiredCoverageGroups.size * EXPLICIT_COVERAGE_PERCENT + 99) / 100
+        val coveredGroupCount = coveredGroups.count { it }
+        if (coveredGroupCount >= minimumCoveredGroupCount) return
+
+        val firstMissingIndex = coveredGroups.indexOfFirst { !it }
+        throw OfflineSummaryIntermediateException(
+            OfflineSummaryIntermediateErrorCode.INSUFFICIENT_SOURCE_COVERAGE,
+            "intermediate sourceRefs must represent at least $minimumCoveredGroupCount/${requiredCoverageGroups.size} input nodes; " +
+                "covered $coveredGroupCount; missing node ${firstMissingIndex + 1}",
+        )
     }
 
     private fun requireTextBounds(
