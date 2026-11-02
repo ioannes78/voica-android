@@ -63,6 +63,38 @@ internal fun shouldFinalizeOnReductionStall(
         reducedGroupCount >= currentNodeCount &&
         finalEstimate <= OfflineSummaryLongContract.HARD_MAX_ESTIMATED_PROMPT_TOKENS
 
+internal fun offlineSummaryStructuredValidationFailure(
+    code: String,
+    message: String?,
+): String {
+    require(code.isNotBlank())
+    val detail =
+        message
+            ?.replace(Regex("\\s+"), " ")
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() && it != code }
+            ?.take(180)
+    return detail?.let { "$code: $it" } ?: code
+}
+
+internal fun offlineSummaryLongRepairPrompt(
+    originalPrompt: String,
+    validationError: String,
+): String =
+    buildString {
+        append(originalPrompt)
+        appendLine()
+        appendLine()
+        append("上一次输出未通过本地结构校验（error=")
+        append(validationError)
+        appendLine("）。请基于完全相同的输入重新输出一次；不得新增事实或引用。")
+        if (validationError.startsWith("INSUFFICIENT_SOURCE_COVERAGE")) {
+            appendLine("覆盖修复要求：优先补齐 error 指出的 missing node；只从该 NODE 输入已有 sourceRefs 中复制至少一个合法引用到语义对应的 item.sourceRefs。")
+            appendLine("不得为了通过覆盖校验给无关条目硬绑来源；其他已正确事实、类型、状态和引用保持不变。")
+        }
+        append("仍然只返回完整 JSON 对象。")
+    }
+
 internal interface OfflineSummaryLongRunnerPort {
     suspend fun executeNew(
         summaryId: String,
@@ -532,7 +564,7 @@ internal class OfflineSummaryLongRunner(
             return GeneratedStructured(first.text, first, repairAttempted = false)
         }
 
-        val repairPrompt = buildRepairPrompt(prompt.text, firstValidation)
+        val repairPrompt = offlineSummaryLongRepairPrompt(prompt.text, firstValidation)
         requirePromptWithinHardBudget(repairPrompt)
         val repaired = generateLocal(repairPrompt, config)
         requireGenerationIdentity(repaired, preparedIdentity)
@@ -559,20 +591,9 @@ internal class OfflineSummaryLongRunner(
             }
             null
         } catch (error: OfflineSummaryIntermediateException) {
-            error.code.name
+            offlineSummaryStructuredValidationFailure(error.code.name, error.message)
         } catch (error: SummaryStructuredOutputException) {
-            error.code.name
-        }
-
-    private fun buildRepairPrompt(originalPrompt: String, validationError: String): String =
-        buildString {
-            append(originalPrompt)
-            appendLine()
-            appendLine()
-            append("上一次输出未通过本地结构校验（error=")
-            append(validationError)
-            appendLine("）。请基于完全相同的输入重新输出一次；不得新增事实或引用。")
-            append("仍然只返回完整 JSON 对象。")
+            offlineSummaryStructuredValidationFailure(error.code.name, error.message)
         }
 
     private fun requirePromptWithinHardBudget(text: String) {
