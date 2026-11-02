@@ -13,7 +13,7 @@ class OfflineSummaryReductionPlannerFallbackTest {
                 override val id = "NODE_COUNT_TEST"
 
                 override fun estimateTokens(text: String): Int {
-                    val nodeCount = Regex("\\[NODE=").findAll(text).count()
+                    val nodeCount = Regex("(?m)^\\[NODE=").findAll(text).count()
                     return when (nodeCount) {
                         0 -> 0
                         1 -> 1_500
@@ -44,7 +44,7 @@ class OfflineSummaryReductionPlannerFallbackTest {
                 override val id = "LEGACY_COMPAT_TEST"
 
                 override fun estimateTokens(text: String): Int {
-                    val nodeCount = Regex("\\[NODE=").findAll(text).count()
+                    val nodeCount = Regex("(?m)^\\[NODE=").findAll(text).count()
                     val legacyShape = text.contains("[id=")
                     return if (legacyShape) {
                         when (nodeCount) {
