@@ -6,7 +6,7 @@ import org.junit.Test
 
 class OfflineSummarySemanticRetentionR16Test {
     @Test
-    fun reduceRendererCreatesOneCoverageGroupPerSemanticItem() {
+    fun reduceRendererKeepsSmallSemanticSetAsHardCoverageGroups() {
         val first =
             validatedNode(
                 "N1",
@@ -37,7 +37,7 @@ class OfflineSummarySemanticRetentionR16Test {
     }
 
     @Test
-    fun reduceValidationRejectsDroppingSecondSemanticItemFromSameChildNode() {
+    fun reduceValidationRejectsDroppingSecondSemanticItemFromSmallChildSet() {
         val first =
             validatedNode(
                 "N1",
@@ -71,7 +71,7 @@ class OfflineSummarySemanticRetentionR16Test {
     }
 
     @Test
-    fun reduceValidationAllowsOneMissingSemanticNodeAcrossSevenNodeGroup() {
+    fun reduceValidationAllowsNonAnchorOmissionAcrossSevenNodeGroup() {
         val first =
             validatedNode(
                 "N1",
@@ -90,8 +90,9 @@ class OfflineSummarySemanticRetentionR16Test {
                 listOf(item("i7", "第七个独立语义要点", "U00007", "S00007")),
             )
         val rendered = OfflineSummaryReducePromptRenderer().render(listOf(first, second))
-        val raw =
-            """{"schemaVersion":1,"synopsis":"保留七个语义节点中的六个主要要点。","items":[{"id":"a","type":"KEY_POINT","text":"覆盖前三个主要要点。","sourceRefs":["U00001","U00002","U00003"],"evidenceRefs":["S00001","S00002","S00003"],"epistemicStatus":"TRANSCRIPT_STATED"},{"id":"b","type":"KEY_POINT","text":"覆盖随后三个主要要点。","sourceRefs":["U00004","U00005","U00006"],"evidenceRefs":["S00004","S00005","S00006"],"epistemicStatus":"TRANSCRIPT_STATED"}]}"""
+        val generationRefs = rendered.allowedSourceRefs as OfflineSummaryGenerationSourceRefs
+        val anchorRefs = requireNotNull(generationRefs.requiredCoverageGroups).map { it.first() }
+        val raw = intermediateJson(anchorRefs)
 
         val decoded =
             OfflineSummaryIntermediateCodec.decode(
@@ -100,44 +101,9 @@ class OfflineSummarySemanticRetentionR16Test {
                 allowedEvidenceRefs = rendered.allowedEvidenceRefs,
             )
 
-        assertEquals(2, decoded.items.size)
-        assertEquals(6, decoded.items.flatMap { it.sourceRefs }.distinct().size)
-    }
-
-    @Test
-    fun reduceValidationStillRejectsDroppingTwoSemanticNodesAcrossSevenNodeGroup() {
-        val first =
-            validatedNode(
-                "N1",
-                (1..6).map { index ->
-                    item(
-                        id = "i$index",
-                        text = "第${index}个独立语义要点",
-                        sourceRef = "U" + index.toString().padStart(5, '0'),
-                        evidenceRef = "S" + index.toString().padStart(5, '0'),
-                    )
-                },
-            )
-        val second =
-            validatedNode(
-                "N2",
-                listOf(item("i7", "第七个独立语义要点", "U00007", "S00007")),
-            )
-        val rendered = OfflineSummaryReducePromptRenderer().render(listOf(first, second))
-        val raw =
-            """{"schemaVersion":1,"synopsis":"只覆盖七个语义节点中的五个。","items":[{"id":"a","type":"KEY_POINT","text":"覆盖前三个主要要点。","sourceRefs":["U00001","U00002","U00003"],"evidenceRefs":["S00001","S00002","S00003"],"epistemicStatus":"TRANSCRIPT_STATED"},{"id":"b","type":"KEY_POINT","text":"覆盖另外两个主要要点。","sourceRefs":["U00004","U00005"],"evidenceRefs":["S00004","S00005"],"epistemicStatus":"TRANSCRIPT_STATED"}]}"""
-
-        val failure =
-            runCatching {
-                OfflineSummaryIntermediateCodec.decode(
-                    raw = raw,
-                    allowedSourceRefs = rendered.allowedSourceRefs,
-                    allowedEvidenceRefs = rendered.allowedEvidenceRefs,
-                )
-            }.exceptionOrNull() as OfflineSummaryIntermediateException
-
-        assertEquals(OfflineSummaryIntermediateErrorCode.INSUFFICIENT_SOURCE_COVERAGE, failure.code)
-        assertTrue(failure.message.orEmpty().contains("at least 6/7"))
+        assertEquals(4, anchorRefs.size)
+        assertEquals(4, decoded.items.size)
+        assertTrue(rendered.inputNodeCount > decoded.items.size)
     }
 
     @Test
@@ -162,6 +128,14 @@ class OfflineSummarySemanticRetentionR16Test {
         assertTrue(rendered.text.contains("标普公司提及AI比例接近一半"))
         assertTrue(rendered.text.contains("全球数据中心用电约增长三倍"))
         assertTrue(rendered.text.contains("不要刻意极简"))
+    }
+
+    private fun intermediateJson(sourceRefs: List<String>): String {
+        val items =
+            sourceRefs.mapIndexed { index, ref ->
+                """{"id":"a${index + 1}","type":"FACT","text":"保留锚点事实${index + 1}","sourceRefs":["$ref"],"evidenceRefs":[],"epistemicStatus":"UNCONFIRMED"}"""
+            }.joinToString(",")
+        return """{"schemaVersion":1,"synopsis":"保留硬覆盖锚点并继续压缩其他信息。","items":[$items]}"""
     }
 
     private fun item(
