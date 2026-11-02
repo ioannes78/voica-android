@@ -67,21 +67,24 @@ class OfflineSummaryReducePromptRenderer {
     fun render(nodes: List<OfflineSummaryValidatedIntermediateNode>): RenderedOfflineSummaryLongPrompt {
         require(nodes.isNotEmpty())
         val semanticItems = nodes.flatMap { it.summary.items }
+        val anchors = selectRetentionAnchors(semanticItems)
         val visibleSourceRefsBySemanticNode = semanticItems.map { it.sourceRefs.toCollection(LinkedHashSet()) }
         val allowedSourceRefs =
             offlineSummaryGenerationSourceRefs(
                 values = visibleSourceRefsBySemanticNode.flatMapTo(LinkedHashSet()) { it },
-                requiredCoverageGroups = visibleSourceRefsBySemanticNode,
+                requiredCoverageGroups = anchors.map { it.sourceRefs },
             )
         val allowedEvidenceRefs = payloadVisibleEvidenceRefs(nodes)
         val prompt =
             buildString {
                 appendLine("闻知 WENZHI 长文本 REDUCE：只合并、去重、压缩输入事实，不新增。")
-                appendLine("数据中每个 [NODE=n] 是已校验独立要点；相关可合并，但每个非重复语义都须保留，输出 sourceRefs 并集须命中每个 NODE 至少一个原引用。")
-                appendLine("优先数字、比例、金额、日期、专名、案例、领域、决定、行动、风险、结论；容量不足先去重再缩句，最多 ${OfflineSummaryLongContract.MAX_INTERMEDIATE_ITEMS} 条。")
+                appendLine("数据中每个 [NODE=n] 是已校验独立要点；相关可合并，尽量保留所有非重复语义。")
+                appendLine("硬覆盖锚点 NODE=${anchors.joinToString(",") { it.semanticNodeIndex.toString() }}；这些 NODE 必须在输出 sourceRefs 中各保留至少一个原引用。")
+                appendLine("优先数字、比例、金额、日期、专名、案例、领域、决定、行动、风险、问题、结论；容量不足先去重再缩句，最多 ${OfflineSummaryLongContract.MAX_INTERMEDIATE_ITEMS} 条。")
+                appendLine("非锚点不是可随意删除项；在不重复且容量允许时继续保留，不能只围绕锚点写摘要。")
                 appendLine("仅 JSON；schemaVersion=${OfflineSummaryLongContract.INTERMEDIATE_SCHEMA_VERSION}；键、枚举、长度、数量按 response schema。")
                 appendLine("refs 只复制输入；禁时间戳/sample index/播放位置。")
-                appendLine("INVALID_VALUE=结构/版本/限额；INSUFFICIENT_SOURCE_COVERAGE=补 missing node 来源；INVALID_SYNOPSIS=自然概括。")
+                appendLine("INVALID_VALUE=结构/版本/限额；INSUFFICIENT_SOURCE_COVERAGE=补 missing node 锚点来源；INVALID_SYNOPSIS=自然概括。")
                 appendLine("<INTERMEDIATE_DATA>")
                 var semanticNodeIndex = 0
                 nodes.forEach { node ->
@@ -187,6 +190,60 @@ private data class RenderedSemanticNodes(
     val nextSemanticNodeIndex: Int,
 )
 
+private data class RetentionAnchor(
+    val semanticNodeIndex: Int,
+    val sourceRefs: Set<String>,
+)
+
+private fun selectRetentionAnchors(items: List<OfflineSummaryIntermediateItem>): List<RetentionAnchor> {
+    require(items.isNotEmpty())
+    if (items.size <= MAX_HARD_RETENTION_ANCHORS) {
+        return items.mapIndexed { index, item ->
+            RetentionAnchor(index + 1, item.sourceRefs.toCollection(LinkedHashSet()))
+        }
+    }
+
+    val indexed = items.mapIndexed { index, item -> IndexedValue(index, item) }
+    val selected = LinkedHashMap<Int, OfflineSummaryIntermediateItem>()
+    repeat(DISTRIBUTED_RETENTION_BUCKETS) { bucketIndex ->
+        val start = indexed.size * bucketIndex / DISTRIBUTED_RETENTION_BUCKETS
+        val end = indexed.size * (bucketIndex + 1) / DISTRIBUTED_RETENTION_BUCKETS
+        indexed.subList(start, end)
+            .maxWithOrNull(compareBy<IndexedValue<OfflineSummaryIntermediateItem>> { retentionScore(it.value) }.thenBy { -it.index })
+            ?.let { selected[it.index] = it.value }
+    }
+    indexed
+        .sortedWith(compareByDescending<IndexedValue<OfflineSummaryIntermediateItem>> { retentionScore(it.value) }.thenBy { it.index })
+        .forEach { candidate ->
+            if (selected.size < MAX_HARD_RETENTION_ANCHORS) selected.putIfAbsent(candidate.index, candidate.value)
+        }
+
+    return selected.entries
+        .sortedBy { it.key }
+        .map { (index, item) ->
+            RetentionAnchor(index + 1, item.sourceRefs.toCollection(LinkedHashSet()))
+        }
+}
+
+private fun retentionScore(item: OfflineSummaryIntermediateItem): Int {
+    var score =
+        when (item.type) {
+            OfflineSummaryIntermediateItemType.DECISION,
+            OfflineSummaryIntermediateItemType.ACTION_ITEM,
+            OfflineSummaryIntermediateItemType.RISK,
+            OfflineSummaryIntermediateItemType.QUESTION,
+            OfflineSummaryIntermediateItemType.FOLLOW_UP,
+            -> 8
+
+            OfflineSummaryIntermediateItemType.FACT -> 6
+            OfflineSummaryIntermediateItemType.KEY_POINT -> 4
+            OfflineSummaryIntermediateItemType.OTHER -> 1
+        }
+    if (QUANTITATIVE_SIGNAL.containsMatchIn(item.text)) score += 8
+    if (LATIN_NAMED_SIGNAL.containsMatchIn(item.text)) score += 2
+    return score
+}
+
 private fun renderCompactSemanticItems(
     node: OfflineSummaryValidatedIntermediateNode,
     semanticNodeStartIndex: Int,
@@ -240,3 +297,8 @@ private fun sanitizeHeaderValue(value: String): String =
         .replace(Regex("\\s+"), " ")
         .replace("[", "［")
         .replace("]", "］")
+
+private const val MAX_HARD_RETENTION_ANCHORS = 4
+private const val DISTRIBUTED_RETENTION_BUCKETS = 3
+private val QUANTITATIVE_SIGNAL = Regex("[0-9零〇一二三四五六七八九十百千万亿两点.%％成倍趴]")
+private val LATIN_NAMED_SIGNAL = Regex("[A-Za-z]{2,}")
