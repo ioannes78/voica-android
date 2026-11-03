@@ -31,9 +31,12 @@ class OfflineSummarySemanticRetentionR16Test {
         assertEquals(setOf("U00001"), generationRefs.requiredCoverageGroups?.get(0))
         assertEquals(setOf("U00002"), generationRefs.requiredCoverageGroups?.get(1))
         assertEquals(setOf("U00003"), generationRefs.requiredCoverageGroups?.get(2))
-        assertTrue(rendered.text.contains("[NODE=1]"))
-        assertTrue(rendered.text.contains("[NODE=2]"))
-        assertTrue(rendered.text.contains("[NODE=3]"))
+        assertTrue(rendered.text.contains("[NODE=1][HARD_ANCHOR]"))
+        assertTrue(rendered.text.contains("[NODE=2][HARD_ANCHOR]"))
+        assertTrue(rendered.text.contains("[NODE=3][HARD_ANCHOR]"))
+        assertTrue(rendered.text.contains("第一次输出没有该语义就新增 item"))
+        assertTrue(rendered.text.contains("items 已满则替换较低优先级非锚点"))
+        assertTrue(rendered.text.contains("禁止只给无关 item 挂 sourceRefs"))
     }
 
     @Test
@@ -103,6 +106,7 @@ class OfflineSummarySemanticRetentionR16Test {
 
         assertEquals(4, anchorRefs.size)
         assertEquals(4, decoded.items.size)
+        assertEquals(4, Regex("\\[HARD_ANCHOR]").findAll(rendered.text).count())
         assertTrue(rendered.inputNodeCount > decoded.items.size)
     }
 
