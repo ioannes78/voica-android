@@ -226,7 +226,7 @@ class OfflineSummaryLongCoreTest {
         assertTrue(schema.contains("\"maxItems\":${OfflineSummaryLongContract.MAX_INTERMEDIATE_ITEMS}"))
         assertTrue(schema.contains("\"maxLength\":${OfflineSummaryLongContract.MAX_INTERMEDIATE_SYNOPSIS_CHARS}"))
         assertEquals(173103, map.promptVersion)
-        assertEquals(173206, reduce.promptVersion)
+        assertEquals(173207, reduce.promptVersion)
         assertEquals(173304, final.promptVersion)
         assertEquals(OfflineSummaryLongContract.INTERMEDIATE_SCHEMA_VERSION, map.resultSchemaVersion)
         assertEquals(OfflineSummaryPromptContract.RESULT_SCHEMA_VERSION, final.resultSchemaVersion)
