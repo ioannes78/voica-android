@@ -53,15 +53,16 @@ class OfflineSummaryLongRepairPromptR15Test {
     }
 
     @Test
-    fun coverageRepairReplaysOnlyMissingNodePayloadsAndAllowsSemanticReplacement() {
+    fun coverageRepairKeepsInlineHardAnchorTargetsVisibleWithMultiAnchorFailure() {
         val original =
             """
             闻知 WENZHI 长文本 REDUCE
+            若覆盖校验重试 error 指出 missing node(s)，必须恢复对应 [NODE=n][HARD_ANCHOR] 的原语义；第一次输出没有该语义就新增 item，items 已满则替换较低优先级非锚点，禁止只给无关 item 挂 sourceRefs。
             <INTERMEDIATE_DATA>
-            [NODE=1]I1|FACT|TRANSCRIPT_STATED|第一个语义|U00001|S00001
-            [NODE=2]I2|FACT|TRANSCRIPT_STATED|第二个语义|U00002|S00002
-            [NODE=3]I3|FACT|TRANSCRIPT_STATED|第三个必须恢复的语义|U00003|S00003
-            [NODE=4]I4|RISK|TRANSCRIPT_STATED|第四个必须恢复的语义|U00004|S00004
+            [NODE=1][HARD_ANCHOR]I1|FACT|TRANSCRIPT_STATED|第一个语义|U00001|S00001
+            [NODE=2][HARD_ANCHOR]I2|FACT|TRANSCRIPT_STATED|第二个语义|U00002|S00002
+            [NODE=3][HARD_ANCHOR]I3|FACT|TRANSCRIPT_STATED|第三个必须恢复的语义|U00003|S00003
+            [NODE=4][HARD_ANCHOR]I4|RISK|TRANSCRIPT_STATED|第四个必须恢复的语义|U00004|S00004
             </INTERMEDIATE_DATA>
             只返回完整 JSON 对象。
             """.trimIndent()
@@ -72,22 +73,17 @@ class OfflineSummaryLongRepairPromptR15Test {
             )
 
         val repaired = offlineSummaryLongRepairPrompt(original, failure)
-        val targets =
-            repaired
-                .substringAfter("<COVERAGE_REPAIR_TARGETS>")
-                .substringBefore("</COVERAGE_REPAIR_TARGETS>")
 
-        assertTrue(targets.contains("[NODE=3]"))
-        assertTrue(targets.contains("第三个必须恢复的语义"))
-        assertTrue(targets.contains("U00003"))
-        assertTrue(targets.contains("[NODE=4]"))
-        assertTrue(targets.contains("第四个必须恢复的语义"))
-        assertTrue(targets.contains("U00004"))
-        assertFalse(targets.contains("[NODE=1]"))
-        assertFalse(targets.contains("[NODE=2]"))
-        assertTrue(repaired.contains("必须新增 item"))
-        assertTrue(repaired.contains("替换一个较低优先级且非目标条目"))
-        assertTrue(repaired.contains("禁止只给无关 item 追加 sourceRefs"))
+        assertTrue(repaired.contains("missing nodes 3,4"))
+        assertTrue(repaired.contains("[NODE=3][HARD_ANCHOR]"))
+        assertTrue(repaired.contains("第三个必须恢复的语义"))
+        assertTrue(repaired.contains("U00003"))
+        assertTrue(repaired.contains("[NODE=4][HARD_ANCHOR]"))
+        assertTrue(repaired.contains("第四个必须恢复的语义"))
+        assertTrue(repaired.contains("U00004"))
+        assertTrue(repaired.contains("第一次输出没有该语义就新增 item"))
+        assertTrue(repaired.contains("替换较低优先级非锚点"))
+        assertTrue(repaired.contains("禁止只给无关 item 挂 sourceRefs"))
     }
 
     @Test
@@ -100,6 +96,5 @@ class OfflineSummaryLongRepairPromptR15Test {
 
         assertTrue(repaired.contains("INVALID_SYNOPSIS"))
         assertFalse(repaired.contains("覆盖修复要求"))
-        assertFalse(repaired.contains("COVERAGE_REPAIR_TARGETS"))
     }
 }
