@@ -67,7 +67,7 @@ class OfflineSummarySemanticRetentionR16Test {
             }.exceptionOrNull() as OfflineSummaryIntermediateException
 
         assertEquals(OfflineSummaryIntermediateErrorCode.INSUFFICIENT_SOURCE_COVERAGE, failure.code)
-        assertTrue(failure.message.orEmpty().contains("missing node 2"))
+        assertTrue(failure.message.orEmpty().contains("missing nodes 2"))
     }
 
     @Test
