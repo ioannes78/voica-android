@@ -110,11 +110,11 @@ grep -Fq 'maxOutputToken = config.maxOutputTokens' "$local_llm_runtime"
 grep -Fq 'maxOutputTokens = null' "$local_llm_contracts"
 grep -Fq 'responseJsonSchema = null' "$local_llm_contracts"
 
-# Stage 17.3 R16.2 bounded semantic-retention contract and deterministic repair/resume identity.
+# Stage 17.3 R16.5 bounded semantic-retention contract and deterministic repair/resume identity.
 grep -Fq 'const val PIPELINE_VERSION = 173006' "$long_contracts"
 grep -Fq 'const val PLANNER_VERSION = 173002' "$long_contracts"
 grep -Fq 'const val MAP_PROMPT_VERSION = 173103' "$long_contracts"
-grep -Fq 'const val REDUCE_PROMPT_VERSION = 173206' "$long_contracts"
+grep -Fq 'const val REDUCE_PROMPT_VERSION = 173207' "$long_contracts"
 grep -Fq 'const val FINAL_PROMPT_VERSION = 173304' "$long_contracts"
 grep -Fq 'const val INTERMEDIATE_SCHEMA_VERSION = 1' "$long_contracts"
 grep -Fq 'const val PLANNER_TARGET_ESTIMATED_PROMPT_TOKENS = 2_048' "$long_contracts"
@@ -132,6 +132,10 @@ grep -Fq 'selectRetentionAnchors(semanticItems)' "$long_prompts"
 grep -Fq 'requiredCoverageGroups = anchors.map { it.sourceRefs }' "$long_prompts"
 grep -Fq 'MAX_HARD_RETENTION_ANCHORS = 4' "$long_prompts"
 grep -Fq '硬覆盖锚点 NODE=' "$long_prompts"
+grep -Fq '[HARD_ANCHOR]' "$long_prompts"
+grep -Fq '第一次输出没有该语义就新增 item' "$long_prompts"
+grep -Fq 'items 已满则替换较低优先级非锚点' "$long_prompts"
+grep -Fq '禁止只给无关 item 挂 sourceRefs' "$long_prompts"
 grep -Fq '非锚点不是可随意删除项' "$long_prompts"
 grep -Fq 'error=INSUFFICIENT_SOURCE_COVERAGE' "$long_prompts"
 grep -Fq 'error=INVALID_SYNOPSIS' "$long_prompts"
@@ -212,14 +216,15 @@ fi
 grep -Fq 'persistence.interruptAllActive()' "$coordinator"
 
 printf '%s\n' \
-  'Verified Stage 17.2 + Stage 17.3 R16.2 offline-summary boundary:' \
+  'Verified Stage 17.2 + Stage 17.3 R16.5 offline-summary boundary:' \
   '  - no cloud/HTTP/API-key/upload/WorkManager dependency in Direct or Long inference/checkpoint paths' \
   '  - P1 AppLocalLlmRuntime + AUTO remains the sole LLM execution boundary' \
   '  - Direct budget and at-most-one repair contract remain frozen' \
-  '  - Long R16.2 pipeline/planner/prompt versions are explicit; schema identity remains controlled' \
+  '  - Long R16.5 pipeline/planner/prompt versions are explicit; schema identity remains controlled' \
   '  - Long hard prompt budget remains exactly the Direct prompt budget' \
   '  - MAP/REDUCE execution remains serial; no coroutine fan-out is allowed' \
   '  - REDUCE keeps every validated semantic NODE model-visible while hard coverage is bounded to four deterministic retention anchors' \
+  '  - hard retention anchors are explicitly model-visible as [HARD_ANCHOR], and missing-anchor repair requires semantic recovery rather than unrelated ref attachment' \
   '  - retention anchors combine beginning/middle/end distribution with quantitative/type priority, matching the six-item output capacity without making every input NODE a hard gate' \
   '  - FINAL keeps every intermediate item model-visible and explicitly resists over-compression of numbers, entities and cases' \
   '  - REDUCE/FINAL model-facing refs are restricted to refs actually visible in child payload JSON while Room retains full lineage' \
