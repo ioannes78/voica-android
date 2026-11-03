@@ -348,11 +348,14 @@ object OfflineSummaryIntermediateCodec {
         val coveredGroupCount = coveredGroups.count { it }
         if (coveredGroupCount >= minimumCoveredGroupCount) return
 
-        val firstMissingIndex = coveredGroups.indexOfFirst { !it }
+        val missingNodeNumbers =
+            coveredGroups.mapIndexedNotNull { index, isCovered ->
+                if (isCovered) null else index + 1
+            }
         throw OfflineSummaryIntermediateException(
             OfflineSummaryIntermediateErrorCode.INSUFFICIENT_SOURCE_COVERAGE,
             "intermediate sourceRefs must represent at least $minimumCoveredGroupCount/${requiredCoverageGroups.size} input nodes; " +
-                "covered $coveredGroupCount; missing node ${firstMissingIndex + 1}",
+                "covered $coveredGroupCount; missing nodes ${missingNodeNumbers.joinToString(",")}",
         )
     }
 
