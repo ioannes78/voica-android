@@ -36,6 +36,23 @@ class OfflineSummaryLongRepairPromptR15Test {
     }
 
     @Test
+    fun coverageRepairPromptPreservesEveryMissingAnchorFromOneValidationFailure() {
+        val original = "REDUCE_INPUT_WITH_FOUR_HARD_ANCHORS"
+        val failure =
+            offlineSummaryStructuredValidationFailure(
+                code = "INSUFFICIENT_SOURCE_COVERAGE",
+                message = "intermediate sourceRefs must represent at least 4/4 input nodes; covered 2; missing nodes 3,4",
+            )
+
+        val repaired = offlineSummaryLongRepairPrompt(original, failure)
+
+        assertTrue(repaired.startsWith(original))
+        assertTrue(repaired.contains("covered 2"))
+        assertTrue(repaired.contains("missing nodes 3,4"))
+        assertTrue(repaired.contains("覆盖修复要求"))
+    }
+
+    @Test
     fun nonCoverageRepairDoesNotInjectCoverageSpecificInstruction() {
         val repaired =
             offlineSummaryLongRepairPrompt(
