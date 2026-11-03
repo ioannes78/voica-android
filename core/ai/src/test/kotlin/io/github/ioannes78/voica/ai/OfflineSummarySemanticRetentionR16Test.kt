@@ -106,7 +106,7 @@ class OfflineSummarySemanticRetentionR16Test {
 
         assertEquals(4, anchorRefs.size)
         assertEquals(4, decoded.items.size)
-        assertEquals(4, Regex(Regex.escape("[HARD_ANCHOR]")).findAll(rendered.text).count())
+        assertEquals(4, Regex("\\[NODE=\\d+]\\[HARD_ANCHOR]").findAll(rendered.text).count())
         assertTrue(rendered.inputNodeCount > decoded.items.size)
     }
 
