@@ -4,7 +4,7 @@ object OfflineSummaryLongContract {
     const val PIPELINE_VERSION = 173006
     const val PLANNER_VERSION = 173002
     const val MAP_PROMPT_VERSION = 173103
-    const val REDUCE_PROMPT_VERSION = 173206
+    const val REDUCE_PROMPT_VERSION = 173207
     const val FINAL_PROMPT_VERSION = 173304
     const val INTERMEDIATE_SCHEMA_VERSION = 1
 
