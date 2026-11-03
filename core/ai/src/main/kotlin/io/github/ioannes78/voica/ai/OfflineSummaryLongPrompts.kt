@@ -68,6 +68,7 @@ class OfflineSummaryReducePromptRenderer {
         require(nodes.isNotEmpty())
         val semanticItems = nodes.flatMap { it.summary.items }
         val anchors = selectRetentionAnchors(semanticItems)
+        val hardAnchorNodeIndexes = anchors.mapTo(LinkedHashSet()) { it.semanticNodeIndex }
         val visibleSourceRefsBySemanticNode = semanticItems.map { it.sourceRefs.toCollection(LinkedHashSet()) }
         val allowedSourceRefs =
             offlineSummaryGenerationSourceRefs(
@@ -79,7 +80,9 @@ class OfflineSummaryReducePromptRenderer {
             buildString {
                 appendLine("闻知 WENZHI 长文本 REDUCE：只合并、去重、压缩输入事实，不新增。")
                 appendLine("数据中每个 [NODE=n] 是已校验独立要点；相关可合并，尽量保留所有非重复语义。")
-                appendLine("硬覆盖锚点 NODE=${anchors.joinToString(",") { it.semanticNodeIndex.toString() }}；这些 NODE 必须在输出 sourceRefs 中各保留至少一个原引用。")
+                appendLine("硬覆盖锚点 NODE=${anchors.joinToString(",") { it.semanticNodeIndex.toString() }}；输入中同时标为 [HARD_ANCHOR]，这些 NODE 必须在输出 sourceRefs 中各保留至少一个原引用。")
+                appendLine("若覆盖校验重试 error 指出 missing node(s)，必须恢复对应 [NODE=n][HARD_ANCHOR] 的原语义；第一次输出没有该语义就新增 item，items 已满则替换较低优先级非锚点，禁止只给无关 item 挂 sourceRefs。")
+                appendLine("相关硬锚点可合并到同一 item，但该 item 必须同时表达各锚点语义，并分别保留各锚点至少一个原 sourceRef。")
                 appendLine("优先数字、比例、金额、日期、专名、案例、领域、决定、行动、风险、问题、结论；容量不足先去重再缩句，最多 ${OfflineSummaryLongContract.MAX_INTERMEDIATE_ITEMS} 条。")
                 appendLine("非锚点不是可随意删除项；在不重复且容量允许时继续保留，不能只围绕锚点写摘要。")
                 appendLine("仅 JSON；schemaVersion=${OfflineSummaryLongContract.INTERMEDIATE_SCHEMA_VERSION}；键、枚举、长度、数量按 response schema。")
@@ -88,7 +91,7 @@ class OfflineSummaryReducePromptRenderer {
                 appendLine("<INTERMEDIATE_DATA>")
                 var semanticNodeIndex = 0
                 nodes.forEach { node ->
-                    val rendered = renderCompactSemanticItems(node, semanticNodeIndex)
+                    val rendered = renderCompactSemanticItems(node, semanticNodeIndex, hardAnchorNodeIndexes)
                     append(rendered.text)
                     semanticNodeIndex = rendered.nextSemanticNodeIndex
                 }
@@ -247,6 +250,7 @@ private fun retentionScore(item: OfflineSummaryIntermediateItem): Int {
 private fun renderCompactSemanticItems(
     node: OfflineSummaryValidatedIntermediateNode,
     semanticNodeStartIndex: Int,
+    hardAnchorNodeIndexes: Set<Int> = emptySet(),
 ): RenderedSemanticNodes {
     var semanticNodeIndex = semanticNodeStartIndex
     val text =
@@ -255,7 +259,11 @@ private fun renderCompactSemanticItems(
                 semanticNodeIndex += 1
                 append("[NODE=")
                 append(semanticNodeIndex)
-                append("]I")
+                append(']')
+                if (semanticNodeIndex in hardAnchorNodeIndexes) {
+                    append("[HARD_ANCHOR]")
+                }
+                append('I')
                 append(itemIndex + 1)
                 append('|')
                 append(item.type.name)
