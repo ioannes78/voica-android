@@ -23,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -105,6 +106,7 @@ private fun Stage17P1LocalLlmScreen(
     var activeJob by remember { mutableStateOf<Job?>(null) }
     var operation by remember { mutableStateOf<String?>(null) }
     var resultText by remember { mutableStateOf<String?>(null) }
+    val capacityHistory = remember { mutableStateListOf<String>() }
     var isolationSources by remember { mutableStateOf<List<Stage17R5IsolationSource>>(emptyList()) }
     var isolationSourceIndex by remember { mutableStateOf(0) }
     var isolationSourceStatus by remember { mutableStateOf("正在查找可用于正式 Summary prompt 的转写…") }
@@ -150,6 +152,7 @@ private fun Stage17P1LocalLlmScreen(
         includeResponseInDiagnostics: Boolean = true,
         structuredValidationRefs: Set<String>? = null,
         estimatedPromptTokens: Int = ConservativeOfflineSummaryTokenEstimator.estimateTokens(prompt),
+        capacityProbe: Stage17CapacityQa.Request? = null,
     ) {
         if (activeJob != null) return
         resultText = null
@@ -190,6 +193,19 @@ private fun Stage17P1LocalLlmScreen(
                                 appendLine()
                                 append(validationText)
                             }
+                            if (capacityProbe != null) {
+                                appendLine()
+                                appendLine("qaContextTokens=${capacityProbe.config.maxNumTokens}")
+                                appendLine("qaOutputTokens=${capacityProbe.config.maxOutputTokens}")
+                                appendLine("qaPromptEstimatedTokens=${capacityProbe.estimatedPromptTokens}")
+                                capacityProbe.expectedRecord?.let { expected ->
+                                    appendLine("qaLastRecord=$expected")
+                                    appendLine("qaTailRecall=${if (result.text.contains(expected)) \"PASS\" else \"FAIL\"}")
+                                }
+                                if (capacityProbe.factIds.isNotEmpty()) {
+                                    appendLine(Stage17CapacityQa.evaluateOutput(result.text, capacityProbe.factIds))
+                                }
+                            }
                         }
                     operation =
                         when {
@@ -206,6 +222,9 @@ private fun Stage17P1LocalLlmScreen(
                     resultText = "${error::class.java.name}: ${error.message ?: "n/a"}"
                     operation = "$label · 失败"
                 } finally {
+                    if (capacityProbe != null) {
+                        capacityHistory.add("${capacityProbe.label}: ${operation.orEmpty()}\n${resultText.orEmpty()}")
+                    }
                     LocalLlmRuntimeDiagnosticObserverRegistry.install(null)
                     r5CrashBreadcrumbs.disarm()
                     activeJob = null
@@ -245,6 +264,17 @@ private fun Stage17P1LocalLlmScreen(
                     null
                 },
             estimatedPromptTokens = request.estimatedPromptTokens,
+        )
+    }
+
+    fun startCapacity(request: Stage17CapacityQa.Request) {
+        startRequest(
+            label = "R17A ${request.label}",
+            prompt = request.prompt,
+            config = request.config,
+            includeResponseInDiagnostics = false,
+            estimatedPromptTokens = request.estimatedPromptTokens,
+            capacityProbe = request,
         )
     }
 
