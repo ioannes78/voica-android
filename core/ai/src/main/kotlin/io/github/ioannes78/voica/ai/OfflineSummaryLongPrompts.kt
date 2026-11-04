@@ -229,6 +229,13 @@ private fun selectRetentionAnchors(items: List<OfflineSummaryIntermediateItem>):
         }
 }
 
+/**
+ * Shares the renderer's exact deterministic selection with the post-repair recovery path.
+ * Indexes are zero-based against flattened, validated upstream semantic items.
+ */
+internal fun offlineSummaryRetentionAnchorIndexes(items: List<OfflineSummaryIntermediateItem>): List<Int> =
+    selectRetentionAnchors(items).map { it.semanticNodeIndex - 1 }
+
 private fun retentionScore(item: OfflineSummaryIntermediateItem): Int {
     var score =
         when (item.type) {
