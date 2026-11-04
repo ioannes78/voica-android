@@ -34,14 +34,24 @@ class Stage17CapacityQaTest {
 
     @Test
     fun outputMatrixChangesOnlyQaSchemaAndOutputTokens() {
-        val baseline = Stage17CapacityQa.outputProbe(false)
-        val expanded = Stage17CapacityQa.outputProbe(true)
+        val baseline = Stage17CapacityQa.outputProbe(8, 1_024, 4_000)
+        val schemaOnly = Stage17CapacityQa.outputProbe(16, 1_024, 4_000)
+        val outputOnly = Stage17CapacityQa.outputProbe(16, 2_048, 4_000)
+        val expanded = Stage17CapacityQa.outputProbe(16, 2_048, 8_000)
         val baseSchema = Json.parseToJsonElement(requireNotNull(baseline.config.responseJsonSchema)).jsonObject
         val extendedSchema = Json.parseToJsonElement(requireNotNull(expanded.config.responseJsonSchema)).jsonObject
         val baseMax = baseSchema["properties"]!!.jsonObject["items"]!!.jsonObject["maxItems"].toString().toInt()
         val expandedMax = extendedSchema["properties"]!!.jsonObject["items"]!!.jsonObject["maxItems"].toString().toInt()
         assertEquals(8, baseMax)
         assertEquals(16, expandedMax)
+        assertEquals(1_024, schemaOnly.config.maxOutputTokens)
+        assertEquals(16, Json.parseToJsonElement(schemaOnly.config.responseJsonSchema!!).jsonObject["properties"]!!.jsonObject["items"]!!.jsonObject["maxItems"].toString().toInt())
+        assertEquals(schemaOnly.prompt, outputOnly.prompt)
+        assertEquals(outputOnly.prompt, expanded.prompt)
+        assertEquals(schemaOnly.config.responseJsonSchema, outputOnly.config.responseJsonSchema)
+        assertEquals(outputOnly.config.responseJsonSchema, expanded.config.responseJsonSchema)
+        assertEquals(4_000, outputOnly.config.maxNumTokens)
+        assertEquals(2_048, outputOnly.config.maxOutputTokens)
         assertEquals(1_024, baseline.config.maxOutputTokens)
         assertEquals(2_048, expanded.config.maxOutputTokens)
         assertEquals(4_000, baseline.config.maxNumTokens)
@@ -49,6 +59,7 @@ class Stage17CapacityQaTest {
         assertEquals(baseline.factIds, expanded.factIds)
         assertEquals(16, baseline.factIds.size)
         assertTrue(baseline.estimatedPromptTokens + 1_024 + 192 + 256 <= 4_000)
+        assertTrue(outputOnly.estimatedPromptTokens + 2_048 + 192 + 256 <= 4_000)
         assertTrue(expanded.estimatedPromptTokens + 2_048 + 192 + 256 <= 8_000)
         assertEquals(4, OfflineSummaryResponseFormat.MAX_SECTIONS)
         assertEquals(2, OfflineSummaryResponseFormat.MAX_ITEMS_PER_SECTION)
