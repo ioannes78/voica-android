@@ -55,10 +55,13 @@ Use the same sixteen synthetic *distinct* facts in each request.
 | Button | Engine context | Max output | QA JSON array cap | Purpose |
 | --- | ---: | ---: | ---: | --- |
 | ⑤ output baseline | 4,000 | 1,024 | 8 items | Current-level output envelope |
-| ⑥ expanded output | 8,000 | 2,048 | 16 items | Candidate expansion; model bundle may reject it |
+| ⑥ schema only | 4,000 | 1,024 | 16 items | Isolate JSON item-cap impact |
+| ⑦ output tokens only | 4,000 | 2,048 | 16 items | Isolate larger decode budget; bundle may reject it |
+| ⑧ context only | 8,000 | 2,048 | 16 items | Same prompt/schema/output as ⑦, isolate cache allocation |
 
 The QA-only schema is intentionally simpler than production JSON; this isolates response
-capacity before modifying a shared product schema. Measure native success, JSON parse,
+capacity before modifying a shared product schema. Only one dimension changes in each
+adjacent pair (⑤→⑥, ⑥→⑦, ⑦→⑧). Measure native success, JSON parse,
 actual item count, distinct fact IDs / 16, duplicates, unknown IDs and memory/performance.
 This measures *identifier retention* only, NOT semantic truth. Check sampled item text
 against source facts manually; don't infer data quality from fabricated/ref-labeled ids.
