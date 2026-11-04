@@ -149,12 +149,18 @@ data class RenderedOfflineSummaryLongPrompt(
     val allowedSourceRefs: Set<String>,
     val allowedEvidenceRefs: Set<String>,
     val inputNodeCount: Int,
+    val hardRetentionItems: List<OfflineSummaryIntermediateItem> = emptyList(),
 ) {
     init {
         require(promptVersion > 0)
         require(resultSchemaVersion > 0)
         require(text.isNotBlank())
         require(inputNodeCount >= 0)
+        require(hardRetentionItems.all { item ->
+            item.sourceRefs.isNotEmpty() &&
+                item.sourceRefs.all(allowedSourceRefs::contains) &&
+                item.evidenceRefs.all(allowedEvidenceRefs::contains)
+        })
         require(allowedSourceRefs.all { it.matches(Regex("""U\d{5}(?::F\d{3,})?""")) })
         require(allowedEvidenceRefs.all { it.matches(Regex("""S\d{5,}""")) })
     }
