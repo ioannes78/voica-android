@@ -73,10 +73,16 @@ internal object Stage17CapacityQa {
         )
     }
 
-    fun outputProbe(expanded: Boolean): Request {
-        val maxItems = if (expanded) 16 else 8
-        val context = if (expanded) EXTENDED_CONTEXT_TOKENS else BASE_CONTEXT_TOKENS
-        val output = if (expanded) EXPERIMENTAL_OUTPUT_TOKENS else BASE_OUTPUT_TOKENS
+    fun outputProbe(expanded: Boolean): Request =
+        if (expanded) outputProbe(16, EXPERIMENTAL_OUTPUT_TOKENS, EXTENDED_CONTEXT_TOKENS)
+        else outputProbe(8, BASE_OUTPUT_TOKENS, BASE_CONTEXT_TOKENS)
+
+    fun outputProbe(maxItems: Int, outputTokens: Int, contextTokens: Int): Request {
+        require(maxItems in setOf(8, 16))
+        require(outputTokens in setOf(BASE_OUTPUT_TOKENS, EXPERIMENTAL_OUTPUT_TOKENS))
+        require(contextTokens in setOf(BASE_CONTEXT_TOKENS, EXTENDED_CONTEXT_TOKENS))
+        val context = contextTokens
+        val output = outputTokens
         val facts = (1..OUTPUT_SAMPLE_FACTS).map { n ->
             "F" + n.toString().padStart(2, '0')
         }
@@ -93,7 +99,7 @@ internal object Stage17CapacityQa {
         val estimate = ConservativeOfflineSummaryTokenEstimator.estimateTokens(prompt)
         require(estimate + output + 192 + 256 <= context)
         return Request(
-            label = "输出 ${maxItems}条 / ${output}token",
+            label = "输出 ${maxItems}条 / ${output}token / ${context / 1_000}K",
             prompt = prompt,
             config = LocalLlmValidatedPresets.P0_BASELINE.copy(
                 backendPolicy = LocalLlmBackendPolicy.CPU,
