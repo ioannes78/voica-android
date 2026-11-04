@@ -200,7 +200,7 @@ private fun Stage17P1LocalLlmScreen(
                                 appendLine("qaPromptEstimatedTokens=${capacityProbe.estimatedPromptTokens}")
                                 capacityProbe.expectedRecord?.let { expected ->
                                     appendLine("qaLastRecord=$expected")
-                                    appendLine("qaTailRecall=${if (result.text.contains(expected)) \"PASS\" else \"FAIL\"}")
+                                    appendLine("qaTailRecall=${if (result.text.contains(expected)) "PASS" else "FAIL"}")
                                 }
                                 if (capacityProbe.factIds.isNotEmpty()) {
                                     appendLine(Stage17CapacityQa.evaluateOutput(result.text, capacityProbe.factIds))
@@ -448,6 +448,59 @@ private fun Stage17P1LocalLlmScreen(
                         Text("重新查找转写")
                     }
                 }
+            }
+        }
+        item {
+            P1Card("R17A · 上下文与输出容量验证（QA 专用）") {
+                Text(
+                    "不修改正式总结：4K/1024 token、原始 4×2 schema 保持不变。本页测试固定 CPU、每项手动触发。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text("严格顺序：①4K → ②8K同输入 → ③8K长输入。若8K异常/重启，立即停止；④16K仅在8K稳定后尝试。")
+                OutlinedButton(
+                    enabled = !busy,
+                    onClick = { startCapacity(Stage17CapacityQa.contextProbe(4_000, false)) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("① 4K · 输入约2200估算token") }
+                OutlinedButton(
+                    enabled = !busy,
+                    onClick = { startCapacity(Stage17CapacityQa.contextProbe(8_000, false)) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("② 8K · 同样输入（测KV cache）") }
+                OutlinedButton(
+                    enabled = !busy,
+                    onClick = { startCapacity(Stage17CapacityQa.contextProbe(8_000, true)) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("③ 8K · 输入约5000估算token") }
+                OutlinedButton(
+                    enabled = !busy,
+                    onClick = { startCapacity(Stage17CapacityQa.contextProbe(16_000, true)) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("④ 16K · 风险较高（8K通过后）") }
+                Text("输出容量：使用相同16条合成事实，对比JSON上限8条/1024 token与16条/2048 token。")
+                OutlinedButton(
+                    enabled = !busy,
+                    onClick = { startCapacity(Stage17CapacityQa.outputProbe(false)) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("⑤ 4K · 最多8条 / 1024输出") }
+                OutlinedButton(
+                    enabled = !busy,
+                    onClick = { startCapacity(Stage17CapacityQa.outputProbe(true)) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("⑥ 8K · 最多16条 / 2048输出（试验）") }
+                OutlinedButton(
+                    enabled = capacityHistory.isNotEmpty(),
+                    onClick = {
+                        clipboard.setText(AnnotatedString(capacityHistory.joinToString("\n\n---\n\n")))
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("复制本次容量报告（${capacityHistory.size}项）") }
+                Text(
+                    "注意：16K可能造成原生内存不足甚至进程重启。若异常，重新打开本页复制R5 Crash Breadcrumb，停止继续升档。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
             }
         }
         item {
