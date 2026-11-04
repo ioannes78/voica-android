@@ -104,12 +104,19 @@ object OfflineSummaryIntermediateResponseFormat {
 internal class OfflineSummaryGenerationSourceRefs(
     values: Iterable<String>,
     val requiredCoverageGroups: List<Set<String>>? = null,
+    val requiredCoverageNodeIndexes: List<Int>? = null,
 ) : LinkedHashSet<String>() {
     init {
         values.forEach(::add)
         requiredCoverageGroups?.forEach { group ->
             require(group.isNotEmpty())
             require(group.all { it in this })
+        }
+        if (requiredCoverageNodeIndexes != null) {
+            require(requiredCoverageGroups != null)
+            require(requiredCoverageNodeIndexes.size == requiredCoverageGroups.size)
+            require(requiredCoverageNodeIndexes.all { it > 0 })
+            require(requiredCoverageNodeIndexes.distinct().size == requiredCoverageNodeIndexes.size)
         }
     }
 }
@@ -120,8 +127,9 @@ internal fun offlineSummaryGenerationSourceRefs(values: Iterable<String>): Set<S
 internal fun offlineSummaryGenerationSourceRefs(
     values: Iterable<String>,
     requiredCoverageGroups: List<Set<String>>,
+    requiredCoverageNodeIndexes: List<Int>? = null,
 ): Set<String> =
-    OfflineSummaryGenerationSourceRefs(values, requiredCoverageGroups)
+    OfflineSummaryGenerationSourceRefs(values, requiredCoverageGroups, requiredCoverageNodeIndexes)
 
 object OfflineSummaryIntermediateCodec {
     private const val MAX_ITEM_ID_CHARS = 16
@@ -305,7 +313,11 @@ object OfflineSummaryIntermediateCodec {
             if (requiredCoverageGroups == null) {
                 requireDistributedSourceCoverage(items, allowedSourceRefs)
             } else {
-                requireExplicitSourceCoverage(items, requiredCoverageGroups)
+                requireExplicitSourceCoverage(
+                    items = items,
+                    requiredCoverageGroups = requiredCoverageGroups,
+                    requiredCoverageNodeIndexes = allowedSourceRefs.requiredCoverageNodeIndexes,
+                )
             }
         }
 
@@ -340,6 +352,7 @@ object OfflineSummaryIntermediateCodec {
     private fun requireExplicitSourceCoverage(
         items: List<OfflineSummaryIntermediateItem>,
         requiredCoverageGroups: List<Set<String>>,
+        requiredCoverageNodeIndexes: List<Int>?,
     ) {
         val covered = items.flatMapTo(LinkedHashSet()) { it.sourceRefs }
         val coveredGroups = requiredCoverageGroups.map { group -> group.any(covered::contains) }
@@ -350,7 +363,7 @@ object OfflineSummaryIntermediateCodec {
 
         val missingNodeNumbers =
             coveredGroups.mapIndexedNotNull { index, isCovered ->
-                if (isCovered) null else index + 1
+                if (isCovered) null else requiredCoverageNodeIndexes?.get(index) ?: (index + 1)
             }
         throw OfflineSummaryIntermediateException(
             OfflineSummaryIntermediateErrorCode.INSUFFICIENT_SOURCE_COVERAGE,
