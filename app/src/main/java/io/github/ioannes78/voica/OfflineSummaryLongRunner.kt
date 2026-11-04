@@ -4,6 +4,7 @@ import io.github.ioannes78.voica.ai.AiSummaryResult
 import io.github.ioannes78.voica.ai.ConservativeOfflineSummaryTokenEstimator
 import io.github.ioannes78.voica.ai.OfflineSummaryChunkPlanner
 import io.github.ioannes78.voica.ai.OfflineSummaryFinalPromptRenderer
+import io.github.ioannes78.voica.ai.OfflineSummaryDeterministicReduceRecovery
 import io.github.ioannes78.voica.ai.OfflineSummaryIntermediateCodec
 import io.github.ioannes78.voica.ai.OfflineSummaryIntermediateException
 import io.github.ioannes78.voica.ai.OfflineSummaryLongContract
@@ -483,6 +484,7 @@ internal class OfflineSummaryLongRunner(
                             prompt = reduceRenderer.render(group.nodes),
                             preparedIdentity = preparedIdentity,
                             finalResult = false,
+                            reduceInputNodes = group.nodes,
                         )
                     anyRepair = anyRepair || generated.repairAttempted
                     store.checkpointIntermediate(node.id, generated.text)
@@ -546,6 +548,7 @@ internal class OfflineSummaryLongRunner(
         prompt: RenderedOfflineSummaryLongPrompt,
         preparedIdentity: LocalLlmModelIdentity,
         finalResult: Boolean,
+        reduceInputNodes: List<OfflineSummaryValidatedIntermediateNode>? = null,
     ): GeneratedStructured {
         requirePromptWithinHardBudget(prompt.text)
         val config =
@@ -570,6 +573,22 @@ internal class OfflineSummaryLongRunner(
         requireGenerationIdentity(repaired, preparedIdentity)
         val secondValidation = validateStructured(repaired.text, prompt, finalResult)
         if (secondValidation != null) {
+            // After exactly one LLM repair, use only validated upstream REDUCE items to
+            // recover missing anchors. All other structural/provenance failures still fail.
+            val recovered =
+                if (!finalResult && reduceInputNodes != null) {
+                    OfflineSummaryDeterministicReduceRecovery.recover(
+                        raw = repaired.text,
+                        inputNodes = reduceInputNodes,
+                        allowedSourceRefs = prompt.allowedSourceRefs,
+                        allowedEvidenceRefs = prompt.allowedEvidenceRefs,
+                    )
+                } else {
+                    null
+                }
+            if (recovered != null) {
+                return GeneratedStructured(recovered, repaired, repairAttempted = true)
+            }
             throw OfflineSummaryCoordinatorException(
                 io.github.ioannes78.voica.ai.OfflineSummaryFailureCode.REPAIR_FAILED,
                 "长文本节点一次结构修复后仍未通过校验：$secondValidation",
