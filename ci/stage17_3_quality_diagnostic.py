@@ -94,6 +94,7 @@ replace_once(
                             prompt = reduceRenderer.render(group.nodes),
                             preparedIdentity = preparedIdentity,
                             finalResult = false,
+                            reduceInputNodes = group.nodes,
                         )
                     anyRepair = anyRepair || generated.repairAttempted
                     store.checkpointIntermediate(node.id, generated.text)''',
@@ -110,6 +111,7 @@ replace_once(
                             prompt = renderedPrompt,
                             preparedIdentity = preparedIdentity,
                             finalResult = false,
+                            reduceInputNodes = group.nodes,
                         )
                     recordDiagnostic(
                         summaryId,
