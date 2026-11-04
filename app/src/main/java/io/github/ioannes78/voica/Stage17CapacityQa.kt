@@ -5,6 +5,9 @@ import io.github.ioannes78.voica.localllm.LocalLlmBackendPolicy
 import io.github.ioannes78.voica.localllm.LocalLlmRuntimeConfig
 import io.github.ioannes78.voica.localllm.LocalLlmValidatedPresets
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * QA-only Stage 17.3 capacity matrix. It never alters Direct/MAP/REDUCE/FINAL,
@@ -25,6 +28,7 @@ internal object Stage17CapacityQa {
         val config: LocalLlmRuntimeConfig,
         val estimatedPromptTokens: Int,
         val factIds: Set<String> = emptySet(),
+        val expectedRecord: String? = null,
     )
 
     fun contextProbe(maxContextTokens: Int, longInput: Boolean): Request {
@@ -65,6 +69,7 @@ internal object Stage17CapacityQa {
                 maxOutputTokens = BASE_OUTPUT_TOKENS,
             ),
             estimatedPromptTokens = estimate,
+            expectedRecord = count.toString().padStart(4, '0'),
         )
     }
 
