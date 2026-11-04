@@ -74,6 +74,7 @@ class OfflineSummaryReducePromptRenderer {
             offlineSummaryGenerationSourceRefs(
                 values = visibleSourceRefsBySemanticNode.flatMapTo(LinkedHashSet()) { it },
                 requiredCoverageGroups = anchors.map { it.sourceRefs },
+                requiredCoverageNodeIndexes = anchors.map { it.semanticNodeIndex },
             )
         val allowedEvidenceRefs = payloadVisibleEvidenceRefs(nodes)
         val prompt =
