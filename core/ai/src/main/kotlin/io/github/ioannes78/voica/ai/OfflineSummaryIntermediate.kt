@@ -363,7 +363,7 @@ object OfflineSummaryIntermediateCodec {
 
         val missingNodeNumbers =
             coveredGroups.mapIndexedNotNull { index, isCovered ->
-                if (isCovered) null else requiredCoverageNodeIndexes?.get(index) ?: (index + 1)
+                if (isCovered) null else (requiredCoverageNodeIndexes?.get(index) ?: (index + 1))
             }
         throw OfflineSummaryIntermediateException(
             OfflineSummaryIntermediateErrorCode.INSUFFICIENT_SOURCE_COVERAGE,
