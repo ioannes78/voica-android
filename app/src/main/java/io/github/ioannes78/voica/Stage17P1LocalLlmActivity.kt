@@ -478,17 +478,27 @@ private fun Stage17P1LocalLlmScreen(
                     onClick = { startCapacity(Stage17CapacityQa.contextProbe(16_000, true)) },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("④ 16K · 风险较高（8K通过后）") }
-                Text("输出容量：使用相同16条合成事实，对比JSON上限8条/1024 token与16条/2048 token。")
+                Text("输出容量逐项对照：相同16条合成事实，先扩schema，再扩输出token，最后只扩大上下文。")
                 OutlinedButton(
                     enabled = !busy,
-                    onClick = { startCapacity(Stage17CapacityQa.outputProbe(false)) },
+                    onClick = { startCapacity(Stage17CapacityQa.outputProbe(8, 1_024, 4_000)) },
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("⑤ 4K · 最多8条 / 1024输出") }
+                ) { Text("⑤ 4K · 8条 / 1024输出（基线）") }
                 OutlinedButton(
                     enabled = !busy,
-                    onClick = { startCapacity(Stage17CapacityQa.outputProbe(true)) },
+                    onClick = { startCapacity(Stage17CapacityQa.outputProbe(16, 1_024, 4_000)) },
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("⑥ 8K · 最多16条 / 2048输出（试验）") }
+                ) { Text("⑥ 4K · 16条 / 1024（只扩schema）") }
+                OutlinedButton(
+                    enabled = !busy,
+                    onClick = { startCapacity(Stage17CapacityQa.outputProbe(16, 2_048, 4_000)) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("⑦ 4K · 16条 / 2048（只扩输出）") }
+                OutlinedButton(
+                    enabled = !busy,
+                    onClick = { startCapacity(Stage17CapacityQa.outputProbe(16, 2_048, 8_000)) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("⑧ 8K · 16条 / 2048（只扩上下文）") }
                 OutlinedButton(
                     enabled = capacityHistory.isNotEmpty(),
                     onClick = {
