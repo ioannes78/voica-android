@@ -111,7 +111,7 @@ grep -Fq 'maxOutputTokens = null' "$local_llm_contracts"
 grep -Fq 'responseJsonSchema = null' "$local_llm_contracts"
 
 # Stage 17.3 R16.5 bounded semantic-retention contract and deterministic repair/resume identity.
-grep -Fq 'const val PIPELINE_VERSION = 173006' "$long_contracts"
+grep -Fq 'const val PIPELINE_VERSION = 173007' "$long_contracts"
 grep -Fq 'const val PLANNER_VERSION = 173002' "$long_contracts"
 grep -Fq 'const val MAP_PROMPT_VERSION = 173103' "$long_contracts"
 grep -Fq 'const val REDUCE_PROMPT_VERSION = 173207' "$long_contracts"
