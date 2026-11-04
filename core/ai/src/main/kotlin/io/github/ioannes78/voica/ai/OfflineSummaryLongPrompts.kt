@@ -106,7 +106,6 @@ class OfflineSummaryReducePromptRenderer {
             allowedSourceRefs = allowedSourceRefs,
             allowedEvidenceRefs = allowedEvidenceRefs,
             inputNodeCount = semanticItems.size,
-            hardRetentionItems = anchors.map { it.item },
         )
     }
 
@@ -198,14 +197,13 @@ private data class RenderedSemanticNodes(
 private data class RetentionAnchor(
     val semanticNodeIndex: Int,
     val sourceRefs: Set<String>,
-    val item: OfflineSummaryIntermediateItem,
 )
 
 private fun selectRetentionAnchors(items: List<OfflineSummaryIntermediateItem>): List<RetentionAnchor> {
     require(items.isNotEmpty())
     if (items.size <= MAX_HARD_RETENTION_ANCHORS) {
         return items.mapIndexed { index, item ->
-            RetentionAnchor(index + 1, item.sourceRefs.toCollection(LinkedHashSet()), item)
+            RetentionAnchor(index + 1, item.sourceRefs.toCollection(LinkedHashSet()))
         }
     }
 
@@ -227,7 +225,7 @@ private fun selectRetentionAnchors(items: List<OfflineSummaryIntermediateItem>):
     return selected.entries
         .sortedBy { it.key }
         .map { (index, item) ->
-            RetentionAnchor(index + 1, item.sourceRefs.toCollection(LinkedHashSet()), item)
+            RetentionAnchor(index + 1, item.sourceRefs.toCollection(LinkedHashSet()))
         }
 }
 
