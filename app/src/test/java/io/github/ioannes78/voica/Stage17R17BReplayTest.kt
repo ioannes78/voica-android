@@ -32,26 +32,24 @@ class Stage17R17BReplayTest {
     private fun diagnostic(
         input: String = finalInput,
         output: String = finalOutput,
-    ) =
-        """
-        # WENZHI Stage 17.3 Long Summary Quality Diagnostic
-        formatVersion=1
-        inputDigest=${"a".repeat(64)}
-        plannedChunks=2
-
-        ===== MAP 1/2 INPUT =====
-        source text from one of the real chunks
-
-        ===== MAP 1/2 OUTPUT =====
-        {"items":[]}
-
-        ===== FINAL INPUT =====
-        $input
-
-        ===== FINAL OUTPUT =====
-        $output
-        """.trimIndent()
-
+    ): String = buildString {
+        appendLine("# WENZHI Stage 17.3 Long Summary Quality Diagnostic")
+        appendLine("formatVersion=1")
+        appendLine("inputDigest=${"a".repeat(64)}")
+        appendLine("plannedChunks=2")
+        appendLine()
+        appendLine("===== MAP 1/2 INPUT =====")
+        appendLine("source text from one of the real chunks")
+        appendLine()
+        appendLine("===== MAP 1/2 OUTPUT =====")
+        appendLine("""{"items":[]}""")
+        appendLine()
+        appendLine("===== FINAL INPUT =====")
+        appendLine(input)
+        appendLine()
+        appendLine("===== FINAL OUTPUT =====")
+        appendLine(output)
+    }
     @Test
     fun parsesExactQualityDiagnosticAndChecksEvidenceScope() {
         val source = Stage17R17BReplay.parseDiagnostic(diagnostic())
