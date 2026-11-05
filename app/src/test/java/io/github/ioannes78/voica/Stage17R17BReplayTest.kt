@@ -57,6 +57,11 @@ class Stage17R17BReplayTest {
         assertEquals(finalOutput, source.baselineRaw)
         assertEquals(2, source.semanticNodeCount)
         assertEquals(setOf("S00001", "S00002"), source.allowedEvidenceRefs)
+        val embeddedReferenceMention = diagnostic(
+            input = finalInput.replace("某公司研发投入增加", "用户提到了S99999但不是Evidence"),
+        )
+        val safeSource = Stage17R17BReplay.parseDiagnostic(embeddedReferenceMention)
+        assertEquals(setOf("S00001", "S00002"), safeSource.allowedEvidenceRefs)
         assertEquals("a".repeat(64), source.inputDigest)
         assertEquals(64, source.promptSha256.length)
         val baseline = Stage17R17BReplay.evaluate(source.baselineRaw, source)
