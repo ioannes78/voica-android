@@ -7,6 +7,8 @@ import io.github.ioannes78.voica.ai.SummaryResultCodec
 import io.github.ioannes78.voica.localllm.LocalLlmBackendPolicy
 import io.github.ioannes78.voica.localllm.LocalLlmRuntimeConfig
 import io.github.ioannes78.voica.localllm.LocalLlmValidatedPresets
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.security.MessageDigest
 
 /**
@@ -72,6 +74,19 @@ internal object Stage17R17BReplay {
         val assessment: Assessment,
     )
 
+    fun readBounded(source: InputStream): String {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(8_192)
+        while (true) {
+            val count = source.read(buffer)
+            if (count == -1) break
+            if (count == 0) continue
+            require(output.size() + count <= MAX_IMPORT_BYTES) { "诊断文件超过4 MiB上限" }
+            output.write(buffer, 0, count)
+        }
+        return output.toString(Charsets.UTF_8.name())
+    }
+
     fun parseDiagnostic(text: String): Source {
         require(text.length <= MAX_IMPORT_BYTES) { "诊断文本超过4 MiB上限" }
         require(text.startsWith("# WENZHI Stage 17.3 Long Summary Quality Diagnostic")) {
@@ -123,11 +138,11 @@ internal object Stage17R17BReplay {
             if (testCase.maxItemsPerSection == OfflineSummaryResponseFormat.MAX_ITEMS_PER_SECTION) {
                 productionSchema
             } else {
-                val existing = ""maxItems":${OfflineSummaryResponseFormat.MAX_ITEMS_PER_SECTION}"
+                val existing = "\"maxItems\":${OfflineSummaryResponseFormat.MAX_ITEMS_PER_SECTION}"
                 require(productionSchema.split(existing).size == 2) {
                     "不能安全定位 FINAL item schema，拒绝本轮试验"
                 }
-                productionSchema.replace(existing, ""maxItems":${testCase.maxItemsPerSection}")
+                productionSchema.replace(existing, "\"maxItems\":${testCase.maxItemsPerSection}")
             }
         return Request(
             testCase = testCase,
