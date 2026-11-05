@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.ai.ConservativeOfflineSummaryTokenEstimator
 import io.github.ioannes78.voica.ai.SummaryResultCodec
 import io.github.ioannes78.voica.ai.SummaryStructuredOutputException
+import io.github.ioannes78.voica.localllm.LocalLlmBackend
 import io.github.ioannes78.voica.localllm.LocalLlmBackendPolicy
 import io.github.ioannes78.voica.localllm.LocalLlmGenerationResult
 import io.github.ioannes78.voica.localllm.LocalLlmResourceDecision
@@ -117,6 +118,12 @@ private fun Stage17P1LocalLlmScreen(
     var r17bStatus by remember { mutableStateOf("尚未导入真实长文本诊断") }
     val r17bRuns = remember { mutableStateListOf<Stage17R17BReplay.Run>() }
     var r17bPendingReport by remember { mutableStateOf<String?>(null) }
+    var r17cSources by remember { mutableStateOf<List<Stage17R17CDirectQa.Source>>(emptyList()) }
+    var r17cSourceIndex by remember { mutableStateOf(0) }
+    var r17cStatus by remember { mutableStateOf("尚未读取本地有效逐字稿") }
+    val r17cRuns = remember { mutableStateListOf<Stage17R17CDirectQa.Run>() }
+    var r17cRecentOutput by remember { mutableStateOf<String?>(null) }
+    var r17cPendingReport by remember { mutableStateOf<String?>(null) }
     var isolationSources by remember { mutableStateOf<List<Stage17R5IsolationSource>>(emptyList()) }
     var isolationSourceIndex by remember { mutableStateOf(0) }
     var isolationSourceStatus by remember { mutableStateOf("正在查找可用于正式 Summary prompt 的转写…") }
@@ -169,6 +176,49 @@ private fun Stage17P1LocalLlmScreen(
                 r17bPendingReport = null
             }
         }
+    val r17cExportPicker =
+        rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+            val pending = r17cPendingReport
+            if (uri != null && pending != null) {
+                scope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            appContext.contentResolver.openOutputStream(uri, "w")?.use { stream ->
+                                stream.write(pending.toByteArray(Charsets.UTF_8))
+                            } ?: error("无法写入 QA 报告")
+                        }
+                        r17cStatus = "R17C 诊断报告已保存到所选位置"
+                    } catch (error: Exception) {
+                        r17cStatus = "R17C 导出失败：" + (error.message ?: error::class.java.simpleName)
+                    } finally {
+                        r17cPendingReport = null
+                    }
+                }
+            } else {
+                r17cPendingReport = null
+            }
+        }
+
+    suspend fun refreshR17CSources() {
+        if (activeJob != null) return
+        r17cStatus = "正在读取本地当前有效转写快照…"
+        val loaded = runCatching {
+            withContext(Dispatchers.IO) { container.loadStage17R17CSources() }
+        }.getOrElse { error ->
+            r17cStatus = "读取失败：" + (error.message ?: error::class.java.simpleName)
+            emptyList()
+        }
+        r17cSources = loaded
+        r17cSourceIndex = 0
+        r17cRuns.clear()
+        r17cRecentOutput = null
+        if (loaded.isNotEmpty()) {
+            r17cStatus = "READY · 已找到 " + loaded.size + " 条已完成的有效逐字稿"
+        } else if (!r17cStatus.startsWith("读取失败")) {
+            r17cStatus = "没有可用的已完成转写（按最近30条候选扫描）"
+        }
+    }
+
     suspend fun refreshModelStatus() {
         val active = container.modelManager.activeModel(STAGE17_GEMMA_4_E2B_CANDIDATE_ID)
         modelStatus =
@@ -213,6 +263,8 @@ private fun Stage17P1LocalLlmScreen(
         capacityProbe: Stage17CapacityQa.Request? = null,
         replayRequest: Stage17R17BReplay.Request? = null,
         replaySource: Stage17R17BReplay.Source? = null,
+        directRequest: Stage17R17CDirectQa.Request? = null,
+        directSource: Stage17R17CDirectQa.Source? = null,
     ) {
         if (activeJob != null) return
         resultText = null
@@ -231,6 +283,25 @@ private fun Stage17P1LocalLlmScreen(
                     if (replayRequest != null) {
                         requireNotNull(replaySource) { "R17B 同源上下文丢失" }
                         Stage172OfflineSummaryModelContract.requireMatches(result.modelIdentity)
+                    }
+                    if (directRequest != null) {
+                        requireNotNull(directSource) { "R17C 输入快照丢失" }
+                        Stage172OfflineSummaryModelContract.requireMatches(result.modelIdentity)
+                        require(result.backendResolution.resolvedBackend == LocalLlmBackend.CPU) {
+                            "R17C P1 禁止非 CPU 后端"
+                        }
+                        r17cRuns.removeAll { it.tier == directRequest.tier }
+                        r17cRuns.add(
+                            Stage17R17CDirectQa.Run(
+                                tier = directRequest.tier,
+                                rawOutput = result.text,
+                                runtimeDiagnostic = result.toP1DiagnosticsText(false) +
+                                    "\nqaR17C=DirectPlainText" +
+                                    "\nqaPromptSHA=" + directRequest.promptSha256 +
+                                    "\nqaPromptEstimate=" + directRequest.estimatedPromptTokens,
+                            ),
+                        )
+                        r17cRecentOutput = result.text
                     }
                     val replayAssessment =
                         if (replayRequest != null && replaySource != null) {
@@ -296,6 +367,7 @@ private fun Stage17P1LocalLlmScreen(
                     }
                     operation =
                         when {
+                            directRequest != null -> "$label · 自由文本完成（未自动认定事实正确）"
                             replayAssessment != null && !replayAssessment.valid -> "$label · FINAL JSON FAIL"
                             replayAssessment != null -> "$label · FINAL JSON PASS"
                             validationText == null -> "$label · 完成"
@@ -386,7 +458,28 @@ private fun Stage17P1LocalLlmScreen(
             replaySource = source,
         )
     }
+    fun startR17C(tier: Stage17R17CDirectQa.Tier) {
+        val source = r17cSources.getOrNull(r17cSourceIndex) ?: return
+        if (activeJob != null) return
+        val request = runCatching { Stage17R17CDirectQa.request(source, tier) }
+            .getOrElse { error ->
+                r17cStatus = "预算预检拒绝：" + (error.message ?: error::class.java.simpleName)
+                return
+            }
+        r17cStatus = "已锁定输入 " + source.transcriptSha256.take(12) +
+            " · 估算 " + request.estimatedPromptTokens + " tokens · Context " + tier.context
+        startRequest(
+            label = "R17C " + tier.label,
+            prompt = request.prompt,
+            config = request.config,
+            includeResponseInDiagnostics = false,
+            estimatedPromptTokens = request.estimatedPromptTokens,
+            directRequest = request,
+            directSource = source,
+        )
+    }
     val busy = activeJob != null
+    val selectedR17CSource = r17cSources.getOrNull(r17cSourceIndex)
     val selectedIsolationSource = isolationSources.getOrNull(isolationSourceIndex)
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -619,6 +712,102 @@ private fun Stage17P1LocalLlmScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
+            }
+        }
+        item {
+            P1Card("R17C P0/P1 · 完整逐字稿直读（CPU / QA）") {
+                Text(
+                    "从闻知当前有效转写快照直接读取全文；跳过 MAP/REDUCE/FINAL，不使用 JSON Schema，" +
+                        "不修改正式总结、Room 或录音。仅在用户选择保存时导出本地报告。",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedButton(
+                    enabled = !busy,
+                    onClick = { scope.launch { refreshR17CSources() } },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("读取本机已完成的逐字稿") }
+                Text(r17cStatus, style = MaterialTheme.typography.bodySmall)
+                val source = selectedR17CSource
+                if (source != null) {
+                    Text(
+                        "样本 " + (r17cSourceIndex + 1) + "/" + r17cSources.size +
+                            " · " + source.displayName + " · " + formatQaDuration(source.durationMs),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            enabled = !busy && r17cSourceIndex > 0,
+                            onClick = {
+                                r17cSourceIndex--
+                                r17cRuns.clear()
+                                r17cRecentOutput = null
+                            },
+                        ) { Text("上一条") }
+                        OutlinedButton(
+                            enabled = !busy && r17cSourceIndex < r17cSources.lastIndex,
+                            onClick = {
+                                r17cSourceIndex++
+                                r17cRuns.clear()
+                                r17cRecentOutput = null
+                            },
+                        ) { Text("下一条") }
+                    }
+                    Text(
+                        "原文 " + source.transcriptText.length + " 字符 · " + source.unitCount +
+                            " 单元 · SHA " + source.transcriptSha256.take(12) +
+                            " · inputDigest " + source.inputDigest.take(12),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    r17bSource?.let { frozen ->
+                        Text(
+                            "与已导入 R17B 源快照对照：" +
+                                if (frozen.inputDigest == source.inputDigest) "同源（digest 一致）"
+                                else "不同源（不可直接比较）",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Text(
+                        "先尝试低预算，不适合则预检拒绝。16K 内存压力大，仅前台亮屏且设备稳定时手动执行。",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    OutlinedButton(
+                        enabled = !busy,
+                        onClick = { startR17C(Stage17R17CDirectQa.Tier.C4K) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("P1 · 4K / 1024 · CPU 全文直读") }
+                    OutlinedButton(
+                        enabled = !busy,
+                        onClick = { startR17C(Stage17R17CDirectQa.Tier.C8K) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("P1 · 8K / 1024 · CPU 全文直读") }
+                    OutlinedButton(
+                        enabled = !busy,
+                        onClick = { startR17C(Stage17R17CDirectQa.Tier.C16K) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("P1 · 16K / 2048 · CPU（高资源）") }
+                    r17cRuns.forEach { run ->
+                        Text(run.tier.label + " · 完成（语义待人工复核）",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                    OutlinedButton(
+                        enabled = !busy,
+                        onClick = {
+                            r17cPendingReport = Stage17R17CDirectQa.report(
+                                source, r17cRuns.toList(), r17bSource?.inputDigest,
+                            )
+                            r17cExportPicker.launch("WENZHI-Stage17.3-R17C-P0P1-DirectSummary.txt")
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("保存 P0 原文及 P1 总结对照 TXT") }
+                    r17cRecentOutput?.let { summary ->
+                        Text("最近一次自由文本总结（仅预览）：", style = MaterialTheme.typography.bodySmall)
+                        Text(summary.take(8_000), style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text(
+                        "导出文件含完整原始逐字稿和对应 Evidence，可能涉及隐私；不要把输出字数等同事实保真。",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             }
         }
         item {
