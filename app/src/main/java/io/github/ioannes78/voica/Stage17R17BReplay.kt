@@ -104,7 +104,19 @@ internal object Stage17R17BReplay {
             "FINAL prompt 不是受支持的长文本结构"
         }
         require(output.startsWith("{")) { "FINAL OUTPUT 不存在完整 JSON 对象" }
-        val refs = Regex("""S\d{5,}""").findAll(input).map { it.value }.toCollection(LinkedHashSet())
+        // FINAL item lines are I<n>|TYPE|STATUS|escaped text|sourceRefs|evidenceRefs.
+        // Never treat arbitrary Sxxxxx mentions in user-derived text as valid Evidence scope.
+        val refs = LinkedHashSet<String>()
+        input.lineSequence().filter { it.startsWith("[NODE=") }.forEach { line ->
+            require(line.count { it == '|' } >= 5) { "FINAL NODE 字段不完整" }
+            val field = line.substringAfterLast('|')
+            if (field.isNotBlank()) {
+                require(Regex("""S\d{5,}(,S\d{5,})*""").matches(field)) {
+                    "FINAL NODE evidenceRefs 无效"
+                }
+                refs.addAll(field.split(','))
+            }
+        }
         val digest =
             Regex("""(?m)^inputDigest=([a-f0-9]{64})\s*$""")
                 .find(text)?.groupValues?.get(1) ?: "not-available"
