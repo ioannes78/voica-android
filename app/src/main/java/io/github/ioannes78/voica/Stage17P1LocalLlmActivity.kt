@@ -296,6 +296,8 @@ private fun Stage17P1LocalLlmScreen(
                     }
                     operation =
                         when {
+                            replayAssessment != null && !replayAssessment.valid -> "$label · FINAL JSON FAIL"
+                            replayAssessment != null -> "$label · FINAL JSON PASS"
                             validationText == null -> "$label · 完成"
                             validationFailure == null -> "$label · 完成 · JSON PASS"
                             else -> "$label · 完成 · JSON FAIL"
