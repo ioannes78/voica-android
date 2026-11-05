@@ -121,6 +121,54 @@ private fun Stage17P1LocalLlmScreen(
     var isolationSourceIndex by remember { mutableStateOf(0) }
     var isolationSourceStatus by remember { mutableStateOf("正在查找可用于正式 Summary prompt 的转写…") }
 
+    val r17bImportPicker =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null && activeJob == null) {
+                scope.launch {
+                    r17bStatus = "正在读取本地诊断文件..."
+                    try {
+                        val loaded =
+                            withContext(Dispatchers.IO) {
+                                appContext.contentResolver.openInputStream(uri)?.use { stream ->
+                                    Stage17R17BReplay.parseDiagnostic(Stage17R17BReplay.readBounded(stream))
+                                } ?: error("无法读取选择的文件")
+                            }
+                        r17bSource = loaded
+                        r17bRuns.clear()
+                        resultText = null
+                        r17bStatus = "已锁定 FINAL 输入 · 估算 ${loaded.estimatedPromptTokens} token · " +
+                            "${loaded.semanticNodeCount} 个 NODE · Evidence ${loaded.allowedEvidenceRefs.size} · " +
+                            "SHA ${loaded.promptSha256.take(12)}"
+                    } catch (error: Exception) {
+                        r17bSource = null
+                        r17bRuns.clear()
+                        r17bStatus = "导入失败：${error.message ?: error::class.java.simpleName}"
+                    }
+                }
+            }
+        }
+    val r17bExportPicker =
+        rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+            val pending = r17bPendingReport
+            if (uri != null && pending != null) {
+                scope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            appContext.contentResolver.openOutputStream(uri, "w")?.use { output ->
+                                output.write(pending.toByteArray(Charsets.UTF_8))
+                            } ?: error("无法写入导出文件")
+                        }
+                        r17bStatus = "R17B 对照报告已保存到所选位置"
+                    } catch (error: Exception) {
+                        r17bStatus = "导出失败：${error.message ?: error::class.java.simpleName}"
+                    } finally {
+                        r17bPendingReport = null
+                    }
+                }
+            } else {
+                r17bPendingReport = null
+            }
+        }
     suspend fun refreshModelStatus() {
         val active = container.modelManager.activeModel(STAGE17_GEMMA_4_E2B_CANDIDATE_ID)
         modelStatus =
@@ -317,6 +365,25 @@ private fun Stage17P1LocalLlmScreen(
         )
     }
 
+    fun startR17B(testCase: Stage17R17BReplay.Case) {
+        val source = r17bSource ?: return
+        if (activeJob != null) return
+        val request =
+            runCatching { Stage17R17BReplay.request(source, testCase) }
+                .getOrElse { error ->
+                    r17bStatus = "配置拒绝：${error.message ?: error::class.java.simpleName}"
+                    return
+                }
+        startRequest(
+            label = "R17B-1 ${testCase.label}",
+            prompt = request.prompt,
+            config = request.config,
+            includeResponseInDiagnostics = false,
+            estimatedPromptTokens = request.estimatedPromptTokens,
+            replayRequest = request,
+            replaySource = source,
+        )
+    }
     val busy = activeJob != null
     val selectedIsolationSource = isolationSources.getOrNull(isolationSourceIndex)
     LazyColumn(
@@ -550,6 +617,62 @@ private fun Stage17P1LocalLlmScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
+            }
+        }
+        item {
+            P1Card("R17B-1 · 真实转写 FINAL 同源对照（QA 专用）") {
+                Text(
+                    "从 Downloads/WENZHI 选择先前导出的 Stage 17.3 LongSummary Diagnostic TXT。",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text("只读取已验证的 FINAL INPUT/OUTPUT；不修改录音、Room 或正式总结。保留原始 prompt，在本地 CPU 手动对比。")
+                OutlinedButton(
+                    enabled = !busy,
+                    onClick = { r17bImportPicker.launch(arrayOf("text/plain", "application/octet-stream", "*/*")) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("导入同一录音的长文本诊断 TXT") }
+                Text(r17bStatus, style = MaterialTheme.typography.bodySmall)
+                val source = r17bSource
+                if (source != null) {
+                    Text(
+                        "原始 FINAL · ${Stage17R17BReplay.evaluate(source.baselineRaw, source).concise()}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text("逐项运行 B1 → B2 → B3。每项最多一次 native 请求；异常时停止。")
+                    OutlinedButton(
+                        enabled = !busy,
+                        onClick = { startR17B(Stage17R17BReplay.Case.B1_EXPANDED_4K) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("B1 · 4K / 4×4 条 / 1024 输出") }
+                    OutlinedButton(
+                        enabled = !busy,
+                        onClick = { startR17B(Stage17R17BReplay.Case.B2_EXPANDED_8K) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("B2 · 8K / 4×4 条 / 1024 输出") }
+                    OutlinedButton(
+                        enabled = !busy,
+                        onClick = { startR17B(Stage17R17BReplay.Case.B3_EXTENDED_OUTPUT_8K) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("B3 · 8K / 4×4 条 / 2048 输出") }
+                    r17bRuns.forEach { run ->
+                        Text("${run.testCase.label} · ${run.assessment.concise()}",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                    OutlinedButton(
+                        enabled = !busy && r17bRuns.isNotEmpty(),
+                        onClick = {
+                            r17bPendingReport = Stage17R17BReplay.report(source, r17bRuns.toList())
+                            r17bExportPicker.launch("WENZHI-Stage17.3-R17B1-FINAL-Comparison.txt")
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("保存原始与新版本对照报告 TXT") }
+                    Text(
+                        "报告包含来自真实转写的 FINAL 内容，只有手动选择保存位置才导出；" +
+                            "Evidence 编号存在不代表事实语义正确，需继续人工核对原文。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
         item {
