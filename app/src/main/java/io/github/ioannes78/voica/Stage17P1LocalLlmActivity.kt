@@ -2,6 +2,8 @@ package io.github.ioannes78.voica
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -30,6 +32,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import io.github.ioannes78.voica.ai.ConservativeOfflineSummaryTokenEstimator
@@ -47,10 +50,12 @@ import io.github.ioannes78.voica.localllm.LocalLlmValidatedPresets
 import io.github.ioannes78.voica.localllm.Stage17LocalLlmProbe
 import io.github.ioannes78.voica.ui.theme.VoicaTheme
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** QA-only P1 surface for the managed Gemma model and production runtime foundation. */
 class Stage17P1LocalLlmActivity : ComponentActivity() {
@@ -98,6 +103,7 @@ private fun Stage17P1LocalLlmScreen(
 ) {
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
+    val appContext = LocalContext.current
     val runtimeState by runtime.state.collectAsState()
     val lifecycleSnapshot by lifecycleObservability.monitor.snapshot.collectAsState()
     val lifecycleEvents by lifecycleObservability.diagnostics.events.collectAsState()
@@ -107,6 +113,10 @@ private fun Stage17P1LocalLlmScreen(
     var operation by remember { mutableStateOf<String?>(null) }
     var resultText by remember { mutableStateOf<String?>(null) }
     val capacityHistory = remember { mutableStateListOf<String>() }
+    var r17bSource by remember { mutableStateOf<Stage17R17BReplay.Source?>(null) }
+    var r17bStatus by remember { mutableStateOf("尚未导入真实长文本诊断") }
+    val r17bRuns = remember { mutableStateListOf<Stage17R17BReplay.Run>() }
+    var r17bPendingReport by remember { mutableStateOf<String?>(null) }
     var isolationSources by remember { mutableStateOf<List<Stage17R5IsolationSource>>(emptyList()) }
     var isolationSourceIndex by remember { mutableStateOf(0) }
     var isolationSourceStatus by remember { mutableStateOf("正在查找可用于正式 Summary prompt 的转写…") }
@@ -153,6 +163,8 @@ private fun Stage17P1LocalLlmScreen(
         structuredValidationRefs: Set<String>? = null,
         estimatedPromptTokens: Int = ConservativeOfflineSummaryTokenEstimator.estimateTokens(prompt),
         capacityProbe: Stage17CapacityQa.Request? = null,
+        replayRequest: Stage17R17BReplay.Request? = null,
+        replaySource: Stage17R17BReplay.Source? = null,
     ) {
         if (activeJob != null) return
         resultText = null
@@ -168,6 +180,16 @@ private fun Stage17P1LocalLlmScreen(
                             config = config,
                             resourceDecisionOverride = resourceOverride,
                         )
+                    if (replayRequest != null) {
+                        requireNotNull(replaySource) { "R17B 同源上下文丢失" }
+                        Stage172OfflineSummaryModelContract.requireMatches(result.modelIdentity)
+                    }
+                    val replayAssessment =
+                        if (replayRequest != null && replaySource != null) {
+                            Stage17R17BReplay.evaluate(result.text, replaySource)
+                        } else {
+                            null
+                        }
                     val validationFailure =
                         structuredValidationRefs?.let { refs ->
                             runCatching { SummaryResultCodec.decode(result.text, refs) }
@@ -193,6 +215,12 @@ private fun Stage17P1LocalLlmScreen(
                                 appendLine()
                                 append(validationText)
                             }
+                            if (replayAssessment != null && replayRequest != null) {
+                                appendLine()
+                                appendLine("qaR17B=${replayRequest.testCase.label}")
+                                appendLine("qaSourceSHA=${replaySource?.promptSha256}")
+                                appendLine(replayAssessment.concise())
+                            }
                             if (capacityProbe != null) {
                                 appendLine()
                                 appendLine("qaContextTokens=${capacityProbe.config.maxNumTokens}")
@@ -207,6 +235,17 @@ private fun Stage17P1LocalLlmScreen(
                                 }
                             }
                         }
+                    if (replayRequest != null && replayAssessment != null) {
+                        r17bRuns.removeAll { it.testCase == replayRequest.testCase }
+                        r17bRuns.add(
+                            Stage17R17BReplay.Run(
+                                testCase = replayRequest.testCase,
+                                rawOutput = result.text,
+                                runtimeDiagnostic = result.toP1DiagnosticsText(false),
+                                assessment = replayAssessment,
+                            ),
+                        )
+                    }
                     operation =
                         when {
                             validationText == null -> "$label · 完成"
