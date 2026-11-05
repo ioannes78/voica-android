@@ -21,6 +21,7 @@ internal object Stage17R17CDirectQa {
     enum class Tier(val label: String, val context: Int, val outputCap: Int) {
         C4K("P1-4K · CPU / 1024", 4_000, 1_024),
         C8K("P1-8K · CPU / 1024", 8_000, 1_024),
+        C8K_2048("P1-R2-8K · CPU / 2048（同源控制）", 8_000, 2_048),
         C16K("P1-16K · CPU / 2048（高资源）", 16_000, 2_048),
     }
 
@@ -123,6 +124,22 @@ internal object Stage17R17CDirectQa {
         )
     }
 
+    /**
+     * QA-only known-regression sentinel, not a general number or semantic truth validator.
+     * Detects the observed "三到八成" => "3% to 8%" unit/scale mistake.
+     */
+    fun knownNumericRegression(sourceText: String, output: String): String {
+        if (!sourceText.contains("三到八成")) {
+            return "NOT_APPLICABLE（原文未包含“三到八成”；不代表数字正确）"
+        }
+        val incorrectlyScaled = Regex("""3\s*[%％]\s*(?:到|至|[-~～—–])\s*8\s*[%％]""")
+        return if (incorrectlyScaled.containsMatchIn(output)) {
+            "FLAG_CRITICAL：原文“三到八成”（30%-80%）被输出为“3%-8%”；数字数量级错误"
+        } else {
+            "NO_KNOWN_PATTERN（未触发已知单位错误；仍需人工核对全部数字）"
+        }
+    }
+
     /** This is a report for human fact grading; no automated accuracy claims are made. */
     fun report(source: Source, runs: List<Run>, finalDiagnosticDigest: String?): String = buildString {
         appendLine("# WENZHI Stage 17.3 R17C P0/P1 · 完整逐字稿直读 QA")
@@ -143,6 +160,8 @@ internal object Stage17R17CDirectQa {
             appendLine()
             appendLine("===== " + run.tier.label + " =====")
             appendLine(run.runtimeDiagnostic)
+            appendLine("knownNumericRegression=" + knownNumericRegression(source.transcriptText, run.rawOutput))
+            appendLine("QA NOTE: numeric sentinel is limited to a previously observed scale error.")
             appendLine("===== RAW SUMMARY =====")
             appendLine(run.rawOutput)
         }
@@ -152,7 +171,11 @@ internal object Stage17R17CDirectQa {
         appendLine()
         appendLine("===== EVIDENCE SIDECAR (manual semantic review only) =====")
         source.evidenceRows.forEach(::appendLine)
-        appendLine("手动复核：完整事实、数字、专名、例子、风险、否定、结论及所有引用是否真的受原文支持。")
+        appendLine("===== MANUAL FACT / NUMBER REVIEW =====")
+        appendLine("逐项核对：中文数量单位（成/百分比/倍/万/亿）、时间跨度、金额、企业专名、行业案例、否定、风险、结论。")
+        appendLine("特别检查：三到八成应按30%-80%理解，不能写成3%-8%；此处核对的是原文语义，不是外部事实真实性。")
+        appendLine("QA AUTO FLAG != 全面事实校验；未标记不能证明正确；Evidence ID 存在不等于语义支持。")
+        appendLine("备注：generationMs仅代表运行时生成计时，不等于从进入页面到结束的总耗时。")
     }
 
     private fun sha256(text: String): String =

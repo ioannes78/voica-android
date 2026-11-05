@@ -367,7 +367,18 @@ private fun Stage17P1LocalLlmScreen(
                     }
                     operation =
                         when {
-                            directRequest != null -> "$label · 自由文本完成（未自动认定事实正确）"
+                            directRequest != null -> {
+                                val source = requireNotNull(directSource)
+                                val audit = Stage17R17CDirectQa.knownNumericRegression(
+                                    source.transcriptText,
+                                    result.text,
+                                )
+                                if (audit.startsWith("FLAG_CRITICAL")) {
+                                    "$label · 完成但已知数字单位错误（见下方）"
+                                } else {
+                                    "$label · 自由文本完成（仍须人工校验事实）"
+                                }
+                            }
                             replayAssessment != null && !replayAssessment.valid -> "$label · FINAL JSON FAIL"
                             replayAssessment != null -> "$label · FINAL JSON PASS"
                             validationText == null -> "$label · 完成"
@@ -767,7 +778,7 @@ private fun Stage17P1LocalLlmScreen(
                         )
                     }
                     Text(
-                        "先尝试低预算，不适合则预检拒绝。16K 内存压力大，仅前台亮屏且设备稳定时手动执行。",
+                        "R2 优先执行 8K/2048 同源对照；不要同时启动旧 16K 测试。预算超限会拒绝且不会截断原文。",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     OutlinedButton(
@@ -782,12 +793,23 @@ private fun Stage17P1LocalLlmScreen(
                     ) { Text("P1 · 8K / 1024 · CPU 全文直读") }
                     OutlinedButton(
                         enabled = !busy,
+                        onClick = { startR17C(Stage17R17CDirectQa.Tier.C8K_2048) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("P1-R2 · 8K / 2048 · CPU 同源对照（优先）") }
+                    OutlinedButton(
+                        enabled = !busy,
                         onClick = { startR17C(Stage17R17CDirectQa.Tier.C16K) },
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("P1 · 16K / 2048 · CPU（高资源）") }
                     r17cRuns.forEach { run ->
-                        Text(run.tier.label + " · 完成（语义待人工复核）",
-                            style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            run.tier.label + " · " +
+                                Stage17R17CDirectQa.knownNumericRegression(
+                                    source.transcriptText,
+                                    run.rawOutput,
+                                ),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
                     }
                     OutlinedButton(
                         enabled = !busy,
@@ -795,7 +817,7 @@ private fun Stage17P1LocalLlmScreen(
                             r17cPendingReport = Stage17R17CDirectQa.report(
                                 source, r17cRuns.toList(), r17bSource?.inputDigest,
                             )
-                            r17cExportPicker.launch("WENZHI-Stage17.3-R17C-P0P1-DirectSummary.txt")
+                            r17cExportPicker.launch("WENZHI-Stage17.3-R17C-P1-R2-8K2048-DirectSummary.txt")
                         },
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("保存 P0 原文及 P1 总结对照 TXT") }

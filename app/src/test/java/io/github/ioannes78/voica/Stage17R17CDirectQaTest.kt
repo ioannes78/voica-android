@@ -56,9 +56,11 @@ class Stage17R17CDirectQaTest {
         val runs = Stage17R17CDirectQa.Tier.entries.map { tier ->
             Stage17R17CDirectQa.request(source, tier)
         }
-        assertEquals(runs[0].prompt, runs[1].prompt)
-        assertEquals(runs[1].prompt, runs[2].prompt)
-        assertEquals(runs[0].promptSha256, runs[2].promptSha256)
+        assertEquals(4, runs.size)
+        runs.forEach { run ->
+            assertEquals(runs[0].prompt, run.prompt)
+            assertEquals(runs[0].promptSha256, run.promptSha256)
+        }
         for (run in runs) {
             assertEquals(LocalLlmBackendPolicy.CPU, run.config.backendPolicy)
             assertEquals(null, run.config.responseJsonSchema)
@@ -70,8 +72,13 @@ class Stage17R17CDirectQaTest {
         }
         assertEquals(4_000, runs[0].config.maxNumTokens)
         assertEquals(8_000, runs[1].config.maxNumTokens)
-        assertEquals(16_000, runs[2].config.maxNumTokens)
+        assertEquals(8_000, runs[2].config.maxNumTokens)
+        assertEquals(16_000, runs[3].config.maxNumTokens)
+        assertEquals(1_024, runs[1].config.maxOutputTokens)
         assertEquals(2_048, runs[2].config.maxOutputTokens)
+        assertEquals(2_048, runs[3].config.maxOutputTokens)
+        assertEquals(192 + 256 + runs[2].estimatedPromptTokens + 2_048,
+            runs[2].estimatedPromptTokens + runs[2].tier.outputCap + 192 + 256)
     }
 
     @Test fun oversizedPromptFailsBeforeAnyRuntimeRequestWithoutTruncation() {
@@ -82,6 +89,38 @@ class Stage17R17CDirectQaTest {
         assertTrue(error is IllegalArgumentException)
         assertTrue(error?.message.orEmpty().contains("原文未截断"))
         assertTrue(Stage17R17CDirectQa.renderPrompt(oversized.transcriptText).contains(oversized.transcriptText))
+    }
+
+    @Test fun knownScaleErrorIsFlaggedOnlyWhenPresentInOriginalAndSummary() {
+        val sourceText = "研究显示新药研发时间可以缩短三到八成。"
+        assertTrue(
+            Stage17R17CDirectQa.knownNumericRegression(
+                sourceText, "研究可将研发时间缩短 3% 到 8%。",
+            ).startsWith("FLAG_CRITICAL"),
+        )
+        assertTrue(
+            Stage17R17CDirectQa.knownNumericRegression(
+                sourceText, "研究可将研发时间缩短30%至80%。",
+            ).startsWith("NO_KNOWN_PATTERN"),
+        )
+        assertTrue(
+            Stage17R17CDirectQa.knownNumericRegression(
+                "原文仅讨论百分之三", "3%到8%",
+            ).startsWith("NOT_APPLICABLE"),
+        )
+    }
+
+    @Test fun r2EightK2048IsBudgetBoundedOnRealisticPrompt() {
+        val realistic = source.copy(
+            transcriptText = "讨论事实、数据、结论与风险。".repeat(120),
+        )
+        val request = Stage17R17CDirectQa.request(
+            realistic, Stage17R17CDirectQa.Tier.C8K_2048,
+        )
+        assertEquals(8_000, request.config.maxNumTokens)
+        assertEquals(2_048, request.config.maxOutputTokens)
+        assertTrue(request.prompt.contains(realistic.transcriptText))
+        assertTrue(request.estimatedPromptTokens + 2_048 + 192 + 256 <= 8_000)
     }
 
     @Test fun reportContainsOriginalTranscriptAndManualEvidenceAuditOnly() {
@@ -102,5 +141,6 @@ class Stage17R17CDirectQaTest {
         assertTrue(report.contains("U00001 | S00001"))
         assertTrue(report.contains(output))
         assertTrue(report.contains("人工"))
+        assertTrue(report.contains("knownNumericRegression=NOT_APPLICABLE"))
     }
 }
