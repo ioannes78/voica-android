@@ -124,6 +124,47 @@ class BootstrapModelCatalogTest {
     }
 
     @Test
+    fun releaseQaFallsBackToPinnedStage17CandidateWithoutChangingProductionDefault() {
+        assertEquals(
+            VoicaModelChannel.STAGE17_P1_CANDIDATE_MANIFEST_URL,
+            VoicaModelChannel.releaseQaCandidateManifestUrl(
+                buildAllowsCandidateChannel = true,
+                buildConfiguredUrl = "",
+            ),
+        )
+        assertEquals(
+            "",
+            VoicaModelChannel.releaseQaCandidateManifestUrl(
+                buildAllowsCandidateChannel = false,
+                buildConfiguredUrl = "",
+            ),
+        )
+    }
+
+    @Test
+    fun configuredQaManifestStillOverridesStage17CandidateFallback() {
+        val explicit =
+            "https://github.com/ioannes78/voica-model-channel/releases/download/" +
+                "candidate-explicit/production.json"
+        assertEquals(
+            explicit,
+            VoicaModelChannel.releaseQaCandidateManifestUrl(
+                buildAllowsCandidateChannel = true,
+                buildConfiguredUrl = explicit,
+            ),
+        )
+    }
+
+    @Test
+    fun productionModelsExcludeGemmaWhileCandidateModelsIncludeIt() {
+        val productionIds = allowedModelIdsForManifest(productionManifestPinned = true)
+        val candidateIds = allowedModelIdsForManifest(productionManifestPinned = false)
+
+        assertFalse(STAGE17_GEMMA_4_E2B_CANDIDATE_ID in productionIds)
+        assertTrue(STAGE17_GEMMA_4_E2B_CANDIDATE_ID in candidateIds)
+    }
+
+    @Test
     fun fsmnAndFunAsrAreProductionWhileTenRemainsCandidateOnly() {
         val productionIds = allowedModelIdsForManifest(productionManifestPinned = true)
         val candidateIds = allowedModelIdsForManifest(productionManifestPinned = false)

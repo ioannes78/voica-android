@@ -127,6 +127,8 @@ class StructuredTranscriptInputBuilder(
                     evidence = evidence,
                     text = draft.text,
                     detectedLanguage = draft.detectedLanguage,
+                    speakerId = draft.speakerId,
+                    speakerDisplayName = draft.speakerDisplayName,
                 )
             }
         val effectiveText = units.joinToString("\n") { it.text }

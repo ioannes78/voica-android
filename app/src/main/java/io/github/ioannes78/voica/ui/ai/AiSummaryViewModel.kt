@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import io.github.ioannes78.voica.ai.AiSummaryResult
+import io.github.ioannes78.voica.ai.OfflineSummaryPromptContract
 import io.github.ioannes78.voica.ai.SummaryResultCodec
 import io.github.ioannes78.voica.database.AiSummaryEntity
 import io.github.ioannes78.voica.database.AiSummaryEvidenceEntity
@@ -51,6 +52,9 @@ class AiSummaryViewModel(
     private val mutableSelected = MutableStateFlow<AiSummaryDocument?>(null)
     val selected: StateFlow<AiSummaryDocument?> = mutableSelected.asStateFlow()
 
+    private val mutableCurrentSummaryId = MutableStateFlow<String?>(null)
+    val currentSummaryId: StateFlow<String?> = mutableCurrentSummaryId.asStateFlow()
+
     private val mutableCandidateId = MutableStateFlow<String?>(null)
     val candidateId: StateFlow<String?> = mutableCandidateId.asStateFlow()
 
@@ -70,7 +74,7 @@ class AiSummaryViewModel(
 
     fun bind(transcriptionId: String?) {
         if (boundTranscriptionId == transcriptionId) {
-            if (transcriptionId != null) viewModelScope.launch { refreshCurrentSelection() }
+            if (transcriptionId != null) viewModelScope.launch { refreshSelection(preservePreview = true) }
             return
         }
         boundTranscriptionId = transcriptionId
@@ -79,6 +83,7 @@ class AiSummaryViewModel(
         revisionJob?.cancel()
         mutableHistory.value = emptyList()
         mutableSelected.value = null
+        mutableCurrentSummaryId.value = null
         mutableCandidateId.value = null
         mutableStale.value = false
         mutableStaleFingerprint.value = null
@@ -93,8 +98,7 @@ class AiSummaryViewModel(
                 viewModelScope.launch {
                     repository.observeForRecording(recordingId).collectLatest { summaries ->
                         mutableHistory.value = summaries
-                        mutableCandidateId.value = contentRepository.resolveAiSummaryCandidateId(recordingId)
-                        refreshCurrentSelection()
+                        refreshSelection(preservePreview = true)
                     }
                 }
             revisionJob =
@@ -106,9 +110,10 @@ class AiSummaryViewModel(
     }
 
     fun refresh() {
-        viewModelScope.launch { refreshCurrentSelection() }
+        viewModelScope.launch { refreshSelection(preservePreview = true) }
     }
 
+    /** Preview any completed summary version without changing the persisted Current selection. */
     fun selectSummary(summaryId: String) {
         viewModelScope.launch {
             val entity =
@@ -118,7 +123,37 @@ class AiSummaryViewModel(
             if (entity.status != AiSummaryStateValue.COMPLETED) return@launch
             loadDocument(entity)
             refreshStale()
+            mutableNotice.value =
+                when (summaryId) {
+                    mutableCurrentSummaryId.value -> null
+                    mutableCandidateId.value -> "正在查看新结果；当前总结尚未切换。"
+                    else -> "正在查看历史版本；当前总结未改变。"
+                }
         }
+    }
+
+    fun previewCandidate(summaryId: String) {
+        if (summaryId != mutableCandidateId.value) return
+        selectSummary(summaryId)
+    }
+
+    fun showCurrent() {
+        viewModelScope.launch {
+            val currentId = mutableCurrentSummaryId.value ?: return@launch
+            val entity =
+                mutableHistory.value.firstOrNull { it.id == currentId }
+                    ?: repository.find(currentId)
+                    ?: return@launch
+            if (entity.status != AiSummaryStateValue.COMPLETED) return@launch
+            loadDocument(entity)
+            refreshStale()
+            mutableNotice.value = null
+        }
+    }
+
+    fun adoptCandidate(summaryId: String) {
+        if (summaryId != mutableCandidateId.value) return
+        adoptSummaryResult(summaryId)
     }
 
     fun adoptSummaryResult(summaryId: String) {
@@ -126,6 +161,7 @@ class AiSummaryViewModel(
             val entity = repository.find(summaryId) ?: return@launch
             if (entity.status != AiSummaryStateValue.COMPLETED) return@launch
             contentRepository.setCurrentAiSummaryVersion(entity.recordingId, entity.id)
+            mutableCurrentSummaryId.value = entity.id
             mutableCandidateId.value = contentRepository.resolveAiSummaryCandidateId(entity.recordingId)
             loadDocument(entity)
             refreshStale()
@@ -137,14 +173,21 @@ class AiSummaryViewModel(
         mutableNotice.value = null
     }
 
-    private suspend fun refreshCurrentSelection() {
+    private suspend fun refreshSelection(preservePreview: Boolean) {
         val recordingId = boundRecordingId ?: return
         val currentId = contentRepository.resolveCurrentAiSummaryId(recordingId)
+        mutableCurrentSummaryId.value = currentId
         mutableCandidateId.value = contentRepository.resolveAiSummaryCandidateId(recordingId)
-        val target =
-            mutableHistory.value.firstOrNull {
-                it.id == currentId && it.status == AiSummaryStateValue.COMPLETED
-            }
+
+        val completed = mutableHistory.value.filter { it.status == AiSummaryStateValue.COMPLETED }
+        val selectedId = mutableSelected.value?.entity?.id
+        val selectedStillExists = selectedId != null && completed.any { it.id == selectedId }
+        if (preservePreview && selectedStillExists) {
+            refreshStale()
+            return
+        }
+
+        val target = completed.firstOrNull { it.id == currentId }
         if (target == null) {
             mutableSelected.value = null
             mutableStale.value = false
@@ -201,7 +244,18 @@ class AiSummaryViewModel(
                     )
                 }.getOrNull()
             }
-        mutableSelected.value = AiSummaryDocument(entity = entity, result = result, evidence = evidence)
+        val productEntity =
+            if (entity.promptVersion == OfflineSummaryPromptContract.PROMPT_VERSION) {
+                entity.copy(model = LOCAL_OFFLINE_MODEL_LABEL)
+            } else {
+                entity
+            }
+        mutableSelected.value =
+            AiSummaryDocument(
+                entity = productEntity,
+                result = result,
+                evidence = evidence,
+            )
     }
 
     private data class SummaryLineageRef(
@@ -216,5 +270,9 @@ class AiSummaryViewModel(
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
             AiSummaryViewModel(repository = repository, contentRepository = contentRepository) as T
+    }
+
+    private companion object {
+        const val LOCAL_OFFLINE_MODEL_LABEL = "Gemma 4 E2B · 本地"
     }
 }

@@ -70,10 +70,34 @@ data class StructuredTranscriptUnit(
     val evidence: EvidenceSourceRef?,
     val text: String,
     val detectedLanguage: String?,
+    /**
+     * Semantic speaker metadata is intentionally independent from [evidence]. A user revision may
+     * retain a speaker assignment even when its edited text no longer has a reliable audio anchor.
+     */
+    val speakerId: String? = null,
+    val speakerDisplayName: String? = null,
 ) {
     init {
         require(text.isNotBlank())
+        require(speakerId == null || speakerId.isNotBlank())
+        require(speakerDisplayName == null || speakerDisplayName.isNotBlank())
+        if (speakerId != null && evidence?.speakerId != null) {
+            require(speakerId == evidence.speakerId) {
+                "unit speakerId must match anchored evidence speakerId"
+            }
+        }
+        if (speakerDisplayName != null && evidence?.speakerDisplayName != null) {
+            require(speakerDisplayName == evidence.speakerDisplayName) {
+                "unit speakerDisplayName must match anchored evidence speakerDisplayName"
+            }
+        }
     }
+
+    val effectiveSpeakerId: String?
+        get() = speakerId ?: evidence?.speakerId
+
+    val effectiveSpeakerDisplayName: String?
+        get() = speakerDisplayName ?: evidence?.speakerDisplayName
 }
 
 data class StructuredTranscriptInput(
