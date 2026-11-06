@@ -2,6 +2,7 @@ package io.github.ioannes78.voica
 
 import android.app.ActivityManager
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -494,6 +495,11 @@ private fun Stage17P1LocalLlmScreen(
                     resultText = "${error::class.java.name}: ${error.message ?: "n/a"}"
                     operation = "$label · 失败"
                 } finally {
+                    if (p2Request != null) {
+                        (appContext as? ComponentActivity)?.window?.clearFlags(
+                            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+                        )
+                    }
                     if (capacityProbe != null) {
                         capacityHistory.add("${capacityProbe.label}: ${operation.orEmpty()}\n${resultText.orEmpty()}")
                     }
@@ -637,6 +643,11 @@ private fun Stage17P1LocalLlmScreen(
             return
         }
         p2Status = request.testCase.label + " · 前台亮屏中，正在调用原生 GPU…"
+        // P2-only mitigation: prevent automatic screen timeout during native GPU inference.
+        // Manual power/keyguard transitions remain unsafe and must not be tested.
+        (appContext as? ComponentActivity)?.window?.addFlags(
+            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+        )
         startRequest(
             label = "R17C " + testCase.label,
             prompt = request.prompt,

@@ -37,6 +37,11 @@ In Stage 17 P1 QA screen, use card "R17C P2 · GPU 自由文本兼容性":
   differs. No MAP/REDUCE/FINAL, no truncation, no native JSON Schema.
   Input estimate + 2048 output + 192 template + 256 safety <= 8000.
 
+During each P2 native GPU attempt the QA Activity sets Android FLAG_KEEP_SCREEN_ON;
+it clears the flag when the attempt unwinds. This only prevents automatic screen
+timeout; it cannot prevent manual power-button locks or driver-level native hangs.
+No system-wide power policy is changed.
+
 No automated chain. User must manually check device and initiate P2-B after
 P2-A passes. It cannot start without P2-A success within the same QA screen
 session, risk acknowledgement, foreground+resumed+interactive+unlocked lifecycle,
