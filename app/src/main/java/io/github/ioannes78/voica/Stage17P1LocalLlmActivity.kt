@@ -134,6 +134,10 @@ private fun Stage17P1LocalLlmScreen(
     var p2ReportSource by remember { mutableStateOf<Stage17R17CDirectQa.Source?>(null) }
     val p2Runs = remember { mutableStateListOf<Stage17R17CP2GpuQa.Run>() }
     var p2PendingReport by remember { mutableStateOf<String?>(null) }
+    var p2cStatus by remember { mutableStateOf("P2-C1 尚未开始短数字对照") }
+    var p2cBlocked by remember { mutableStateOf(false) }
+    val p2cRuns = remember { mutableStateListOf<Stage17R17CP2CNumericQa.Run>() }
+    var p2cPendingReport by remember { mutableStateOf<String?>(null) }
     var isolationSources by remember { mutableStateOf<List<Stage17R5IsolationSource>>(emptyList()) }
     var isolationSourceIndex by remember { mutableStateOf(0) }
     var isolationSourceStatus by remember { mutableStateOf("正在查找可用于正式 Summary prompt 的转写…") }
@@ -232,6 +236,29 @@ private fun Stage17P1LocalLlmScreen(
             }
         }
 
+    val p2cExportPicker =
+        rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+            val report = p2cPendingReport
+            if (uri != null && report != null) {
+                scope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            appContext.contentResolver.openOutputStream(uri, "w")?.use { stream ->
+                                stream.write(report.toByteArray(Charsets.UTF_8))
+                            } ?: error("无法写入 P2-C1 诊断报告")
+                        }
+                        p2cStatus = "P2-C1 诊断报告已保存到所选位置"
+                    } catch (error: Exception) {
+                        p2cStatus = "P2-C1 报告导出失败：" + (error.message ?: error::class.java.simpleName)
+                    } finally {
+                        p2cPendingReport = null
+                    }
+                }
+            } else {
+                p2cPendingReport = null
+            }
+        }
+
     suspend fun refreshR17CSources() {
         if (activeJob != null) return
         r17cStatus = "正在读取本地当前有效转写快照…"
@@ -300,6 +327,7 @@ private fun Stage17P1LocalLlmScreen(
         directSource: Stage17R17CDirectQa.Source? = null,
         p2Request: Stage17R17CP2GpuQa.Request? = null,
         p2Source: Stage17R17CDirectQa.Source? = null,
+        numericRequest: Stage17R17CP2CNumericQa.Request? = null,
     ) {
         if (activeJob != null) return
         resultText = null
@@ -384,6 +412,31 @@ private fun Stage17P1LocalLlmScreen(
                         p2Status = p2Request.testCase.label +
                             " 完成 · 已核实 GPU / IDLE / close PSS；长文本事实仍须人工复核"
                     }
+                    if (numericRequest != null) {
+                        Stage172OfflineSummaryModelContract.requireMatches(result.modelIdentity)
+                        require(Stage17R17CP2CNumericQa.runtimePass(
+                            testCase = numericRequest.testCase,
+                            actual = result.backendResolution.resolvedBackend,
+                            fallback = result.backendResolution.fallbackAttempted,
+                            idle = runtime.state.value == LocalLlmRuntimeState.IDLE,
+                            closedPssKb = result.diagnostics.pssAfterCloseKb,
+                        )) { "P2-C1 要求实际后端一致、无回退、关闭 PSS 可见且 Runtime 为 IDLE" }
+                        val audit = Stage17R17CP2CNumericQa.assess(result.text)
+                        p2cRuns.removeAll { it.testCase == numericRequest.testCase }
+                        p2cRuns.add(
+                            Stage17R17CP2CNumericQa.Run(
+                                testCase = numericRequest.testCase,
+                                output = result.text,
+                                runtimeDiagnostic = result.toP1DiagnosticsText(false) +
+                                    "\nqaR17CP2C1=NUMERIC_NO_SCHEMA" +
+                                    "\nqaPromptSHA=" + numericRequest.promptSha256 +
+                                    "\nqaPromptTokens=" + numericRequest.estimatedPromptTokens +
+                                    "\nqaOutputCap=" + numericRequest.config.maxOutputTokens,
+                                assessment = audit,
+                            ),
+                        )
+                        p2cStatus = numericRequest.testCase.label + " 完成；" + audit.summary()
+                    }
                     val replayAssessment =
                         if (replayRequest != null && replaySource != null) {
                             Stage17R17BReplay.evaluate(result.text, replaySource)
@@ -448,6 +501,7 @@ private fun Stage17P1LocalLlmScreen(
                     }
                     operation =
                         when {
+                            numericRequest != null -> "$label · 短数字对照完成（必须人工审核）"
                             p2Request != null -> "$label · GPU QA 完成（非生产资格）"
                             directRequest != null -> {
                                 val source = requireNotNull(directSource)
@@ -468,6 +522,15 @@ private fun Stage17P1LocalLlmScreen(
                             else -> "$label · 完成 · JSON FAIL"
                         }
                 } catch (_: CancellationException) {
+                    if (numericRequest != null) {
+                        p2cBlocked = true
+                        p2cStatus = "数字对照已取消；本轮不再进行原生推理"
+                        if (numericRequest.testCase == Stage17R17CP2CNumericQa.Case.GPU) {
+                            p2SessionBlocked = true
+                            p2ShortPassed = false
+                            p2RiskAcknowledged = false
+                        }
+                    }
                     if (p2Request != null) {
                         p2SessionBlocked = true
                         p2ShortPassed = false
@@ -476,6 +539,15 @@ private fun Stage17P1LocalLlmScreen(
                     }
                     operation = "$label · 已取消"
                 } catch (error: LocalLlmRuntimeException) {
+                    if (numericRequest != null) {
+                        p2cBlocked = true
+                        p2cStatus = "数字对照原生失败，本轮已锁定：" + error.failure.code
+                        if (numericRequest.testCase == Stage17R17CP2CNumericQa.Case.GPU) {
+                            p2SessionBlocked = true
+                            p2ShortPassed = false
+                            p2RiskAcknowledged = false
+                        }
+                    }
                     if (p2Request != null) {
                         p2SessionBlocked = true
                         p2ShortPassed = false
@@ -485,6 +557,16 @@ private fun Stage17P1LocalLlmScreen(
                     resultText = error.failure.toString()
                     operation = "$label · 失败 · ${error.failure.code}"
                 } catch (error: Throwable) {
+                    if (numericRequest != null) {
+                        p2cBlocked = true
+                        p2cStatus = "数字对照验证失败，本轮已锁定：" +
+                            (error.message ?: error::class.java.simpleName)
+                        if (numericRequest.testCase == Stage17R17CP2CNumericQa.Case.GPU) {
+                            p2SessionBlocked = true
+                            p2ShortPassed = false
+                            p2RiskAcknowledged = false
+                        }
+                    }
                     if (p2Request != null) {
                         p2SessionBlocked = true
                         p2ShortPassed = false
@@ -495,7 +577,9 @@ private fun Stage17P1LocalLlmScreen(
                     resultText = "${error::class.java.name}: ${error.message ?: "n/a"}"
                     operation = "$label · 失败"
                 } finally {
-                    if (p2Request != null) {
+                    if (p2Request != null ||
+                        numericRequest?.testCase == Stage17R17CP2CNumericQa.Case.GPU
+                    ) {
                         (appContext as? ComponentActivity)?.window?.clearFlags(
                             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
                         )
@@ -597,6 +681,12 @@ private fun Stage17P1LocalLlmScreen(
     }
     fun startP2(testCase: Stage17R17CP2GpuQa.Case) {
         if (activeJob != null) return
+        if (testCase == Stage17R17CP2GpuQa.Case.REAL_8K_2048 &&
+            p2cRuns.any { it.testCase == Stage17R17CP2CNumericQa.Case.GPU }
+        ) {
+            p2Status = "P2-C1 已执行 GPU 数字对照，本轮不再叠加 GPU 8K 压力测试"
+            return
+        }
         if (p2Runs.any { it.testCase == testCase }) {
             p2Status = "此项在当前 QA 页面已经成功执行；不重复进行 GPU 压力测试"
             return
@@ -656,6 +746,70 @@ private fun Stage17P1LocalLlmScreen(
             estimatedPromptTokens = request.estimatedPromptTokens,
             p2Request = request,
             p2Source = source,
+        )
+    }
+    fun startP2C(testCase: Stage17R17CP2CNumericQa.Case) {
+        if (activeJob != null) return
+        if (p2cBlocked || p2SessionBlocked) {
+            p2cStatus = "本次会话存在失败记录；禁止继续短数字 QA"
+            return
+        }
+        if (p2cRuns.any { it.testCase == testCase }) {
+            p2cStatus = "该后端已经完成一次对照；不重复执行"
+            return
+        }
+        if (!lifecycleSnapshot.processForeground || !lifecycleSnapshot.activityResumed ||
+            !lifecycleSnapshot.interactive || lifecycleSnapshot.deviceLocked ||
+            lifecycleSnapshot.keyguardShowing ||
+            runtime.state.value != LocalLlmRuntimeState.IDLE
+        ) {
+            p2cStatus = "前台、亮屏、未锁定且 Runtime IDLE 才能执行短数字 QA"
+            return
+        }
+        if (testCase == Stage17R17CP2CNumericQa.Case.GPU) {
+            if (p2Runs.any { it.testCase == Stage17R17CP2GpuQa.Case.REAL_8K_2048 }) {
+                p2cStatus = "本次页面已执行 GPU 8K，不再进行额外 GPU 负载"
+                return
+            }
+            if (p2cRuns.none { it.testCase == Stage17R17CP2CNumericQa.Case.CPU }) {
+                p2cStatus = "先完成 CPU 4K/512 参考对照"
+                return
+            }
+            val reason = Stage17R17CP2GpuQa.preflightReason(
+                testCase = Stage17R17CP2GpuQa.Case.REAL_8K_2048,
+                acknowledgedRisk = p2RiskAcknowledged,
+                shortProbePassed = p2ShortPassed,
+                previousFailureInSession = p2SessionBlocked,
+                foreground = lifecycleSnapshot.processForeground,
+                activityResumed = lifecycleSnapshot.activityResumed,
+                interactive = lifecycleSnapshot.interactive,
+                keyguardShowing = lifecycleSnapshot.keyguardShowing,
+                deviceLocked = lifecycleSnapshot.deviceLocked,
+                runtimeIdle = runtime.state.value == LocalLlmRuntimeState.IDLE,
+            )
+            if (reason != null) {
+                p2cStatus = "GPU 预检拒绝：" + reason
+                return
+            }
+        }
+        val request = runCatching { Stage17R17CP2CNumericQa.request(testCase) }
+            .getOrElse { error ->
+                p2cStatus = "输入预算拒绝：" + (error.message ?: error::class.java.simpleName)
+                return
+            }
+        p2cStatus = testCase.label + " · 执行中，原文与采样参数已固定"
+        if (testCase == Stage17R17CP2CNumericQa.Case.GPU) {
+            (appContext as? ComponentActivity)?.window?.addFlags(
+                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+            )
+        }
+        startRequest(
+            label = testCase.label,
+            prompt = request.prompt,
+            config = request.config,
+            includeResponseInDiagnostics = false,
+            estimatedPromptTokens = request.estimatedPromptTokens,
+            numericRequest = request,
         )
     }
     val busy = activeJob != null
@@ -1047,6 +1201,7 @@ private fun Stage17P1LocalLlmScreen(
                     enabled = !busy && p2RiskAcknowledged && p2ShortPassed &&
                         !p2SessionBlocked && selectedR17CSource != null &&
                         p2Runs.none { it.testCase == Stage17R17CP2GpuQa.Case.REAL_8K_2048 } &&
+                        p2cRuns.none { it.testCase == Stage17R17CP2CNumericQa.Case.GPU } &&
                         runtimeState == LocalLlmRuntimeState.IDLE,
                     onClick = { startP2(Stage17R17CP2GpuQa.Case.REAL_8K_2048) },
                     modifier = Modifier.fillMaxWidth(),
@@ -1086,6 +1241,81 @@ private fun Stage17P1LocalLlmScreen(
                 Text(
                     "若 native 卡死/重启而无输出，重新打开 QA 页面复制 R5 Crash Breadcrumb，" +
                         "不要再试 GPU。完成一次测试并不代表生产 GPU 已达稳定性标准。",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+        item {
+            P1Card("R17C P2-C1 · CPU/GPU 数字保真对照（短文本 QA）") {
+                Text(
+                    "固定五组来自原录音的数值资料，CPU 与 GPU 使用同一 Prompt、4K/512 和相同采样参数。" +
+                        "只检测短文本数字变形，不等同整篇总结质量，也不升级 LiteRT-LM。",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    "真机顺序：①CPU 数字基线 → ②上方 P2-A GPU 短探针 → ③本区 GPU 数字对照。" +
+                        "每项只允许运行一次，勿锁屏或切后台。已运行 GPU 8K 的页面不可再做 P2-C1 GPU。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                Text(p2cStatus, style = MaterialTheme.typography.bodySmall)
+                OutlinedButton(
+                    enabled = !busy && !p2cBlocked && !p2SessionBlocked &&
+                        runtimeState == LocalLlmRuntimeState.IDLE &&
+                        p2cRuns.none { it.testCase == Stage17R17CP2CNumericQa.Case.CPU },
+                    onClick = { startP2C(Stage17R17CP2CNumericQa.Case.CPU) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("P2-C1-A · CPU 4K/512 数字基线")
+                }
+                OutlinedButton(
+                    enabled = !busy && p2RiskAcknowledged && p2ShortPassed &&
+                        !p2cBlocked && !p2SessionBlocked &&
+                        runtimeState == LocalLlmRuntimeState.IDLE &&
+                        p2cRuns.any { it.testCase == Stage17R17CP2CNumericQa.Case.CPU } &&
+                        p2cRuns.none { it.testCase == Stage17R17CP2CNumericQa.Case.GPU } &&
+                        p2Runs.none { it.testCase == Stage17R17CP2GpuQa.Case.REAL_8K_2048 },
+                    onClick = { startP2C(Stage17R17CP2CNumericQa.Case.GPU) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("P2-C1-B · GPU 4K/512 数字基线（P2-A 通过后）")
+                }
+                p2cRuns.forEach { run ->
+                    Text(
+                        run.testCase.label + " · " + run.assessment.summary(),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    if (run.assessment.knownErrors.isNotEmpty()) {
+                        Text(
+                            "已知数字错误：" + run.assessment.knownErrors.joinToString("、"),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    if (run.assessment.languageSignals.isNotEmpty()) {
+                        Text(
+                            "异常语种：" + run.assessment.languageSignals.joinToString("、"),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+                OutlinedButton(
+                    enabled = !busy && p2cRuns.isNotEmpty(),
+                    onClick = {
+                        p2cPendingReport = Stage17R17CP2CNumericQa.report(
+                            runs = p2cRuns.toList(),
+                            blocked = p2cBlocked || p2SessionBlocked,
+                            shortProbePassed = p2ShortPassed,
+                        )
+                        p2cExportPicker.launch("WENZHI-Stage17.3-R17C-P2-C1-NumericQA.txt")
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("保存短数字 CPU/GPU 对照 TXT")
+                }
+                Text(
+                    "NO_KNOWN_FLAG 不代表事实正确。对照报告仅本机手动导出。" +
+                        "如 GPU 发生 ANR、异常发热或进程重启，立即停止并保存 R5 Breadcrumb。",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
