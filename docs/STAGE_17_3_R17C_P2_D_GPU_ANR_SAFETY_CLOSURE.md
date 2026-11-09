@@ -55,6 +55,10 @@ Also disable the screen's P2-A/P2-B/P2-C1 GPU/P2-C2 GPU buttons, legacy generic
 GPU, generic AUTO, GPU long-generation, cancellation stress and simulated AUTO.
 This UI policy alone is not trusted: the central pre-native gate is the
 safety boundary. CPU-side QA and diagnostic exports are retained.
+Additionally, every P2/P2-C1/P2-C2 GPU entry checks quarantine before
+setting FLAG_KEEP_SCREEN_ON, so even a stale UI tap does not change screen
+policy when inference is denied. The independent central request guard remains
+in place as defense in depth.
 
 This stage does **not** patch the native engine, adjust performance parameters,
 upgrade LiteRT-LM 0.18.0, republish the model, or modify the production summary

@@ -775,6 +775,11 @@ private fun Stage17P1LocalLlmScreen(
         )
     }
     fun startP2(testCase: Stage17R17CP2GpuQa.Case) {
+        if (Stage17R17CP2DAnrClosure.GPU_QA_SUSPENDED) {
+            p2Status = Stage17R17CP2DAnrClosure.blockedReason(LocalLlmBackendPolicy.GPU)
+                ?: Stage17R17CP2DAnrClosure.NOTICE
+            return
+        }
         if (activeJob != null) return
         if (testCase == Stage17R17CP2GpuQa.Case.REAL_8K_2048 &&
             p2c2Runs.any { it.testCase == Stage17R17CP2C2MediumQa.Case.GPU }
@@ -850,6 +855,12 @@ private fun Stage17P1LocalLlmScreen(
         )
     }
     fun startP2C(testCase: Stage17R17CP2CNumericQa.Case) {
+        if (testCase == Stage17R17CP2CNumericQa.Case.GPU &&
+            Stage17R17CP2DAnrClosure.GPU_QA_SUSPENDED
+        ) {
+            p2cStatus = Stage17R17CP2DAnrClosure.NOTICE
+            return
+        }
         if (activeJob != null) return
         if (p2cBlocked || p2SessionBlocked) {
             p2cStatus = "本次会话存在失败记录；禁止继续短数字 QA"
@@ -918,6 +929,12 @@ private fun Stage17P1LocalLlmScreen(
         )
     }
     fun startP2C2(testCase: Stage17R17CP2C2MediumQa.Case) {
+        if (testCase == Stage17R17CP2C2MediumQa.Case.GPU &&
+            Stage17R17CP2DAnrClosure.GPU_QA_SUSPENDED
+        ) {
+            p2c2Status = Stage17R17CP2DAnrClosure.NOTICE
+            return
+        }
         if (activeJob != null) return
         if (p2c2Blocked || p2SessionBlocked || p2cBlocked) {
             p2c2Status = "本轮已有失败或取消，禁止继续中等长度 QA"
