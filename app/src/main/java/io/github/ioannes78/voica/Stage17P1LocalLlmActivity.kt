@@ -361,6 +361,12 @@ private fun Stage17P1LocalLlmScreen(
         mediumRequest: Stage17R17CP2C2MediumQa.Request? = null,
     ) {
         if (activeJob != null) return
+        val p2dDenial = Stage17R17CP2DAnrClosure.blockedReason(config.backendPolicy)
+        if (p2dDenial != null) {
+            operation = p2dDenial
+            resultText = p2dDenial
+            return // Before crash breadcrumb arm, coroutine, and native runtime
+        }
         resultText = null
         operation = "$label · 运行中"
         r5CrashBreadcrumbs.arm(estimatedPromptTokens = estimatedPromptTokens)
@@ -1020,6 +1026,11 @@ private fun Stage17P1LocalLlmScreen(
         item {
             Text("Stage 17 P1 · Local LLM Runtime", style = MaterialTheme.typography.headlineSmall)
             Text(
+                Stage17R17CP2DAnrClosure.NOTICE,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
                 "正式策略：AUTO 默认 GPU 优先；GPU 不适合/不支持时安全回退 CPU。测试机不锁定生产 backend。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1083,6 +1094,18 @@ private fun Stage17P1LocalLlmScreen(
                             previousProcess = r5CrashBreadcrumbs.isPreviousProcess(breadcrumb),
                         )
                     Text(diagnosticText, style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        Stage17R17CP2DAnrClosure.knownExitEvidence(
+                            previousProcess = r5CrashBreadcrumbs.isPreviousProcess(breadcrumb),
+                            requestedBackend = breadcrumb.requestedBackend,
+                            resolvedBackend = breadcrumb.resolvedBackend,
+                            runtimePhase = breadcrumb.runtimePhase,
+                            exitReasonLabel = breadcrumb.exitReasonLabel,
+                            emissionCount = breadcrumb.emissionCount,
+                        ),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(
                             onClick = {
@@ -1370,7 +1393,8 @@ private fun Stage17P1LocalLlmScreen(
                     Checkbox(
                         checked = p2RiskAcknowledged,
                         onCheckedChange = { p2RiskAcknowledged = it },
-                        enabled = !busy && !p2SessionBlocked,
+                        enabled = !busy && !p2SessionBlocked &&
+                            !Stage17R17CP2DAnrClosure.GPU_QA_SUSPENDED,
                     )
                     Text(
                         "已知 GPU 原生故障可能导致 App 卡死或设备重启；本次仅手动测试一轮",
@@ -1387,7 +1411,8 @@ private fun Stage17P1LocalLlmScreen(
                 )
                 Text(p2Status, style = MaterialTheme.typography.bodySmall)
                 OutlinedButton(
-                    enabled = !busy && p2RiskAcknowledged && !p2ShortPassed &&
+                    enabled = !busy && !Stage17R17CP2DAnrClosure.GPU_QA_SUSPENDED &&
+                        p2RiskAcknowledged && !p2ShortPassed &&
                         !p2SessionBlocked && runtimeState == LocalLlmRuntimeState.IDLE,
                     onClick = { startP2(Stage17R17CP2GpuQa.Case.SHORT_4K) },
                     modifier = Modifier.fillMaxWidth(),
@@ -1395,7 +1420,8 @@ private fun Stage17P1LocalLlmScreen(
                     Text("P2-A · GPU 4K 短探针（第一步）")
                 }
                 OutlinedButton(
-                    enabled = !busy && p2RiskAcknowledged && p2ShortPassed &&
+                    enabled = !busy && !Stage17R17CP2DAnrClosure.GPU_QA_SUSPENDED &&
+                        p2RiskAcknowledged && p2ShortPassed &&
                         !p2SessionBlocked && selectedR17CSource != null &&
                         p2Runs.none { it.testCase == Stage17R17CP2GpuQa.Case.REAL_8K_2048 } &&
                         p2cRuns.none { it.testCase == Stage17R17CP2CNumericQa.Case.GPU } &&
@@ -1467,7 +1493,8 @@ private fun Stage17P1LocalLlmScreen(
                     Text("P2-C1-A · CPU 4K/512 数字基线")
                 }
                 OutlinedButton(
-                    enabled = !busy && p2RiskAcknowledged && p2ShortPassed &&
+                    enabled = !busy && !Stage17R17CP2DAnrClosure.GPU_QA_SUSPENDED &&
+                        p2RiskAcknowledged && p2ShortPassed &&
                         !p2cBlocked && !p2SessionBlocked &&
                         runtimeState == LocalLlmRuntimeState.IDLE &&
                         p2cRuns.any { it.testCase == Stage17R17CP2CNumericQa.Case.CPU } &&
@@ -1559,7 +1586,8 @@ private fun Stage17P1LocalLlmScreen(
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("P2-C2-A · CPU 4K/1024 固定真实片段") }
                 OutlinedButton(
-                    enabled = !busy && !p2c2Blocked && !p2cBlocked && !p2SessionBlocked &&
+                    enabled = !busy && !Stage17R17CP2DAnrClosure.GPU_QA_SUSPENDED &&
+                        !p2c2Blocked && !p2cBlocked && !p2SessionBlocked &&
                         p2RiskAcknowledged && p2ShortPassed &&
                         p2c2Runs.any { it.testCase == Stage17R17CP2C2MediumQa.Case.CPU } &&
                         p2c2Runs.none { it.testCase == Stage17R17CP2C2MediumQa.Case.GPU } &&
@@ -1668,10 +1696,12 @@ private fun Stage17P1LocalLlmScreen(
             P1Card("Runtime") {
                 Text("state=$runtimeState")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(enabled = !busy, onClick = { start(LocalLlmBackendPolicy.AUTO) }) {
+                    Button(enabled = !busy && !Stage17R17CP2DAnrClosure.GPU_QA_SUSPENDED,
+                        onClick = { start(LocalLlmBackendPolicy.AUTO) }) {
                         Text("AUTO")
                     }
-                    OutlinedButton(enabled = !busy, onClick = { start(LocalLlmBackendPolicy.GPU) }) {
+                    OutlinedButton(enabled = !busy && !Stage17R17CP2DAnrClosure.GPU_QA_SUSPENDED,
+                        onClick = { start(LocalLlmBackendPolicy.GPU) }) {
                         Text("GPU")
                     }
                     OutlinedButton(enabled = !busy, onClick = { start(LocalLlmBackendPolicy.CPU) }) {
@@ -1679,7 +1709,7 @@ private fun Stage17P1LocalLlmScreen(
                     }
                 }
                 OutlinedButton(
-                    enabled = !busy,
+                    enabled = !busy && !Stage17R17CP2DAnrClosure.GPU_QA_SUSPENDED,
                     onClick = {
                         start(
                             policy = LocalLlmBackendPolicy.GPU,
@@ -1691,7 +1721,7 @@ private fun Stage17P1LocalLlmScreen(
                     Text("GPU 长生成")
                 }
                 OutlinedButton(
-                    enabled = !busy,
+                    enabled = !busy && !Stage17R17CP2DAnrClosure.GPU_QA_SUSPENDED,
                     onClick = {
                         start(
                             policy = LocalLlmBackendPolicy.GPU,
@@ -1711,7 +1741,7 @@ private fun Stage17P1LocalLlmScreen(
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
-                        enabled = !busy,
+                        enabled = !busy && !Stage17R17CP2DAnrClosure.GPU_QA_SUSPENDED,
                         onClick = {
                             start(
                                 policy = LocalLlmBackendPolicy.AUTO,

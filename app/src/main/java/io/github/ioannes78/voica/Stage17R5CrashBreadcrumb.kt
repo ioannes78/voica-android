@@ -56,6 +56,7 @@ internal data class Stage17R5CrashBreadcrumb(
     val anrMainTopFrames: List<String> = emptyList(),
     val anrRenderThreadState: String? = null,
     val anrRenderThreadTopFrames: List<String> = emptyList(),
+    val anrWaitSignalClasses: List<String> = emptyList(),
 )
 
 internal data class Stage17R5AnrTraceSummary(
@@ -64,6 +65,7 @@ internal data class Stage17R5AnrTraceSummary(
     val mainTopFrames: List<String> = emptyList(),
     val renderThreadState: String? = null,
     val renderThreadTopFrames: List<String> = emptyList(),
+    val waitSignalClasses: List<String> = emptyList(),
 )
 
 internal class Stage17R5CrashBreadcrumbStore(
@@ -238,6 +240,7 @@ internal class Stage17R5CrashBreadcrumbStore(
             anrMainTopFrames = anrSummary?.mainTopFrames.orEmpty(),
             anrRenderThreadState = anrSummary?.renderThreadState,
             anrRenderThreadTopFrames = anrSummary?.renderThreadTopFrames.orEmpty(),
+            anrWaitSignalClasses = anrSummary?.waitSignalClasses.orEmpty(),
         )
     }
 
@@ -351,7 +354,38 @@ internal fun parseStage17R5AnrTraceSummary(trace: String): Stage17R5AnrTraceSumm
         mainTopFrames = mainFrames,
         renderThreadState = renderState,
         renderThreadTopFrames = renderFrames,
+        waitSignalClasses = classifyStage17R5AnrWaitSignals(trace),
     )
+}
+
+/**
+ * Only whitelisted, content-free classifications: NO raw trace text, thread names,
+ * stack frames or user-supplied content retained in this field. Presence does not
+ * prove where the underlying deadlock originated.
+ */
+internal fun classifyStage17R5AnrWaitSignals(trace: String): List<String> {
+    val bounded = trace.take(R5_ANR_TRACE_MAX_CHARS)
+    return buildList {
+        if (Regex("""pthread_cond_(?:timed)?wait""").containsMatchIn(bounded)) {
+            add("PTHREAD_COND_WAIT_PRESENT")
+        }
+        if (Regex("""(?:libsync\.so|sync_wait|fence_wait)""").containsMatchIn(bounded)) {
+            add("GRAPHICS_FENCE_WAIT_CANDIDATE")
+        }
+        if (Regex("""(?:libhwui\.so|HardwareRenderer|RenderThread)""").containsMatchIn(bounded)) {
+            add("ANDROID_HWUI_PRESENT")
+        }
+        if (Regex("""(?:libGLES|libvulkan|libEGL|\bkgsl\b|mali_|adreno)""", RegexOption.IGNORE_CASE)
+                .containsMatchIn(bounded)
+        ) {
+            add("GPU_DRIVER_GRAPHICS_SYMBOL_PRESENT")
+        }
+        if (Regex("""(?:liblitert|litertlm|tflite|InferenceEngine)""", RegexOption.IGNORE_CASE)
+                .containsMatchIn(bounded)
+        ) {
+            add("ML_RUNTIME_SYMBOL_PRESENT")
+        }
+    }
 }
 
 private fun readBoundedStage17R5AnrTrace(reader: BufferedReader): String =
@@ -431,9 +465,13 @@ internal fun Stage17R5CrashBreadcrumb.toQaDisplayText(previousProcess: Boolean):
                             anrMainTopFrames.joinToString(" | ").ifBlank { "n/a" },
                     )
                     appendLine("anrRenderThreadState=${anrRenderThreadState ?: "n/a"}")
-                    append(
+                    appendLine(
                         "anrRenderThreadTopFrames=" +
                             anrRenderThreadTopFrames.joinToString(" | ").ifBlank { "n/a" },
+                    )
+                    append(
+                        "anrWaitSignalClasses=" +
+                            anrWaitSignalClasses.joinToString(" | ").ifBlank { "none_detected" },
                     )
                 } else {
                     append("anrTraceAvailable=n/a")
