@@ -1,6 +1,6 @@
 # Stage 17.3 R17C-P2-F — Mock-only JNI thread-affinity protocol
 
-Status: IMPLEMENTED IN JVM UNIT TEST SOURCE / CI PENDING / NO REAL GPU QUALIFICATION.
+Status: JVM MOCK IMPLEMENTED / PR CI SUCCESS / NO REAL GPU QUALIFICATION.
 Repository: ioannes78/voica-android, PR #37 OPEN / DRAFT.
 Basis: P2-E audit HEAD 41ab2398a7a620746eed5968ad7b9aa07a390d97.
 main remains untouched. The development branch must not merge at this gate.
@@ -107,7 +107,7 @@ dispatch runs, and distinguishes actual native-operation exceptions from
 prompt cancellation of the surrounding caller. The same helper manages
 explicit cancel and ordered close. It remains **mock-only**, with no changes
 to production `LiteRtLocalLlmRuntime` or current GPU quarantine.
-Final CI status must be verified on the revised exact commit.
+Verified final P2-F commit: \`9678e9c6f3b960a6bce7baeeb6b07f9271903cf6\`. Android PR CI run \`43002993615\`: SUCCESS; Stage 17.3 QA diagnostic build run \`43002993547\`: SUCCESS. This only validates the fake harness and compilation, not GPU.
 
 ## Unit-test matrix
 
@@ -154,3 +154,7 @@ the fake protocol. Then decide whether a wholly isolated engine
 implementation merits further non-GPU verification. A later hazardous
 real-device GPU test would require fresh explicit authorization and
 independent containment, never an automatic stage progression.
+
+## Next-stage handoff (P2-G)
+
+The approved mock-only protocol was audited against LiteRT-LM v0.18.0 tagged Kotlin APIs in \`docs/STAGE_17_3_R17C_P2_G_LITERTLM_0180_CALLBACK_JNI_CONTRACT_AUDIT.md\`. That upstream source review cannot prove the Maven AAR byte-for-byte matches the tag or the native GPU/JNI worker actually requires same OS-thread affinity; preserve P2-D quarantine.
