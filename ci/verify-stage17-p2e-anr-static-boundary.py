@@ -46,6 +46,10 @@ p2f_mock = source(
     "engine/local-llm/src/test/kotlin/io/github/ioannes78/voica/localllm/"
     "Stage17P2FMockJniThreadAffinityTest.kt"
 )
+p2h_mock = source(
+    "engine/local-llm/src/test/kotlin/io/github/ioannes78/voica/localllm/"
+    "Stage17P2HMockSubmissionBoundaryTest.kt"
+)
 
 require("P2-F test-only fake must not import a real LiteRT-LM/JNI API",
         "class Stage17P2FMockJniThreadAffinityTest" in p2f_mock and
@@ -55,6 +59,19 @@ require("P2-F test-only fake must not import a real LiteRT-LM/JNI API",
         "withContext(NonCancellable) {" in p2f_mock and
         "withContext(dispatcher) { operation() }" in p2f_mock and
         "withContext(NonCancellable + dispatcher) {" not in p2f_mock)
+require("P2-H callback boundary mock must stay JVM-test-only and content free",
+        "class Stage17P2HMockSubmissionBoundaryTest" in p2h_mock and
+        "private enum class P2HPhase" in p2h_mock and
+        "SEND_ENTERED" in p2h_mock and "SEND_RETURNED" in p2h_mock and
+        "TERMINAL_AWAIT_ENTERED" in p2h_mock and
+        "FIRST_EMISSION" in p2h_mock and "RELEASE_BLOCKED" in p2h_mock and
+        "JNI_SUBMISSION_NOT_RETURNED_BUT_CALLBACK_OBSERVED" in p2h_mock and
+        "class P2HMockSubmission" in p2h_mock and
+        "Collections.synchronizedList" in p2h_mock and
+        "import com.google.ai.edge.litertlm" not in "\\n".join(
+            line for line in p2h_mock.splitlines()
+            if line.lstrip().startswith("import ")
+        ))
 require("P2-D QA quarantine must be compile-time enabled",
         "const val GPU_QA_SUSPENDED: Boolean = true" in quarantine)
 require("QA quarantine must deny GPU and AUTO, retaining only explicit CPU",
