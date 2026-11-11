@@ -55,6 +55,7 @@ private class P2FMockSingleOwner(
     private val occupied = AtomicBoolean(false)
     private val poisoned = AtomicBoolean(false)
     val isPoisoned: Boolean get() = poisoned.get()
+    val waitingForTerminal = CompletableDeferred<Unit>()
 
     suspend fun generate() {
         check(!poisoned.get()) { "fake JNI owner was quarantined after uncertain native release" }
@@ -76,6 +77,7 @@ private class P2FMockSingleOwner(
                     submitted.set(true)
                     native.sendMessageAsync { event -> terminal.complete(event) }
                 }
+                waitingForTerminal.complete(Unit)
                 when (val result = terminal.await()) {
                     P2FTerminal.Done -> confirmedTerminal = true
                     is P2FTerminal.Failed -> {
@@ -210,6 +212,7 @@ class Stage17P2FMockJniThreadAffinityTest {
         P2FMockSingleOwner({ fake }).use { harness ->
             val work = launch { harness.generate() }
             withTimeout(3_000) { fake.sent.await() }
+            withTimeout(3_000) { harness.waitingForTerminal.await() }
             withTimeout(3_000) { work.cancelAndJoin() }
             assertEquals(
                 listOf("initialize", "createConversation", "sendMessageAsync",
@@ -226,6 +229,7 @@ class Stage17P2FMockJniThreadAffinityTest {
         P2FMockSingleOwner({ fake }, acknowledgementTimeoutMs = 25L).use { harness ->
             val work = launch { harness.generate() }
             withTimeout(3_000) { fake.sent.await() }
+            withTimeout(3_000) { harness.waitingForTerminal.await() }
             withTimeout(3_000) { work.cancelAndJoin() }
             assertEquals(
                 listOf("initialize", "createConversation", "sendMessageAsync",
