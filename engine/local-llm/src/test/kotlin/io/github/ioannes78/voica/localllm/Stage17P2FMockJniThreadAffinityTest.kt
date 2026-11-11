@@ -88,9 +88,7 @@ private class P2FMockSingleOwner(
             } catch (cancelled: CancellationException) {
                 if (submitted.get() && !confirmedTerminal) {
                     val signalled = runCatching {
-                        withContext(NonCancellable + dispatcher) {
-                            checkNotNull(session).cancelProcess()
-                        }
+                        onOwnerNonCancellable { checkNotNull(session).cancelProcess() }
                     }.isSuccess
                     if (signalled) {
                         confirmedTerminal = withContext(NonCancellable) {
@@ -115,7 +113,7 @@ private class P2FMockSingleOwner(
                 if (native != null && conversationReady.get() && !poisoned.get() &&
                     (!submitted.get() || confirmedTerminal)
                 ) {
-                    withContext(NonCancellable + dispatcher) {
+                    onOwnerNonCancellable {
                         try {
                             native.closeConversation()
                             native.closeEngine()
@@ -130,6 +128,17 @@ private class P2FMockSingleOwner(
             }
         }
     }
+
+    /**
+     * NonCancellable must wrap the dispatcher hop: a cancelled caller returning
+     * from withContext(NonCancellable + dispatcher) may observe prompt cancellation
+     * despite a successful operation on the owner. That would misclassify
+     * native cancelProcess() as failed and quarantine a safely terminated session.
+     */
+    private suspend fun <T> onOwnerNonCancellable(operation: () -> T): T =
+        withContext(NonCancellable) {
+            withContext(dispatcher) { operation() }
+        }
 
     override fun close() {
         // Only mock dispatcher resources. Never attempts to recover quarantined native state.

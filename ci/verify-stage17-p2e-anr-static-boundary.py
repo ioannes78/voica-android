@@ -51,7 +51,10 @@ require("P2-F test-only fake must not import a real LiteRT-LM/JNI API",
         "class Stage17P2FMockJniThreadAffinityTest" in p2f_mock and
         "import com.google.ai.edge.litertlm" not in p2f_mock and
         "Executors.newSingleThreadExecutor" in p2f_mock and
-        "withContext(NonCancellable + dispatcher)" in p2f_mock)
+        "onOwnerNonCancellable" in p2f_mock and
+        "withContext(NonCancellable) {" in p2f_mock and
+        "withContext(dispatcher) { operation() }" in p2f_mock and
+        "withContext(NonCancellable + dispatcher) {" not in p2f_mock)
 require("P2-D QA quarantine must be compile-time enabled",
         "const val GPU_QA_SUSPENDED: Boolean = true" in quarantine)
 require("QA quarantine must deny GPU and AUTO, retaining only explicit CPU",

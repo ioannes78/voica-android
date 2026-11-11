@@ -77,6 +77,38 @@ Strict invariants:
 7. The test harness shuts down its own mock executor after its tests. It
    cannot recover or terminate a genuinely hung JNI call.
 
+### Cancellation dispatcher-hop finding during CI (test-only)
+
+Initial PR CI run 43001759688 executed 42 local-LLM tests with one failure:
+`cancelUsesSameOwnerAndClosesOnlyAfterNativeAcknowledges`. Merely waiting for
+the async terminal-await state in revision 1b5dbf17 did **not** fix the failure
+(PR CI run 43002387123 failed the same test).
+
+P2-F mock audit identified a concrete risk in the original fake protocol:
+`withContext(NonCancellable + dispatcher)` from an already-cancelled parent
+changes dispatchers. Kotlin coroutine prompt-cancellation behavior when
+resuming to the original cancelled context can surface a CancellationException
+**even after** `cancelProcess()` completed successfully on the owner.
+Using outer `runCatching { ... }.isSuccess` as evidence that the native cancel
+signal was sent would then falsely poison the mock session and skip safe
+close. That is a **protocol-design bug in the test-only experiment**; it does
+not establish what happened in the production GPU ANR.
+
+The revised fake uses a nested non-cancellable owner operation:
+
+```kotlin
+withContext(NonCancellable) {
+    withContext(ownerDispatcher) { nativeOperation() }
+}
+```
+
+This keeps the caller in an uncancellable scope while the owner-thread
+dispatch runs, and distinguishes actual native-operation exceptions from
+prompt cancellation of the surrounding caller. The same helper manages
+explicit cancel and ordered close. It remains **mock-only**, with no changes
+to production `LiteRtLocalLlmRuntime` or current GPU quarantine.
+Final CI status must be verified on the revised exact commit.
+
 ## Unit-test matrix
 
 | Mock test | Expected result |
