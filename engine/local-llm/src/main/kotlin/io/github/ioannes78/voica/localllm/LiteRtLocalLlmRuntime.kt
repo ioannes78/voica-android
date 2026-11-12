@@ -97,6 +97,14 @@ class LiteRtLocalLlmRuntime {
                         LocalLlmBackend.CPU -> Backend.CPU()
                         LocalLlmBackend.GPU -> Backend.GPU()
                     }
+                // P2-I: only explicit CPU QA attempts may emit when a QA listener is installed.
+                // This does not change backend selection or native scheduling.
+                val cpuBoundaryEnabled =
+                    request.config.backendPolicy == LocalLlmBackendPolicy.CPU &&
+                        backendResolution.resolvedBackend == LocalLlmBackend.CPU
+                fun emitCpuBoundary(phase: LocalLlmCpuBoundaryPhase) {
+                    if (cpuBoundaryEnabled) LocalLlmCpuBoundaryObserverRegistry.emit(phase)
+                }
                 val engineConfig =
                     EngineConfig(
                         modelPath = requestModelPath(modelPath),
@@ -159,13 +167,16 @@ class LiteRtLocalLlmRuntime {
                     val terminal = CompletableDeferred<GenerationTerminal>()
                     generationStartedNanos = SystemClock.elapsedRealtimeNanos()
                     onPhase(LocalLlmRuntimePhase.GENERATING)
+                    emitCpuBoundary(LocalLlmCpuBoundaryPhase.SEND_ENTERED)
                     liveConversation.sendMessageAsync(
                         contents = Contents.of(Content.Text(request.prompt)),
                         callback =
                             object : MessageCallback {
                                 override fun onMessage(message: Message) {
                                     val now = SystemClock.elapsedRealtimeNanos()
-                                    firstEmissionNanos.compareAndSet(0L, now)
+                                    if (firstEmissionNanos.compareAndSet(0L, now)) {
+                                        emitCpuBoundary(LocalLlmCpuBoundaryPhase.FIRST_EMISSION)
+                                    }
                                     // Emit only lifecycle/progress metadata. Model content never
                                     // crosses into process-global diagnostics.
                                     onPhase(LocalLlmRuntimePhase.GENERATION_PROGRESS)
@@ -175,24 +186,30 @@ class LiteRtLocalLlmRuntime {
                                 }
 
                                 override fun onDone() {
+                                    emitCpuBoundary(LocalLlmCpuBoundaryPhase.TERMINAL_DONE)
                                     terminal.complete(GenerationTerminal.Done)
                                 }
 
                                 override fun onError(throwable: Throwable) {
+                                    emitCpuBoundary(LocalLlmCpuBoundaryPhase.TERMINAL_ERROR)
                                     terminal.complete(GenerationTerminal.Error(throwable))
                                 }
                             },
                         responseFormat = responseFormat,
                     )
+                    emitCpuBoundary(LocalLlmCpuBoundaryPhase.SEND_RETURNED)
 
                     val terminalResult =
                         try {
+                            emitCpuBoundary(LocalLlmCpuBoundaryPhase.TERMINAL_AWAIT_ENTERED)
                             terminal.await()
                         } catch (cancelled: CancellationException) {
+                            emitCpuBoundary(LocalLlmCpuBoundaryPhase.CANCEL_REQUESTED)
                             onPhase(LocalLlmRuntimePhase.CANCEL_REQUESTED)
                             val cancelSignalError =
                                 runCatching { liveConversation.cancelProcess() }.exceptionOrNull()
                             if (cancelSignalError != null) {
+                                emitCpuBoundary(LocalLlmCpuBoundaryPhase.RELEASE_BLOCKED)
                                 quarantineNativeOwnership = true
                                 quarantinedNativeSession =
                                     QuarantinedNativeSession(
@@ -202,6 +219,7 @@ class LiteRtLocalLlmRuntime {
                                 onPhase(LocalLlmRuntimePhase.RELEASE_UNCONFIRMED)
                                 throw cancelled
                             }
+                            emitCpuBoundary(LocalLlmCpuBoundaryPhase.CANCEL_SIGNAL_SENT)
                             onPhase(LocalLlmRuntimePhase.NATIVE_CANCEL_SIGNAL_SENT)
 
                             val nativeTerminal =
@@ -211,6 +229,8 @@ class LiteRtLocalLlmRuntime {
                                     }
                                 }
                             if (nativeTerminal == null) {
+                                emitCpuBoundary(LocalLlmCpuBoundaryPhase.CANCEL_ACK_TIMEOUT)
+                                emitCpuBoundary(LocalLlmCpuBoundaryPhase.RELEASE_BLOCKED)
                                 quarantineNativeOwnership = true
                                 quarantinedNativeSession =
                                     QuarantinedNativeSession(
@@ -258,6 +278,7 @@ class LiteRtLocalLlmRuntime {
                                 }
                             }
                         } catch (releaseError: Throwable) {
+                            emitCpuBoundary(LocalLlmCpuBoundaryPhase.RELEASE_BLOCKED)
                             quarantineNativeOwnership = true
                             quarantinedNativeSession =
                                 QuarantinedNativeSession(
