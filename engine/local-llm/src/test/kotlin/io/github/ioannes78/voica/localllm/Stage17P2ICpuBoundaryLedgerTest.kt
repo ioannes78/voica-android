@@ -99,7 +99,7 @@ class Stage17P2ICpuBoundaryLedgerTest {
             LocalLlmCpuBoundaryPhase.CANCEL_SIGNAL_SENT,
             LocalLlmCpuBoundaryPhase.CANCEL_ACK_TIMEOUT,
             LocalLlmCpuBoundaryPhase.RELEASE_BLOCKED,
-        ).forEach(ledger::record)
+        ).forEach { ledger.record(it) }
         assertEquals(LocalLlmCpuBoundaryPhase.RELEASE_BLOCKED, ledger.snapshot().last().phase)
         assertFalse(ledger.snapshot().any { it.phase == LocalLlmCpuBoundaryPhase.TERMINAL_DONE })
     }
