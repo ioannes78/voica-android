@@ -25,6 +25,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -43,12 +44,14 @@ import io.github.ioannes78.voica.ai.SummaryResultCodec
 import io.github.ioannes78.voica.ai.SummaryStructuredOutputException
 import io.github.ioannes78.voica.localllm.LocalLlmBackend
 import io.github.ioannes78.voica.localllm.LocalLlmBackendPolicy
+import io.github.ioannes78.voica.localllm.LocalLlmCpuBoundaryObserverRegistry
 import io.github.ioannes78.voica.localllm.LocalLlmGenerationResult
 import io.github.ioannes78.voica.localllm.LocalLlmResourceDecision
 import io.github.ioannes78.voica.localllm.LocalLlmResourceReason
 import io.github.ioannes78.voica.localllm.LocalLlmRuntimeConfig
 import io.github.ioannes78.voica.localllm.LocalLlmRuntimeDiagnosticObserverRegistry
 import io.github.ioannes78.voica.localllm.LocalLlmRuntimeException
+import io.github.ioannes78.voica.localllm.LocalLlmRuntimePhase
 import io.github.ioannes78.voica.localllm.LocalLlmRuntimeState
 import io.github.ioannes78.voica.localllm.LocalLlmValidatedPresets
 import io.github.ioannes78.voica.localllm.Stage17LocalLlmProbe
@@ -114,6 +117,14 @@ private fun Stage17P1LocalLlmScreen(
     val lifecycleSnapshot by lifecycleObservability.monitor.snapshot.collectAsState()
     val lifecycleEvents by lifecycleObservability.diagnostics.events.collectAsState()
     val r5Breadcrumb by r5CrashBreadcrumbs.last.collectAsState()
+    val p2iBoundaryStore = remember(appContext) { Stage17P2ICpuBoundaryStore(appContext) }
+    val p2iBoundarySnapshot by p2iBoundaryStore.snapshot.collectAsState()
+    DisposableEffect(p2iBoundaryStore) {
+        onDispose {
+            LocalLlmCpuBoundaryObserverRegistry.install(null)
+            p2iBoundaryStore.close()
+        }
+    }
     var modelStatus by remember { mutableStateOf("检查中…") }
     var activeJob by remember { mutableStateOf<Job?>(null) }
     var operation by remember { mutableStateOf<String?>(null) }
@@ -370,7 +381,19 @@ private fun Stage17P1LocalLlmScreen(
         resultText = null
         operation = "$label · 运行中"
         r5CrashBreadcrumbs.arm(estimatedPromptTokens = estimatedPromptTokens)
-        LocalLlmRuntimeDiagnosticObserverRegistry.install(r5CrashBreadcrumbs::record)
+        // P2-I is installed only for user-triggered explicit CPU QA; GPU/AUTO are denied above.
+        val explicitCpuQa = config.backendPolicy == LocalLlmBackendPolicy.CPU
+        if (explicitCpuQa) {
+            p2iBoundaryStore.arm()
+            LocalLlmCpuBoundaryObserverRegistry.install(p2iBoundaryStore::record)
+        }
+        LocalLlmRuntimeDiagnosticObserverRegistry.install { event ->
+            // The native onMessage callback must never call R5 Debug.getPss/SharedPreferences
+            // for every emitted token. P2-I records FIRST_EMISSION in its bounded async ledger.
+            if (!explicitCpuQa || event.phase != LocalLlmRuntimePhase.GENERATION_PROGRESS) {
+                r5CrashBreadcrumbs.record(event)
+            }
+        }
         activeJob =
             scope.launch {
                 try {
@@ -682,6 +705,8 @@ private fun Stage17P1LocalLlmScreen(
                     if (capacityProbe != null) {
                         capacityHistory.add("${capacityProbe.label}: ${operation.orEmpty()}\n${resultText.orEmpty()}")
                     }
+                    LocalLlmCpuBoundaryObserverRegistry.install(null)
+                    p2iBoundaryStore.disarm()
                     LocalLlmRuntimeDiagnosticObserverRegistry.install(null)
                     r5CrashBreadcrumbs.disarm()
                     activeJob = null
@@ -1139,6 +1164,20 @@ private fun Stage17P1LocalLlmScreen(
                         }
                     }
                 }
+            }
+        }
+        item {
+            P1Card("P2-I · CPU JNI 提交/回调边界（QA）") {
+                Text(
+                    "仅在本页显式 CPU 请求时记录。后台异步写入最多 32 个标量阶段；" +
+                        "不保存提示词、转写或生成文字。最后持久化阶段可能滞后，" +
+                        "SEND_ENTERED 不代表 native 死锁，GENERATING 不代表已开始解码。",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(p2iBoundarySnapshot, style = MaterialTheme.typography.bodySmall)
+                OutlinedButton(
+                    onClick = { clipboard.setText(AnnotatedString(p2iBoundarySnapshot)) },
+                ) { Text("复制 P2-I CPU 边界诊断") }
             }
         }
         item {
