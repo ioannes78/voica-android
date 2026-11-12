@@ -72,6 +72,40 @@ require("P2-H callback boundary mock must stay JVM-test-only and content free",
             line for line in p2h_mock.splitlines()
             if line.lstrip().startswith("import ")
         ))
+p2i_native = source(
+    "engine/local-llm/src/main/kotlin/io/github/ioannes78/voica/localllm/"
+    "LocalLlmCpuBoundaryDiagnostic.kt"
+)
+p2i_test = source(
+    "engine/local-llm/src/test/kotlin/io/github/ioannes78/voica/localllm/"
+    "Stage17P2ICpuBoundaryLedgerTest.kt"
+)
+p2i_store = source("app/src/main/java/io/github/ioannes78/voica/Stage17P2ICpuBoundaryStore.kt")
+require("P2-I explicit CPU-only instrumentation and JNI boundary order",
+        "request.config.backendPolicy == LocalLlmBackendPolicy.CPU" in native and
+        ordered(native, "LocalLlmCpuBoundaryPhase.SEND_ENTERED",
+                "liveConversation.sendMessageAsync(",
+                "LocalLlmCpuBoundaryPhase.SEND_RETURNED",
+                "LocalLlmCpuBoundaryPhase.TERMINAL_AWAIT_ENTERED",
+                "terminal.await()") and
+        "LocalLlmCpuBoundaryPhase.FIRST_EMISSION" in native and
+        "LocalLlmCpuBoundaryPhase.TERMINAL_DONE" in native and
+        "LocalLlmCpuBoundaryPhase.TERMINAL_ERROR" in native)
+require("P2-I content-free bounded ledger and JVM race/cancellation coverage",
+        "class LocalLlmCpuBoundaryLedger" in p2i_native and
+        "capacity: Int = 32" in p2i_native and
+        "enum class LocalLlmCpuBoundaryPhase" in p2i_native and
+        "class Stage17P2ICpuBoundaryLedgerTest" in p2i_test and
+        "callbackMayRunBeforeSynchronousSendReturns" in p2i_test and
+        "cancelWithoutTerminalMustRetainReleaseBlockedEvidence" in p2i_test and
+        "import com.google.ai.edge.litertlm" not in p2i_test)
+require("P2-I QA-only async persistence and no per-token callback disk/PSS",
+        "stage17-p2i-qa-persist" in p2i_store and
+        "worker.execute { drain() }" in p2i_store and
+        "capacity" in p2i_native and
+        "LocalLlmCpuBoundaryObserverRegistry.install(p2iBoundaryStore::record)" in qa and
+        "event.phase != LocalLlmRuntimePhase.GENERATION_PROGRESS" in qa and
+        "LocalLlmCpuBoundaryObserverRegistry.install(null)" in qa)
 require("P2-D QA quarantine must be compile-time enabled",
         "const val GPU_QA_SUSPENDED: Boolean = true" in quarantine)
 require("QA quarantine must deny GPU and AUTO, retaining only explicit CPU",
