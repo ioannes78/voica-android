@@ -119,6 +119,11 @@ private fun Stage17P1LocalLlmScreen(
     val r5Breadcrumb by r5CrashBreadcrumbs.last.collectAsState()
     val p2iBoundaryStore = remember(appContext) { Stage17P2ICpuBoundaryStore(appContext) }
     val p2iBoundarySnapshot by p2iBoundaryStore.snapshot.collectAsState()
+    val p2lMock = remember(appContext) { Stage17P2LMockCoordinator(appContext) }
+    val p2lMockReport by p2lMock.report.collectAsState()
+    DisposableEffect(p2lMock) {
+        onDispose { p2lMock.close() }
+    }
     DisposableEffect(p2iBoundaryStore) {
         onDispose {
             LocalLlmCpuBoundaryObserverRegistry.install(null)
@@ -1178,6 +1183,42 @@ private fun Stage17P1LocalLlmScreen(
                 OutlinedButton(
                     onClick = { clipboard.setText(AnnotatedString(p2iBoundarySnapshot)) },
                 ) { Text("复制 P2-I CPU 边界诊断") }
+            }
+        }
+        item {
+            P1Card("P2-L · 独立进程模拟诊断（无真实模型）") {
+                Text(
+                    "仅 QA 模拟服务：不加载 Gemma、不执行 JNI/GPU、不会修改正式总结。" +
+                        "通过独立进程演练 Binder 事件、回调顺序和主进程证据保存；" +
+                        "模拟通过不代表 GPU 安全。",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(p2lMockReport, style = MaterialTheme.typography.bodySmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        enabled = !busy,
+                        onClick = {
+                            scope.launch {
+                                p2lMock.start(Stage17P2LMockScenario.NORMAL)
+                            }
+                        },
+                    ) { Text("模拟正常 IPC") }
+                    OutlinedButton(
+                        enabled = !busy,
+                        onClick = {
+                            scope.launch {
+                                p2lMock.start(Stage17P2LMockScenario.CALLBACK_BEFORE_RETURN)
+                            }
+                        },
+                    ) { Text("模拟回调抢先") }
+                }
+                OutlinedButton(
+                    onClick = { clipboard.setText(AnnotatedString(p2lMockReport)) },
+                ) { Text("复制 P2-L MOCK 诊断") }
+                Text(
+                    "此处没有 GPU 入口。进程异常、超时或结果无法确认后禁止本次页面自动重试。",
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
         item {
