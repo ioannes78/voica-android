@@ -37,11 +37,11 @@ class VoicaApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        if (isModelValidatorProcess()) return
+        if (isLightweightWorkerProcess()) return
         container = AppContainer(this)
     }
 
-    private fun isModelValidatorProcess(): Boolean {
+    private fun isLightweightWorkerProcess(): Boolean {
         val processName =
             if (Build.VERSION.SDK_INT >= 28) {
                 Application.getProcessName()
@@ -52,9 +52,21 @@ class VoicaApplication : Application() {
                     ?.firstOrNull { it.pid == pid }
                     ?.processName
             }
-        return processName == packageName + MODEL_VALIDATOR_PROCESS_SUFFIX
+        return stage17P2LShouldSkipHeavyStartup(packageName, processName)
     }
 }
+
+/**
+ * Exact process allowlist. The P2-L fake process is permitted ONLY for QA variants;
+ * never suppress normal AppContainer initialization in production.
+ */
+internal fun stage17P2LShouldSkipHeavyStartup(
+    applicationId: String,
+    processName: String?,
+): Boolean =
+    processName == applicationId + MODEL_VALIDATOR_PROCESS_SUFFIX ||
+        (Stage17P2LMockContract.allowPackage(applicationId) &&
+            processName == Stage17P2LMockContract.expectedProcess(applicationId))
 
 class AppContainer(
     application: Application,
