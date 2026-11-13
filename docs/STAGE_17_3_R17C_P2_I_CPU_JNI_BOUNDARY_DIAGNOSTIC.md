@@ -1,6 +1,6 @@
 # Stage 17.3 R17C-P2-I — CPU-only JNI submission/callback evidence
 
-Status: **IMPLEMENTED IN STAGE 17 DRAFT BRANCH / AUTOMATED GATE PENDING / NO REAL-DEVICE CLAIM**.
+Status: **P2-I CPU SHORT-PROBE QA PASS WITH EXPLICIT COVERAGE LIMITS / GPU ANR FAIL-SUSPENDED / PR #37 DRAFT-UNMERGED**.
 Repository: `ioannes78/voica-android` / PR #37 OPEN/DRAFT; `main` unchanged.
 Baseline: P2-H mock CI PASS at `c721f74c60b072073f40a3047ec142489b65b277`.
 LiteRT-LM pinned to **0.18.0**. GPU/AUTO QA quarantine remains active.
@@ -82,3 +82,82 @@ P2-I output is an observed wrapper phase timeline, not a native stack trace
 or a guarantee that native execution is stoppable. Do not use naive
 `withTimeout` to declare a blocked JNI call cancelled. GPU remains
 **ANR FAIL / SUSPENDED**, with a separate explicit requalification gate.
+
+
+## Observed exact-commit CI / device acceptance (2026-11-13 record)
+
+The QA APK and Android PR CI were built from exactly
+`d5633c513f493d30c15ccef02d799b1e73c1e01e`:
+
+- Android PR CI run `43238302640`: **SUCCESS**, including static source contracts,
+  unit tests, and Debug compile.
+- Stage 17.3 Quality Diagnostic APK run `43238303040`: **SUCCESS**,
+  including releaseQa compile, APK verification and upload.
+- No LiteRT-LM upgrade; runtime remains `0.18.0`. Model:
+  `gemma-4-e2b-it-litertlm`, revision
+  `7fa1d78473894f7e736a21d920c3aa80f950c0db:r1`.
+- User's on-device test: explicit CPU / resolved CPU /
+  reason EXPLICIT_CPU / fallback=false.
+- QA diagnostic response: `我正在本地设备上运行。`
+
+### P2-I wrapper phase record (milliseconds since arm)
+
+| Entry | Elapsed ms |
+| --- | ---: |
+| SEND_ENTERED | 6866 |
+| SEND_RETURNED | 6870 |
+| TERMINAL_AWAIT_ENTERED | 6870 |
+| FIRST_EMISSION | 10453 |
+| TERMINAL_DONE | 11952 |
+
+The synchronous submission wrapper returned in ~4 ms. Its first observed
+emission was ~3583 ms after return, and the terminal callback arrived ~1499 ms
+later. These are observed wrapper/diagnostic boundaries, not proof of native
+worker scheduling, GPU driver behavior or exact token processing durations.
+The separate runtime diagnostic `ttfeMs=3348`, `generationMs=4095` use
+different boundaries and must not be forcibly reconciled with the P2-I arm
+timestamps.
+
+### Runtime diagnostic / resource observation
+
+| Metric | Observed |
+| --- | ---: |
+| initializeMs | 934 |
+| conversationCreateMs | 7 |
+| ttfeMs | 3348 |
+| generationMs | 4095 |
+| pssBeforeKb | 78050 |
+| pssInitializedKb | 477592 |
+| pssGeneratedKb | 1363141 |
+| pssClosedKb | 380884 |
+| peakPssKb | 1364550 |
+
+The normal return included a post-close PSS sample: memory declined materially
+from generation to close, but post-close PSS remained above pre-inference PSS.
+One sample does not establish memory-leak absence or repeat-load safety.
+No direct `LocalLlmRuntimeState.IDLE` reading was supplied in this QA2 report;
+do not label a separately observed coordinator-IDLE gate as passed.
+
+### P2-I gate decision
+
+**CPU short-probe JNI wrapper / callback / post-close diagnostic:
+PASS WITH EXPLICIT COVERAGE LIMITS.**
+
+Confirmed for this one explicit CPU attempt: native submission returned,
+asynchronous first callback arrived, terminal-done callback arrived, a
+meaningful Chinese response was returned, and post-close PSS was sampled.
+Not confirmed: sustained repeated CPU loads, every cancellation path,
+native resource internals, callback-thread identity, independent coordinator
+IDLE observation, GPU generation, or GPU ANR root cause.
+
+Historical GPU P2-C2-B still exited with Android ANR(6), requested/resolved
+GPU/GPU, estimated 1988 prompt tokens, last breadcrumb GENERATING/0 emissions.
+That GENERATING event preceded synchronous JNI submission; the old GPU run
+has no P2-I SEND_RETURNED marker. It is **not** valid to infer the GPU
+submission returned from the CPU result. The GPU/AUTO QA quarantine remains
+hard-enabled. PR #37 stays OPEN/DRAFT; production main stays unchanged.
+
+Next engineering gate is a separate evidence-led GPU failure investigation
+without automatically re-enabling GPU: first preserve the P2-I CPU acceptance
+and review device/driver/runtime evidence, only then propose a fresh isolated
+GPU requalification plan with separate explicit authorization.
