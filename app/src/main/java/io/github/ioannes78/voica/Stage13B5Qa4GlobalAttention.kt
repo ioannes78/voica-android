@@ -1,6 +1,18 @@
 package io.github.ioannes78.voica
 
 import android.app.NotificationManager
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -8,7 +20,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import io.github.ioannes78.voica.database.AiSummaryEntity
 import io.github.ioannes78.voica.database.RecordingLibraryItem
 import io.github.ioannes78.voica.database.TranscriptionEntity
 import io.github.ioannes78.voica.database.TranscriptionStateValue
@@ -65,11 +81,19 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
     val context = LocalContext.current
     val notificationManager = remember(context) { context.getSystemService(NotificationManager::class.java) }
     val presentationStore = remember(context) { NotificationPresentationStore(context) }
+    val summaryExecutionController =
+        remember(context.applicationContext, container) {
+            OfflineSummaryExecutionControllerRegistry.get(context.applicationContext, container)
+        }
+    val summaryPresentation by summaryExecutionController.presentation.collectAsState()
     val transcriptionAttention by
         container.stage13B5Qa4Repository.observeTranscriptionAttention()
             .collectAsState(initial = emptyList())
     val transcriptionCandidates by
         container.stage13B5Qa4Repository.observeTranscriptionCandidates()
+            .collectAsState(initial = emptyList())
+    val summaryCandidates by
+        container.stage13B5Qa4Repository.observeAiSummaryCandidates()
             .collectAsState(initial = emptyList())
     val completionNotices by container.taskCompletionNoticeStore.pending.collectAsState()
     val diarizationAttention by
@@ -96,13 +120,19 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
                 buildQa4GlobalAttentionItems(
                     transcriptionAttention = transcriptionAttention,
                     transcriptionCandidates = transcriptionCandidates,
+                    summaryCandidates = summaryCandidates,
                     recordings = recordings,
                 ) + completionItems + speakerAttentionItems,
             visibleDetail = visibleDetail,
         )
+    val visibleSummaryCandidates =
+        filterVisibleSummaryCandidates(
+            candidates = summaryCandidates,
+            visibleDetail = visibleDetail,
+        )
 
     // A navigation request alone is not proof that the user actually saw the result. Acknowledge
-    // ordinary completion attention only when the transcript result destination is visibly active.
+    // ordinary completion attention only when the result destination is visibly active.
     LaunchedEffect(
         visibleDetail,
         completionNotices.map { notice -> "${notice.kind.name}:${notice.taskId}" },
@@ -114,9 +144,27 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
         )
     }
 
-    // Candidate business truth remains untouched. Visiting the transcript page only clears or
-    // suppresses that candidate's Android system notification; the in-app candidate remains until
-    // the existing candidate lifecycle accepts/dismisses it.
+    // Stage 17.2 summary presentation is process-local, while Room remains the business truth.
+    // A running task is merely hidden on its own Summary page; a terminal presentation is consumed
+    // only after the corresponding Summary page is actually visible in the foreground.
+    LaunchedEffect(
+        visibleDetail,
+        summaryPresentation?.summaryId,
+        summaryPresentation?.phase,
+    ) {
+        val summary = summaryPresentation ?: return@LaunchedEffect
+        val visible = visibleDetail ?: return@LaunchedEffect
+        if (
+            summary.terminal &&
+            summary.recordingId == visible.recordingId &&
+            visible.destination == RecordingDetailDestination.SUMMARY
+        ) {
+            summaryExecutionController.acknowledge(summary.summaryId)
+        }
+    }
+
+    // Transcription Candidate preserves its established notification behavior. Visiting the
+    // transcript page clears only that Android notification; candidate business state remains.
     LaunchedEffect(
         visibleDetail,
         transcriptionCandidates.map(TranscriptionEntity::id),
@@ -133,6 +181,16 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
         }
     }
 
+    // Summary Candidate is intentionally different: merely opening Summary is not a decision.
+    // Its Android notification remains until the user adopts/ignores the Candidate or manually
+    // dismisses the notification. The Candidate itself remains durable in Room either way.
+
+    val visibleSummaryPresentation =
+        summaryPresentation?.takeUnless { summary ->
+            visibleDetail?.recordingId == summary.recordingId &&
+                visibleDetail?.destination == RecordingDetailDestination.SUMMARY
+        }
+
     CompositionLocalProvider(
         LocalQa4GlobalAttentionProjection provides
             Qa4GlobalAttentionProjection(
@@ -145,9 +203,143 @@ internal fun Stage13B5Qa4GlobalAttentionHost(
                 },
             ),
     ) {
-        content()
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background),
+        ) {
+            visibleSummaryPresentation?.let { summary ->
+                OfflineSummaryGlobalTaskStatusBar(
+                    presentation = summary,
+                    recordingName =
+                        recordings.firstOrNull { it.id == summary.recordingId }?.displayName
+                            ?: "录音",
+                    onOpen = {
+                        AppRecordingNavigation.publish(
+                            recordingId = summary.recordingId,
+                            destination = RecordingDetailDestination.SUMMARY,
+                        )
+                    },
+                )
+            }
+            if (visibleSummaryCandidates.isNotEmpty()) {
+                OfflineSummaryCandidateAttentionBar(
+                    candidates = visibleSummaryCandidates,
+                    recordings = recordings,
+                    onOpen = { candidate ->
+                        AppRecordingNavigation.publish(
+                            recordingId = candidate.recordingId,
+                            destination = RecordingDetailDestination.SUMMARY,
+                        )
+                    },
+                )
+            }
+            Box(modifier = Modifier.weight(1f)) {
+                content()
+            }
+        }
     }
 }
+
+@Composable
+private fun OfflineSummaryGlobalTaskStatusBar(
+    presentation: OfflineSummaryTaskPresentation,
+    recordingName: String,
+    onOpen: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            Text(
+                if (presentation.terminal) "任务通知" else "正在处理",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onOpen)
+                        .padding(vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    presentation.label + " · " + recordingName,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                )
+                presentation.trailingLabel?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                Text("›", style = MaterialTheme.typography.titleMedium)
+            }
+        }
+    }
+}
+
+@Composable
+private fun OfflineSummaryCandidateAttentionBar(
+    candidates: List<AiSummaryEntity>,
+    recordings: List<RecordingLibraryItem>,
+    onOpen: (AiSummaryEntity) -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            Text(
+                if (candidates.size == 1) "任务通知" else "${candidates.size} 条任务通知",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            candidates.forEach { candidate ->
+                val recordingName =
+                    recordings.firstOrNull { it.id == candidate.recordingId }?.displayName ?: "录音"
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpen(candidate) }
+                            .padding(vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        "新的总结结果已生成 · $recordingName",
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                    )
+                    Text(
+                        "查看",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Text("›", style = MaterialTheme.typography.titleMedium)
+                }
+            }
+        }
+    }
+}
+
+internal fun filterVisibleSummaryCandidates(
+    candidates: List<AiSummaryEntity>,
+    visibleDetail: Qa4VisibleDetailContext?,
+): List<AiSummaryEntity> =
+    candidates.filterNot { candidate ->
+        visibleDetail?.recordingId == candidate.recordingId &&
+            visibleDetail.destination == RecordingDetailDestination.SUMMARY
+    }
 
 internal fun filterQa4GlobalAttentionItems(
     items: List<Qa4GlobalAttentionItem>,
@@ -191,6 +383,7 @@ internal fun buildQa4GlobalAttentionItems(
     transcriptionAttention: List<TranscriptionEntity>,
     recordings: List<RecordingLibraryItem>,
     transcriptionCandidates: List<TranscriptionEntity> = emptyList(),
+    summaryCandidates: List<AiSummaryEntity> = emptyList(),
 ): List<Qa4GlobalAttentionItem> {
     fun recordingName(recordingId: String): String =
         recordings.firstOrNull { it.id == recordingId }?.displayName ?: "录音"
@@ -220,6 +413,17 @@ internal fun buildQa4GlobalAttentionItems(
                     recordingName = recordingName(transcription.recordingId),
                     label = "新的转写结果已生成",
                     destination = RecordingDetailDestination.TRANSCRIPT,
+                ),
+            )
+        }
+        summaryCandidates.forEach { summary ->
+            add(
+                Qa4GlobalAttentionItem(
+                    key = "summary-candidate:${summary.id}",
+                    recordingId = summary.recordingId,
+                    recordingName = recordingName(summary.recordingId),
+                    label = "新的总结结果已生成",
+                    destination = RecordingDetailDestination.SUMMARY,
                 ),
             )
         }

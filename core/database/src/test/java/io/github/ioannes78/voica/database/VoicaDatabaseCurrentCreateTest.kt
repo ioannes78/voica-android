@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -38,20 +39,36 @@ class VoicaDatabaseCurrentCreateTest {
     }
 
     @Test
-    fun currentSchemaCreatesCleanDatabaseAtVersion16() {
+    fun currentSchemaCreatesCleanDatabaseAtVersion17() {
         val writableDatabase = database.openHelper.writableDatabase
 
-        assertEquals(16, writableDatabase.version)
+        assertEquals(17, writableDatabase.version)
         database.recordingDao()
         database.transcriptionDao()
         database.diarizationDao()
         database.aiSummaryDao()
+        database.offlineSummaryLongDao()
         database.stage12cContentDao()
         database.stage13B5Qa4Dao()
         database.searchDao()
         database.realtimeTranscriptionDao()
         database.timelineAnnotationDao()
+
+        assertTrue(tableExists(writableDatabase, "offline_summary_tasks"))
+        assertTrue(tableExists(writableDatabase, "offline_summary_nodes"))
     }
+
+    private fun tableExists(
+        db: androidx.sqlite.db.SupportSQLiteDatabase,
+        tableName: String,
+    ): Boolean =
+        db.query(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
+            arrayOf(tableName),
+        ).use { cursor ->
+            check(cursor.moveToFirst())
+            cursor.getInt(0) == 1
+        }
 
     private companion object {
         const val TEST_DATABASE_NAME = "voica-current-create-test.db"

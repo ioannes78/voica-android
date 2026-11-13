@@ -26,14 +26,12 @@ class Stage14V1BaselineContractTest {
     }
 
     @Test
-    fun preReleaseRoomRuntimeUsesCurrentSchemaWithoutHistoricalMigrationChain() {
+    fun preReleaseRoomRuntimeRegistersOnlyCurrentStage173Migration() {
         val source = databaseProductionSource("VoicaDatabase.kt")
 
-        assertTrue(source.contains("version = 16"))
-        assertFalse(
-            "pre-release personal-use baseline must not register historical migrations at runtime",
-            source.contains(".addMigrations("),
-        )
+        assertTrue(source.contains("version = 17"))
+        assertTrue(source.contains(".addMigrations(MIGRATION_16_17)"))
+        assertTrue(source.contains("object : Migration(16, 17)"))
         for (legacyMigration in listOf(
             "MIGRATION_1_2",
             "MIGRATION_2_3",
@@ -48,6 +46,8 @@ class Stage14V1BaselineContractTest {
             "MIGRATION_11_12",
             "MIGRATION_12_13",
             "MIGRATION_13_14",
+            "MIGRATION_14_15",
+            "MIGRATION_15_16",
         )) {
             assertFalse(
                 "historical migration must not be registered at runtime: $legacyMigration",

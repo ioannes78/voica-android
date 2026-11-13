@@ -21,3 +21,13 @@
 -keep,allowoptimization class com.k2fsa.sherpa.onnx.** {
     *;
 }
+
+# Stage 17 P0 R7 — LiteRT-LM 0.18.0 JNI/R8 compatibility boundary.
+# Google AI Edge Gallery 1.0.20 ships LiteRT-LM with release minification disabled, while WENZHI's
+# releaseQa/production path is minified. R4-R6 real-device probes pass Engine.initialize() and then
+# terminate with native SIGABRT during createConversation(). Preserve the complete public/JNI-facing
+# LiteRT-LM package across R8 while still allowing method-body optimization. This keeps production
+# minification enabled for the rest of the app and isolates the suspected JNI name/shrinking boundary.
+-keep,allowoptimization class com.google.ai.edge.litertlm.** {
+    *;
+}
