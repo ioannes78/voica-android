@@ -14,6 +14,20 @@ class Stage17P2LMockProtocolTest {
         assertEquals(32, Stage17P2LMockContract.MAX_EVENTS)
     }
 
+    @Test fun lightweightBootSkipsOnlyKnownValidatorAndQaMockProcesses() {
+        val pkg = "io.github.ioannes78.voica.qa"
+        assertTrue(stage17P2LShouldSkipHeavyStartup(pkg, "$pkg:model_validator"))
+        assertTrue(stage17P2LShouldSkipHeavyStartup(pkg, "$pkg:stage17_mock_probe"))
+        assertFalse(stage17P2LShouldSkipHeavyStartup(pkg, pkg))
+        assertFalse(stage17P2LShouldSkipHeavyStartup(pkg, "$pkg:stage17_gpu_probe"))
+        assertFalse(stage17P2LShouldSkipHeavyStartup(pkg, "$pkg:unknown"))
+        assertFalse(stage17P2LShouldSkipHeavyStartup(pkg, null))
+        val prod = "io.github.ioannes78.voica"
+        assertTrue(stage17P2LShouldSkipHeavyStartup(prod, "$prod:model_validator"))
+        assertFalse(stage17P2LShouldSkipHeavyStartup(prod, "$prod:stage17_mock_probe"))
+        assertFalse(stage17P2LShouldSkipHeavyStartup(prod, prod))
+    }
+
     @Test fun childProcessAttestationMustMatchExactProcessAndPid() {
         val pkg = "io.github.ioannes78.voica.qa"
         val expected = Stage17P2LMockContract.expectedProcess(pkg)
