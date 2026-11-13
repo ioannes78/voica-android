@@ -106,6 +106,71 @@ require("P2-I QA-only async persistence and no per-token callback disk/PSS",
         "LocalLlmCpuBoundaryObserverRegistry.install(p2iBoundaryStore::record)" in qa and
         "event.phase != LocalLlmRuntimePhase.GENERATION_PROGRESS" in qa and
         "LocalLlmCpuBoundaryObserverRegistry.install(null)" in qa)
+p2l_protocol = source("app/src/main/java/io/github/ioannes78/voica/Stage17P2LMockProtocol.kt")
+p2l_service = source("app/src/main/java/io/github/ioannes78/voica/Stage17P2LMockProbeService.kt")
+p2l_parent = source("app/src/main/java/io/github/ioannes78/voica/Stage17P2LMockCoordinator.kt")
+p2l_boot = source("app/src/main/java/io/github/ioannes78/voica/VoicaApplication.kt")
+p2l_test = source("app/src/test/java/io/github/ioannes78/voica/Stage17P2LMockProtocolTest.kt")
+require("P2-L is fake-only and cannot call any real LiteRT JNI/Engine entrypoint",
+        "const val NATIVE_EXECUTION_ENABLED = false" in p2l_protocol and
+        "class Stage17P2LMockProbeService" in p2l_service and
+        "class Stage17P2LMockCoordinator" in p2l_parent and
+        all("import com.google.ai.edge.litertlm" not in part and
+            "LiteRtLocalLlmRuntime(" not in part and
+            "Engine(" not in part and
+            "createConversation(" not in part and
+            "sendMessageAsync(" not in part
+            for part in (p2l_protocol, p2l_service, p2l_parent)))
+require("P2-L main-process parent evidence durable before Service bind",
+        ordered(p2l_parent, 'prefs.edit().putString("last", initial).commit()',
+                "if (!durable || closed)", "Stage17P2LMockPhase.BIND_REQUESTED",
+                "app.bindService(") and
+        'writer.execute { prefs.edit().putString("last", current).commit() }' in p2l_parent and
+        "Stage17P2LMockContract.matchesChild(" in p2l_parent and
+        "Stage17P2LMockPhase.BINDER_DIED" in p2l_parent and
+        "Stage17P2LMockPhase.REPORT_TIMEOUT" in p2l_parent)
+require("P2-L child process bypasses heavy AppContainer only for exact QA process",
+        "if (isLightweightWorkerProcess()) return" in p2l_boot and
+        "stage17P2LShouldSkipHeavyStartup(packageName, processName)" in p2l_boot and
+        'applicationId + MODEL_VALIDATOR_PROCESS_SUFFIX' in p2l_boot and
+        "Stage17P2LMockContract.allowPackage(applicationId)" in p2l_boot and
+        "Stage17P2LMockContract.expectedProcess(applicationId)" in p2l_boot)
+require("P2-L mock-only JVM test matrix includes failure and cancellation",
+        "class Stage17P2LMockProtocolTest" in p2l_test and
+        "callbackBeforeSendReturnIsNotReorderedOrInferred" in p2l_test and
+        "submissionNotReturnedCannotManufactureTheMissingReturn" in p2l_test and
+        "absentTerminalAndUnacknowledgedCancelAreDistinct" in p2l_test and
+        "childProcessAttestationMustMatchExactProcessAndPid" in p2l_test and
+        "serviceDeathOrFailedBindPoisonsAttempt" in p2l_test and
+        "invalidReleaseCannotBePresentedAsConfirmed" in p2l_test and
+        "import com.google.ai.edge.litertlm" not in p2l_test)
+require("P2-L QA UI has no GPU/native launch action",
+        "P2-L · 独立进程模拟诊断" in qa and
+        "p2lMock.start(Stage17P2LMockScenario.NORMAL)" in qa and
+        "p2lMock.start(Stage17P2LMockScenario.CALLBACK_BEFORE_RETURN)" in qa)
+try:
+    ns = "{http://schemas.android.com/apk/res/android}"
+    for qa_manifest in (
+        "app/src/qa/AndroidManifest.xml",
+        "app/src/releaseQa/AndroidManifest.xml",
+    ):
+        tree = ET.fromstring(source(qa_manifest))
+        services = [
+            svc for svc in tree.iter("service")
+            if svc.get(ns + "name") == ".Stage17P2LMockProbeService"
+        ]
+        require(f"P2-L only one QA private child service in {qa_manifest}",
+                len(services) == 1 and
+                services[0].get(ns + "exported") == "false" and
+                services[0].get(ns + "process") == ":stage17_mock_probe" and
+                services[0].get(ns + "isolatedProcess") is None)
+    main_manifest = ET.fromstring(source("app/src/main/AndroidManifest.xml"))
+    require("P2-L child service absent from production main manifest",
+            not any(svc.get(ns + "name") == ".Stage17P2LMockProbeService"
+                    for svc in main_manifest.iter("service")))
+except ET.ParseError as exc:
+    errors.append(f"P2-L QA manifest XML invalid: {exc}")
+
 require("P2-D QA quarantine must be compile-time enabled",
         "const val GPU_QA_SUSPENDED: Boolean = true" in quarantine)
 require("QA quarantine must deny GPU and AUTO, retaining only explicit CPU",
