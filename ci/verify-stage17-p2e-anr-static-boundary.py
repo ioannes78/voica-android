@@ -171,6 +171,54 @@ try:
 except ET.ParseError as exc:
     errors.append(f"P2-L QA manifest XML invalid: {exc}")
 
+p2m1_recovery = source(
+    "app/src/main/java/io/github/ioannes78/voica/Stage17P2M1MockRecovery.kt"
+)
+p2m1_tests = source(
+    "app/src/test/java/io/github/ioannes78/voica/Stage17P2M1MockRecoveryTest.kt"
+)
+require("P2-M1 restart recovery must fail closed on dirty/malformed journal",
+        "class Stage17P2M1MockOwnerRecord" in p2m1_recovery and
+        "object Stage17P2M1MockJournal" in p2m1_recovery and
+        "INTERRUPTED_MOCK_ATTEMPT" in p2m1_recovery and
+        "MALFORMED_JOURNAL" in p2m1_recovery and
+        "STICKY_MOCK_POISON" in p2m1_recovery and
+        "class Stage17P2M1MockRecoveryTest" in p2m1_tests and
+        "durableArmInterruptedAtRestartFailsClosed" in p2m1_tests and
+        "durableReleaseMustBePresentBeforeAllowingAnotherMock" in p2m1_tests and
+        "stickyPoisonRemainsAfterRestart" in p2m1_tests)
+require("P2-M1 parent owner journal ARMED must be durable before bind",
+        ordered(p2l_parent, 'journalPrefs.edit().putString(',
+                "if (!durable || closed)",
+                "Stage17P2LMockPhase.BIND_REQUESTED",
+                "app.bindService(") and
+        "Stage17P2M1MockOwnerState.ARMED" in p2l_parent and
+        "Stage17P2M1MockOwnerState.RELEASE_CONFIRMED" in p2l_parent and
+        "Stage17P2M1MockOwnerState.UNRESOLVED_POISONED" in p2l_parent and
+        "ownerBlocked" in p2l_parent and
+        "releaseCommitPending" in p2l_parent and
+        "Stage17P2M1MockCompletionPolicy.canCommit(ledger.snapshot())" in p2l_parent and
+        "qaOwnerAdmission.compareAndSet(false, true)" in p2l_parent)
+require("P2-M1 nonce PID process UID attestation and mock-only child echo",
+        "Stage17P2M1MockJournal.EXTRA_NONCE" in p2l_parent and
+        "Stage17P2M1MockJournal.EXTRA_NONCE" in p2l_service and
+        "actual?.uid != app.applicationInfo.uid" in p2l_parent and
+        "Stage17P2LMockContract.matchesChild(" in p2l_parent and
+        "Stage17P2M1MockExitCorrelator.classify(" in p2l_parent and
+        "getHistoricalProcessExitReasons(app.packageName, 0, 16)" in p2l_parent and
+        "info.realUid" in p2l_parent and
+        "exitAttributionRequiresExactPidUidProcessAndTime" in p2m1_tests and
+        "noPidOrDuplicateCandidateNeverClaimsExit" in p2m1_tests)
+require("P2-M1 release ordering and fake-only admission test matrix",
+        "object Stage17P2M1MockCompletionPolicy" in p2m1_recovery and
+        "Stage17P2LMockPhase.SEND_RETURNED" in p2m1_recovery and
+        "Stage17P2LMockPhase.TERMINAL_DONE" in p2m1_recovery and
+        "class Stage17P2M1MockCompletionTest" in p2m1_tests and
+        "noTerminalNoSendReturnOrPrematureReleaseCannotCommit" in p2m1_tests and
+        "fakeAdmittingOwnerExcludesCompetingOwnerAndPoisonSticks" in p2m1_tests and
+        "import com.google.ai.edge.litertlm" not in p2m1_recovery and
+        "import com.google.ai.edge.litertlm" not in p2m1_tests)
+
 require("P2-D QA quarantine must be compile-time enabled",
         "const val GPU_QA_SUSPENDED: Boolean = true" in quarantine)
 require("QA quarantine must deny GPU and AUTO, retaining only explicit CPU",
