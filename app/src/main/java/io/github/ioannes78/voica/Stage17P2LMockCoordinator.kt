@@ -1,6 +1,8 @@
 package io.github.ioannes78.voica
 
 import android.app.ActivityManager
+import android.app.ApplicationExitInfo
+import android.os.Build
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -11,7 +13,10 @@ import android.os.Looper
 import android.os.Message
 import android.os.Messenger
 import android.os.RemoteException
+import java.security.SecureRandom
+import java.util.UUID
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -28,15 +33,28 @@ internal class Stage17P2LMockCoordinator(context: Context) {
     private val prefs =
         app.getSharedPreferences("stage17_p2l_mock_parent_evidence", Context.MODE_PRIVATE)
     private val ledger = Stage17P2LMockLedger()
+    private val journalPrefs =
+        app.getSharedPreferences("stage17_p2m1_mock_owner_journal", Context.MODE_PRIVATE)
+    private val priorRecovery =
+        Stage17P2M1MockJournal.restore(journalPrefs.getString("owner", null), app.packageName)
+    private var ownerRecord: Stage17P2M1MockOwnerRecord? = priorRecovery.record
+    private var ownerBlocked = priorRecovery.blocked
+    private var ownerDurableState = priorRecovery.reason
+    private var releaseCommitPending = false
+    private val tokenRandom = SecureRandom()
+    private var attemptNonce: String? = null
+    private var childPid = 0
+    private var childExitCorrelation = "NOT_CHECKED"
     private val main = Handler(Looper.getMainLooper())
     private val writer = Executors.newSingleThreadExecutor { work ->
         Thread(work, "stage17-p2l-mock-parent-write").apply { isDaemon = true }
     }
     private val _report = MutableStateFlow(
-        prefs.getString("last", "P2-L MOCK ONLY · 尚无模拟记录").orEmpty(),
+        prefs.getString("last", "P2-L MOCK ONLY · 尚无模拟记录").orEmpty() +
+            "\np2m1OwnerRecovery=" + priorRecovery.reason +
+            "\np2m1OwnerBlocked=" + priorRecovery.blocked,
     )
     val report: StateFlow<String> = _report.asStateFlow()
-    private var nextToken = 1
     private var connection: ServiceConnection? = null
     private var remote: Messenger? = null
     private var runningToken = 0
@@ -56,10 +74,37 @@ internal class Stage17P2LMockCoordinator(context: Context) {
     /** Durable parent arm is completed on an IO worker BEFORE any bind attempt. */
     suspend fun start(scenario: Stage17P2LMockScenario): Boolean {
         if (closed || !Stage17P2LMockContract.allowPackage(app.packageName)) return false
-        if (connection != null || ledger.isBlocked()) return false
+        if (connection != null || ledger.isBlocked() || ownerBlocked ||
+            releaseCommitPending || !qaOwnerAdmission.compareAndSet(false, true)
+        ) return false
 
-        val token = nextToken++
-        if (!ledger.arm(token)) return false
+        val lastGeneration = ownerRecord?.generation ?: 0L
+        if (lastGeneration == Long.MAX_VALUE) {
+            ownerBlocked = true
+            return false
+        }
+        var token = tokenRandom.nextInt(Int.MAX_VALUE - 1) + 1
+        while (token == ownerRecord?.token) {
+            token = tokenRandom.nextInt(Int.MAX_VALUE - 1) + 1
+        }
+        val nonce = UUID.randomUUID().toString()
+        val armedRecord = Stage17P2M1MockOwnerRecord(
+            generation = lastGeneration + 1L,
+            token = token,
+            nonce = nonce,
+            armEpochMs = System.currentTimeMillis(),
+            processName = Stage17P2LMockContract.expectedProcess(app.packageName),
+            state = Stage17P2M1MockOwnerState.ARMED,
+        )
+        ownerRecord = armedRecord
+        attemptNonce = nonce
+        childPid = 0
+        childExitCorrelation = "NOT_CHECKED"
+        ownerDurableState = "ARM_COMMIT_PENDING"
+        if (!ledger.arm(token)) {
+            ownerBlocked = true
+            return false
+        }
         runningToken = token
         selectedScenario = scenario
         val initial = formatReport()
@@ -67,14 +112,20 @@ internal class Stage17P2LMockCoordinator(context: Context) {
             withContext(Dispatchers.IO) {
                 runCatching {
                     writer.submit<Boolean> {
-                        prefs.edit().putString("last", initial).commit()
+                        val committed = journalPrefs.edit().putString(
+                            "owner", Stage17P2M1MockJournal.encode(armedRecord),
+                        ).commit()
+                        committed && prefs.edit().putString("last", initial).commit()
                     }.get()
                 }.getOrDefault(false)
             }
         if (!durable || closed) {
+            ownerBlocked = true
+            ownerDurableState = "ARM_COMMIT_FAILED_NO_BIND"
             record(token, Stage17P2LMockPhase.BIND_FAILED)
             return false
         }
+        ownerDurableState = "ARMED_DURABLE"
         _report.value = initial
         record(token, Stage17P2LMockPhase.BIND_REQUESTED)
 
@@ -97,6 +148,9 @@ internal class Stage17P2LMockCoordinator(context: Context) {
                             scenario.ordinal,
                         )
                     request.replyTo = replies
+                    request.data = android.os.Bundle().apply {
+                        putString(Stage17P2M1MockJournal.EXTRA_NONCE, nonce)
+                    }
                     try {
                         remote?.send(request)
                     } catch (_: RemoteException) {
@@ -163,16 +217,19 @@ internal class Stage17P2LMockCoordinator(context: Context) {
         val pid = message.data.getInt(Stage17P2LMockContract.EXTRA_PID, -1)
         val reportedName = message.data.getString(Stage17P2LMockContract.EXTRA_PROCESS)
         val manager = app.getSystemService(ActivityManager::class.java)
-        val actualName = manager.runningAppProcesses?.firstOrNull { it.pid == pid }?.processName
+        val actual = manager.runningAppProcesses?.firstOrNull { it.pid == pid }
+        val actualName = actual?.processName
         if (!Stage17P2LMockContract.matchesChild(
                 app.packageName, reportedName, pid, actualName,
-            )
+            ) || actual?.uid != app.applicationInfo.uid ||
+            message.data.getString(Stage17P2M1MockJournal.EXTRA_NONCE) != attemptNonce
         ) {
             fail(token, Stage17P2LMockPhase.CHILD_IDENTITY_UNCONFIRMED)
             return
         }
+        childPid = pid
         if (record(token, phase) && phase == Stage17P2LMockPhase.RELEASE_CONFIRMED) {
-            releaseConnection()
+            finishDurableRelease(token)
         }
     }
 
@@ -188,9 +245,109 @@ internal class Stage17P2LMockCoordinator(context: Context) {
     }
 
     private fun fail(token: Int, phase: Stage17P2LMockPhase) {
-        if (ledger.canAccept(token)) {
-            record(token, phase)
-            releaseConnection()
+        if (!ledger.canAccept(token)) return
+        ownerBlocked = true
+        ownerDurableState = "UNRESOLVED_PENDING"
+        record(token, phase)
+        releaseConnection()
+        persistPoison()
+        if (phase == Stage17P2LMockPhase.BINDER_DIED) observeHistoricalChildExit()
+    }
+
+    /**
+     * The event and fake RELEASE_CONFIRMED are observations, NOT a durable owner release.
+     * Only the explicit journal commit can re-enable a later MOCK request.
+     */
+    private fun finishDurableRelease(token: Int) {
+        releaseCommitPending = true
+        ownerDurableState = "RELEASE_COMMIT_PENDING"
+        releaseConnection()
+        val record = ownerRecord ?: run {
+            ownerBlocked = true
+            return
+        }
+        val confirmed = record.copy(state = Stage17P2M1MockOwnerState.RELEASE_CONFIRMED)
+        writer.execute {
+            val committed = runCatching {
+                journalPrefs.edit().putString(
+                    "owner", Stage17P2M1MockJournal.encode(confirmed),
+                ).commit()
+            }.getOrDefault(false)
+            main.post {
+                if (committed) {
+                    ownerRecord = confirmed
+                    ownerDurableState = "RELEASE_CONFIRMED_DURABLE"
+                    releaseCommitPending = false
+                    qaOwnerAdmission.set(false)
+                } else {
+                    ownerBlocked = true
+                    ownerDurableState = "RELEASE_COMMIT_FAILED"
+                    releaseCommitPending = false
+                }
+                if (!closed) _report.value = formatReport()
+            }
+        }
+    }
+
+    private fun persistPoison() {
+        val record = ownerRecord ?: return
+        val poisoned = record.copy(state = Stage17P2M1MockOwnerState.UNRESOLVED_POISONED)
+        writer.execute {
+            val committed = runCatching {
+                journalPrefs.edit().putString(
+                    "owner", Stage17P2M1MockJournal.encode(poisoned),
+                ).commit()
+            }.getOrDefault(false)
+            main.post {
+                if (committed) {
+                    ownerRecord = poisoned
+                    ownerDurableState = "UNRESOLVED_POISON_DURABLE"
+                } else {
+                    // ARMED was already durable; restart will still deny the mock attempt.
+                    ownerDurableState = "POISON_COMMIT_FAILED_ARMED_STILL_BLOCKS"
+                }
+                if (!closed) _report.value = formatReport()
+            }
+        }
+    }
+
+    /**
+     * Exit info is metadata only; absent/ambiguous matches remain UNKNOWN.
+     * This does not fetch raw traces or attribute GPU faults to any component.
+     */
+    private fun observeHistoricalChildExit() {
+        val record = ownerRecord ?: return
+        val pid = childPid
+        if (pid <= 0 || Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            childExitCorrelation = "UNKNOWN"
+            return
+        }
+        writer.execute {
+            val now = System.currentTimeMillis()
+            val match = runCatching {
+                val manager = app.getSystemService(ActivityManager::class.java)
+                val history = manager.getHistoricalProcessExitReasons(app.packageName, 0, 16)
+                Stage17P2M1MockExitCorrelator.classify(
+                    candidates = history.map { info ->
+                        Stage17P2M1MockExitRecord(
+                            processName = info.processName,
+                            pid = info.pid,
+                            uid = info.realUid,
+                            exitEpochMs = info.timestamp,
+                            reason = info.reason,
+                        )
+                    },
+                    expectedProcess = record.processName,
+                    childPid = pid,
+                    appUid = app.applicationInfo.uid,
+                    armEpochMs = record.armEpochMs,
+                    observedAtEpochMs = now,
+                )
+            }.getOrDefault(Stage17P2M1MockExitCorrelator.Verdict.UNKNOWN)
+            main.post {
+                childExitCorrelation = match.name
+                if (!closed) _report.value = formatReport()
+            }
         }
     }
 
@@ -208,7 +365,11 @@ internal class Stage17P2LMockCoordinator(context: Context) {
     private fun formatReport(): String = buildString {
         appendLine("P2-L MOCK ONLY · NO LLM / NO JNI / NO GPU")
         appendLine("nativeExecution=false")
-        appendLine("poisoned=${ledger.isPoisoned()}")
+        appendLine("poisoned=${ledger.isPoisoned() || ownerBlocked}")
+        appendLine("p2m1OwnerDurability=$ownerDurableState")
+        appendLine("p2m1OwnerBlocked=$ownerBlocked")
+        appendLine("p2m1ReleaseCommitPending=$releaseCommitPending")
+        appendLine("p2m1ChildExitCorrelation=$childExitCorrelation")
         val phases = ledger.snapshot()
         appendLine("eventCount=${phases.size}")
         phases.forEach { event -> appendLine("+${event.elapsedMs}ms ${event.phase.name}") }
@@ -217,7 +378,10 @@ internal class Stage17P2LMockCoordinator(context: Context) {
     fun close() {
         if (closed) return
         if (ledger.canAccept(runningToken)) {
+            ownerBlocked = true
+            ownerDurableState = "ACTIVITY_CLOSED_WHILE_ACTIVE"
             record(runningToken, Stage17P2LMockPhase.RELEASE_UNCERTAIN)
+            persistPoison()
         }
         closed = true
         releaseConnection()
@@ -225,6 +389,7 @@ internal class Stage17P2LMockCoordinator(context: Context) {
     }
 
     private companion object {
+        val qaOwnerAdmission = AtomicBoolean(false)
         val CHILD_EMIT_PHASES = setOf(
             Stage17P2LMockPhase.MODEL_INITIALIZING,
             Stage17P2LMockPhase.MODEL_READY,

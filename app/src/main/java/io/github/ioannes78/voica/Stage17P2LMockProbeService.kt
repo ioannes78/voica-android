@@ -27,6 +27,7 @@ class Stage17P2LMockProbeService : Service() {
     private var scenario: Stage17P2LMockScenario? = null
     private var parent: Messenger? = null
     private var fakeTerminal: Boolean = false
+    private var attemptNonce: String? = null
 
     private val inbound = Messenger(Handler(Looper.getMainLooper()) { message ->
         when (message.what) {
@@ -61,6 +62,9 @@ class Stage17P2LMockProbeService : Service() {
         if (activeToken != 0 || message.arg1 <= 0) return
         val selected = Stage17P2LMockScenario.entries.getOrNull(message.arg2) ?: return
         val reply = message.replyTo ?: return
+        val nonce = message.data.getString(Stage17P2M1MockJournal.EXTRA_NONCE) ?: return
+        if (nonce.length != 36) return
+        attemptNonce = nonce
         activeToken = message.arg1
         scenario = selected
         parent = reply
@@ -142,6 +146,7 @@ class Stage17P2LMockProbeService : Service() {
             )
         event.data =
             Bundle().apply {
+                putString(Stage17P2M1MockJournal.EXTRA_NONCE, attemptNonce)
                 putInt(Stage17P2LMockContract.EXTRA_PID, Process.myPid())
                 putString(Stage17P2LMockContract.EXTRA_PROCESS, currentProcessName())
             }
@@ -166,6 +171,7 @@ class Stage17P2LMockProbeService : Service() {
         mockThread.quitSafely()
         parent = null
         activeToken = 0
+        attemptNonce = null
         super.onDestroy()
     }
 }

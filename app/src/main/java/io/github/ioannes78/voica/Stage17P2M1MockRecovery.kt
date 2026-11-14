@@ -29,6 +29,7 @@ internal data class Stage17P2M1MockRecovery(
 )
 
 internal object Stage17P2M1MockJournal {
+    const val EXTRA_NONCE = "p2m1_mock_attempt_nonce"
     private const val VERSION = "P2M1V1"
     private val noncePattern = Regex("[0-9a-fA-F-]{36}")
 
