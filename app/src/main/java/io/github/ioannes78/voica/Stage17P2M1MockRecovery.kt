@@ -139,3 +139,33 @@ internal class Stage17P2M1MockAdmission {
     @Synchronized
     fun blocked(): Boolean = poisoned || owner != null
 }
+
+
+/**
+ * A fake RELEASE_CONFIRMED message is not sufficient alone. Verify observed
+ * submission, asynchronous return, terminal and final event before journaling
+ * a completed mock attempt; FIRST_EMISSION is allowed before SEND_RETURNED.
+ */
+internal object Stage17P2M1MockCompletionPolicy {
+    fun canCommit(events: List<Stage17P2LMockEvent>): Boolean {
+        val phases = events.map { it.phase }
+        val enter = phases.indexOf(Stage17P2LMockPhase.SEND_ENTERED)
+        val returned = phases.indexOf(Stage17P2LMockPhase.SEND_RETURNED)
+        val await = phases.indexOf(Stage17P2LMockPhase.TERMINAL_AWAIT_ENTERED)
+        val done = phases.indexOf(Stage17P2LMockPhase.TERMINAL_DONE)
+        val error = phases.indexOf(Stage17P2LMockPhase.TERMINAL_ERROR)
+        val release = phases.indexOf(Stage17P2LMockPhase.RELEASE_CONFIRMED)
+        val terminal = if (done >= 0) done else error
+        return enter >= 0 && returned > enter && await > returned &&
+            terminal > enter && release > terminal &&
+            release == phases.lastIndex &&
+            (done < 0 || error < 0) &&
+            phases.count { it == Stage17P2LMockPhase.RELEASE_CONFIRMED } == 1 &&
+            phases.none {
+                it == Stage17P2LMockPhase.BINDER_DIED ||
+                    it == Stage17P2LMockPhase.RELEASE_UNCERTAIN ||
+                    it == Stage17P2LMockPhase.CHILD_IDENTITY_UNCONFIRMED ||
+                    it == Stage17P2LMockPhase.REPORT_TIMEOUT
+            }
+    }
+}

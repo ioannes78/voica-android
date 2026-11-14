@@ -229,7 +229,16 @@ internal class Stage17P2LMockCoordinator(context: Context) {
         }
         childPid = pid
         if (record(token, phase) && phase == Stage17P2LMockPhase.RELEASE_CONFIRMED) {
-            finishDurableRelease(token)
+            if (!ledger.isPoisoned() &&
+                Stage17P2M1MockCompletionPolicy.canCommit(ledger.snapshot())
+            ) {
+                finishDurableRelease(token)
+            } else {
+                ownerBlocked = true
+                ownerDurableState = "INVALID_RELEASE_SEQUENCE"
+                releaseConnection()
+                persistPoison()
+            }
         }
     }
 

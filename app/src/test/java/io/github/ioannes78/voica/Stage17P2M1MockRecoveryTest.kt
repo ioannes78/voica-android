@@ -113,3 +113,53 @@ class Stage17P2M1MockRecoveryTest {
         assertFalse(gate.acquire("fake-main"))
     }
 }
+
+
+/** Separate invariant matrix to guard against false fake release acknowledgment. */
+class Stage17P2M1MockCompletionTest {
+    private fun events(vararg phases: Stage17P2LMockPhase): List<Stage17P2LMockEvent> =
+        phases.mapIndexed { i, p -> Stage17P2LMockEvent(p, i.toLong()) }
+
+    @Test fun normalAndCallbackBeforeReturnMayComplete() {
+        assertTrue(Stage17P2M1MockCompletionPolicy.canCommit(events(
+            Stage17P2LMockPhase.SEND_ENTERED,
+            Stage17P2LMockPhase.SEND_RETURNED,
+            Stage17P2LMockPhase.TERMINAL_AWAIT_ENTERED,
+            Stage17P2LMockPhase.FIRST_EMISSION,
+            Stage17P2LMockPhase.TERMINAL_DONE,
+            Stage17P2LMockPhase.RELEASE_CONFIRMED,
+        )))
+        assertTrue(Stage17P2M1MockCompletionPolicy.canCommit(events(
+            Stage17P2LMockPhase.SEND_ENTERED,
+            Stage17P2LMockPhase.FIRST_EMISSION,
+            Stage17P2LMockPhase.SEND_RETURNED,
+            Stage17P2LMockPhase.TERMINAL_AWAIT_ENTERED,
+            Stage17P2LMockPhase.TERMINAL_DONE,
+            Stage17P2LMockPhase.RELEASE_CONFIRMED,
+        )))
+    }
+
+    @Test fun noTerminalNoSendReturnOrPrematureReleaseCannotCommit() {
+        val scenarios = listOf(
+            events(Stage17P2LMockPhase.SEND_ENTERED,
+                Stage17P2LMockPhase.SEND_RETURNED,
+                Stage17P2LMockPhase.TERMINAL_AWAIT_ENTERED,
+                Stage17P2LMockPhase.RELEASE_CONFIRMED),
+            events(Stage17P2LMockPhase.SEND_ENTERED,
+                Stage17P2LMockPhase.TERMINAL_DONE,
+                Stage17P2LMockPhase.RELEASE_CONFIRMED),
+            events(Stage17P2LMockPhase.SEND_ENTERED,
+                Stage17P2LMockPhase.SEND_RETURNED,
+                Stage17P2LMockPhase.TERMINAL_AWAIT_ENTERED,
+                Stage17P2LMockPhase.RELEASE_CONFIRMED,
+                Stage17P2LMockPhase.TERMINAL_DONE),
+            events(Stage17P2LMockPhase.SEND_ENTERED,
+                Stage17P2LMockPhase.SEND_RETURNED,
+                Stage17P2LMockPhase.TERMINAL_AWAIT_ENTERED,
+                Stage17P2LMockPhase.TERMINAL_DONE,
+                Stage17P2LMockPhase.BINDER_DIED,
+                Stage17P2LMockPhase.RELEASE_CONFIRMED),
+        )
+        scenarios.forEach { assertFalse(Stage17P2M1MockCompletionPolicy.canCommit(it)) }
+    }
+}
