@@ -1,6 +1,6 @@
 # Stage 17.3 R17C-P2-L — QA-only mock process / IPC lifecycle gate
 
-Status: **CODE IMPLEMENTED IN STAGE 17 DRAFT / CI PENDING / NO DEVICE RUN / NO REAL NATIVE**.
+Status: **MOCK QA1 REAL-DEVICE IPC NORMAL CASE PASS / JVM + APK CI PASS AT QA BINARY HEAD / MOCK QA2 PENDING / NO REAL NATIVE**.
 Repository: `ioannes78/voica-android`, PR #37 remains OPEN/DRAFT/UNMERGED.
 Starting baseline: `022cf7b5330c771e0fb73992dd35b5f3039bcd6c`.
 Production `main` has not been modified. The runtime dependency remains
@@ -117,3 +117,57 @@ before considering any real-native path.
 
 **P2-L does not authorize GPU hardware testing.** P2-M is a separate
 real-native design review requiring deliberate approval and fresh evidence.
+
+
+## P2-L mock real-device QA1 — NORMAL scenario (user-submitted)
+
+Evidence source: user copied the P2-L MOCK panel from a device after the
+NORMAL scenario. Corresponding QA APK source commit:
+`544571ca4d09f25b9554e568605f50b934dfa99c`.
+Build validation:
+- Android PR CI `43459371463`: **SUCCESS** on exactly that commit;
+  static source contracts, JVM unit tests and Debug compile passed.
+- Stage 17.3 Diagnostic APK `43459371471`: **SUCCESS** on that commit;
+  releaseQa compilation, verification and artifact upload passed.
+
+Full content-free observation (relative elapsed milliseconds):
+
+| Event | Observed ms |
+| --- | ---: |
+| PARENT_ARM_PERSISTED | 0 |
+| BIND_REQUESTED | 4 |
+| CHILD_BOUND | 85 |
+| MODEL_INITIALIZING | 90 |
+| MODEL_READY | 91 |
+| CONVERSATION_ENTERED | 92 |
+| CONVERSATION_READY | 93 |
+| SEND_ENTERED | 93 |
+| SEND_RETURNED | 94 |
+| TERMINAL_AWAIT_ENTERED | 95 |
+| FIRST_EMISSION | 132 |
+| TERMINAL_DONE | 133 |
+| RELEASE_CONFIRMED | 134 |
+
+Additional reported scalars: `P2-L MOCK ONLY · NO LLM / NO JNI / NO GPU`,
+`nativeExecution=false`, `poisoned=false`, `eventCount=13`.
+
+**QA1 NORMAL = PASS (one mock-on-device observation).**
+The child process bound, the parent accepted all 13 ordered fake phases,
+and the fake release concluded without sticky mock poisoning. The report does
+not prove real `Engine.initialize()`, real synchronous JNI submission, GPU
+worker liveness, native release, or robustness to process death. These
+millisecond durations refer to fake IPC events, **not model speed**.
+
+Not yet demonstrated on real hardware: CALLBACK_BEFORE_RETURN mock scenario,
+lost Binder process, watchdog/terminal-missing and cancellation recovery;
+the latter are covered by JVM fake tests only. No real GPU requalification
+has been authorized.
+
+**Next on-device gate: P2-L QA2 CALLBACK_BEFORE_RETURN (mock-only).** Use the
+same verified `544571c` QA APK, click "模拟回调抢先" once, and copy the
+P2-L MOCK diagnostic. Expected order: `SEND_ENTERED`,
+`FIRST_EMISSION`, `SEND_RETURNED`, `TERMINAL_AWAIT_ENTERED`,
+`TERMINAL_DONE`, `RELEASE_CONFIRMED`. If BIND_FAILED,
+CHILD_IDENTITY_UNCONFIRMED, REPORT_TIMEOUT or any state other than a
+normal, explicitly simulated result occurs, do not retry; preserve the
+report. Do not run real GPU/AUTO tests.
