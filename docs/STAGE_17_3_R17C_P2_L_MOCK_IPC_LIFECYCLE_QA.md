@@ -1,6 +1,6 @@
 # Stage 17.3 R17C-P2-L — QA-only mock process / IPC lifecycle gate
 
-Status: **MOCK QA1 REAL-DEVICE IPC NORMAL CASE PASS / JVM + APK CI PASS AT QA BINARY HEAD / MOCK QA2 PENDING / NO REAL NATIVE**.
+Status: **MOCK QA1 NORMAL + QA2 CALLBACK-BEFORE-RETURN REAL-DEVICE PASS / SOURCE HEAD CI PREVIOUSLY PASS / GPU FAIL-SUSPENDED / NO REAL NATIVE**.
 Repository: `ioannes78/voica-android`, PR #37 remains OPEN/DRAFT/UNMERGED.
 Starting baseline: `022cf7b5330c771e0fb73992dd35b5f3039bcd6c`.
 Production `main` has not been modified. The runtime dependency remains
@@ -158,16 +158,73 @@ not prove real `Engine.initialize()`, real synchronous JNI submission, GPU
 worker liveness, native release, or robustness to process death. These
 millisecond durations refer to fake IPC events, **not model speed**.
 
-Not yet demonstrated on real hardware: CALLBACK_BEFORE_RETURN mock scenario,
-lost Binder process, watchdog/terminal-missing and cancellation recovery;
-the latter are covered by JVM fake tests only. No real GPU requalification
-has been authorized.
+Not yet demonstrated on real hardware: lost Binder process,
+watchdog/terminal-missing and cancellation recovery; these fault cases have
+JVM fake-test coverage only. QA2 callback-before-return is separately
+verified below. No real GPU requalification has been authorized.
 
-**Next on-device gate: P2-L QA2 CALLBACK_BEFORE_RETURN (mock-only).** Use the
-same verified `544571c` QA APK, click "模拟回调抢先" once, and copy the
-P2-L MOCK diagnostic. Expected order: `SEND_ENTERED`,
-`FIRST_EMISSION`, `SEND_RETURNED`, `TERMINAL_AWAIT_ENTERED`,
-`TERMINAL_DONE`, `RELEASE_CONFIRMED`. If BIND_FAILED,
-CHILD_IDENTITY_UNCONFIRMED, REPORT_TIMEOUT or any state other than a
-normal, explicitly simulated result occurs, do not retry; preserve the
-report. Do not run real GPU/AUTO tests.
+**QA2 CALLBACK_BEFORE_RETURN completed — see the result below.** No additional
+real-GPU test is authorized; separate process death and restart-poisoning
+requirements remain as P2-M work.
+
+
+## P2-L mock real-device QA2 — CALLBACK_BEFORE_RETURN scenario (user-submitted)
+
+Evidence source: user copied the P2-L MOCK panel after triggering **模拟回调抢先** in
+the installed P2-L QA build. The verified test APK source baseline remains
+`544571ca4d09f25b9554e568605f50b934dfa99c`; the subsequent docs-only
+commit does not change the binary under test.
+
+Reported header:
+```
+P2-L MOCK ONLY · NO LLM / NO JNI / NO GPU
+nativeExecution=false
+poisoned=false
+eventCount=13
+```
+
+Full phase ordering and elapsed milliseconds:
+
+| Event | Observed ms |
+| --- | ---: |
+| PARENT_ARM_PERSISTED | 0 |
+| BIND_REQUESTED | 4 |
+| CHILD_BOUND | 8 |
+| MODEL_INITIALIZING | 12 |
+| MODEL_READY | 20 |
+| CONVERSATION_ENTERED | 21 |
+| CONVERSATION_READY | 21 |
+| SEND_ENTERED | 22 |
+| FIRST_EMISSION | 22 |
+| SEND_RETURNED | 23 |
+| TERMINAL_AWAIT_ENTERED | 23 |
+| TERMINAL_DONE | 51 |
+| RELEASE_CONFIRMED | 52 |
+
+**QA2 CALLBACK_BEFORE_RETURN = PASS (one mock-on-device observation).**
+
+The event list preserves **FIRST_EMISSION before SEND_RETURNED**, including
+same-millisecond `SEND_ENTERED` and `FIRST_EMISSION` entries in their recorded
+arrival order. The difference between logged events is millisecond-resolution
+quantization, not a measurement of the underlying JNI call (none occurred).
+The observed fake terminal and release completed and no mock poison flag was
+reported.
+
+Combined real-device P2-L outcome:
+- **QA1 NORMAL = PASS**: 13 fake phases, final RELEASE_CONFIRMED at +134 ms,
+  `poisoned=false`.
+- **QA2 CALLBACK_BEFORE_RETURN = PASS**: 13 fake phases, preserved early callback,
+  final RELEASE_CONFIRMED at +52 ms, `poisoned=false`.
+- **P2-L mock IPC happy-path + callback race evidence = PASS WITH LIMITED COVERAGE.**
+
+Do **not** claim that Binder child-death, failure recovery, persisted poisoning
+after main-process restart, or actual Android-native resource ownership have
+real-device PASS. The simulated failure cases were JVM-tested only. If the
+remaining failure-path features are needed, they require a separate QA design
+and explicit mocks, not a GPU retest.
+
+**Handoff:** P2-M should audit the parent/child ownership boundary, restart
+poisoning, PID/process + ApplicationExitInfo correlation, and model lease safety
+as design and mock-only work first. Any real native or GPU execution requires
+separate authorization. Existing P2-D GPU/AUTO quarantine remains enabled and
+`main` remains unchanged.
