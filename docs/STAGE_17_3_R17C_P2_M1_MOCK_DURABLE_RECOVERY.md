@@ -1,6 +1,6 @@
 # Stage 17.3 R17C-P2-M1 — Mock-only durable ownership / restart recovery
 
-Status: **IMPLEMENTED / EXACT-HEAD CI + APK PASS / MOCK QA3 STEPS 1+2 PASS WITH DISPLAY-SNAPSHOT LIMIT / QA3 CALLBACK-RACE REPEAT PENDING / NO JNI OR GPU**.
+Status: **P2-M1 IMPLEMENTED / SOURCE-BASELINE CI + APK PASS / QA3 MOCK THREE STEPS PASS WITH DISPLAY-SNAPSHOT LIMIT / REAL NATIVE AND GPU NOT TESTED**.
 
 Repository: \`ioannes78/voica-android\`. Source baseline:
 \`b20343f5628ede4fd11eda5db52eb097e9d00276\`.
@@ -218,10 +218,80 @@ P2-M1 mock real-device QA3 summary to date:
 - Step 1: fake NORMAL + durable release confirmation: **PASS**.
 - Step 2: reopen and recover durable journal: **PASS**, display snapshot
   ambiguity documented.
-- Optional callback-before-SEND_RETURNED recheck on this P2-M1 build:
-  **PENDING**.
+- Callback-before-SEND_RETURNED recheck on P2-M1 QA build: **PASS**; see QA3 step 3 below.
 - Actual Binder child death, native JNI release, device driver/HWUI
   recovery and real GPU qualification: **NOT TESTED / NOT AUTHORIZED**.
 
 No runtime code change, new APK, GPU/AUTO action or model inference is
 introduced by this evidence-only record.
+
+## P2-M1 QA3 real-device callback-before-return — step 3 (user-submitted)
+
+The user triggered **模拟回调抢先** once in the P2-M1 QA build, then copied the
+P2-L MOCK report. No real LLM, JNI or GPU was used.
+
+Reported header:
+
+```text
+P2-L MOCK ONLY · NO LLM / NO JNI / NO GPU
+nativeExecution=false
+poisoned=false
+p2m1OwnerDurability=RELEASE_CONFIRMED_DURABLE
+p2m1OwnerBlocked=false
+p2m1ReleaseCommitPending=false
+p2m1ChildExitCorrelation=NOT_CHECKED
+eventCount=13
+```
+
+Full simulated lifecycle observations:
+
+| Phase | Elapsed |
+| --- | ---: |
+| PARENT_ARM_PERSISTED | +0 ms |
+| BIND_REQUESTED | +5 ms |
+| CHILD_BOUND | +11 ms |
+| MODEL_INITIALIZING | +12 ms |
+| MODEL_READY | +12 ms |
+| CONVERSATION_ENTERED | +13 ms |
+| CONVERSATION_READY | +13 ms |
+| SEND_ENTERED | +14 ms |
+| FIRST_EMISSION | +14 ms |
+| SEND_RETURNED | +15 ms |
+| TERMINAL_AWAIT_ENTERED | +15 ms |
+| TERMINAL_DONE | +54 ms |
+| RELEASE_CONFIRMED | +55 ms |
+
+**QA3 step 3 = PASS (one fake on-device observation).**
+The recorded event ordering correctly preserves
+`FIRST_EMISSION` **before** `SEND_RETURNED`, despite its matching
+millisecond-resolution timestamp with `SEND_ENTERED`. The fake terminal
+and release were observed, and the parent separately reported
+`RELEASE_CONFIRMED_DURABLE` with `poisoned=false`,
+`p2m1OwnerBlocked=false`, and no release commit pending.
+`NOT_CHECKED` is expected for child-exit correlation in a normal completion.
+
+### P2-M1 QA3 closure
+
+**QA3 MOCK REAL-DEVICE CHECKLIST: COMPLETE / PASS WITH LIMITED COVERAGE.**
+
+- Step 1: normal mock IPC plus durable owner release: PASS.
+- Step 2: reopen screen, recover prior durably released owner: PASS;
+  cached prior phase text can still display stale `ARMED_DURABLE`.
+- Step 3: callback before send return plus durable owner release: PASS.
+- Baseline source commit for the installed test APK:
+  `3cd94de26e80580825bb4e4074fca50252bbc605`;
+  Android PR CI `43605843146` and diagnostic APK build
+  `43605843115` both SUCCESS.
+- This closure documents supplied device observations; it does not claim
+  real Binder child death, actual model resource release or GPU/HWUI stability.
+
+Known follow-up: update the report view to clearly separate **historical
+cached phase text** from **current recovered owner journal**. This is a
+diagnostic clarity item and not a runtime safety proof.
+
+**P2-M2 should remain mock/design-only until cross-process real model
+ownership, Binder death and restart state machine, exact native close
+semantics, and the previously documented native isolation blockers have been
+independently reviewed.** P2-N real GPU remains NOT AUTHORIZED; the existing
+GPU/AUTO quarantine stays enabled, production `main` is unchanged, and PR
+#37 remains DRAFT.
