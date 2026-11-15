@@ -219,6 +219,42 @@ require("P2-M1 release ordering and fake-only admission test matrix",
         "import com.google.ai.edge.litertlm" not in p2m1_recovery and
         "import com.google.ai.edge.litertlm" not in p2m1_tests)
 
+p2m2_report = source(
+    "app/src/main/java/io/github/ioannes78/voica/Stage17P2M2MockReport.kt"
+)
+p2m2_tests = source(
+    "app/src/test/java/io/github/ioannes78/voica/Stage17P2M2MockReportTest.kt"
+)
+require("P2-M2 recovered journal must not mix stale phase metadata",
+        "Stage17P2M2MockReport.recovered(priorRecovery, prefs.getString(\"last\", null))" in p2l_parent and
+        "p2m2ReportScope=RECOVERED_OWNER_JOURNAL" in p2m2_report and
+        "p2m1OwnerRecovery=" in p2m2_report and
+        "p2m1OwnerBlocked=" in p2m2_report and
+        "historicalEventCount=" in p2m2_report and
+        "historicalEvent=" in p2m2_report and
+        "take(Stage17P2LMockContract.MAX_EVENTS)" in p2m2_report and
+        "p2m2ReportScope=LIVE_MOCK_ATTEMPT" in p2l_parent)
+require("P2-M2 late/stale binder rebind must not resend a command",
+        "Stage17P2M2MockConnectionPolicy.canSend(" in p2l_parent and
+        "bindingIsCurrent = connection === this" in p2l_parent and
+        "ownerBlocked = ownerBlocked" in p2l_parent and
+        "releaseCommitPending = releaseCommitPending" in p2l_parent and
+        "class Stage17P2LMockProbeService" in p2l_service and
+        "override fun onUnbind(intent: Intent?): Boolean" in p2l_service and
+        "attemptNonce = null" in p2l_service and
+        "onServiceDisconnected" in p2l_parent and
+        "onBindingDied" in p2l_parent)
+require("P2-M2 JVM tests cover historical snapshot separation and rebind denial",
+        "class Stage17P2M2MockReportTest" in p2m2_tests and
+        "reopenedReportUsesDurableReleaseNotCachedArmed" in p2m2_tests and
+        "interruptedOrPoisonedOwnerCannotLookReleased" in p2m2_tests and
+        "malformedJournalReportsBlocked" in p2m2_tests and
+        "historicalEvidenceIsBoundedAndContentFree" in p2m2_tests and
+        "class Stage17P2M2MockConnectionPolicyTest" in p2m2_tests and
+        "reconnectAfterLossDoesNotAutoResend" in p2m2_tests and
+        "import com.google.ai.edge.litertlm" not in p2m2_report and
+        "import com.google.ai.edge.litertlm" not in p2m2_tests)
+
 require("P2-D QA quarantine must be compile-time enabled",
         "const val GPU_QA_SUSPENDED: Boolean = true" in quarantine)
 require("QA quarantine must deny GPU and AUTO, retaining only explicit CPU",
