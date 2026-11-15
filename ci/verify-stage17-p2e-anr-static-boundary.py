@@ -255,6 +255,18 @@ require("P2-M2 JVM tests cover historical snapshot separation and rebind denial"
         "import com.google.ai.edge.litertlm" not in p2m2_report and
         "import com.google.ai.edge.litertlm" not in p2m2_tests)
 
+require("P2-M2 queued fake callback cannot reuse a newer token or nonce",
+        "object Stage17P2M2MockCallbackGuard" in p2m2_report and
+        "Stage17P2M2MockCallbackGuard.matches(" in p2l_service and
+        "queuedToken = token" in p2l_service and
+        "queuedNonce = nonce" in p2l_service and
+        "liveToken = activeToken" in p2l_service and
+        "liveNonce = attemptNonce" in p2l_service and
+        "fun emit(phase: Stage17P2LMockPhase) = sendFake(phase, token, nonce)" in p2l_service and
+        "finishFakeNormally(token, nonce)" in p2l_service and
+        "class Stage17P2M2MockCallbackGuardTest" in p2m2_tests and
+        "delayedCallbackCannotInheritNewTokenOrNonce" in p2m2_tests)
+
 require("P2-D QA quarantine must be compile-time enabled",
         "const val GPU_QA_SUSPENDED: Boolean = true" in quarantine)
 require("QA quarantine must deny GPU and AUTO, retaining only explicit CPU",

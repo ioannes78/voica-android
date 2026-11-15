@@ -99,3 +99,24 @@ neither fresh runtime events nor durable proof of native release.
 
 **P2-M2 scope closure is conditional on exact-head CI and APK evidence.**
 Real native/GPU qualification remains NOT AUTHORIZED.
+
+
+## P2-M2 implementation correction — deferred fake callbacks
+
+Follow-up source review revealed an additional hazard in the mock-only
+Service: an already-posted fake callback used to read the live mutable
+activeToken and attemptNonce fields when it eventually executed.
+After unbind followed by a new bind, it could be mislabeled as the
+new attempt even though it was posted by the previous attempt.
+
+This is now guarded by Stage17P2M2MockCallbackGuard: every fake
+delayed event captures the original token + nonce; it must still match
+the current active attempt before any phase is emitted. The fake
+onUnbind reset and the parent's ServiceConnection identity admission
+remain intact. Pure JVM tests cover old-token, old-nonce, closed and
+rebound scenarios. This is a MOCK callback protocol invariant, not
+a LiteRT-LM callback or GPU/native release proof.
+
+The exact post-change CI must also validate the new static source
+invariant before P2-M2 is considered code-gated. Real Binder death,
+actual OS rebind timing and all native/GPU behavior remain untested.
