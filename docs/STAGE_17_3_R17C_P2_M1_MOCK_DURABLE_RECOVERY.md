@@ -1,6 +1,6 @@
 # Stage 17.3 R17C-P2-M1 — Mock-only durable ownership / restart recovery
 
-Status: **IMPLEMENTED / EXACT-HEAD CI + APK PASS / REAL-DEVICE MOCK QA3 STEP 1 PASS / REOPEN RECOVERY PENDING / NO JNI OR GPU**.
+Status: **IMPLEMENTED / EXACT-HEAD CI + APK PASS / MOCK QA3 STEPS 1+2 PASS WITH DISPLAY-SNAPSHOT LIMIT / QA3 CALLBACK-RACE REPEAT PENDING / NO JNI OR GPU**.
 
 Repository: \`ioannes78/voica-android\`. Source baseline:
 \`b20343f5628ede4fd11eda5db52eb097e9d00276\`.
@@ -164,3 +164,64 @@ The optional callback-before-send-return repeat is not yet verified for P2-M1.
 
 No real JNI, GPU or AUTO execution was performed or approved. Real child death,
 binder reconnect and native resource ownership remain unresolved.
+
+
+## P2-M1 QA3 real-device reopen — step 2 (user-submitted)
+
+The user left and reopened Stage 17 P1 **without starting another mock
+attempt**. Observed copied report preserved the previous 13 ordered mock
+events and included the following fields:
+
+```text
+P2-L MOCK ONLY · NO LLM / NO JNI / NO GPU
+nativeExecution=false
+poisoned=false
+p2m1OwnerDurability=ARMED_DURABLE
+p2m1OwnerBlocked=false
+p2m1ReleaseCommitPending=false
+p2m1ChildExitCorrelation=NOT_CHECKED
+eventCount=13
+... previous P2-M1 QA3 step 1 mock events ...
+p2m1OwnerRecovery=LAST_MOCK_RELEASE_DURABLE
+p2m1OwnerBlocked=false
+```
+
+**QA3 step 2 = PASS WITH EXPLICIT DISPLAY-SNAPSHOT LIMIT.**
+The recovered journal verdict `LAST_MOCK_RELEASE_DURABLE` and the recovered
+`p2m1OwnerBlocked=false` directly meet the restart-read criterion. No
+intervening mock execution occurred. The independent step 1 output had
+already shown `RELEASE_CONFIRMED_DURABLE` after the fake release.
+
+**Interpretation of the apparent discrepancy:** Exact source audit of
+`Stage17P2LMockCoordinator.kt` at `d377677a95df112aa54b24f75a603ebca7014b59`
+shows the initial `_report` constructed as
+`prefs.getString("last", ...).orEmpty() + "\\np2m1OwnerRecovery=" +
+priorRecovery.reason + "\\np2m1OwnerBlocked=" + priorRecovery.blocked`.
+The preexisting `p2m1OwnerDurability=ARMED_DURABLE` and eventCount=13 are
+from the previous **best-effort cached phase text**, not fields freshly
+computed from the restored owner journal. On reentry, those cached phase
+fields are therefore historical even when they appear above the newly
+appended recovery fields. They must NOT be read as a current ARMED
+ownership state. The recovery verdict is derived from a separate persisted
+owner journal and is the relevant restart gate.
+
+**Known non-blocking QA diagnostic UI defect:** Cached phase-report text
+does not label itself as historical and presents the stale `ARMED_DURABLE`
+alongside the current `LAST_MOCK_RELEASE_DURABLE`. A follow-up
+QA report-format improvement should segregate previous report from
+restored owner status, ideally showing the owner journal state as current
+and the cached events under an explicit historical heading. This is a
+reporting ambiguity, **not evidence of failed recovery**. Do not declare
+all future race/crash recovery gates PASS from this test.
+
+P2-M1 mock real-device QA3 summary to date:
+- Step 1: fake NORMAL + durable release confirmation: **PASS**.
+- Step 2: reopen and recover durable journal: **PASS**, display snapshot
+  ambiguity documented.
+- Optional callback-before-SEND_RETURNED recheck on this P2-M1 build:
+  **PENDING**.
+- Actual Binder child death, native JNI release, device driver/HWUI
+  recovery and real GPU qualification: **NOT TESTED / NOT AUTHORIZED**.
+
+No runtime code change, new APK, GPU/AUTO action or model inference is
+introduced by this evidence-only record.
