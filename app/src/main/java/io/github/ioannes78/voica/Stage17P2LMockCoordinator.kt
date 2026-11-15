@@ -49,10 +49,9 @@ internal class Stage17P2LMockCoordinator(context: Context) {
     private val writer = Executors.newSingleThreadExecutor { work ->
         Thread(work, "stage17-p2l-mock-parent-write").apply { isDaemon = true }
     }
+    // The cached phase text is historical; current state comes from the owner journal.
     private val _report = MutableStateFlow(
-        prefs.getString("last", "P2-L MOCK ONLY · 尚无模拟记录").orEmpty() +
-            "\np2m1OwnerRecovery=" + priorRecovery.reason +
-            "\np2m1OwnerBlocked=" + priorRecovery.blocked,
+        Stage17P2M2MockReport.recovered(priorRecovery, prefs.getString("last", null)),
     )
     val report: StateFlow<String> = _report.asStateFlow()
     private var connection: ServiceConnection? = null
@@ -132,8 +131,17 @@ internal class Stage17P2LMockCoordinator(context: Context) {
         val serviceConnection =
             object : ServiceConnection {
                 override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
-                    if (!ledger.canAccept(token) || name?.className !=
-                        Stage17P2LMockProbeService::class.java.name || binder == null
+                    // Android may deliver onServiceConnected after a child restart;
+                    // a stale binding is never permission to resend a fake request.
+                    if (!Stage17P2M2MockConnectionPolicy.canSend(
+                            bindingIsCurrent = connection === this,
+                            tokenActive = ledger.canAccept(token),
+                            ownerBlocked = ownerBlocked,
+                            releaseCommitPending = releaseCommitPending,
+                            serviceClassMatches =
+                                name?.className == Stage17P2LMockProbeService::class.java.name,
+                            binderPresent = binder != null,
+                        )
                     ) {
                         fail(token, Stage17P2LMockPhase.BIND_FAILED)
                         return
@@ -374,6 +382,8 @@ internal class Stage17P2LMockCoordinator(context: Context) {
     private fun formatReport(): String = buildString {
         appendLine("P2-L MOCK ONLY · NO LLM / NO JNI / NO GPU")
         appendLine("nativeExecution=false")
+        appendLine("p2m2ReportScope=LIVE_MOCK_ATTEMPT")
+        appendLine("historicalSnapshotOnly=false")
         appendLine("poisoned=${ledger.isPoisoned() || ownerBlocked}")
         appendLine("p2m1OwnerDurability=$ownerDurableState")
         appendLine("p2m1OwnerBlocked=$ownerBlocked")

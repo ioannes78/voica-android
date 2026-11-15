@@ -167,6 +167,17 @@ class Stage17P2LMockProbeService : Service() {
                 ?.processName.orEmpty()
         }
 
+    // Fake-only unbind resets the previous attempt token. This does not
+    // demonstrate native resource cleanup: no native work occurs here.
+    override fun onUnbind(intent: Intent?): Boolean {
+        parent = null
+        activeToken = 0
+        attemptNonce = null
+        scenario = null
+        fakeTerminal = false
+        return false
+    }
+
     override fun onDestroy() {
         mockThread.quitSafely()
         parent = null
