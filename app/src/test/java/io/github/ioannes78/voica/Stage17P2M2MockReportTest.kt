@@ -112,3 +112,18 @@ class Stage17P2M2MockConnectionPolicyTest {
         assertFalse(canSend(bindingIsCurrent = false, tokenActive = false))
     }
 }
+
+
+/** A prior asynchronous fake callback must not impersonate a later attempt. */
+class Stage17P2M2MockCallbackGuardTest {
+    @Test fun delayedCallbackCannotInheritNewTokenOrNonce() {
+        val token = 131
+        val nonce = "old-opaque-nonce"
+        val guard = Stage17P2M2MockCallbackGuard
+        assertTrue(guard.matches(token, nonce, token, nonce))
+        assertFalse(guard.matches(token, nonce, 999, "new-opaque-nonce"))
+        assertFalse(guard.matches(token, nonce, token, "new-opaque-nonce"))
+        assertFalse(guard.matches(token, nonce, 0, null))
+        assertFalse(guard.matches(token, null, token, nonce))
+    }
+}

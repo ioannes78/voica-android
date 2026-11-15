@@ -23,11 +23,11 @@ import android.os.RemoteException
 class Stage17P2LMockProbeService : Service() {
     private lateinit var mockThread: HandlerThread
     private lateinit var mockHandler: Handler
-    private var activeToken: Int = 0
-    private var scenario: Stage17P2LMockScenario? = null
-    private var parent: Messenger? = null
-    private var fakeTerminal: Boolean = false
-    private var attemptNonce: String? = null
+    @Volatile private var activeToken: Int = 0
+    @Volatile private var scenario: Stage17P2LMockScenario? = null
+    @Volatile private var parent: Messenger? = null
+    @Volatile private var fakeTerminal: Boolean = false
+    @Volatile private var attemptNonce: String? = null
 
     private val inbound = Messenger(Handler(Looper.getMainLooper()) { message ->
         when (message.what) {
@@ -70,39 +70,42 @@ class Stage17P2LMockProbeService : Service() {
         parent = reply
         fakeTerminal = false
 
+        val token = message.arg1
         mockHandler.post {
-            sendFake(Stage17P2LMockPhase.MODEL_INITIALIZING)
-            sendFake(Stage17P2LMockPhase.MODEL_READY)
-            sendFake(Stage17P2LMockPhase.CONVERSATION_ENTERED)
-            sendFake(Stage17P2LMockPhase.CONVERSATION_READY)
-            sendFake(Stage17P2LMockPhase.SEND_ENTERED)
+            if (!matchesAttempt(token, nonce)) return@post
+            fun emit(phase: Stage17P2LMockPhase) = sendFake(phase, token, nonce)
+            emit(Stage17P2LMockPhase.MODEL_INITIALIZING)
+            emit(Stage17P2LMockPhase.MODEL_READY)
+            emit(Stage17P2LMockPhase.CONVERSATION_ENTERED)
+            emit(Stage17P2LMockPhase.CONVERSATION_READY)
+            emit(Stage17P2LMockPhase.SEND_ENTERED)
 
             when (selected) {
                 Stage17P2LMockScenario.SUBMISSION_NOT_RETURNED -> {
                     // Deliberately stop reporting. No thread is actually blocked.
                 }
                 Stage17P2LMockScenario.CALLBACK_BEFORE_RETURN -> {
-                    sendFake(Stage17P2LMockPhase.FIRST_EMISSION)
-                    sendFake(Stage17P2LMockPhase.SEND_RETURNED)
-                    sendFake(Stage17P2LMockPhase.TERMINAL_AWAIT_ENTERED)
-                    mockHandler.postDelayed({ finishFakeNormally() }, 40L)
+                    emit(Stage17P2LMockPhase.FIRST_EMISSION)
+                    emit(Stage17P2LMockPhase.SEND_RETURNED)
+                    emit(Stage17P2LMockPhase.TERMINAL_AWAIT_ENTERED)
+                    mockHandler.postDelayed({ finishFakeNormally(token, nonce) }, 40L)
                 }
                 Stage17P2LMockScenario.NORMAL,
                 Stage17P2LMockScenario.TERMINAL_MISSING,
                 Stage17P2LMockScenario.CANCEL_ACKNOWLEDGED,
                 Stage17P2LMockScenario.CANCEL_UNACKNOWLEDGED,
                 -> {
-                    sendFake(Stage17P2LMockPhase.SEND_RETURNED)
-                    sendFake(Stage17P2LMockPhase.TERMINAL_AWAIT_ENTERED)
+                    emit(Stage17P2LMockPhase.SEND_RETURNED)
+                    emit(Stage17P2LMockPhase.TERMINAL_AWAIT_ENTERED)
                     when (selected) {
                         Stage17P2LMockScenario.NORMAL ->
                             mockHandler.postDelayed({
-                                sendFake(Stage17P2LMockPhase.FIRST_EMISSION)
-                                finishFakeNormally()
+                                emit(Stage17P2LMockPhase.FIRST_EMISSION)
+                                finishFakeNormally(token, nonce)
                             }, 40L)
                         Stage17P2LMockScenario.TERMINAL_MISSING ->
                             mockHandler.postDelayed({
-                                sendFake(Stage17P2LMockPhase.FIRST_EMISSION)
+                                emit(Stage17P2LMockPhase.FIRST_EMISSION)
                                 // No terminal (simulated), parent must report timeout.
                             }, 40L)
                         else -> Unit // Only explicit fake cancel causes an acknowledgment.
@@ -113,30 +116,40 @@ class Stage17P2LMockProbeService : Service() {
     }
 
     private fun cancelMockRun(message: Message) {
-        if (activeToken == 0 || message.arg1 != activeToken || fakeTerminal) return
+        val token = message.arg1
+        val nonce = attemptNonce ?: return
+        if (!matchesAttempt(token, nonce) || fakeTerminal) return
         mockHandler.post {
-            sendFake(Stage17P2LMockPhase.CANCEL_SIGNAL_SENT)
+            if (!matchesAttempt(token, nonce)) return@post
+            sendFake(Stage17P2LMockPhase.CANCEL_SIGNAL_SENT, token, nonce)
             if (scenario == Stage17P2LMockScenario.CANCEL_ACKNOWLEDGED) {
-                sendFake(Stage17P2LMockPhase.TERMINAL_ERROR)
-                sendFake(Stage17P2LMockPhase.CANCEL_ACKNOWLEDGED)
-                sendFake(Stage17P2LMockPhase.RELEASE_CONFIRMED)
-                fakeTerminal = true
+                sendFake(Stage17P2LMockPhase.TERMINAL_ERROR, token, nonce)
+                sendFake(Stage17P2LMockPhase.CANCEL_ACKNOWLEDGED, token, nonce)
+                sendFake(Stage17P2LMockPhase.RELEASE_CONFIRMED, token, nonce)
+                if (matchesAttempt(token, nonce)) fakeTerminal = true
             }
             // CANCEL_UNACKNOWLEDGED intentionally emits no acknowledgment.
         }
     }
 
-    private fun finishFakeNormally() {
-        if (fakeTerminal) return
-        sendFake(Stage17P2LMockPhase.TERMINAL_DONE)
-        sendFake(Stage17P2LMockPhase.RELEASE_CONFIRMED)
-        fakeTerminal = true
+    private fun matchesAttempt(token: Int, nonce: String): Boolean =
+        Stage17P2M2MockCallbackGuard.matches(
+            queuedToken = token,
+            queuedNonce = nonce,
+            liveToken = activeToken,
+            liveNonce = attemptNonce,
+        )
+
+    private fun finishFakeNormally(token: Int, nonce: String) {
+        if (!matchesAttempt(token, nonce) || fakeTerminal) return
+        sendFake(Stage17P2LMockPhase.TERMINAL_DONE, token, nonce)
+        sendFake(Stage17P2LMockPhase.RELEASE_CONFIRMED, token, nonce)
+        if (matchesAttempt(token, nonce)) fakeTerminal = true
     }
 
-    private fun sendFake(phase: Stage17P2LMockPhase) {
+    private fun sendFake(phase: Stage17P2LMockPhase, token: Int, nonce: String) {
+        if (!matchesAttempt(token, nonce)) return
         val recipient = parent ?: return
-        val token = activeToken
-        if (token <= 0) return
         val event =
             Message.obtain(
                 null,
@@ -146,7 +159,7 @@ class Stage17P2LMockProbeService : Service() {
             )
         event.data =
             Bundle().apply {
-                putString(Stage17P2M1MockJournal.EXTRA_NONCE, attemptNonce)
+                putString(Stage17P2M1MockJournal.EXTRA_NONCE, nonce)
                 putInt(Stage17P2LMockContract.EXTRA_PID, Process.myPid())
                 putString(Stage17P2LMockContract.EXTRA_PROCESS, currentProcessName())
             }

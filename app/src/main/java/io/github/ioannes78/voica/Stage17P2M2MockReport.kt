@@ -48,3 +48,19 @@ internal object Stage17P2M2MockConnectionPolicy {
         bindingIsCurrent && tokenActive && !ownerBlocked &&
             !releaseCommitPending && serviceClassMatches && binderPresent
 }
+
+
+/**
+ * A queued fake callback must never inherit a newer request's token/nonce
+ * after onUnbind or Android Service process reuse.
+ */
+internal object Stage17P2M2MockCallbackGuard {
+    fun matches(
+        queuedToken: Int,
+        queuedNonce: String?,
+        liveToken: Int,
+        liveNonce: String?,
+    ): Boolean =
+        queuedToken > 0 && queuedToken == liveToken &&
+            !queuedNonce.isNullOrBlank() && queuedNonce == liveNonce
+}
