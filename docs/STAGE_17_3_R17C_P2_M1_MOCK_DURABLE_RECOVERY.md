@@ -1,6 +1,6 @@
 # Stage 17.3 R17C-P2-M1 — Mock-only durable ownership / restart recovery
 
-Status: **IMPLEMENTED ON STAGE17 DRAFT BRANCH / EXACT-HEAD CI PENDING / MOCK REAL-DEVICE QA PENDING / NO JNI OR GPU**.
+Status: **IMPLEMENTED / EXACT-HEAD CI + APK PASS / REAL-DEVICE MOCK QA3 STEP 1 PASS / REOPEN RECOVERY PENDING / NO JNI OR GPU**.
 
 Repository: \`ioannes78/voica-android\`. Source baseline:
 \`b20343f5628ede4fd11eda5db52eb097e9d00276\`.
@@ -111,3 +111,56 @@ The following remain for separate P2-M2/P2-N review:
 
 GPU / AUTO QA remains **FAIL / SUSPENDED**, model inference remains
 unmodified, and there is **no P2-N real GPU authorization**.
+
+
+## P2-M1 QA3 real-device NORMAL — step 1 (user-submitted)
+
+Observed from the installed QA APK built at source commit
+`3cd94de26e80580825bb4e4074fca50252bbc605` (source unchanged by this
+documentation-only update). Precise-source Android PR CI run
+`43605843146`: SUCCESS; diagnostic releaseQa APK run `43605843115`: SUCCESS.
+
+Header from the device:
+
+```text
+P2-L MOCK ONLY · NO LLM / NO JNI / NO GPU
+nativeExecution=false
+poisoned=false
+p2m1OwnerDurability=RELEASE_CONFIRMED_DURABLE
+p2m1OwnerBlocked=false
+p2m1ReleaseCommitPending=false
+p2m1ChildExitCorrelation=NOT_CHECKED
+eventCount=13
+```
+
+| Event | Observed relative ms |
+| --- | ---: |
+| PARENT_ARM_PERSISTED | 0 |
+| BIND_REQUESTED | 5 |
+| CHILD_BOUND | 79 |
+| MODEL_INITIALIZING | 93 |
+| MODEL_READY | 94 |
+| CONVERSATION_ENTERED | 96 |
+| CONVERSATION_READY | 97 |
+| SEND_ENTERED | 98 |
+| SEND_RETURNED | 99 |
+| TERMINAL_AWAIT_ENTERED | 99 |
+| FIRST_EMISSION | 126 |
+| TERMINAL_DONE | 127 |
+| RELEASE_CONFIRMED | 129 |
+
+**QA3 step 1 = PASS WITH LIMITED COVERAGE.** The parent received a complete
+mock normal ordering and reported a separately committed fake ownership release
+(`RELEASE_CONFIRMED_DURABLE`) with no pending commit, no poison, and owner
+unblocked. These milliseconds represent mock IPC phases rather than real model
+latency. `p2m1ChildExitCorrelation=NOT_CHECKED` is expected without child death.
+
+**QA3 step 2 remains PENDING.** The user must leave the Stage 17 P1 QA screen,
+reopen it without force-stop/clearing data, and copy the P2-L panel **without
+launching another mock run first**. Required recovered scalar:
+`p2m1OwnerRecovery=LAST_MOCK_RELEASE_DURABLE`,
+`p2m1OwnerBlocked=false`. Do not call QA3 complete until this is observed.
+The optional callback-before-send-return repeat is not yet verified for P2-M1.
+
+No real JNI, GPU or AUTO execution was performed or approved. Real child death,
+binder reconnect and native resource ownership remain unresolved.
