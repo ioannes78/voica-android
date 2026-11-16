@@ -121,6 +121,7 @@ private fun Stage17P1LocalLlmScreen(
     val p2iBoundarySnapshot by p2iBoundaryStore.snapshot.collectAsState()
     val p2lMock = remember(appContext) { Stage17P2LMockCoordinator(appContext) }
     val p2lMockReport by p2lMock.report.collectAsState()
+    var p2m3DeathConfirmation by remember { mutableStateOf(false) }
     DisposableEffect(p2lMock) {
         onDispose { p2lMock.close() }
     }
@@ -1215,6 +1216,29 @@ private fun Stage17P1LocalLlmScreen(
                 OutlinedButton(
                     onClick = { clipboard.setText(AnnotatedString(p2lMockReport)) },
                 ) { Text("复制 P2-L MOCK 诊断") }
+                OutlinedButton(
+                    enabled = !busy,
+                    onClick = { p2m3DeathConfirmation = !p2m3DeathConfirmation },
+                ) {
+                    Text(if (p2m3DeathConfirmation) "取消子进程死亡演练准备" else "准备 P2-M3 子进程死亡演练")
+                }
+                if (p2m3DeathConfirmation) {
+                    Text(
+                        "一次性 QA 测试：仅使 :stage17_mock_probe 模拟进程退出，主 App 不退出。" +
+                            "预期产生持久化 Poison，此后 P2-L 模拟功能将保持阻断，" +
+                            "不能自动重试；不清除应用数据。不涉及模型/JNI/GPU。",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    OutlinedButton(
+                        enabled = !busy,
+                        onClick = {
+                            p2m3DeathConfirmation = false
+                            scope.launch {
+                                p2lMock.start(Stage17P2LMockScenario.CHILD_PROCESS_SELF_EXIT_AFTER_SEND)
+                            }
+                        },
+                    ) { Text("确认一次性模拟子进程死亡") }
+                }
                 Text(
                     "此处没有 GPU 入口。进程异常、超时或结果无法确认后禁止本次页面自动重试。",
                     style = MaterialTheme.typography.bodySmall,

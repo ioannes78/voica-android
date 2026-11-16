@@ -38,6 +38,8 @@ internal enum class Stage17P2LMockScenario {
     TERMINAL_MISSING,
     CANCEL_ACKNOWLEDGED,
     CANCEL_UNACKNOWLEDGED,
+    // QA-only explicit one-shot child-process self exit. Never executes LLM or JNI.
+    CHILD_PROCESS_SELF_EXIT_AFTER_SEND,
 }
 
 internal enum class Stage17P2LMockPhase {

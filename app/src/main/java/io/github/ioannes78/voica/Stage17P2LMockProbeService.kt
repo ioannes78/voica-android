@@ -81,6 +81,20 @@ class Stage17P2LMockProbeService : Service() {
             emit(Stage17P2LMockPhase.SEND_ENTERED)
 
             when (selected) {
+                Stage17P2LMockScenario.CHILD_PROCESS_SELF_EXIT_AFTER_SEND -> {
+                    // This is the ONLY path permitted to deliberately terminate the
+                    // private QA :stage17_mock_probe child; NO JNI/GPU is loaded.
+                    // Allow queued fake SEND_ENTERED to reach the parent first.
+                    mockHandler.postDelayed({
+                        if (Stage17P2M3MockDeathGuard.canSelfTerminate(
+                                packageName, currentProcessName(),
+                                selected, matchesAttempt(token, nonce),
+                            )
+                        ) {
+                            Process.killProcess(Process.myPid())
+                        }
+                    }, 180L)
+                }
                 Stage17P2LMockScenario.SUBMISSION_NOT_RETURNED -> {
                     // Deliberately stop reporting. No thread is actually blocked.
                 }
