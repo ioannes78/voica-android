@@ -1,7 +1,6 @@
 # Stage 17.3 R17C P2-M3 — QA mock child-process death and fail-closed recovery
 
-Status: IMPLEMENTED ON DRAFT BRANCH / EXACT-HEAD CI AND APK PENDING /
-REAL-DEVICE QA5 NOT STARTED / NO JNI OR GPU.
+Status: IMPLEMENTED / SOURCE CI + APK SUCCESS / QA5 TWO-STEP REAL-DEVICE MOCK BINDER DEATH + STICKY POISON RECOVERY PASS / REAL JNI AND GPU NOT TESTED.
 
 Repository: ioannes78/voica-android.
 Implementation baseline: c690f316868ac05ea1cc2554f6c0f1caac13e2f2.
@@ -114,3 +113,105 @@ This work does NOT prove true ModelUseRegistry cross-process leasing,
 native JNI thread-affinity, LiteRT-LM cancellation/close safety,
 GPU driver/HWUI resource release, or system-wide ANR isolation.
 GPU/AUTO remains FAIL/SUSPENDED and PR #37 remains DRAFT/UNMERGED.
+
+
+## QA5 closure — on-device child death + reopen (user-provided evidence)
+
+**VERDICT: QA5 TWO STEPS PASS WITH LIMITED MOCK-ONLY COVERAGE.**
+Installed diagnostic APK source:
+`0b093f7a99d336a493addbfa51921a7d533a8d53`.
+Android PR CI `43813956689` = SUCCESS;
+Stage 17.3 QA APK `43813956597` = SUCCESS.
+This is the EXACT code source used for the QA5 device run; the present
+documentation-only update does not change runtime/APK semantics.
+
+### Step 1 — LIVE_MOCK_ATTEMPT: actual child exit/Binder disconnect
+
+```text
+P2-L MOCK ONLY · NO LLM / NO JNI / NO GPU
+nativeExecution=false
+p2m2ReportScope=LIVE_MOCK_ATTEMPT
+historicalSnapshotOnly=false
+poisoned=true
+p2m1OwnerDurability=UNRESOLVED_POISON_DURABLE
+p2m1OwnerBlocked=true
+p2m1ReleaseCommitPending=false
+p2m1ChildExitCorrelation=MATCHED
+p2m3ExitEvidenceDurability=COMMITTED
+eventCount=9
++0ms PARENT_ARM_PERSISTED
++11ms BIND_REQUESTED
++87ms CHILD_BOUND
++93ms MODEL_INITIALIZING
++94ms MODEL_READY
++94ms CONVERSATION_ENTERED
++95ms CONVERSATION_READY
++95ms SEND_ENTERED
++295ms BINDER_DIED
+```
+
+**Step 1 PASS**: observed a genuine Android ServiceConnection
+`BINDER_DIED` callback following the intentionally killed mock child
+after fake `SEND_ENTERED`. The parent explicitly denied further mock
+admission and committed its unresolved poison state. There was no
+`TERMINAL_DONE` or `RELEASE_CONFIRMED`. A bounded
+`ApplicationExitInfo` candidate matched the child process/PID/UID/time
+window and the **scalar metadata verdict** was persisted. This
+does **not** attribute a GPU ANR or demonstrate native release.
+
+### Step 2 — RECOVERED_OWNER_JOURNAL: reopen after child death
+
+The user exited/reopened Stage 17 P1 without launching another mock task
+and supplied this full report:
+
+```text
+P2-L MOCK ONLY · NO LLM / NO JNI / NO GPU
+nativeExecution=false
+p2m2ReportScope=RECOVERED_OWNER_JOURNAL
+poisoned=true
+p2m1OwnerDurability=UNRESOLVED_POISON_DURABLE
+p2m1OwnerRecovery=STICKY_MOCK_POISON
+p2m1OwnerBlocked=true
+p2m1ReleaseCommitPending=false
+p2m1ChildExitCorrelation=NOT_CHECKED
+eventCount=0
+historicalSnapshotOnly=true
+historicalEventCount=9
+historicalEvent=+0ms PARENT_ARM_PERSISTED
+historicalEvent=+11ms BIND_REQUESTED
+historicalEvent=+87ms CHILD_BOUND
+historicalEvent=+93ms MODEL_INITIALIZING
+historicalEvent=+94ms MODEL_READY
+historicalEvent=+94ms CONVERSATION_ENTERED
+historicalEvent=+95ms CONVERSATION_READY
+historicalEvent=+95ms SEND_ENTERED
+historicalEvent=+295ms BINDER_DIED
+p2m3RecoveredExitEvidence=MATCHED
+```
+
+**Step 2 PASS**: the recovered journal retained
+`STICKY_MOCK_POISON`, `UNRESOLVED_POISON_DURABLE`, and blocked further
+fake admission. Current event count is zero; all nine previous events
+are clearly labeled historical. `p2m3RecoveredExitEvidence=MATCHED`
+correctly recovers the prior metadata correlation, while
+`p2m1ChildExitCorrelation=NOT_CHECKED` correctly means the reopened
+screen has not performed a *new live* exit-history query. These fields
+are not contradictory.
+
+### Completion decision / remaining gates
+
+P2-M3 QA5 **COMPLETE/PASS** within its approved QA-only scope:
+- child death -> real Binder disconnection callback: PASS;
+- durable unresolved poisoned ownership: PASS;
+- page reentry -> sticky fail-closed block: PASS;
+- history-correlation metadata persistence/recovery: PASS.
+
+Still **NOT VERIFIED**: parent-main-process death and actual process-restart
+crash consistency, repeated Binder reconnects under system stress,
+true shared model ownership across processes, JNI thread-affinity or
+teardown, HWUI/GPU-driver stability, recovery of the historical GPU ANR,
+and production authorization. Do not auto-reset the sticky mock
+state and do not clear QA app data. A future test-fixture reset must
+be designed separately for mock-only code, with explicit authorization.
+P2-N real GPU is **NOT AUTHORIZED**; P2-D GPU/AUTO hard-suspension stays
+in place; PR #37 stays OPEN/DRAFT, and production main stays unchanged.
