@@ -123,3 +123,25 @@ class Stage17P2M3MockDeathTest {
         assertEquals(Stage17P2M1MockExitCorrelator.Verdict.UNKNOWN, reusedPid)
     }
 }
+
+
+/** Pure JVM testing of generation-scoped crash-exit evidence. */
+class Stage17P2M3MockExitEvidenceTest {
+    @Test fun matchingGenerationMayRecoverOnlyNormalizedExitVerdict() {
+        val x = Stage17P2M3MockExitEvidence.encode(7, "MATCHED")
+        assertEquals("MATCHED", Stage17P2M3MockExitEvidence.recovered(x, 7L))
+        assertEquals("DIFFERENT_ATTEMPT", Stage17P2M3MockExitEvidence.recovered(x, 8L))
+    }
+
+    @Test fun missingOrMalformedExitEvidenceNeverClaimsProcessAttribution() {
+        assertEquals("NOT_RECORDED", Stage17P2M3MockExitEvidence.recovered(null, 7L))
+        assertEquals("INVALID_RECORD",
+            Stage17P2M3MockExitEvidence.recovered("P2M3V1|0|MATCHED", 7L))
+        assertEquals("INVALID_RECORD",
+            Stage17P2M3MockExitEvidence.recovered("P2M3V1|7|GPU_ANR", 7L))
+        assertEquals("INVALID_RECORD",
+            Stage17P2M3MockExitEvidence.recovered("random", 7L))
+        assertEquals("UNKNOWN", Stage17P2M3MockExitEvidence.recovered(
+            Stage17P2M3MockExitEvidence.encode(7, "UNKNOWN"), 7L))
+    }
+}

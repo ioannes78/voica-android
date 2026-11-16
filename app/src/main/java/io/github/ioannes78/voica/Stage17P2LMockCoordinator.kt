@@ -45,13 +45,19 @@ internal class Stage17P2LMockCoordinator(context: Context) {
     private var attemptNonce: String? = null
     private var childPid = 0
     private var childExitCorrelation = "NOT_CHECKED"
+    private var childExitEvidenceDurability = "NOT_COMMITTED"
     private val main = Handler(Looper.getMainLooper())
     private val writer = Executors.newSingleThreadExecutor { work ->
         Thread(work, "stage17-p2l-mock-parent-write").apply { isDaemon = true }
     }
     // The cached phase text is historical; current state comes from the owner journal.
     private val _report = MutableStateFlow(
-        Stage17P2M2MockReport.recovered(priorRecovery, prefs.getString("last", null)),
+        Stage17P2M2MockReport.recovered(priorRecovery, prefs.getString("last", null)) +
+            "\np2m3RecoveredExitEvidence=" +
+            Stage17P2M3MockExitEvidence.recovered(
+                journalPrefs.getString("child_exit_evidence", null),
+                priorRecovery.record?.generation,
+            ),
     )
     val report: StateFlow<String> = _report.asStateFlow()
     private var connection: ServiceConnection? = null
@@ -99,6 +105,7 @@ internal class Stage17P2LMockCoordinator(context: Context) {
         attemptNonce = nonce
         childPid = 0
         childExitCorrelation = "NOT_CHECKED"
+        childExitEvidenceDurability = "NOT_COMMITTED"
         ownerDurableState = "ARM_COMMIT_PENDING"
         if (!ledger.arm(token)) {
             ownerBlocked = true
@@ -130,6 +137,8 @@ internal class Stage17P2LMockCoordinator(context: Context) {
 
         val serviceConnection =
             object : ServiceConnection {
+                private var commandIssued = false
+
                 override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
                     // Android may deliver onServiceConnected after a child restart;
                     // a stale binding is never permission to resend a fake request.
@@ -146,6 +155,13 @@ internal class Stage17P2LMockCoordinator(context: Context) {
                         fail(token, Stage17P2LMockPhase.BIND_FAILED)
                         return
                     }
+                    // One bind may reconnect after death. Even if callbacks arrive
+                    // out of order, this attempt may dispatch at most one request.
+                    if (commandIssued) {
+                        fail(token, Stage17P2LMockPhase.BINDER_DIED)
+                        return
+                    }
+                    commandIssued = true
                     remote = Messenger(binder)
                     record(token, Stage17P2LMockPhase.CHILD_BOUND)
                     val request =
@@ -332,37 +348,80 @@ internal class Stage17P2LMockCoordinator(context: Context) {
      * Exit info is metadata only; absent/ambiguous matches remain UNKNOWN.
      * This does not fetch raw traces or attribute GPU faults to any component.
      */
+    /**
+     * Historical Android exits may become visible after onServiceDisconnected.
+     * Look up a bounded number of times, asynchronously. A missing/ambiguous
+     * record remains UNKNOWN and never clears mock poison or grants a retry.
+     */
     private fun observeHistoricalChildExit() {
         val record = ownerRecord ?: return
         val pid = childPid
         if (pid <= 0 || Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             childExitCorrelation = "UNKNOWN"
+            persistChildExitEvidence(
+                record.generation,
+                if (pid <= 0) "PID_UNOBSERVED" else "API_UNAVAILABLE",
+            )
             return
         }
+
+        fun lookup(remaining: Int) {
+            if (closed) return
+            writer.execute {
+                val now = System.currentTimeMillis()
+                val match = runCatching {
+                    val manager = app.getSystemService(ActivityManager::class.java)
+                    val history = manager.getHistoricalProcessExitReasons(app.packageName, 0, 16)
+                    Stage17P2M1MockExitCorrelator.classify(
+                        candidates = history.map { info ->
+                            Stage17P2M1MockExitRecord(
+                                processName = info.processName,
+                                pid = info.pid,
+                                uid = info.realUid,
+                                exitEpochMs = info.timestamp,
+                                reason = info.reason,
+                            )
+                        },
+                        expectedProcess = record.processName,
+                        childPid = pid,
+                        appUid = app.applicationInfo.uid,
+                        armEpochMs = record.armEpochMs,
+                        observedAtEpochMs = now,
+                    )
+                }.getOrDefault(Stage17P2M1MockExitCorrelator.Verdict.UNKNOWN)
+
+                main.post {
+                    if (closed || ownerRecord?.generation != record.generation) return@post
+                    if (match == Stage17P2M1MockExitCorrelator.Verdict.UNKNOWN &&
+                        remaining > 0
+                    ) {
+                        childExitCorrelation = "AWAITING_EXIT_HISTORY"
+                        _report.value = formatReport()
+                        main.postDelayed({ lookup(remaining - 1) }, 450L)
+                    } else {
+                        childExitCorrelation = match.name
+                        _report.value = formatReport()
+                        persistChildExitEvidence(record.generation, match.name)
+                    }
+                }
+            }
+        }
+        lookup(3)
+    }
+
+    /** Scalar verdict and generation only; never a raw trace, pid or content. */
+    private fun persistChildExitEvidence(generation: Long, verdict: String) {
+        if (closed) return
         writer.execute {
-            val now = System.currentTimeMillis()
-            val match = runCatching {
-                val manager = app.getSystemService(ActivityManager::class.java)
-                val history = manager.getHistoricalProcessExitReasons(app.packageName, 0, 16)
-                Stage17P2M1MockExitCorrelator.classify(
-                    candidates = history.map { info ->
-                        Stage17P2M1MockExitRecord(
-                            processName = info.processName,
-                            pid = info.pid,
-                            uid = info.realUid,
-                            exitEpochMs = info.timestamp,
-                            reason = info.reason,
-                        )
-                    },
-                    expectedProcess = record.processName,
-                    childPid = pid,
-                    appUid = app.applicationInfo.uid,
-                    armEpochMs = record.armEpochMs,
-                    observedAtEpochMs = now,
-                )
-            }.getOrDefault(Stage17P2M1MockExitCorrelator.Verdict.UNKNOWN)
+            val durable = runCatching {
+                journalPrefs.edit().putString(
+                    "child_exit_evidence",
+                    Stage17P2M3MockExitEvidence.encode(generation, verdict),
+                ).commit()
+            }.getOrDefault(false)
             main.post {
-                childExitCorrelation = match.name
+                childExitEvidenceDurability =
+                    if (durable) "COMMITTED" else "FAILED"
                 if (!closed) _report.value = formatReport()
             }
         }
@@ -389,6 +448,7 @@ internal class Stage17P2LMockCoordinator(context: Context) {
         appendLine("p2m1OwnerBlocked=$ownerBlocked")
         appendLine("p2m1ReleaseCommitPending=$releaseCommitPending")
         appendLine("p2m1ChildExitCorrelation=$childExitCorrelation")
+        appendLine("p2m3ExitEvidenceDurability=$childExitEvidenceDurability")
         val phases = ledger.snapshot()
         appendLine("eventCount=${phases.size}")
         phases.forEach { event -> appendLine("+${event.elapsedMs}ms ${event.phase.name}") }
