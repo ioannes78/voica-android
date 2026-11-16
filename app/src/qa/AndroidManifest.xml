@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <!-- P2-M4B1: disposable QA Binder fixtures; never registered in production. -->
+        <service android:name=".Stage17P2M4BParentService"
+            android:exported="false" android:process=":stage17_m4b_parent" />
+        <service android:name=".Stage17P2M4BChildService"
+            android:exported="false" android:process=":stage17_m4b_child" />
+
         <!-- Stage17 P2-L fake-only, non-exported QA service. No native inference. -->
         <service
             android:name=".Stage17P2LMockProbeService"
