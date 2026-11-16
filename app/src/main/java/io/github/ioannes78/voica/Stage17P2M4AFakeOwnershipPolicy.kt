@@ -49,7 +49,7 @@ internal data class Stage17P2M4AFakeOwnerRecord(
  */
 internal object Stage17P2M4AFakeCodec {
     private const val VERSION = "P2M4AV1"
-    private val noncePattern = Regex("[0-9a-fA-F-]{36}")
+    private val noncePattern = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
     fun encode(record: Stage17P2M4AFakeOwnerRecord): String {
         if (record.phase == Stage17P2M4AFakePhase.VERIFIED_NEVER_ARMED) {
@@ -165,7 +165,7 @@ internal class Stage17P2M4AFakeArbiter(
         nonce: String,
     ): Stage17P2M4AFakeVerdict = synchronized(journal) {
         val previous = usableRecord() ?: return@synchronized deny("JOURNAL_UNTRUSTED")
-        if (!model.valid() || !Regex("[0-9a-fA-F-]{36}").matches(nonce)) {
+        if (!model.valid() || !Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}").matches(nonce)) {
             return@synchronized deny("IDENTITY_INVALID")
         }
         if (previous.phase != Stage17P2M4AFakePhase.VERIFIED_NEVER_ARMED &&

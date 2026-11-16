@@ -311,6 +311,55 @@ require("P2-M3 JVM failure matrix, exit evidence and no JNI",
         "missingOrMalformedExitEvidenceNeverClaimsProcessAttribution" in p2m3_tests and
         "import com.google.ai.edge.litertlm" not in p2m3_tests)
 
+p2m4a_policy = source(
+    "app/src/main/java/io/github/ioannes78/voica/Stage17P2M4AFakeOwnershipPolicy.kt"
+)
+p2m4a_tests = source(
+    "app/src/test/java/io/github/ioannes78/voica/Stage17P2M4AFakeOwnershipPolicyTest.kt"
+)
+model_manager = source(
+    "core/model/src/main/kotlin/io/github/ioannes78/voica/model/DefaultModelManager.kt"
+)
+require("P2-M4A must remain JVM fake arbitration, no Android/native/file I/O",
+        "class Stage17P2M4AFakeJournal" in p2m4a_policy and
+        "class Stage17P2M4AFakeArbiter" in p2m4a_policy and
+        "object Stage17P2M4AFakeCodec" in p2m4a_policy and
+        "synchronized(journal)" in p2m4a_policy and
+        "JOURNAL_UNTRUSTED" in p2m4a_policy and
+        "OWNER_UNRESOLVED" in p2m4a_policy and
+        "UNRESOLVED_POISONED" in p2m4a_policy and
+        "childAdmission(" in p2m4a_policy and
+        "modelMutation(" in p2m4a_policy and
+        "legacyLocalLeaseClosed(" in p2m4a_policy and
+        "parentCommitRelease(" in p2m4a_policy and
+        all(s not in p2m4a_policy + p2m4a_tests
+            for s in ("import android.", "import com.google.ai.edge.litertlm",
+                      "import java.io.File", "import java.nio.channels.FileLock",
+                      "Process.killProcess(", "LiteRtLocalLlmRuntime(",
+                      "sendMessageAsync(", "createConversation(")))
+require("P2-M4A policy not connected to product/model manager or GPU",
+        "Stage17P2M4AFakeArbiter" not in app and
+        "Stage17P2M4AFakeArbiter" not in native and
+        "Stage17P2M4AFakeArbiter" not in model_manager and
+        "Stage17P2M4AFakeArbiter" not in p2l_parent and
+        "const val GPU_QA_SUSPENDED: Boolean = true" in quarantine)
+require("P2-M4A JVM matrix covers parent crash / contenders / model mutation",
+        "class Stage17P2M4AFakeOwnershipPolicyTest" in p2m4a_tests and
+        "parentDeathBeforeDurableArmNeverAdmits" in p2m4a_tests and
+        "parentDeathAfterArmBeforeBindStillBlocksNewOwner" in p2m4a_tests and
+        "parentDeathAfterChildAdmissionStillBlocksDespiteSimulatedFreeOsLock" in p2m4a_tests and
+        "parentDiesAfterTerminalOrChildAckBeforeDurableRelease" in p2m4a_tests and
+        "twoCompetingFakeClientsAdmitOnlyOneOwner" in p2m4a_tests and
+        "fakeProductCpuConflictsWithFakeChildAndViceVersa" in p2m4a_tests and
+        "activeAndPoisonedFakeOwnerBlockAllReferencedModelMutations" in p2m4a_tests and
+        "legacyModelLeaseCloseCannotReleasePoisonedModelBytes" in p2m4a_tests and
+        "modelPinChangeWhileChildBindsRejectsHandoffWithoutStateChange" in p2m4a_tests and
+        "staleNonceAndGenerationCanNeverReplayChildOrTerminalOrRelease" in p2m4a_tests and
+        "missingCorruptTruncatedAndWrongSchemaJournalFailClosed" in p2m4a_tests and
+        "finalDurableCommitFailureCannotBeMistakenForNativeRelease" in p2m4a_tests and
+        "completeFakeReleaseOnlyUnlocksFutureFakeArbitrationNotGpu" in p2m4a_tests and
+        "journalRemainsContentFreeAndHistoricalExitCannotClearIt" in p2m4a_tests)
+
 require("P2-D QA quarantine must be compile-time enabled",
         "const val GPU_QA_SUSPENDED: Boolean = true" in quarantine)
 require("QA quarantine must deny GPU and AUTO, retaining only explicit CPU",
