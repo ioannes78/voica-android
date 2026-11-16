@@ -1,6 +1,6 @@
 # Stage 17.3 R17C P2-M4A — JVM-Only Fake Cross-Process Ownership Matrix
 
-Status: **SOURCE IMPLEMENTED / EXACT-HEAD CI PENDING / MOCK-ONLY / NO ANDROID DEVICE QA / NO REAL PROCESS OR GPU**.
+Status: **SOURCE IMPLEMENTED / EXACT-SOURCE FAST PR CI PASS / 14 JVM TEST CASES / MOCK-ONLY / NO ANDROID DEVICE QA / NO REAL PROCESS OR GPU**.
 
 Repository: ioannes78/voica-android.
 Implementation baseline: d13d33e5985705bc091abd008eb988648f2e1c60.
@@ -115,3 +115,29 @@ This subgate has **NO required APK or real-device test**.
 If the repository automatically executes a diagnostic APK workflow
 for a commit, that build is not P2-M4A device authorization and
 should not be distributed as a new QA test instruction.
+
+
+## P2-M4A source/CI closure
+
+- **Exact implementation source HEAD:** `826ad330cf3f261e264847565ca62855db6f5a13`.
+- **Android PR CI run:** `43881372543` — **COMPLETED / SUCCESS** for this exact implementation commit.
+- Fast PR Gate reported SUCCESS including the Stage17 static source
+  contract check, JVM unit tests and Debug compilation.
+- The P2-M4A file declares 14 JVM `@Test` cases; all are
+  deterministic fake state/competition exercises. The 40-client
+  contention test runs only in the JVM fixture, **not** Android
+  OS processes.
+- This document-only archival commit does not modify the tested policy,
+  test suite, manifests, production model manager, native runtime or
+  user-visible QA functionality.
+- The existing Stage17 diagnostic APK workflow may run automatically
+  on this development branch, but P2-M4A **requires neither a new
+  APK distribution nor a new phone test**.
+- P2-M3's on-device STICKY_MOCK_POISON remains intentionally intact.
+- No code in this stage authorizes physical interprocess ownership,
+  parent-process kill, file mutation, JNI/Engine, GPU/AUTO or P2-N.
+
+**P2-M4A CLOSED: SOURCE/JVM/CI PASS (MOCK ONLY).**
+Next stage is P2-M4B **design/authorization before any on-device
+main-process death experiment**; P2-M4C real model-manager integration
+remains separately gated.
