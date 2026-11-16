@@ -35,6 +35,7 @@ jobs:
           bash ci/verify-funasr-r2-runtime-source.sh
           bash ci/verify-stage17-offline-summary-boundary.sh
           python3 ci/verify-stage17-p2e-anr-static-boundary.py
+          python3 ci/verify-stage17-p2m4b-safe-fixture.py
 
       - name: Apply temporary Stage 17.3 quality diagnostic instrumentation
         shell: bash
