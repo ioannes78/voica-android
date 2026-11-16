@@ -267,6 +267,50 @@ require("P2-M2 queued fake callback cannot reuse a newer token or nonce",
         "class Stage17P2M2MockCallbackGuardTest" in p2m2_tests and
         "delayedCallbackCannotInheritNewTokenOrNonce" in p2m2_tests)
 
+p2m3_gate = source(
+    "app/src/main/java/io/github/ioannes78/voica/Stage17P2M3MockDeathGuard.kt"
+)
+p2m3_tests = source(
+    "app/src/test/java/io/github/ioannes78/voica/Stage17P2M3MockDeathTest.kt"
+)
+require("P2-M3 deliberate child death QA-only; never kill main process",
+        "CHILD_PROCESS_SELF_EXIT_AFTER_SEND" in p2l_protocol and
+        "Stage17P2M3MockDeathGuard.canSelfTerminate(" in p2l_service and
+        "Process.killProcess(Process.myPid())" in p2l_service and
+        "Stage17P2LMockContract.allowPackage(applicationId)" in p2m3_gate and
+        "Stage17P2LMockContract.expectedProcess(applicationId)" in p2m3_gate and
+        "originalAttemptStillActive" in p2m3_gate and
+        "Stage17P2LMockScenario.CHILD_PROCESS_SELF_EXIT_AFTER_SEND" in qa and
+        "确认一次性模拟子进程死亡" in qa and
+        "Process.killProcess" not in p2l_parent and
+        "Process.killProcess" not in qa and
+        "import com.google.ai.edge.litertlm" not in p2m3_gate)
+require("P2-M3 Binder reconnect must not dispatch duplicate fake request",
+        "private var commandIssued = false" in p2l_parent and
+        "if (commandIssued) {" in p2l_parent and
+        "commandIssued = true" in p2l_parent and
+        "Stage17P2LMockPhase.BINDER_DIED" in p2l_parent and
+        "Stage17P2M2MockConnectionPolicy.canSend(" in p2l_parent)
+require("P2-M3 exit attribution must be bounded, correlated and scalar only",
+        "getHistoricalProcessExitReasons(app.packageName, 0, 16)" in p2l_parent and
+        "Stage17P2M1MockExitCorrelator.classify(" in p2l_parent and
+        "main.postDelayed({ lookup(remaining - 1) }, 450L)" in p2l_parent and
+        "Stage17P2M3MockExitEvidence.encode(" in p2l_parent and
+        "Stage17P2M3MockExitEvidence.recovered(" in p2l_parent and
+        "p2m3RecoveredExitEvidence=" in p2l_parent and
+        "p2m3ExitEvidenceDurability=" in p2l_parent and
+        "fun recovered(raw: String?, expectedGeneration: Long?)" in p2m3_gate)
+require("P2-M3 JVM failure matrix, exit evidence and no JNI",
+        "class Stage17P2M3MockDeathTest" in p2m3_tests and
+        "onlyExactQaChildAndOneExplicitScenarioCanSelfTerminate" in p2m3_tests and
+        "unexpectedBinderDeathAfterFakeSendMustPoisonAndNeverRelease" in p2m3_tests and
+        "persistedPoisonRestoresAsStickyAfterParentReentry" in p2m3_tests and
+        "oldConnectionCannotResendAfterBinderDeath" in p2m3_tests and
+        "invalidExitRecordCannotBeMisclassifiedAsMatchingChildDeath" in p2m3_tests and
+        "class Stage17P2M3MockExitEvidenceTest" in p2m3_tests and
+        "missingOrMalformedExitEvidenceNeverClaimsProcessAttribution" in p2m3_tests and
+        "import com.google.ai.edge.litertlm" not in p2m3_tests)
+
 require("P2-D QA quarantine must be compile-time enabled",
         "const val GPU_QA_SUSPENDED: Boolean = true" in quarantine)
 require("QA quarantine must deny GPU and AUTO, retaining only explicit CPU",
