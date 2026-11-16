@@ -37,6 +37,19 @@ class Stage17P2M4BContractTest {
         ))
     }
 
+    @Test fun nonFakeModelAndInvalidGenerationAlwaysDenied() {
+        assertFalse(Stage17P2M4BContract.validIdentity(
+            appId, "$appId:stage17_m4b_child",
+            Stage17P2M4BContract.CHILD_SUFFIX, 0L, nonce,
+            Stage17P2M4BContract.FAKE_MODEL, 10000, 10000,
+        ))
+        assertFalse(Stage17P2M4BContract.validIdentity(
+            appId, "$appId:stage17_m4b_child",
+            Stage17P2M4BContract.CHILD_SUFFIX, 1L, nonce,
+            "REAL_GEMMA_MODEL", 10000, 10000,
+        ))
+    }
+
     @Test fun missingOrCorruptJournalNeverMeansClean() {
         assertNull(Stage17P2M4BCodec.decode(null))
         assertNull(Stage17P2M4BCodec.decode("bad"))
