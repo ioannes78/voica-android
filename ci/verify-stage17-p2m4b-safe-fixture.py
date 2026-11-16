@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+"""P2-M4B1 non-native, non-destructive QA fixture boundary (source-level)."""
+from pathlib import Path
+
+root = Path(__file__).resolve().parents[1]
+main = root / "app/src/main"
+qa = root / "app/src/qa/AndroidManifest.xml"
+releaseqa = root / "app/src/releaseQa/AndroidManifest.xml"
+sources = [main / "java/io/github/ioannes78/voica" / f"Stage17P2M4B{f}.kt"
+           for f in ("Contract", "ParentService", "ChildService", "Journal", "ControllerJournal")]
+for path in sources:
+    assert path.is_file(), f"Missing QA fixture: {path}"
+    data = path.read_text()
+    for forbidden in ("com.google.ai.edge.litertlm", "System.loadLibrary",
+                      "killProcess(", "Engine(", "Conversation("):
+        assert forbidden not in data, f"Forbidden M4B native/fault behavior: {path}: {forbidden}"
+assert "FAULT_INJECTION_ENABLED = false" in sources[0].read_text()
+for path in (qa, releaseqa):
+    data = path.read_text()
+    for name, process in (("Stage17P2M4BParentService", "stage17_m4b_parent"),
+                          ("Stage17P2M4BChildService", "stage17_m4b_child")):
+        assert f'android:name=".{name}"' in data
+        assert f'android:process=":{process}"' in data
+        assert 'android:exported="false"' in data
+production = (main / "AndroidManifest.xml").read_text()
+assert "Stage17P2M4BParentService" not in production
+assert "Stage17P2M4BChildService" not in production
+application = (main / "java/io/github/ioannes78/voica/VoicaApplication.kt").read_text()
+for suffix in ("parentProcess(applicationId)", "childProcess(applicationId)"):
+    assert suffix in application, "Lightweight QA process must not load AppContainer"
+assert 'stage17_p2m1_mock_owner_journal' not in "\n".join(p.read_text() for p in sources)
+print("P2-M4B1 static process/native/manifest/poison-isolation gate: PASS")
