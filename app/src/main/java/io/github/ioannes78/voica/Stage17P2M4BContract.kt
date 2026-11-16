@@ -23,6 +23,8 @@ internal object Stage17P2M4BContract {
     const val EXTRA_UID = "uid"
     const val EXTRA_PID = "pid"
     const val FAULT_INJECTION_ENABLED = false
+    // No controller broker/durable authorization wired in B1: deny Binder admission.
+    const val IPC_ADMISSION_ENABLED = false
 
     fun allowPackage(appId: String): Boolean =
         appId == "io.github.ioannes78.voica.qa"
