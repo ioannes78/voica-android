@@ -1,6 +1,6 @@
 # Stage 17.3 R17C-P2-M2 — Recovered-owner report separation and mock Binder rebind denial
 
-Status: **IMPLEMENTED ON DRAFT STAGE 17 BRANCH / EXACT-HEAD CI AND QA APK PENDING / NO REAL JNI OR GPU**.
+Status: **IMPLEMENTED / EXACT-SOURCE CI + QA APK PASS / QA4 REAL-DEVICE MOCK REPORT PASS / ACTUAL BINDER DEATH AND GPU NOT TESTED**.
 
 Repository: `ioannes78/voica-android`; baseline before implementation:
 `90e0e0d8066128d606caebac64e255870936bbb4`.
@@ -120,3 +120,61 @@ a LiteRT-LM callback or GPU/native release proof.
 The exact post-change CI must also validate the new static source
 invariant before P2-M2 is considered code-gated. Real Binder death,
 actual OS rebind timing and all native/GPU behavior remain untested.
+
+## P2-M2 QA4 real-device recovered report — user-submitted
+
+Source baseline of installed P2-M2 QA APK:
+`6725912052a122861b875e7bea08d17c5d0b2ada`.
+Exact-source verification: Android PR CI run `43680700134` **SUCCESS**;
+Stage 17.3 Diagnostic releaseQa APK run `43680700122` **SUCCESS**.
+
+User opened Stage 17 P1 / P2-L after cover-installing the P2-M2 mock-only APK,
+**without launching a new mock request**, and copied the report:
+
+```text
+P2-L MOCK ONLY · NO LLM / NO JNI / NO GPU
+nativeExecution=false
+p2m2ReportScope=RECOVERED_OWNER_JOURNAL
+poisoned=false
+p2m1OwnerDurability=RELEASE_CONFIRMED_DURABLE
+p2m1OwnerRecovery=LAST_MOCK_RELEASE_DURABLE
+p2m1OwnerBlocked=false
+p2m1ReleaseCommitPending=false
+p2m1ChildExitCorrelation=NOT_CHECKED
+eventCount=0
+historicalSnapshotOnly=true
+historicalEventCount=13
+historicalEvent=+0ms PARENT_ARM_PERSISTED
+historicalEvent=+5ms BIND_REQUESTED
+historicalEvent=+11ms CHILD_BOUND
+historicalEvent=+12ms MODEL_INITIALIZING
+historicalEvent=+12ms MODEL_READY
+historicalEvent=+13ms CONVERSATION_ENTERED
+historicalEvent=+13ms CONVERSATION_READY
+historicalEvent=+14ms SEND_ENTERED
+historicalEvent=+14ms FIRST_EMISSION
+historicalEvent=+15ms SEND_RETURNED
+historicalEvent=+15ms TERMINAL_AWAIT_ENTERED
+historicalEvent=+54ms TERMINAL_DONE
+historicalEvent=+55ms RELEASE_CONFIRMED
+```
+
+**QA4 MOCK REPORT PRESENTATION = PASS (one on-device observation).**
+All current owner fields come from recovered owner journal:
+`p2m2ReportScope=RECOVERED_OWNER_JOURNAL`,
+`p2m1OwnerDurability=RELEASE_CONFIRMED_DURABLE`,
+`p2m1OwnerRecovery=LAST_MOCK_RELEASE_DURABLE`,
+`p2m1OwnerBlocked=false`, `poisoned=false`, and
+`p2m1ReleaseCommitPending=false`.
+No current events were generated (`eventCount=0`); the 13 prior phases
+are explicitly marked historical and preserve callback-before-return order.
+The old cached `ARMED_DURABLE` value is no longer presented as current.
+`p2m1ChildExitCorrelation=NOT_CHECKED` is expected: no child crash occurred.
+
+**P2-M2 scope result: SOURCE/JVM/CI/APK + QA4 REPORT-PRESENTATION PASS.**
+This is not a pass for actual Binder child death/rebind, forced app restart,
+unacknowledged native cancellation, real model resource exclusivity, or GPU
+driver/HWUI recovery. Those remain separate gates. P2-D GPU/AUTO suspension
+stays **HARD BLOCKED**, and P2-N real GPU is **NOT AUTHORIZED**.
+No production `main` merge, model change, or JNI call is made in this
+evidence-only archival commit.
