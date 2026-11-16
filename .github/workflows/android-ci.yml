@@ -60,6 +60,7 @@ jobs:
           bash ci/verify-funasr-r2-runtime-source.sh
           bash ci/verify-stage17-offline-summary-boundary.sh
           python3 ci/verify-stage17-p2e-anr-static-boundary.py
+          python3 ci/verify-stage17-p2m4b-safe-fixture.py
           grep -Fq 'PRODUCTION_MODEL_CHANNEL_COMMIT' app/src/main/java/io/github/ioannes78/voica/AppModelManager.kt
           grep -Fq 'PRODUCTION_MANIFEST_VERSION = 10' app/src/main/java/io/github/ioannes78/voica/AppModelManager.kt
           if grep -Fq 'voica-model-channel/main/manifests/production.json' app/src/main/java/io/github/ioannes78/voica/AppModelManager.kt; then
@@ -169,6 +170,7 @@ jobs:
           bash ci/verify-funasr-r2-runtime-source.sh
           bash ci/verify-stage17-offline-summary-boundary.sh
           python3 ci/verify-stage17-p2e-anr-static-boundary.py
+          python3 ci/verify-stage17-p2m4b-safe-fixture.py
           version_code="$(sed -nE 's/^[[:space:]]*versionCode = ([0-9]+).*/\1/p' app/build.gradle.kts | head -n1)"
           release_version="$(sed -nE 's/^[[:space:]]*versionName = "([^"]+)".*/\1/p' app/build.gradle.kts | head -n1)"
           test -n "$version_code"
