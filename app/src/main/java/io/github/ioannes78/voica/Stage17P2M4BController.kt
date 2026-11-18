@@ -59,7 +59,7 @@ internal class Stage17P2M4BController(
             } else {
                 val state = journal.recovered()
                 report("DRY_RUN_ONLY / " +
-                    (state?.phase?.name ?: "UNTRUSTED_OR_UNSEEDED_JOURNAL") +
+                    Stage17P2M4BCodec.recoveryVerdict(state) +
                     " / admissionEnabled=${c.IPC_ADMISSION_ENABLED}" +
                     " / faultEnabled=${c.FAULT_INJECTION_ENABLED}")
             }
