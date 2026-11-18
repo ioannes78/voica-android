@@ -42,7 +42,7 @@ internal class Stage17P2M4BController(
 
     private fun mainProcess(): Boolean =
         c.allowPackage(context.packageName) &&
-            Application.getProcessName() == context.packageName
+            Stage17P2M4BContract.currentProcessName(context) == context.packageName
 
     private fun report(message: String) {
         // Callback is diagnostic only; never use it as ownership authority.
