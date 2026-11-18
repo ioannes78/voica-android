@@ -66,7 +66,9 @@ internal fun stage17P2LShouldSkipHeavyStartup(
 ): Boolean =
     processName == applicationId + MODEL_VALIDATOR_PROCESS_SUFFIX ||
         (Stage17P2LMockContract.allowPackage(applicationId) &&
-            (processName == Stage17P2LMockContract.expectedProcess(applicationId) ||\n                processName == Stage17P2M4BContract.parentProcess(applicationId) ||\n                processName == Stage17P2M4BContract.childProcess(applicationId)))
+            (processName == Stage17P2LMockContract.expectedProcess(applicationId) ||
+                processName == Stage17P2M4BContract.parentProcess(applicationId) ||
+                processName == Stage17P2M4BContract.childProcess(applicationId)))
 
 class AppContainer(
     application: Application,
