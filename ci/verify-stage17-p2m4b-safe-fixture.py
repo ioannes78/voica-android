@@ -7,7 +7,7 @@ main = root / "app/src/main"
 qa = root / "app/src/qa/AndroidManifest.xml"
 releaseqa = root / "app/src/releaseQa/AndroidManifest.xml"
 sources = [main / "java/io/github/ioannes78/voica" / f"Stage17P2M4B{f}.kt"
-           for f in ("Contract", "ParentService", "ChildService", "Journal", "ControllerJournal")]
+           for f in ("Contract", "ParentService", "ChildService", "Journal", "ControllerJournal", "Controller")]
 for path in sources:
     assert path.is_file(), f"Missing QA fixture: {path}"
     data = path.read_text()
@@ -15,6 +15,10 @@ for path in sources:
                       "killProcess(", "Engine(", "Conversation("):
         assert forbidden not in data, f"Forbidden M4B native/fault behavior: {path}: {forbidden}"
 assert "FAULT_INJECTION_ENABLED = false" in sources[0].read_text()
+assert "IPC_ADMISSION_ENABLED = false" in sources[0].read_text()
+controller = sources[-1].read_text()
+for required in ("linkToDeath(", "PARENT_BINDER_DIED", "journal.claim(", "journal.transition(", "onServiceDisconnected", "DENY_NO_DURABLE_OWNER_AUTHORIZATION"):
+    assert required in controller, f"Missing fail-closed controller IPC contract: {required}"
 for path in (qa, releaseqa):
     data = path.read_text()
     for name, process in (("Stage17P2M4BParentService", "stage17_m4b_parent"),
