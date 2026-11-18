@@ -1,6 +1,5 @@
 package io.github.ioannes78.voica
 
-import android.app.Application
 import android.content.Context
 import android.os.Looper
 
@@ -16,7 +15,7 @@ internal class Stage17P2M4BControllerJournal(private val context: Context) {
 
     private fun requireController() {
         check(Stage17P2M4BContract.allowPackage(context.packageName))
-        check(Application.getProcessName() == context.packageName) {
+        check(Stage17P2M4BContract.currentProcessName(context) == context.packageName) {
             "P2-M4B controller journal is main-process-only"
         }
         check(Looper.myLooper() != Looper.getMainLooper()) {
