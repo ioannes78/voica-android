@@ -63,7 +63,7 @@ class Stage17P2M4BParentService : Service() {
                 val incomingGeneration = supplied.getLong(contract.EXTRA_GENERATION)
                 val incomingNonce = supplied.getString(contract.EXTRA_NONCE)
                 val approved = contract.validIdentity(
-                    packageName, Application.getProcessName(), contract.PARENT_SUFFIX,
+                    packageName, Stage17P2M4BContract.currentProcessName(this), contract.PARENT_SUFFIX,
                     incomingGeneration, incomingNonce, supplied.getString(contract.EXTRA_MODEL),
                     supplied.getInt(contract.EXTRA_UID), Process.myUid(),
                 )
@@ -91,7 +91,7 @@ class Stage17P2M4BParentService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? =
         if (contract.allowPackage(packageName) &&
-            Application.getProcessName() == contract.parentProcess(packageName)
+            Stage17P2M4BContract.currentProcessName(this) == contract.parentProcess(packageName)
         ) inbound.binder else null
 
     private fun identity(): Bundle = Bundle().apply {
