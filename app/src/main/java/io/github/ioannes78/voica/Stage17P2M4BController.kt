@@ -34,6 +34,9 @@ internal class Stage17P2M4BController(
     private var deathRecipient: IBinder.DeathRecipient? = null
     private var active: Stage17P2M4BRecord? = null
     private var closed = false
+    private var parentReady = false
+    private var childReady = false
+    private val ipcTimeoutMs = 15_000L
 
     private val incoming = Messenger(Handler(worker.looper) { message ->
         if (!closed) onCallback(message)
@@ -80,6 +83,17 @@ internal class Stage17P2M4BController(
                 return@post
             }
             active = record
+            parentReady = false
+            childReady = false
+            val armedGeneration = record.generation
+            val armedNonce = record.nonce
+            handler.postDelayed({
+                val observed = active
+                if (!closed && observed?.generation == armedGeneration &&
+                    observed.nonce == armedNonce &&
+                    observed.phase != Stage17P2M4BPhase.UNRESOLVED_POISONED
+                ) poison("IPC_TIMEOUT_UNRESOLVED")
+            }, ipcTimeoutMs)
             val conn = object : ServiceConnection {
                 override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
                     handler.post {
@@ -160,13 +174,25 @@ internal class Stage17P2M4BController(
             return
         }
         when (message.what) {
-            c.WHAT_PARENT_READY -> report("PARENT_CALLBACK_VALIDATED")
+            c.WHAT_PARENT_READY -> {
+                if (parentReady || rec.phase != Stage17P2M4BPhase.PARENT_BOUND) {
+                    poison("DUPLICATE_OR_OUT_OF_ORDER_PARENT_READY")
+                } else {
+                    parentReady = true
+                    report("PARENT_CALLBACK_VALIDATED")
+                }
+            }
             c.WHAT_CHILD_READY -> {
+                if (!parentReady || childReady || rec.phase != Stage17P2M4BPhase.PARENT_BOUND) {
+                    poison("DUPLICATE_OR_OUT_OF_ORDER_CHILD_READY")
+                    return
+                }
                 val next = journal.transition(
                     rec.generation, rec.nonce, Stage17P2M4BPhase.CHILD_ADMITTED,
                 )
                 if (next != null) {
                     active = next
+                    childReady = true
                     report("CHILD_ADMITTED_DURABLE / FAKE_ONLY")
                 } else poison("CHILD_ADMISSION_COMMIT_FAILED_OR_OUT_OF_ORDER")
             }
