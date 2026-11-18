@@ -20,6 +20,7 @@ class Stage17P2M4BParentService : Service() {
     private val contract = Stage17P2M4BContract
     private var armed = false
     private var connected = false
+    private var childAdmissionSent = false
     private var generation = 0L
     private var nonce = ""
     private var controller: Messenger? = null
@@ -39,7 +40,8 @@ class Stage17P2M4BParentService : Service() {
 
     private val childConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
-            if (!armed || binder == null || child != null) return
+            if (!armed || binder == null || child != null || childAdmissionSent) return
+            childAdmissionSent = true
             child = Messenger(binder)
             val message = Message.obtain(null, contract.WHAT_CHILD_ADMIT)
             message.data = identity()
