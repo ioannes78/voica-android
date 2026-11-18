@@ -23,3 +23,12 @@ P2-M4B1 is **not CLOSED** merely because the fixture classes compile.
 Wait for exact-source fast CI and diagnostic build results before calling any automated gate PASS.
 P2-M4B2 remains separately approval-gated; P2-M4C and P2-N remain blocked.
 PR #37 must stay OPEN/DRAFT/UNMERGED; production main unchanged.
+
+
+## Continuation — Controller Broker (2026-11-18)
+- Re-verified production main `28ec9a837c5b`, PR #37 remains OPEN/DRAFT, development baseline `7926272f765a`.
+- Previous exact-source PR CI #3025 and diagnostic #213 **FAILED** at `VoicaApplication.kt:69` because literal `\\n` characters had been accidentally written in Kotlin source. Fixed in `a34e0e1b6ca2`.
+- Added `Stage17P2M4BController`: main-process-only serialized worker, controller-owned journal claim before bind, Binder `linkToDeath`, no automatic retry, generation/nonce/UID/process validation, fail-closed death/disconnect callback and durable sticky poison transition.
+- Static CI now checks controller Binder death hooks and the **hard-disabled IPC admission** switch as well as the disabled fault injection switch.
+- Controller's `requestAdmission` currently stops at `IPC_ADMISSION_ENABLED=false`. No new fixture seed, UI activation or device fault test has been authorized; therefore this code is not evidence of a running Binder lifecycle.
+- The pure-bound and intentionally-retained-child device scenarios, independent retained child observer, verified fresh-fixture seeding, and simulated parent self-exit remain outstanding. **No MAIN_PROCESS_DEATH_PASS, no B1 closure until exact-source CI succeeds.**
