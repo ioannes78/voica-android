@@ -80,6 +80,18 @@ internal object Stage17P2M4BCodec {
         return Stage17P2M4BRecord(current.generation + 1L, nonce, Stage17P2M4BPhase.INTENT_DURABLE)
     }
 
+    /**
+     * Reopening is read-only. Binder availability and process metadata never prove
+     * native or fake ownership release.
+     */
+    fun recoveryVerdict(record: Stage17P2M4BRecord?): String = when {
+        record == null -> "DENY_UNTRUSTED_JOURNAL"
+        record.phase == Stage17P2M4BPhase.VERIFIED_NEVER_ARMED -> "VERIFIED_NEVER_ARMED"
+        record.phase == Stage17P2M4BPhase.RELEASE_CONFIRMED_DURABLE -> "LAST_FAKE_RELEASE_DURABLE"
+        record.phase == Stage17P2M4BPhase.UNRESOLVED_POISONED -> "STICKY_M4B_POISON"
+        else -> "DENY_INTERRUPTED_FAKE_OWNER"
+    }
+
     fun blocked(current: Stage17P2M4BRecord?): Boolean =
         current == null || current.phase !in setOf(
             Stage17P2M4BPhase.VERIFIED_NEVER_ARMED,
