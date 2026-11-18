@@ -110,4 +110,34 @@ class Stage17P2M4BContractTest {
         }
         assertFalse(Stage17P2M4BCodec.blocked(rec))
     }
+
+    @Test fun reopenNeverTreatsInterruptedOwnerAsClean() {
+        assertEquals("DENY_UNTRUSTED_JOURNAL", Stage17P2M4BCodec.recoveryVerdict(null))
+        val clean = Stage17P2M4BRecord(0, "", Stage17P2M4BPhase.VERIFIED_NEVER_ARMED)
+        assertEquals("VERIFIED_NEVER_ARMED", Stage17P2M4BCodec.recoveryVerdict(clean))
+        val intent = requireNotNull(Stage17P2M4BCodec.claim(clean, nonce))
+        for (phase in listOf(
+            Stage17P2M4BPhase.INTENT_DURABLE, Stage17P2M4BPhase.PARENT_BOUND,
+            Stage17P2M4BPhase.CHILD_ADMITTED, Stage17P2M4BPhase.FAKE_OWNER_ACTIVE,
+            Stage17P2M4BPhase.TERMINAL_FAKE_OBSERVED,
+            Stage17P2M4BPhase.PARENT_RELEASE_ACK_FAKE_OBSERVED,
+        )) {
+            assertEquals("DENY_INTERRUPTED_FAKE_OWNER",
+                Stage17P2M4BCodec.recoveryVerdict(intent.copy(phase = phase)))
+        }
+        assertEquals("STICKY_M4B_POISON", Stage17P2M4BCodec.recoveryVerdict(
+            intent.copy(phase = Stage17P2M4BPhase.UNRESOLVED_POISONED)))
+        assertEquals("LAST_FAKE_RELEASE_DURABLE", Stage17P2M4BCodec.recoveryVerdict(
+            intent.copy(phase = Stage17P2M4BPhase.RELEASE_CONFIRMED_DURABLE)))
+    }
+
+    @Test fun terminalWithoutChildAndParentAckCannotRelease() {
+        val terminal = Stage17P2M4BRecord(7L, nonce, Stage17P2M4BPhase.TERMINAL_FAKE_OBSERVED)
+        assertNull(Stage17P2M4BCodec.next(
+            terminal, 7L, nonce, Stage17P2M4BPhase.RELEASE_CONFIRMED_DURABLE))
+        assertNull(Stage17P2M4BCodec.next(
+            terminal, 7L, nonce, Stage17P2M4BPhase.PARENT_RELEASE_ACK_FAKE_OBSERVED))
+        assertTrue(Stage17P2M4BCodec.blocked(terminal))
+    }
+
 }
