@@ -23,7 +23,7 @@ class Stage17P2M4BChildService : Service() {
         if (msg.what == contract.WHAT_CHILD_ADMIT && !admitted) {
             val data = msg.data
             val ok = contract.validIdentity(
-                packageName, Application.getProcessName(), contract.CHILD_SUFFIX,
+                packageName, Stage17P2M4BContract.currentProcessName(this), contract.CHILD_SUFFIX,
                 data.getLong(contract.EXTRA_GENERATION),
                 data.getString(contract.EXTRA_NONCE),
                 data.getString(contract.EXTRA_MODEL),
@@ -50,6 +50,6 @@ class Stage17P2M4BChildService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? =
         if (contract.allowPackage(packageName) &&
-            Application.getProcessName() == contract.childProcess(packageName)
+            Stage17P2M4BContract.currentProcessName(this) == contract.childProcess(packageName)
         ) inbound.binder else null
 }
