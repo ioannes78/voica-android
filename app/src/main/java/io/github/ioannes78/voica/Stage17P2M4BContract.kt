@@ -1,5 +1,11 @@
 package io.github.ioannes78.voica
 
+import android.app.ActivityManager
+import android.app.Application
+import android.content.Context
+import android.os.Build
+import android.os.Process
+
 /**
  * P2-M4B1. QA-only, FAKE model, no native execution. Separate from P2-M1/M3.
  * This gate intentionally has NO process termination command.
@@ -25,6 +31,11 @@ internal object Stage17P2M4BContract {
     const val FAULT_INJECTION_ENABLED = false
     // No controller broker/durable authorization wired in B1: deny Binder admission.
     const val IPC_ADMISSION_ENABLED = false
+
+    fun currentProcessName(context: Context): String? =
+        if (Build.VERSION.SDK_INT >= 28) Application.getProcessName()
+        else (context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager)
+            ?.runningAppProcesses?.firstOrNull { it.pid == Process.myPid() }?.processName
 
     fun allowPackage(appId: String): Boolean =
         appId == "io.github.ioannes78.voica.qa"
