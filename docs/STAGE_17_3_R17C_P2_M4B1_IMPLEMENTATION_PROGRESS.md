@@ -32,3 +32,12 @@ PR #37 must stay OPEN/DRAFT/UNMERGED; production main unchanged.
 - Static CI now checks controller Binder death hooks and the **hard-disabled IPC admission** switch as well as the disabled fault injection switch.
 - Controller's `requestAdmission` currently stops at `IPC_ADMISSION_ENABLED=false`. No new fixture seed, UI activation or device fault test has been authorized; therefore this code is not evidence of a running Binder lifecycle.
 - The pure-bound and intentionally-retained-child device scenarios, independent retained child observer, verified fresh-fixture seeding, and simulated parent self-exit remain outstanding. **No MAIN_PROCESS_DEATH_PASS, no B1 closure until exact-source CI succeeds.**
+
+## Continuation — Durable Journal Hardening (2026-11-19)
+
+- Exact-source previous baseline `8de8c724c670`: PR CI SUCCESS and Stage 17.3 Diagnostic APK SUCCESS; PR #37 remains Draft, production main unchanged.
+- Journal writes now require synchronous `commit()` **and immediate exact readback** of generation/nonce/phase. A failed commit, exception, or readback mismatch latches `writeUncertain` and denies future claim/transition in the active controller.
+- Snapshot decoder requires exactly `explicitly_seeded_v1` (Boolean true) and `owner_record` (valid serialized record); absent, corrupt, wrong-typed, or extra fields deny. This rule has JVM coverage.
+- **No automatically trusted seed has been introduced.** A source-proven clean fixture must be separated from the existing QA install with retained P2-M3 evidence before any device admission. An empty SharedPreferences file on the existing QA app is not proof of never-armed status.
+- `IPC_ADMISSION_ENABLED=false` and `FAULT_INJECTION_ENABLED=false` remain hard-coded; service process admission, fake parent exit, and real native GPU/JNI remain disabled.
+- B1 remaining: independently verifiable clean-fixture provisioning with controlled QA admission, read-only report UI, exact-source CI completion, then only separately approved bounded Android Binder test. No B2 fault-injection authorization; no B1 closure claimed.
