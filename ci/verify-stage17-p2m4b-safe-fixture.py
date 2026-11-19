@@ -17,6 +17,11 @@ for path in sources:
 assert "FAULT_INJECTION_ENABLED = false" in sources[0].read_text()
 assert "IPC_ADMISSION_ENABLED = false" in sources[0].read_text()
 controller = sources[-1].read_text()
+journal = sources[-2].read_text()
+codec = sources[-3].read_text()
+for required in ("commitAndVerify(", "val restored = try { recovered() }", "writeUncertain = true", "decodePersistedSnapshot(snapshot)"):
+    assert required in journal, f"Missing fail-closed durable readback: {required}"
+assert "decodePersistedSnapshot(fields:" in codec
 for required in ("linkToDeath(", "PARENT_BINDER_DIED", "journal.claim(", "journal.transition(", "onServiceDisconnected", "DENY_NO_DURABLE_OWNER_AUTHORIZATION"):
     assert required in controller, f"Missing fail-closed controller IPC contract: {required}"
 for path in (qa, releaseqa):
