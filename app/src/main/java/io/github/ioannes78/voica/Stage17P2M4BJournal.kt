@@ -52,7 +52,7 @@ internal object Stage17P2M4BCodec {
                 Stage17P2M4BContract.KEY_RECORD,
             )
         ) return null
-        if (fields[Stage17P2M4BContract.KEY_SEEDED] !== true) return null
+        if (fields[Stage17P2M4BContract.KEY_SEEDED] != true) return null
         return decode(fields[Stage17P2M4BContract.KEY_RECORD] as? String)
     }
 
