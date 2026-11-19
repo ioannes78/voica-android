@@ -16,6 +16,8 @@ for path in sources:
         assert forbidden not in data, f"Forbidden M4B native/fault behavior: {path}: {forbidden}"
 assert "FAULT_INJECTION_ENABLED = false" in sources[0].read_text()
 assert "IPC_ADMISSION_ENABLED = false" in sources[0].read_text()
+for idx in (1, 2, 5):
+    assert "sendingUid" in sources[idx].read_text(), "Messenger sender UID must be checked"
 controller = sources[-1].read_text()
 journal = sources[-2].read_text()
 codec = sources[-3].read_text()
