@@ -42,6 +42,20 @@ internal object Stage17P2M4BCodec {
         return runCatching { encode(record) }.getOrNull()?.let { if (it == raw) record else null }
     }
 
+    /**
+     * Exact snapshot contract for the single-writer QA journal.
+     * An absent key, wrong value type, or unexpected field is never a clean seed.
+     */
+    fun decodePersistedSnapshot(fields: Map<String, *>?): Stage17P2M4BRecord? {
+        if (fields == null || fields.keys != setOf(
+                Stage17P2M4BContract.KEY_SEEDED,
+                Stage17P2M4BContract.KEY_RECORD,
+            )
+        ) return null
+        if (fields[Stage17P2M4BContract.KEY_SEEDED] !== true) return null
+        return decode(fields[Stage17P2M4BContract.KEY_RECORD] as? String)
+    }
+
     fun next(
         current: Stage17P2M4BRecord?, generation: Long, nonce: String,
         next: Stage17P2M4BPhase,
