@@ -140,4 +140,28 @@ class Stage17P2M4BContractTest {
         assertTrue(Stage17P2M4BCodec.blocked(terminal))
     }
 
+    @Test fun journalSnapshotRequiresExactTypedEvidence() {
+        val clean = Stage17P2M4BRecord(
+            0L, "", Stage17P2M4BPhase.VERIFIED_NEVER_ARMED,
+        )
+        val correct = mapOf(
+            Stage17P2M4BContract.KEY_SEEDED to true,
+            Stage17P2M4BContract.KEY_RECORD to Stage17P2M4BCodec.encode(clean),
+        )
+        assertEquals(clean, Stage17P2M4BCodec.decodePersistedSnapshot(correct))
+        assertNull(Stage17P2M4BCodec.decodePersistedSnapshot(null))
+        assertNull(Stage17P2M4BCodec.decodePersistedSnapshot(emptyMap()))
+        assertNull(Stage17P2M4BCodec.decodePersistedSnapshot(
+            mapOf(Stage17P2M4BContract.KEY_RECORD to Stage17P2M4BCodec.encode(clean))))
+        assertNull(Stage17P2M4BCodec.decodePersistedSnapshot(
+            correct + (Stage17P2M4BContract.KEY_SEEDED to "true")))
+        assertNull(Stage17P2M4BCodec.decodePersistedSnapshot(
+            correct + ("unexpected" to "forged")))
+        assertNull(Stage17P2M4BCodec.decodePersistedSnapshot(
+            correct + (Stage17P2M4BContract.KEY_RECORD to 42)))
+        assertNull(Stage17P2M4BCodec.decodePersistedSnapshot(
+            correct + (Stage17P2M4BContract.KEY_RECORD to "corrupt")))
+    }
+
+
 }
