@@ -30,7 +30,7 @@ class Stage17P2M4BChildService : Service() {
                 data.getInt(contract.EXTRA_UID), Process.myUid(),
             ) && data.getString(contract.EXTRA_PROCESS) == contract.parentProcess(packageName) &&
                 msg.replyTo != null
-            if (ok) {
+            if (ok && msg.sendingUid == Process.myUid()) {
                 admitted = true
                 val response = Message.obtain(null, contract.WHAT_CHILD_READY)
                 response.data = Bundle().apply {
