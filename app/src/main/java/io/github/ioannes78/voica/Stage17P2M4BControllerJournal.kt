@@ -31,15 +31,7 @@ internal class Stage17P2M4BControllerJournal(private val context: Context) {
         if (writeUncertain) return null
         // A blank file, partial fixture marker, or added unexpected keys is not a clean seed.
         val snapshot = try { prefs.all } catch (_: RuntimeException) { return null }
-        if (snapshot.keys != setOf(
-                Stage17P2M4BContract.KEY_SEEDED,
-                Stage17P2M4BContract.KEY_RECORD,
-            )
-        ) return null
-        if (snapshot[Stage17P2M4BContract.KEY_SEEDED] != true) return null
-        return Stage17P2M4BCodec.decode(
-            snapshot[Stage17P2M4BContract.KEY_RECORD] as? String,
-        )
+        return Stage17P2M4BCodec.decodePersistedSnapshot(snapshot)
     }
 
     /** One-time fresh installation fixture proof is deliberately NOT exposed by this class. */
