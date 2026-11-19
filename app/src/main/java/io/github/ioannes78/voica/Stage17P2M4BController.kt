@@ -164,7 +164,8 @@ internal class Stage17P2M4BController(
     private fun onCallback(message: Message) {
         val rec = active ?: return
         val data = message.data
-        if (data.getLong(c.EXTRA_GENERATION) != rec.generation ||
+        if (message.sendingUid != Process.myUid() ||
+            data.getLong(c.EXTRA_GENERATION) != rec.generation ||
             data.getString(c.EXTRA_NONCE) != rec.nonce ||
             data.getString(c.EXTRA_MODEL) != c.FAKE_MODEL ||
             data.getString(c.EXTRA_PROCESS) != c.parentProcess(context.packageName) ||
