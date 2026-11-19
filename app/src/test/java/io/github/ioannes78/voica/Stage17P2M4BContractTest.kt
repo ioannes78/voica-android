@@ -150,7 +150,7 @@ class Stage17P2M4BContractTest {
         )
         assertEquals(clean, Stage17P2M4BCodec.decodePersistedSnapshot(correct))
         assertNull(Stage17P2M4BCodec.decodePersistedSnapshot(null))
-        assertNull(Stage17P2M4BCodec.decodePersistedSnapshot(emptyMap()))
+        assertNull(Stage17P2M4BCodec.decodePersistedSnapshot(emptyMap<String, Any?>()))
         assertNull(Stage17P2M4BCodec.decodePersistedSnapshot(
             mapOf(Stage17P2M4BContract.KEY_RECORD to Stage17P2M4BCodec.encode(clean))))
         assertNull(Stage17P2M4BCodec.decodePersistedSnapshot(
