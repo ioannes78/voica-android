@@ -30,14 +30,15 @@ internal class Stage17P2M4BControllerJournal(private val context: Context) {
         // Seed must have been explicitly verified by a separate fresh fixture.
         if (writeUncertain) return null
         // A blank file, partial fixture marker, or added unexpected keys is not a clean seed.
-        if (!prefs.getBoolean(Stage17P2M4BContract.KEY_SEEDED, false)) return null
-        if (prefs.all.keys != setOf(
+        val snapshot = try { prefs.all } catch (_: RuntimeException) { return null }
+        if (snapshot.keys != setOf(
                 Stage17P2M4BContract.KEY_SEEDED,
                 Stage17P2M4BContract.KEY_RECORD,
             )
         ) return null
+        if (snapshot[Stage17P2M4BContract.KEY_SEEDED] != true) return null
         return Stage17P2M4BCodec.decode(
-            prefs.getString(Stage17P2M4BContract.KEY_RECORD, null),
+            snapshot[Stage17P2M4BContract.KEY_RECORD] as? String,
         )
     }
 
