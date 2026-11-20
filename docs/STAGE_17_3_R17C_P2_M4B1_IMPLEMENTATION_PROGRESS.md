@@ -41,3 +41,13 @@ PR #37 must stay OPEN/DRAFT/UNMERGED; production main unchanged.
 - **No automatically trusted seed has been introduced.** A source-proven clean fixture must be separated from the existing QA install with retained P2-M3 evidence before any device admission. An empty SharedPreferences file on the existing QA app is not proof of never-armed status.
 - `IPC_ADMISSION_ENABLED=false` and `FAULT_INJECTION_ENABLED=false` remain hard-coded; service process admission, fake parent exit, and real native GPU/JNI remain disabled.
 - B1 remaining: independently verifiable clean-fixture provisioning with controlled QA admission, read-only report UI, exact-source CI completion, then only separately approved bounded Android Binder test. No B2 fault-injection authorization; no B1 closure claimed.
+
+## Continuation — Read-only QA diagnostic entry (2026-11-20)
+
+- Prior source `9e9a036850d8`: Android PR CI SUCCESS; releaseQa diagnostic APK SUCCESS. Main stayed `28ec9a837c5b`, PR #37 remains Draft.
+- Added `Stage17P2M4BReadOnlyActivity` and QA Hub entry, explicitly declared only in `qa` and `releaseQa` manifests, non-exported, no production manifest entry.
+- Read-only page displays independent recovered M4B journal verdict and locked admission/fault flags. It has refresh only; no seed/clear/reset, no process bind or kill, no model/JNI/GPU.
+- Production code has **no trusted first-install M4B seed** and `IPC_ADMISSION_ENABLED=false`. Existing .qa applicationId is reused by QA and releaseQa, so swapping APKs is not an independent fresh-install attestation.
+- This is a source/CI-only UI addition. No on-device cross-process Binder test or on-device read-only observation is claimed.
+- For actual IPC admission, a separately isolated test applicationId and explicit verified never-armed enrollment need their own design/review; do not provision this on the installed .qa app that retains historical P2-M3 evidence.
+- P2-M4B1 remains partial; P2-M4B2 process termination and P2-M4C real model manager integration are not authorized; PR #37 stays Draft/UNMERGED.
