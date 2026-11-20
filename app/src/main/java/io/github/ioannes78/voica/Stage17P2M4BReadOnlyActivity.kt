@@ -1,6 +1,6 @@
 package io.github.ioannes78.voica
 
-import android.app.Activity
+import androidx.activity.ComponentActivity
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -14,7 +14,7 @@ import android.widget.TextView
  * QA-only read-only entry point. This activity is declared in qa/releaseQa
  * manifests only. It never seeds, arms, binds, exits, or clears journal data.
  */
-class Stage17P2M4BReadOnlyActivity : Activity() {
+class Stage17P2M4BReadOnlyActivity : ComponentActivity() {
     private var broker: Stage17P2M4BController? = null
     private val ui = Handler(Looper.getMainLooper())
     private lateinit var output: TextView
