@@ -64,6 +64,11 @@ class Stage16BQaHubActivity : ComponentActivity() {
         })
         root.addView(diagnosticsText)
 
+        if (Stage17P2M4BContract.allowPackage(packageName)) {
+            addButton(root, "Stage 17 P2-M4B1 — Read-only journal (no IPC)",
+                Stage17P2M4BReadOnlyActivity::class.java)
+        }
+
         root.addView(TextView(this).apply {
             setPadding(0, padding, 0, padding / 2)
             text = "Previous Stage 16B QA tools"
