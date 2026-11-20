@@ -26,8 +26,17 @@ for required in ("commitAndVerify(", "val restored = try { recovered() }", "writ
 assert "decodePersistedSnapshot(fields:" in codec
 for required in ("linkToDeath(", "PARENT_BINDER_DIED", "journal.claim(", "journal.transition(", "onServiceDisconnected", "DENY_NO_DURABLE_OWNER_AUTHORIZATION"):
     assert required in controller, f"Missing fail-closed controller IPC contract: {required}"
+read_only = main / "java/io/github/ioannes78/voica/Stage17P2M4BReadOnlyActivity.kt"
+assert read_only.is_file()
+page = read_only.read_text()
+for forbidden in ("requestAdmission(", "bindService(", "killProcess(", "putBoolean(", "KEY_SEEDED", ".clear(", ".remove("):
+    assert forbidden not in page, f"Read-only QA page must not mutate ownership: {forbidden}"
+assert "readOnlyDryRun()" in page
+assert "Stage17P2M4BReadOnlyActivity" in (main / "java/io/github/ioannes78/voica/Stage16BQaHubActivity.kt").read_text()
 for path in (qa, releaseqa):
     data = path.read_text()
+    assert 'android:name=".Stage17P2M4BReadOnlyActivity"' in data
+    assert 'android:exported="false"' in data
     for name, process in (("Stage17P2M4BParentService", "stage17_m4b_parent"),
                           ("Stage17P2M4BChildService", "stage17_m4b_child")):
         assert f'android:name=".{name}"' in data
@@ -36,6 +45,7 @@ for path in (qa, releaseqa):
 production = (main / "AndroidManifest.xml").read_text()
 assert "Stage17P2M4BParentService" not in production
 assert "Stage17P2M4BChildService" not in production
+assert "Stage17P2M4BReadOnlyActivity" not in production
 application = (main / "java/io/github/ioannes78/voica/VoicaApplication.kt").read_text()
 for suffix in ("parentProcess(applicationId)", "childProcess(applicationId)"):
     assert suffix in application, "Lightweight QA process must not load AppContainer"
