@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <!-- P2-M4B1: read-only QA status; never registered in production. -->
+        <activity android:name=".Stage17P2M4BReadOnlyActivity"
+            android:exported="false" android:label="P2-M4B Read-only" />
         <!-- P2-M4B1: disposable QA Binder fixtures; never registered in production. -->
         <service android:name=".Stage17P2M4BParentService"
             android:exported="false" android:process=":stage17_m4b_parent" />
