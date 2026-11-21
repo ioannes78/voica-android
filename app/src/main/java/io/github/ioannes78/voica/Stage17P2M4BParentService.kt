@@ -30,13 +30,21 @@ class Stage17P2M4BParentService : Service() {
     private val childReceiver = Messenger(Handler(Looper.getMainLooper()) { msg ->
         val data = msg.data
         val accepted = msg.what == contract.WHAT_CHILD_READY &&
-            armed && childAdmissionSent && !childReadyAccepted &&
-            msg.sendingUid == Process.myUid() &&
-            data.getLong(contract.EXTRA_GENERATION) == generation &&
-            data.getString(contract.EXTRA_NONCE) == nonce &&
-            data.getString(contract.EXTRA_MODEL) == contract.FAKE_MODEL &&
-            data.getString(contract.EXTRA_PROCESS) == contract.childProcess(packageName) &&
-            data.getInt(contract.EXTRA_UID, -1) == Process.myUid()
+            Stage17P2M4BChildAckPolicy.accepts(
+                packageName = packageName,
+                armed = armed,
+                admissionSent = childAdmissionSent,
+                alreadyAccepted = childReadyAccepted,
+                actualUid = Process.myUid(),
+                senderUid = msg.sendingUid,
+                generation = generation,
+                nonce = nonce,
+                suppliedGeneration = data.getLong(contract.EXTRA_GENERATION),
+                suppliedNonce = data.getString(contract.EXTRA_NONCE),
+                suppliedModel = data.getString(contract.EXTRA_MODEL),
+                suppliedProcess = data.getString(contract.EXTRA_PROCESS),
+                suppliedUid = data.getInt(contract.EXTRA_UID, -1),
+            )
         if (accepted) {
             childReadyAccepted = true
             report(contract.WHAT_CHILD_READY)
