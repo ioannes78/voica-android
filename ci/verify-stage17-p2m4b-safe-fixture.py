@@ -15,6 +15,17 @@ for path in sources:
     for forbidden in ("com.google.ai.edge.litertlm", "System.loadLibrary",
                       "killProcess(", "Engine(", "Conversation("):
         assert forbidden not in data, f"Forbidden M4B native/fault behavior: {path}: {forbidden}"
+ack_policy = main / "java/io/github/ioannes78/voica/Stage17P2M4BChildAckPolicy.kt"
+assert ack_policy.is_file()
+ack = ack_policy.read_text()
+for required in ("senderUid == actualUid", "!alreadyAccepted", "admissionSent",
+                 "suppliedModel == Stage17P2M4BContract.FAKE_MODEL",
+                 "childProcess(packageName)", "suppliedNonce == nonce"):
+    assert required in ack, f"Missing one-shot child ACK guard: {required}"
+assert "Stage17P2M4BChildAckPolicy.accepts(" in sources[1].read_text()
+assert "Stage17P2M4BChildAckPolicyTest" in (
+    root / "app/src/test/java/io/github/ioannes78/voica/Stage17P2M4BChildAckPolicyTest.kt"
+).read_text()
 assert "FAULT_INJECTION_ENABLED = false" in sources[0].read_text()
 assert "IPC_ADMISSION_ENABLED = false" in sources[0].read_text()
 for idx in (1, 2, 5):
