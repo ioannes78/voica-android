@@ -49,7 +49,8 @@ for kind in ("activity", "activity-alias", "service"):
             if "android.intent.action.MAIN" in actions and "android.intent.category.LAUNCHER" in categories:
                 launchers.append(name)
 
-read_only = package + ".Stage17P2M4BReadOnlyActivity"
+class_namespace = "io.github.ioannes78.voica"
+read_only = class_namespace + ".Stage17P2M4BReadOnlyActivity"
 assert launchers == [read_only], f"Wrong Lab launcher(s): {launchers}"
 assert read_only in components, "Read-only diagnostics not registered"
 assert components[read_only][1].get(android + "exported") == "true"
@@ -59,7 +60,7 @@ for service_name, suffix in (
     ("Stage17P2M4BParentService", ":stage17_m4b_parent"),
     ("Stage17P2M4BChildService", ":stage17_m4b_child"),
 ):
-    fqname = package + "." + service_name
+    fqname = class_namespace + "." + service_name
     assert fqname in components, f"Missing Lab fixture {service_name}"
     kind, item = components[fqname]
     assert kind == "service"
