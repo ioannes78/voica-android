@@ -21,26 +21,41 @@ class Stage17P2M4BParentService : Service() {
     private var armed = false
     private var connected = false
     private var childAdmissionSent = false
+    private var childReadyAccepted = false
     private var generation = 0L
     private var nonce = ""
     private var controller: Messenger? = null
     private var child: Messenger? = null
 
     private val childReceiver = Messenger(Handler(Looper.getMainLooper()) { msg ->
-        if (msg.what == contract.WHAT_CHILD_READY && armed &&
-            msg.data.getLong(contract.EXTRA_GENERATION) == generation &&
-            msg.data.getString(contract.EXTRA_NONCE) == nonce &&
-            msg.data.getString(contract.EXTRA_PROCESS) == contract.childProcess(packageName) &&
-            msg.data.getInt(contract.EXTRA_UID) == Process.myUid()
-        ) {
+        val data = msg.data
+        val accepted = msg.what == contract.WHAT_CHILD_READY &&
+            armed && childAdmissionSent && !childReadyAccepted &&
+            msg.sendingUid == Process.myUid() &&
+            data.getLong(contract.EXTRA_GENERATION) == generation &&
+            data.getString(contract.EXTRA_NONCE) == nonce &&
+            data.getString(contract.EXTRA_MODEL) == contract.FAKE_MODEL &&
+            data.getString(contract.EXTRA_PROCESS) == contract.childProcess(packageName) &&
+            data.getInt(contract.EXTRA_UID, -1) == Process.myUid()
+        if (accepted) {
+            childReadyAccepted = true
             report(contract.WHAT_CHILD_READY)
+        } else if (armed) {
+            // A malformed, duplicate or stale reply must poison the Controller.
+            report(contract.WHAT_DENIED)
         }
         true
     })
 
     private val childConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
-            if (!armed || binder == null || child != null || childAdmissionSent) return
+            if (!armed) return
+            if (binder == null || child != null || childAdmissionSent ||
+                name?.className != Stage17P2M4BChildService::class.java.name
+            ) {
+                report(contract.WHAT_DENIED)
+                return
+            }
             childAdmissionSent = true
             child = Messenger(binder)
             val message = Message.obtain(null, contract.WHAT_CHILD_ADMIT)
