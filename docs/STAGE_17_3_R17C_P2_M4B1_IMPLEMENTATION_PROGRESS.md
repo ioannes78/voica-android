@@ -61,3 +61,12 @@ PR #37 must stay OPEN/DRAFT/UNMERGED; production main unchanged.
 - Extended JVM tests and CI static requirements to assert exact package/process identity; fast PR CI now **compiles `:app:compileM4bLabKotlin`** in addition to current tests.
 - IMPORTANT: A distinct application ID isolates package data, but **does not on its own attest that the package was never previously installed**. There is no clean-seed enrollment, no automatic seeding from absence and no admission toggle. `IPC_ADMISSION_ENABLED=false`, `FAULT_INJECTION_ENABLED=false`; P2-M4B remains code-only, no on-device test or process death.
 - CI success must be observed against the exact new HEAD before claiming this checkpoint PASS. B1 is not yet CLOSED; B2 parent self-exit needs separate explicit authorization. PR remains DRAFT/UNMERGED.
+
+## Continuation — Lab-only launcher / APK binary gate (2026-11-21)
+
+- Prior exact-source checkpoint `18aec681d6a0`: Android PR CI PASS on rerun after transient Robolectric MavenArtifactFetcher network errors; Stage 17.3 diagnostic build PASS.
+- `m4bLab` Manifest now removes inherited `MainActivity` via manifest merge directive and makes its sole launcher `Stage17P2M4BReadOnlyActivity`. Historical `.qa` app is a separate package, and all its original launcher behavior remains unchanged.
+- `VoicaApplication` bypasses `AppContainer` for exact `io.github.ioannes78.voica.m4blab` main process, as well as the lab's two exact lightweight fake child/parent services. Existing `.qa` and production main processes still initialize normally.
+- PR fast CI now assembles `:app:assembleM4bLab` and runs `ci/verify-stage17-p2m4b-lab-apk.sh` to verify binary application ID, version, QA signing identity, single readonly launcher, removal of MainActivity, and exact surrogate parent/child process declarations. **No Lab APK is uploaded or installed**; the separate Stage 17.3 diagnostic artifact remains the legacy `.qa` variant, not the isolated Lab.
+- No clean/first-install enrollment code has been added: absence of the Lab journal is not attested NEVER_ARMED. `IPC_ADMISSION_ENABLED=false` and `FAULT_INJECTION_ENABLED=false` remain enforced; no Binder lifecycle / self-exit execution or device QA claimed.
+- Stage B1 remains **IN PROGRESS** until exact-source CI and enrollment design/code gates are complete. B2 parent-death fault injection requires its own explicit authorization. Production main and PR #37 merge status remain unchanged.
