@@ -7,6 +7,31 @@ class Stage17P2M4BContractTest {
     private val nonce = "123e4567-e89b-12d3-a456-426614174000"
     private val appId = "io.github.ioannes78.voica.qa"
 
+    @Test fun isolatedLabPackageHasSeparateProcessIdentityWithoutAdmittingProduction() {
+        val lab = "io.github.ioannes78.voica.m4blab"
+        assertTrue(Stage17P2M4BContract.allowPackage(lab))
+        assertTrue(Stage17P2M4BContract.allowPackage(appId))
+        assertFalse(Stage17P2M4BContract.allowPackage("io.github.ioannes78.voica"))
+        assertFalse(Stage17P2M4BContract.allowPackage("io.github.ioannes78.voica.m4blab.fake"))
+        assertTrue(Stage17P2M4BContract.validIdentity(
+            lab, "$lab:stage17_m4b_parent", Stage17P2M4BContract.PARENT_SUFFIX,
+            1L, nonce, Stage17P2M4BContract.FAKE_MODEL, 10000, 10000,
+        ))
+        assertFalse(Stage17P2M4BContract.validIdentity(
+            lab, "$appId:stage17_m4b_parent", Stage17P2M4BContract.PARENT_SUFFIX,
+            1L, nonce, Stage17P2M4BContract.FAKE_MODEL, 10000, 10000,
+        ))
+        assertTrue(stage17P2LShouldSkipHeavyStartup(
+            lab, "$lab:stage17_m4b_parent",
+        ))
+        assertTrue(stage17P2LShouldSkipHeavyStartup(
+            lab, "$lab:stage17_m4b_child",
+        ))
+        assertFalse(stage17P2LShouldSkipHeavyStartup(lab, lab))
+        assertFalse(Stage17P2M4BContract.IPC_ADMISSION_ENABLED)
+        assertFalse(Stage17P2M4BContract.FAULT_INJECTION_ENABLED)
+    }
+
     @Test fun exactPackageAndProcessesOnly() {
         assertTrue(Stage17P2M4BContract.validIdentity(
             appId, "$appId:stage17_m4b_parent",
