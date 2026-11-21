@@ -91,3 +91,13 @@ PR #37 must stay OPEN/DRAFT/UNMERGED; production main unchanged.
   `python3 ci/stage17_p2m4b_lab_preflight.py --stage after --serial <EXACT_ADB_SERIAL> --lab-apk app/build/outputs/apk/m4bLab/app-m4bLab.apk`.
 - Separate operator evidence is still required for a no-history/no-restore clean Lab installation. No code creates a `VERIFIED_NEVER_ARMED` record, and no app-only observation may be used to seed a historical owner Journal. A separate reviewed enrollment design would need to bind external proof to the isolated installation and ensure no reset/re-enroll after poison. Not authorized or implemented here.
 - `IPC_ADMISSION_ENABLED=false`, `FAULT_INJECTION_ENABLED=false`; no device activity, no Binder admission, no parent self-exit, no GPU/JNI. M4B1 is **IN PROGRESS**. PR #37 remains Draft/UNMERGED.
+
+## Continuation — Correlate host installation observations (2026-11-21)
+
+- Reviewed PR #37 at `deb57951c4f2`: OPEN/DRAFT/UNMERGED, production main `28ec9a837c5b`; Android PR CI PASS. Stage17.3 Diagnostic APK run `44901583216` was still IN_PROGRESS at initial recheck, so not claimed as PASS.
+- Added `ci/stage17_p2m4b_lab_correlate.py` to compare separately captured `--before` and `--after` JSON observations from `ci/stage17_p2m4b_lab_preflight.py`. It validates exact Lab APK identity, matching SHA-256, same explicit device serial, before absent/after present, UTC timestamps ordered, typed historical-QA observations, and all authorization fields explicitly **false**. Missing, contradictory, reordered, or privilege-claiming evidence is denied.
+- Successful output is exactly `OBSERVATIONS_CORRELATED_NOT_AN_ENROLLMENT`: it does **not** prove a first-ever install, non-restoration, clean durable owner state, or authorize any seed, Binder command or fault injection. Correlator is pure JSON validation, no subprocess, no device contact, no journal or installer mutation.
+- Added mocked/pure host regression tests for valid observational correlation and invalid serial, package, digest, timestamp, stage, malformed field, forbidden or missing authorization flags, plus CI static requirements.
+- Operator-only example (inputs must come from separately preserved trusted evidence; NOT run in CI):
+  `python3 ci/stage17_p2m4b_lab_correlate.py --before before.json --after after.json`
+- **No device was accessed**, no Lab APK installed or uploaded, no first-install enrollment/Journal seed implemented. A separate independently audited operator-controlled enrollment/attestation procedure remains needed. `IPC_ADMISSION_ENABLED=false`; `FAULT_INJECTION_ENABLED=false`; P2-M4B1 remains IN PROGRESS; PR #37 remains Draft/unmerged; M4B2 parent process exit requires explicit separate authorization.
