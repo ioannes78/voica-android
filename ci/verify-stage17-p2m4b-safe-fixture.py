@@ -6,6 +6,7 @@ root = Path(__file__).resolve().parents[1]
 main = root / "app/src/main"
 qa = root / "app/src/qa/AndroidManifest.xml"
 releaseqa = root / "app/src/releaseQa/AndroidManifest.xml"
+lab = root / "app/src/m4bLab/AndroidManifest.xml"
 sources = [main / "java/io/github/ioannes78/voica" / f"Stage17P2M4B{f}.kt"
            for f in ("Contract", "ParentService", "ChildService", "Journal", "ControllerJournal", "Controller")]
 for path in sources:
@@ -33,7 +34,7 @@ for forbidden in ("requestAdmission(", "bindService(", "killProcess(", "putBoole
     assert forbidden not in page, f"Read-only QA page must not mutate ownership: {forbidden}"
 assert "readOnlyDryRun()" in page
 assert "Stage17P2M4BReadOnlyActivity" in (main / "java/io/github/ioannes78/voica/Stage16BQaHubActivity.kt").read_text()
-for path in (qa, releaseqa):
+for path in (qa, releaseqa, lab):
     data = path.read_text()
     assert 'android:name=".Stage17P2M4BReadOnlyActivity"' in data
     assert 'android:exported="false"' in data
@@ -42,6 +43,14 @@ for path in (qa, releaseqa):
         assert f'android:name=".{name}"' in data
         assert f'android:process=":{process}"' in data
         assert 'android:exported="false"' in data
+gradle = (root / "app/build.gradle.kts").read_text()
+assert 'create("m4bLab")' in gradle
+assert 'applicationIdSuffix = ".m4blab"' in gradle
+assert '"io.github.ioannes78.voica.m4blab"' in sources[0].read_text()
+assert '":stage17_m4b_parent"' in lab.read_text()
+assert ':app:compileM4bLabKotlin' in (root / ".github/workflows/android-ci.yml").read_text()
+assert 'IPC_ADMISSION_ENABLED = false' in sources[0].read_text()
+assert 'FAULT_INJECTION_ENABLED = false' in sources[0].read_text()
 production = (main / "AndroidManifest.xml").read_text()
 assert "Stage17P2M4BParentService" not in production
 assert "Stage17P2M4BChildService" not in production
