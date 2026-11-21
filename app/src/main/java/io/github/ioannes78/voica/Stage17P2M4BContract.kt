@@ -38,7 +38,8 @@ internal object Stage17P2M4BContract {
             ?.runningAppProcesses?.firstOrNull { it.pid == Process.myPid() }?.processName
 
     fun allowPackage(appId: String): Boolean =
-        appId == "io.github.ioannes78.voica.qa"
+        appId == "io.github.ioannes78.voica.qa" ||
+            appId == "io.github.ioannes78.voica.m4blab"
 
     fun parentProcess(appId: String) = appId + PARENT_SUFFIX
     fun childProcess(appId: String) = appId + CHILD_SUFFIX
