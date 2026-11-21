@@ -64,6 +64,7 @@ internal fun stage17P2LShouldSkipHeavyStartup(
     applicationId: String,
     processName: String?,
 ): Boolean =
+    (Stage17P2M4BContract.isLabPackage(applicationId) && processName == applicationId) ||
     processName == applicationId + MODEL_VALIDATOR_PROCESS_SUFFIX ||
         (Stage17P2LMockContract.allowPackage(applicationId) &&
             processName == Stage17P2LMockContract.expectedProcess(applicationId)) ||
