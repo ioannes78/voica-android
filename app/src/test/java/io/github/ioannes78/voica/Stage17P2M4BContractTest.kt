@@ -27,7 +27,9 @@ class Stage17P2M4BContractTest {
         assertTrue(stage17P2LShouldSkipHeavyStartup(
             lab, "$lab:stage17_m4b_child",
         ))
-        assertFalse(stage17P2LShouldSkipHeavyStartup(lab, lab))
+        assertTrue(stage17P2LShouldSkipHeavyStartup(lab, lab))
+        assertFalse(stage17P2LShouldSkipHeavyStartup(appId, appId))
+        assertFalse(stage17P2LShouldSkipHeavyStartup("io.github.ioannes78.voica", "io.github.ioannes78.voica"))
         assertFalse(Stage17P2M4BContract.IPC_ADMISSION_ENABLED)
         assertFalse(Stage17P2M4BContract.FAULT_INJECTION_ENABLED)
     }
