@@ -36,6 +36,7 @@ class Stage17P2M4BChildService : Service() {
                 response.data = Bundle().apply {
                     putLong(contract.EXTRA_GENERATION, data.getLong(contract.EXTRA_GENERATION))
                     putString(contract.EXTRA_NONCE, data.getString(contract.EXTRA_NONCE))
+                    putString(contract.EXTRA_MODEL, contract.FAKE_MODEL)
                     putString(contract.EXTRA_PROCESS, contract.childProcess(packageName))
                     putInt(contract.EXTRA_UID, Process.myUid())
                     putInt(contract.EXTRA_PID, Process.myPid())
