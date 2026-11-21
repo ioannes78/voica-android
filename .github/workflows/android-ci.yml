@@ -130,9 +130,15 @@ jobs:
             :engine:local-llm:testDebugUnitTest \
             :engine:local-llm:assembleDebug \
             :app:testDebugUnitTest \
-            :app:compileM4bLabKotlin \
+            :app:assembleM4bLab \
             --configuration-cache \
             --stacktrace
+
+      - name: Verify isolated P2-M4B Lab APK without publishing it
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ci/verify-stage17-p2m4b-lab-apk.sh
 
       - name: Verify FSMN candidate runtime boundary
         shell: bash
