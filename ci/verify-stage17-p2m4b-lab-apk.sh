@@ -23,23 +23,51 @@ manifest="$(mktemp)"
 trap 'rm -f "$manifest"' EXIT
 "$analyzer" manifest print "$apk" > "$manifest"
 
-# Single readonly launcher; full product MainActivity is removed.
-grep -Fq 'Stage17P2M4BReadOnlyActivity' "$manifest"
-grep -Fq 'android.intent.action.MAIN' "$manifest"
-test "$(grep -Fc 'android.intent.category.LAUNCHER' "$manifest")" -eq 1
-if grep -Fq 'io.github.ioannes78.voica.MainActivity' "$manifest"; then
-  echo "::error::m4bLab still includes production MainActivity"
-  exit 1
-fi
+# Validate the *merged* manifest structurally. Android tooling may leave
+# process suffixes relative (":...") rather than expanding the package name.
+python3 - "$manifest" "$package" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
 
-# Distinct, non-exported Binder fixtures; never a production package or process.
-for component in Stage17P2M4BParentService Stage17P2M4BChildService; do
-  grep -Fq "$component" "$manifest"
-done
-grep -Fq "${package}:stage17_m4b_parent" "$manifest"
-grep -Fq "${package}:stage17_m4b_child" "$manifest"
-grep -Fq 'android:allowBackup="false"' "$manifest"
-grep -Fq 'android:usesCleartextTraffic="false"' "$manifest"
+manifest_path, package = sys.argv[1:]
+android = "{http://schemas.android.com/apk/res/android}"
+root = ET.parse(manifest_path).getroot()
+app = root.find("application")
+assert app is not None, "Missing merged application"
+assert app.get(android + "allowBackup") == "false", "Backup must be disabled"
+assert app.get(android + "usesCleartextTraffic") == "false", "Cleartext traffic must be disabled"
+
+components = {}
+launchers = []
+for kind in ("activity", "activity-alias", "service"):
+    for item in app.findall(kind):
+        name = item.get(android + "name", "")
+        components[name] = (kind, item)
+        for intent in item.findall("intent-filter"):
+            actions = {e.get(android + "name") for e in intent.findall("action")}
+            categories = {e.get(android + "name") for e in intent.findall("category")}
+            if "android.intent.action.MAIN" in actions and "android.intent.category.LAUNCHER" in categories:
+                launchers.append(name)
+
+read_only = package + ".Stage17P2M4BReadOnlyActivity"
+assert launchers == [read_only], f"Wrong Lab launcher(s): {launchers}"
+assert read_only in components, "Read-only diagnostics not registered"
+assert components[read_only][1].get(android + "exported") == "true"
+assert not any(n.endswith(".MainActivity") for n in components), "Product MainActivity must be absent"
+
+for service_name, suffix in (
+    ("Stage17P2M4BParentService", ":stage17_m4b_parent"),
+    ("Stage17P2M4BChildService", ":stage17_m4b_child"),
+):
+    fqname = package + "." + service_name
+    assert fqname in components, f"Missing Lab fixture {service_name}"
+    kind, item = components[fqname]
+    assert kind == "service"
+    assert item.get(android + "exported") == "false", f"Exported fixture: {service_name}"
+    observed = item.get(android + "process")
+    assert observed in (suffix, package + suffix), f"Bad Lab process {service_name}: {observed}"
+print("P2-M4B1 merged Lab manifest structural policy: PASS")
+PY
 
 # QA-only public certificate; no production signer, no real-process fault tool.
 certificate="$("$signer" verify --print-certs "$apk" |
