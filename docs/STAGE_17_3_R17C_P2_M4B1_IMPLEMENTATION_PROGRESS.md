@@ -51,3 +51,13 @@ PR #37 must stay OPEN/DRAFT/UNMERGED; production main unchanged.
 - This is a source/CI-only UI addition. No on-device cross-process Binder test or on-device read-only observation is claimed.
 - For actual IPC admission, a separately isolated test applicationId and explicit verified never-armed enrollment need their own design/review; do not provision this on the installed .qa app that retains historical P2-M3 evidence.
 - P2-M4B1 remains partial; P2-M4B2 process termination and P2-M4C real model manager integration are not authorized; PR #37 stays Draft/UNMERGED.
+
+## Continuation — Distinct Lab Application Identity (2026-11-21)
+
+- Re-verified prior `3e7298246a0c` source: Android PR CI and Stage 17.3 Diagnostic APK both **SUCCESS**, main `28ec9a837c5b`, PR #37 OPEN/DRAFT.
+- Introduced `m4bLab` Android build type: `applicationIdSuffix = ".m4blab"`, resulting identity `io.github.ioannes78.voica.m4blab` (NOT the installed `io.github.ioannes78.voica.qa`). It is debug-inherited and QA-test signed, not production signed. It uses its **own app sandbox and SharedPreferences** as guaranteed by Android app UID/package separation, rather than reusing the previous QA APK data.
+- The `m4bLab` manifest only adds non-exported P2-M4B parent/child services, non-exported read-only page and QA Hub access. No production manifest change; P2-M3 evidence belongs to the old .qa package and must stay untouched.
+- `Stage17P2M4BContract.allowPackage` includes the exact new lab identity, and `VoicaApplication` skips heavy startup only for the lab's two exact disposable mock service processes. Production and the P2-L worker allowlist remain distinct.
+- Extended JVM tests and CI static requirements to assert exact package/process identity; fast PR CI now **compiles `:app:compileM4bLabKotlin`** in addition to current tests.
+- IMPORTANT: A distinct application ID isolates package data, but **does not on its own attest that the package was never previously installed**. There is no clean-seed enrollment, no automatic seeding from absence and no admission toggle. `IPC_ADMISSION_ENABLED=false`, `FAULT_INJECTION_ENABLED=false`; P2-M4B remains code-only, no on-device test or process death.
+- CI success must be observed against the exact new HEAD before claiming this checkpoint PASS. B1 is not yet CLOSED; B2 parent self-exit needs separate explicit authorization. PR remains DRAFT/UNMERGED.
