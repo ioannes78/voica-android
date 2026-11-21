@@ -1,11 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <application>
         <!-- Independent .m4blab application ID; never overwrites installed .qa data. -->
         <activity
             android:name=".Stage17P2M4BReadOnlyActivity"
-            android:exported="false"
-            android:label="P2-M4B Lab Read-only" />
+            android:exported="true"
+            android:label="P2-M4B Lab Read-only">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
         <service
             android:name=".Stage17P2M4BParentService"
             android:exported="false"
@@ -14,14 +20,7 @@
             android:name=".Stage17P2M4BChildService"
             android:exported="false"
             android:process=":stage17_m4b_child" />
-        <activity
-            android:name=".Stage16BQaHubActivity"
-            android:exported="true"
-            android:label="WENZHI M4B Lab — SAFE / READ ONLY">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+        <!-- Lab has exactly one launcher; the full product UI is unavailable. -->
+        <activity android:name=".MainActivity" tools:node="remove" />
     </application>
 </manifest>
