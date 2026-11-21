@@ -48,7 +48,20 @@ assert 'create("m4bLab")' in gradle
 assert 'applicationIdSuffix = ".m4blab"' in gradle
 assert '"io.github.ioannes78.voica.m4blab"' in sources[0].read_text()
 assert '":stage17_m4b_parent"' in lab.read_text()
-assert ':app:compileM4bLabKotlin' in (root / ".github/workflows/android-ci.yml").read_text()
+lab_data = lab.read_text()
+assert 'android:name=".MainActivity" tools:node="remove"' in lab_data
+assert 'android:name=".Stage17P2M4BReadOnlyActivity"' in lab_data
+assert 'android:exported="true"' in lab_data
+assert lab_data.count('android.intent.category.LAUNCHER') == 1
+assert 'Stage16BQaHubActivity' not in lab_data
+assert 'isLabPackage(applicationId) && processName == applicationId' in (main / "java/io/github/ioannes78/voica/VoicaApplication.kt").read_text()
+lab_verify = (root / "ci/verify-stage17-p2m4b-lab-apk.sh").read_text()
+assert 'io.github.ioannes78.voica.m4blab' in lab_verify
+assert 'Stage17P2M4BReadOnlyActivity' in lab_verify
+assert 'NO UPLOAD' in lab_verify
+ci_workflow = (root / ".github/workflows/android-ci.yml").read_text()
+assert ':app:assembleM4bLab' in ci_workflow
+assert 'ci/verify-stage17-p2m4b-lab-apk.sh' in ci_workflow
 assert 'IPC_ADMISSION_ENABLED = false' in sources[0].read_text()
 assert 'FAULT_INJECTION_ENABLED = false' in sources[0].read_text()
 production = (main / "AndroidManifest.xml").read_text()
