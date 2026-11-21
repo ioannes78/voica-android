@@ -26,6 +26,14 @@ assert "Stage17P2M4BChildAckPolicy.accepts(" in sources[1].read_text()
 assert "Stage17P2M4BChildAckPolicyTest" in (
     root / "app/src/test/java/io/github/ioannes78/voica/Stage17P2M4BChildAckPolicyTest.kt"
 ).read_text()
+preflight = (root / "ci/stage17_p2m4b_lab_preflight.py").read_text()
+for expected in ('PREINSTALL_ABSENCE_OBSERVED', 'POSTINSTALL_PRESENCE_OBSERVED',
+                 '"never_armed_proven": False', '"owner_seed_authorized": False',
+                 '"ipc_admission_authorized": False', '"fault_injection_authorized": False',
+                 '"manifest", "application-id"', '"pm", "path"'):
+    assert expected in preflight, f"Missing non-authoritative Lab preflight boundary: {expected}"
+for forbidden in ('"install"', '"uninstall"', '"clear"', 'KEY_SEEDED', 'VERIFIED_NEVER_ARMED'):
+    assert forbidden not in preflight, f"Preflight must not modify device or grant ownership: {forbidden}"
 assert "FAULT_INJECTION_ENABLED = false" in sources[0].read_text()
 assert "IPC_ADMISSION_ENABLED = false" in sources[0].read_text()
 for idx in (1, 2, 5):
