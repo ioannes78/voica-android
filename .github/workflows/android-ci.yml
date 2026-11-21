@@ -130,6 +130,7 @@ jobs:
             :engine:local-llm:testDebugUnitTest \
             :engine:local-llm:assembleDebug \
             :app:testDebugUnitTest \
+            :app:compileM4bLabKotlin \
             --configuration-cache \
             --stacktrace
 
