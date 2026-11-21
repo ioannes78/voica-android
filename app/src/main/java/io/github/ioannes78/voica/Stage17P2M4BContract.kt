@@ -37,9 +37,12 @@ internal object Stage17P2M4BContract {
         else (context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager)
             ?.runningAppProcesses?.firstOrNull { it.pid == Process.myPid() }?.processName
 
+    const val LAB_PACKAGE = "io.github.ioannes78.voica.m4blab"
+
+    fun isLabPackage(appId: String): Boolean = appId == LAB_PACKAGE
+
     fun allowPackage(appId: String): Boolean =
-        appId == "io.github.ioannes78.voica.qa" ||
-            appId == "io.github.ioannes78.voica.m4blab"
+        appId == "io.github.ioannes78.voica.qa" || isLabPackage(appId)
 
     fun parentProcess(appId: String) = appId + PARENT_SUFFIX
     fun childProcess(appId: String) = appId + CHILD_SUFFIX
