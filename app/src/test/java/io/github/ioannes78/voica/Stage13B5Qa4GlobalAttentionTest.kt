@@ -1,5 +1,9 @@
 package io.github.ioannes78.voica
 
+import io.github.ioannes78.voica.database.AiSummaryEntity
+import io.github.ioannes78.voica.database.AiSummaryInputModeValue
+import io.github.ioannes78.voica.database.AiSummaryModeValue
+import io.github.ioannes78.voica.database.AiSummaryStateValue
 import io.github.ioannes78.voica.database.TranscriptionEntity
 import io.github.ioannes78.voica.database.TranscriptionModeValue
 import io.github.ioannes78.voica.database.TranscriptionStateValue
@@ -53,6 +57,51 @@ class Stage13B5Qa4GlobalAttentionTest {
         assertEquals(items, restored)
     }
 
+    @Test
+    fun summaryCandidateHasDurableAppAttentionUntilItsSummaryPageIsActuallyVisible() {
+        val candidate = summary()
+        val items =
+            buildQa4GlobalAttentionItems(
+                transcriptionAttention = emptyList(),
+                recordings = emptyList(),
+                summaryCandidates = listOf(candidate),
+            )
+
+        assertEquals(1, items.size)
+        assertEquals("新的总结结果已生成", items.single().label)
+        assertEquals(RecordingDetailDestination.SUMMARY, items.single().destination)
+
+        assertEquals(
+            listOf(candidate),
+            filterVisibleSummaryCandidates(
+                candidates = listOf(candidate),
+                visibleDetail =
+                    Qa4VisibleDetailContext(
+                        recordingId = "recording",
+                        destination = RecordingDetailDestination.TRANSCRIPT,
+                    ),
+            ),
+        )
+        assertEquals(
+            emptyList<AiSummaryEntity>(),
+            filterVisibleSummaryCandidates(
+                candidates = listOf(candidate),
+                visibleDetail =
+                    Qa4VisibleDetailContext(
+                        recordingId = "recording",
+                        destination = RecordingDetailDestination.SUMMARY,
+                    ),
+            ),
+        )
+        assertEquals(
+            listOf(candidate),
+            filterVisibleSummaryCandidates(
+                candidates = listOf(candidate),
+                visibleDetail = null,
+            ),
+        )
+    }
+
     private fun transcription(state: String): TranscriptionEntity =
         TranscriptionEntity(
             id = "tx",
@@ -83,5 +132,30 @@ class Stage13B5Qa4GlobalAttentionTest {
             completedAtMs = 2L,
             errorCode = "PROCESS_INTERRUPTED",
             errorMessage = "interrupted",
+        )
+
+    private fun summary(): AiSummaryEntity =
+        AiSummaryEntity(
+            id = "summary-candidate",
+            recordingId = "recording",
+            transcriptionId = "tx",
+            inputMode = AiSummaryInputModeValue.TRANSCRIPT_TEXT,
+            mode = AiSummaryModeValue.SMART,
+            model = "Gemma 4 E2B · 本地",
+            promptVersion = 170204,
+            resultSchemaVersion = 1,
+            contentType = null,
+            classificationConfidence = null,
+            structuredPayloadJson = "{}",
+            displayText = "candidate",
+            status = AiSummaryStateValue.COMPLETED,
+            createdAtMs = 3L,
+            startedAtMs = 3L,
+            updatedAtMs = 4L,
+            completedAtMs = 4L,
+            errorCode = null,
+            sanitizedErrorMessage = null,
+            alignmentIdSnapshot = null,
+            sourceLineageSnapshot = "{}",
         )
 }

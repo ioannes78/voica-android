@@ -112,6 +112,15 @@ android {
             signingConfig = signingConfigs.getByName("qa")
             matchingFallbacks += listOf("debug")
         }
+        create("m4bLab") {
+            // P2-M4B1: separate disposable installation, never an in-place .qa upgrade.
+            // This build stays non-destructive: Binder admission and fault injection are disabled.
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".m4blab"
+            versionNameSuffix = "-m4b-lab"
+            signingConfig = signingConfigs.getByName("qa")
+            matchingFallbacks += listOf("debug")
+        }
         getByName("release") {
             isDebuggable = false
             isMinifyEnabled = true
@@ -198,6 +207,7 @@ dependencies {
     implementation(project(":engine:playback"))
     implementation(project(":engine:sherpa"))
     implementation(project(":engine:fsmn"))
+    implementation(project(":engine:local-llm"))
 
     implementation("androidx.core:core-ktx:1.19.1")
     implementation("androidx.activity:activity-compose:1.13.0")

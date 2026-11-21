@@ -1,5 +1,6 @@
 package io.github.ioannes78.voica
 
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -9,6 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -277,11 +279,16 @@ private data class MediaProcessingTaskDisplay(
  */
 class MediaProcessingForegroundService : Service() {
     private lateinit var notificationManager: NotificationManager
+    private lateinit var wakeLock: PowerManager.WakeLock
     private val activeTasks = linkedMapOf<String, MediaProcessingTaskDisplay>()
 
     override fun onCreate() {
         super.onCreate()
         notificationManager = getSystemService(NotificationManager::class.java)
+        wakeLock =
+            getSystemService(PowerManager::class.java)
+                .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG)
+                .apply { setReferenceCounted(false) }
         createChannel()
     }
 
@@ -294,6 +301,7 @@ class MediaProcessingForegroundService : Service() {
                 if (taskId != null) {
                     activeTasks[taskId] = taskFrom(intent)
                     publish()
+                    ensureWakeLock()
                 } else if (activeTasks.isEmpty()) {
                     stopSelf(startId)
                 }
@@ -302,15 +310,23 @@ class MediaProcessingForegroundService : Service() {
             ACTION_RELEASE -> {
                 if (taskId != null) activeTasks.remove(taskId)
                 if (activeTasks.isEmpty()) {
+                    releaseWakeLock()
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
                 } else {
                     publish()
+                    ensureWakeLock()
                 }
             }
 
             else -> {
-                if (activeTasks.isEmpty()) stopSelf(startId) else publish()
+                if (activeTasks.isEmpty()) {
+                    releaseWakeLock()
+                    stopSelf(startId)
+                } else {
+                    publish()
+                    ensureWakeLock()
+                }
             }
         }
         return START_NOT_STICKY
@@ -319,8 +335,16 @@ class MediaProcessingForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onTimeout(startId: Int, fgsType: Int) {
+        cancelTimedOutBusinessTasks()
+        activeTasks.clear()
+        releaseWakeLock()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf(startId)
+    }
+
+    override fun onDestroy() {
+        releaseWakeLock()
+        super.onDestroy()
     }
 
     private fun taskFrom(intent: Intent): MediaProcessingTaskDisplay =
@@ -385,6 +409,36 @@ class MediaProcessingForegroundService : Service() {
         )
     }
 
+    @SuppressLint("WakelockTimeout")
+    private fun ensureWakeLock() {
+        if (activeTasks.isEmpty() || wakeLock.isHeld) return
+        try {
+            wakeLock.acquire()
+        } catch (error: RuntimeException) {
+            Log.e(TAG, "media-processing wake lock acquire failed", error)
+        }
+    }
+
+    private fun releaseWakeLock() {
+        try {
+            if (wakeLock.isHeld) wakeLock.release()
+        } catch (error: RuntimeException) {
+            Log.e(TAG, "media-processing wake lock release failed", error)
+        }
+    }
+
+    private fun cancelTimedOutBusinessTasks() {
+        val app = applicationContext as? VoicaApplication ?: return
+        val container = runCatching { app.container }.getOrNull() ?: return
+        val keys = activeTasks.keys.toList()
+        if (keys.any { it.startsWith(TRANSCRIPTION_TASK_PREFIX) }) {
+            container.transcriptionCoordinator.cancel()
+        }
+        if (keys.any { it.startsWith(DIARIZATION_TASK_PREFIX) }) {
+            container.diarizationCoordinator.cancel()
+        }
+    }
+
     private fun createChannel() {
         notificationManager.createNotificationChannel(
             NotificationChannel(
@@ -399,9 +453,13 @@ class MediaProcessingForegroundService : Service() {
     }
 
     companion object {
+        private const val TAG = "VoicaMediaProcessingFGS"
         private const val CHANNEL_ID = "voica-media-processing"
         private const val NOTIFICATION_ID = 13041
         private const val REQUEST_CONTENT = 13041
+        private const val WAKE_LOCK_TAG = "Voica:MediaProcessing"
+        private const val TRANSCRIPTION_TASK_PREFIX = "transcription:"
+        private const val DIARIZATION_TASK_PREFIX = "diarization:"
         private const val ACTION_ACQUIRE = "io.github.ioannes78.voica.media.ACQUIRE"
         private const val ACTION_UPDATE = "io.github.ioannes78.voica.media.UPDATE"
         private const val ACTION_RELEASE = "io.github.ioannes78.voica.media.RELEASE"
