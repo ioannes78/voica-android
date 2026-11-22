@@ -7,12 +7,14 @@ Pre-install 'absent' is evidence of observation, NOT proof of never-armed histor
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
 LAB = "io.github.ioannes78.voica.m4blab"
 LEGACY_QA = "io.github.ioannes78.voica.qa"
+QA_CERT_SHA256 = "3df9c619ad0d06f2fabb24232420bf056ca2d8ea9413e7f776669a591974f288"
 
 
 def call(argv):
@@ -22,7 +24,23 @@ def call(argv):
     return done.stdout.strip()
 
 
-def observe(stage, serial, apk, adb="adb", analyzer="apkanalyzer"):
+def read_apk_signer(apk, signer):
+    # apksigner validates the APK signature before displaying certificate data.
+    output = call([signer, "verify", "--print-certs", str(apk)])
+    matches = re.findall(
+        r"^Signer #1 certificate SHA-256 digest:\\s*([0-9a-fA-F: ]+)$",
+        output, flags=re.MULTILINE,
+    )
+    if len(matches) != 1:
+        raise ValueError("Missing or ambiguous Lab APK signing certificate")
+    digest = re.sub(r"[:\\s]", "", matches[0]).lower()
+    if digest != QA_CERT_SHA256:
+        raise ValueError("Lab APK signer mismatch; expected QA-only certificate")
+    return digest
+
+
+def observe(stage, serial, apk, adb="adb", analyzer="apkanalyzer",
+            signer="apksigner"):
     if not serial or not serial.strip() or serial.startswith("-"):
         raise ValueError("Explicit ADB device serial is required")
     if not apk.is_file() or not apk.stat().st_size:
@@ -30,6 +48,7 @@ def observe(stage, serial, apk, adb="adb", analyzer="apkanalyzer"):
     application_id = call([analyzer, "manifest", "application-id", str(apk)])
     if application_id != LAB:
         raise ValueError("APK application ID mismatch; refusing legacy .qa or production APK")
+    signer_digest = read_apk_signer(apk, signer)
     sha256 = hashlib.sha256(apk.read_bytes()).hexdigest()
     state = call([adb, "-s", serial, "get-state"])
     if state != "device":
@@ -51,6 +70,7 @@ def observe(stage, serial, apk, adb="adb", analyzer="apkanalyzer"):
         "device_serial": serial,
         "apk_sha256": sha256,
         "apk_application_id": LAB,
+        "apk_signer_sha256": signer_digest,
         "lab_installed": lab_installed,
         "legacy_qa_installed_observed_only": legacy_installed,
         "outcome": ("PREINSTALL_ABSENCE_OBSERVED" if stage == "before"
@@ -70,9 +90,10 @@ def main():
     parser.add_argument("--lab-apk", required=True, type=Path)
     parser.add_argument("--adb", default="adb")
     parser.add_argument("--apkanalyzer", default="apkanalyzer")
+    parser.add_argument("--apksigner", default="apksigner")
     args = parser.parse_args()
     try:
-        result = observe(args.stage, args.serial, args.lab_apk, args.adb, args.apkanalyzer)
+        result = observe(args.stage, args.serial, args.lab_apk, args.adb, args.apkanalyzer, args.apksigner)
     except (ValueError, RuntimeError, OSError, subprocess.TimeoutExpired) as error:
         parser.exit(2, f"DENY_P2_M4B_LAB_PREFLIGHT: {error}\n")
     print(json.dumps(result, indent=2, ensure_ascii=False))
