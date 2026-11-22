@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 LAB = "io.github.ioannes78.voica.m4blab"
+QA_CERT_SHA256 = "3df9c619ad0d06f2fabb24232420bf056ca2d8ea9413e7f776669a591974f288"
 NO_AUTHORITY = (
     "never_armed_proven", "owner_seed_authorized",
     "ipc_admission_authorized", "fault_injection_authorized",
@@ -33,6 +34,8 @@ def parse_observation(value, stage):
     serial = value.get("device_serial")
     if not isinstance(serial, str) or not serial or serial != serial.strip():
         raise ValueError("Missing or malformed device serial")
+    if value.get("apk_signer_sha256") != QA_CERT_SHA256:
+        raise ValueError("Missing or mismatched Lab QA signer certificate")
     digest = value.get("apk_sha256")
     if not isinstance(digest, str) or len(digest) != 64 or any(
         ch not in "0123456789abcdef" for ch in digest
@@ -63,6 +66,7 @@ def correlate(before, after):
         "verdict": "OBSERVATIONS_CORRELATED_NOT_AN_ENROLLMENT",
         "apk_application_id": LAB,
         "apk_sha256": bdigest,
+        "apk_signer_sha256": QA_CERT_SHA256,
         "device_serial": bserial,
         "before_observed_utc": btime.isoformat(),
         "after_observed_utc": atime.isoformat(),
