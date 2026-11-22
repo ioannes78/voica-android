@@ -101,3 +101,12 @@ PR #37 must stay OPEN/DRAFT/UNMERGED; production main unchanged.
 - Operator-only example (inputs must come from separately preserved trusted evidence; NOT run in CI):
   `python3 ci/stage17_p2m4b_lab_correlate.py --before before.json --after after.json`
 - **No device was accessed**, no Lab APK installed or uploaded, no first-install enrollment/Journal seed implemented. A separate independently audited operator-controlled enrollment/attestation procedure remains needed. `IPC_ADMISSION_ENABLED=false`; `FAULT_INJECTION_ENABLED=false`; P2-M4B1 remains IN PROGRESS; PR #37 remains Draft/unmerged; M4B2 parent process exit requires explicit separate authorization.
+
+## Continuation — Pin signed Lab APK identity before any host ADB observation (2026-11-22)
+
+- Reverified `7860a188dc06`: PR #37 OPEN/DRAFT/UNMERGED, main `28ec9a837c5b`, Android PR CI and Stage17.3 Quality Diagnostic APK both SUCCESS.
+- Audit finding: the host preflight previously checked only `apkanalyzer manifest application-id`, not the APK's signing identity; an unrelated APK with the same application ID could be used to produce misleading observations.
+- The read-only preflight now runs `apksigner verify --print-certs`, checks exactly one signer #1 SHA-256 certificate digest and requires the pinned public QA signer SHA-256 `3df9c619ad0d06f2fabb24232420bf056ca2d8ea9413e7f776669a591974f288` **before any ADB device access**. Output records `apk_signer_sha256`.
+- The JSON correlator now requires that same pinned signer in both before and after observations; unit tests cover invalid, missing and duplicated signer results as well as wrong signer evidence. Static CI enforces this boundary.
+- This is a host-side *evidence quality* improvement, **not authentication of who captured the JSON**, proof of historical install absence, authorization to seed a Journal, or real cross-process Binder test. For that reason `never_armed_proven=false`, `owner_seed_authorized=false`, `ipc_admission_authorized=false`, `fault_injection_authorized=false` remain unchanged.
+- No APK installed or distributed, no Journal written, no existing `.qa` data touched, no process exit or real LLM/GPU/JNI action. M4B1 remains IN PROGRESS; PR #37 stays Draft/unmerged.
