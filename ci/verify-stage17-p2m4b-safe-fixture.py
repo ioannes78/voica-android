@@ -32,6 +32,10 @@ for expected in ('PREINSTALL_ABSENCE_OBSERVED', 'POSTINSTALL_PRESENCE_OBSERVED',
                  '"ipc_admission_authorized": False', '"fault_injection_authorized": False',
                  '"manifest", "application-id"', '"pm", "path"'):
     assert expected in preflight, f"Missing non-authoritative Lab preflight boundary: {expected}"
+assert 'read_apk_signer(apk, signer)' in preflight
+assert '[signer, "verify", "--print-certs", str(apk)]' in preflight
+assert 'signer_digest = read_apk_signer(apk, signer)' in preflight
+assert '"apk_signer_sha256": signer_digest' in preflight
 for forbidden in ('"install"', '"uninstall"', '"clear"', 'KEY_SEEDED', 'VERIFIED_NEVER_ARMED'):
     assert forbidden not in preflight, f"Preflight must not modify device or grant ownership: {forbidden}"
 correlator = (root / "ci/stage17_p2m4b_lab_correlate.py").read_text()
@@ -41,6 +45,8 @@ for expected in ('OBSERVATIONS_CORRELATED_NOT_AN_ENROLLMENT',
                  'Device serial mismatch', 'APK SHA-256 mismatch',
                  'Observations are not chronologically ordered'):
     assert expected in correlator, f"Missing fail-closed observation correlation: {expected}"
+assert 'value.get("apk_signer_sha256") != QA_CERT_SHA256' in correlator
+assert '"apk_signer_sha256": QA_CERT_SHA256' in correlator
 for forbidden in ('subprocess', 'adb ', 'KEY_SEEDED', 'VERIFIED_NEVER_ARMED', 'install(', 'uninstall('):
     assert forbidden not in correlator, f"Correlator must not mutate device or Journal: {forbidden}"
 assert 'test_stage17_p2m4b_lab_correlate.py' in (
