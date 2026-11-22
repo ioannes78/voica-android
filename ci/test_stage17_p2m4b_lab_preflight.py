@@ -20,11 +20,14 @@ class LabPreflightTest(unittest.TestCase):
         self.apk.write_bytes(b"test-fixture-not-a-real-apk")
         self.commands = []
 
-    def fake_call(self, lab_installed=False, qa_installed=True, actual_id=module.LAB):
+    def fake_call(self, lab_installed=False, qa_installed=True, actual_id=module.LAB,
+                  certificate=module.QA_CERT_SHA256):
         def run(argv):
             self.commands.append(argv)
             if argv[0] == "apkanalyzer":
                 return actual_id
+            if argv[0] == "apksigner":
+                return "Signer #1 certificate SHA-256 digest: " + certificate
             if argv[-1] == "get-state":
                 return "device"
             if argv[-2:] == ["path", module.LAB]:
@@ -37,12 +40,12 @@ class LabPreflightTest(unittest.TestCase):
     def assert_only_reads(self):
         for argv in self.commands:
             self.assertTrue(
-                argv[0] == "apkanalyzer" or
+                argv[0] in ("apkanalyzer", "apksigner") or
                 argv[1:4] == ["-s", "serial1", "get-state"] or
                 argv[1:4] == ["-s", "serial1", "shell"] and argv[4:6] == ["pm", "path"],
                 argv,
             )
-        self.assertEqual(4, len(self.commands))
+        self.assertEqual(5, len(self.commands))
 
     def test_before_absence_records_observation_but_never_authorizes(self):
         with patch.object(module, "call", side_effect=self.fake_call()):
@@ -79,6 +82,21 @@ class LabPreflightTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "application ID mismatch"):
                 module.observe("before", "serial1", self.apk)
         self.assertEqual(1, len(self.commands))
+
+    def test_wrong_signer_is_rejected_before_device_read(self):
+        with patch.object(module, "call", side_effect=self.fake_call(certificate="b" * 64)):
+            with self.assertRaisesRegex(ValueError, "signer mismatch"):
+                module.observe("before", "serial1", self.apk)
+        self.assertEqual(["apkanalyzer", "apksigner"], [cmd[0] for cmd in self.commands])
+
+    def test_signer_is_required_and_must_be_unambiguous(self):
+        for certificate in ("", "garbage", module.QA_CERT_SHA256 + "\\nSigner #1 certificate SHA-256 digest: " + module.QA_CERT_SHA256):
+            self.commands.clear()
+            with self.subTest(certificate=certificate):
+                with patch.object(module, "call", side_effect=self.fake_call(certificate=certificate)):
+                    with self.assertRaises(ValueError):
+                        module.observe("before", "serial1", self.apk)
+                self.assertEqual(["apkanalyzer", "apksigner"], [cmd[0] for cmd in self.commands])
 
     def test_serial_required(self):
         with self.assertRaisesRegex(ValueError, "serial"):
