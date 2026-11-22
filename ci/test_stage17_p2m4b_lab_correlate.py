@@ -19,6 +19,7 @@ def observation(stage="before"):
         "device_serial": "device123",
         "apk_sha256": "a" * 64,
         "apk_application_id": m.LAB,
+        "apk_signer_sha256": m.QA_CERT_SHA256,
         "lab_installed": stage == "after",
         "legacy_qa_installed_observed_only": True,
         "outcome": ("PREINSTALL_ABSENCE_OBSERVED" if stage == "before"
@@ -34,6 +35,7 @@ class LabCorrelationTest(unittest.TestCase):
     def test_correlated_is_not_an_enrollment(self):
         result = m.correlate(observation(), observation("after"))
         self.assertEqual("OBSERVATIONS_CORRELATED_NOT_AN_ENROLLMENT", result["verdict"])
+        self.assertEqual(m.QA_CERT_SHA256, result["apk_signer_sha256"])
         for field in m.NO_AUTHORITY:
             self.assertIs(result[field], False)
 
@@ -43,6 +45,8 @@ class LabCorrelationTest(unittest.TestCase):
             ("apk_sha256", "b" * 64),
             ("apk_sha256", "malformed"),
             ("apk_application_id", "io.github.ioannes78.voica.qa"),
+            ("apk_signer_sha256", "b" * 64),
+            ("apk_signer_sha256", None),
             ("lab_installed", False),
             ("outcome", "UNKNOWN"),
             ("observed_utc", "2026-11-21T09:00:00+00:00"),
