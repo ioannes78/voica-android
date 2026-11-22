@@ -28,12 +28,12 @@ def read_apk_signer(apk, signer):
     # apksigner validates the APK signature before displaying certificate data.
     output = call([signer, "verify", "--print-certs", str(apk)])
     matches = re.findall(
-        r"^Signer #1 certificate SHA-256 digest:\\s*([0-9a-fA-F: ]+)$",
+        r"^Signer #1 certificate SHA-256 digest:\s*([0-9a-fA-F: ]+)$",
         output, flags=re.MULTILINE,
     )
     if len(matches) != 1:
         raise ValueError("Missing or ambiguous Lab APK signing certificate")
-    digest = re.sub(r"[:\\s]", "", matches[0]).lower()
+    digest = re.sub(r"[:\s]", "", matches[0]).lower()
     if digest != QA_CERT_SHA256:
         raise ValueError("Lab APK signer mismatch; expected QA-only certificate")
     return digest
