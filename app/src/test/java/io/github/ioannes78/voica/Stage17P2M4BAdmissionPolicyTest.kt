@@ -59,6 +59,11 @@ class Stage17P2M4BAdmissionPolicyTest {
 
     @Test fun syntheticClaimOfNeverArmedCannotReplaceExternalProof() {
         assertFalse(eligible(record = neverArmed, trustedEnrollment = false))
+        // A completed fake run cannot be replayed even with hypothetical
+        // independent proof and enabled IPC.
+        assertFalse(eligible(record = Stage17P2M4BRecord(
+            1L, nonce, Stage17P2M4BPhase.RELEASE_CONFIRMED_DURABLE,
+        )))
         assertFalse(eligible(record = Stage17P2M4BRecord(
             1L, nonce, Stage17P2M4BPhase.RELEASE_CONFIRMED_DURABLE,
         ), trustedEnrollment = false))
