@@ -56,7 +56,17 @@ assert "FAULT_INJECTION_ENABLED = false" in sources[0].read_text()
 assert "IPC_ADMISSION_ENABLED = false" in sources[0].read_text()
 for idx in (1, 2, 5):
     assert "sendingUid" in sources[idx].read_text(), "Messenger sender UID must be checked"
+admission_policy = main / "java/io/github/ioannes78/voica/Stage17P2M4BAdmissionPolicy.kt"
+assert admission_policy.is_file()
+admission = admission_policy.read_text()
+for required in ('isLabPackage(appId)', 'processName == appId',
+                 'ipcAdmissionEnabled', 'trustedEnrollment',
+                 '!Stage17P2M4BCodec.blocked(ownerRecord)'):
+    assert required in admission, f"Missing Lab-only owner admission gate: {required}"
+assert (root / "app/src/test/java/io/github/ioannes78/voica/Stage17P2M4BAdmissionPolicyTest.kt").is_file()
 controller = sources[-1].read_text()
+assert 'Stage17P2M4BAdmissionPolicy.canAdmit(' in controller
+assert 'trustedEnrollment = false' in controller, "B1 must not infer enrollment from journal or package"
 journal = sources[-2].read_text()
 codec = sources[-3].read_text()
 for required in ("commitAndVerify(", "val restored = try { recovered() }", "writeUncertain = true", "decodePersistedSnapshot(snapshot)"):
