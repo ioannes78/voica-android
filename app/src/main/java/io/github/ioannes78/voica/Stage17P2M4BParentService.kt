@@ -50,15 +50,23 @@ class Stage17P2M4BParentService : Service() {
                 suppliedUid = data.getInt(contract.EXTRA_UID, -1),
             )
         val releaseAccepted = msg.what == contract.WHAT_FAKE_CHILD_RELEASE_ACK &&
-            armed && childReadyAccepted && terminalReported &&
-            childReleaseSent && !childReleaseAccepted &&
-            contract.isLabPackage(packageName) &&
-            msg.sendingUid == Process.myUid() &&
-            data.getLong(contract.EXTRA_GENERATION) == generation &&
-            data.getString(contract.EXTRA_NONCE) == nonce &&
-            data.getString(contract.EXTRA_MODEL) == contract.FAKE_MODEL &&
-            data.getString(contract.EXTRA_PROCESS) == contract.childProcess(packageName) &&
-            data.getInt(contract.EXTRA_UID, -1) == Process.myUid()
+            Stage17P2M4BParentReleasePolicy.acceptsChildReleaseAck(
+                packageName = packageName,
+                armed = armed,
+                childReady = childReadyAccepted,
+                terminalReported = terminalReported,
+                childReleaseSent = childReleaseSent,
+                alreadyAccepted = childReleaseAccepted,
+                actualUid = Process.myUid(),
+                sendingUid = msg.sendingUid,
+                generation = generation,
+                nonce = nonce,
+                suppliedGeneration = data.getLong(contract.EXTRA_GENERATION),
+                suppliedNonce = data.getString(contract.EXTRA_NONCE),
+                suppliedModel = data.getString(contract.EXTRA_MODEL),
+                suppliedProcess = data.getString(contract.EXTRA_PROCESS),
+                suppliedUid = data.getInt(contract.EXTRA_UID, -1),
+            )
         if (accepted) {
             childReadyAccepted = true
             report(contract.WHAT_CHILD_READY)
@@ -171,8 +179,10 @@ class Stage17P2M4BParentService : Service() {
                 }
             }
             contract.WHAT_FAKE_TERMINAL_REQUEST -> {
-                if (matchesController(msg) && childReadyAccepted &&
-                    !terminalReported && !childReleaseSent
+                if (matchesController(msg) &&
+                    Stage17P2M4BParentReleasePolicy.mayObserveTerminal(
+                        armed, childReadyAccepted, terminalReported, childReleaseSent,
+                    )
                 ) {
                     terminalReported = true
                     report(contract.WHAT_FAKE_TERMINAL_OBSERVED)
@@ -180,8 +190,11 @@ class Stage17P2M4BParentService : Service() {
                 true
             }
             contract.WHAT_FAKE_CHILD_RELEASE_REQUEST -> {
-                if (matchesController(msg) && terminalReported && childReadyAccepted &&
-                    !childReleaseSent && child != null
+                if (matchesController(msg) &&
+                    Stage17P2M4BParentReleasePolicy.mayRequestChildRelease(
+                        armed, terminalReported, childReadyAccepted,
+                        childReleaseSent, child != null,
+                    )
                 ) {
                     childReleaseSent = true
                     val request = Message.obtain(null, contract.WHAT_FAKE_CHILD_RELEASE_REQUEST)
@@ -196,8 +209,10 @@ class Stage17P2M4BParentService : Service() {
                 true
             }
             contract.WHAT_FAKE_PARENT_RELEASE_REQUEST -> {
-                if (matchesController(msg) && childReleaseAccepted &&
-                    !parentReleaseSent && connected
+                if (matchesController(msg) &&
+                    Stage17P2M4BParentReleasePolicy.mayReleaseParent(
+                        armed, childReleaseAccepted, parentReleaseSent, connected,
+                    )
                 ) {
                     parentReleaseSent = true
                     // Bound fake Service release, never evidence of native teardown.
