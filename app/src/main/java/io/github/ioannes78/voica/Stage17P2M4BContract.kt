@@ -22,6 +22,8 @@ internal object Stage17P2M4BContract {
     const val WHAT_CHILD_READY = 43
     const val WHAT_PARENT_READY = 44
     const val WHAT_DENIED = 45
+    const val WHAT_PROBE_PING = 46
+    const val WHAT_PROBE_PONG = 47
     const val EXTRA_GENERATION = "generation"
     const val EXTRA_NONCE = "nonce"
     const val EXTRA_MODEL = "model"
