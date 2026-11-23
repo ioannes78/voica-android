@@ -142,6 +142,13 @@ assert 'NO UPLOAD' in lab_verify
 ci_workflow = (root / ".github/workflows/android-ci.yml").read_text()
 assert ':app:assembleM4bLab' in ci_workflow
 assert 'ci/verify-stage17-p2m4b-lab-apk.sh' in ci_workflow
+assert 'm4b-lab-handoff:' in ci_workflow
+assert "startsWith(github.event.pull_request.title, '[M4B-LAB-APK]')" in ci_workflow
+assert 'github.event.action == \'edited\'' in ci_workflow
+assert 'name: Isolated M4B Lab QA APK Handoff' in ci_workflow
+assert 'retention-days: 1' in ci_workflow
+assert 'app/build/outputs/apk/m4bLab/SHA256SUMS.txt' in ci_workflow
+assert 'P2-M4B1-LAB-' in ci_workflow
 assert 'IPC_ADMISSION_ENABLED = false' in sources[0].read_text()
 assert 'FAULT_INJECTION_ENABLED = false' in sources[0].read_text()
 production = (main / "AndroidManifest.xml").read_text()
