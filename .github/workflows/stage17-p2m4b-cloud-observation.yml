@@ -1,0 +1,106 @@
+name: Stage 17 P2-M4B1 Cloud Emulator Observation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/stage17-p2m4b-cloud-observation.yml"
+      - "ci/stage17_p2m4b_lab_preflight.py"
+      - "ci/stage17_p2m4b_lab_correlate.py"
+      - "ci/verify-stage17-p2m4b-safe-fixture.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cloud-lab-observation:
+    # Scope strictly to the existing draft Stage 17 branch. No legacy QA or
+    # production installation, owner admission, or fault injection.
+    if: >-
+      ${{
+        (github.event_name == 'pull_request' &&
+         github.event.pull_request.head.repo.full_name == github.repository &&
+         github.head_ref == 'stage17-fully-offline-intelligence') ||
+        (github.event_name == 'workflow_dispatch' &&
+         github.ref_name == 'stage17-fully-offline-intelligence')
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      VOICA_BUILD_GIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      LAB_APK: app/build/outputs/apk/m4bLab/app-m4bLab.apk
+      EVIDENCE: build/m4b-cloud-evidence
+
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify safe-only source and host probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ci/verify-stage17-p2m4b-safe-fixture.py
+          python3 -m unittest discover -s ci -p test_stage17_p2m4b_lab_preflight.py
+          python3 -m unittest discover -s ci -p test_stage17_p2m4b_lab_correlate.py
+          test "$(git rev-parse HEAD)" = "$VOICA_BUILD_GIT_SHA"
+
+      - name: JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+
+      - name: Android build toolchains
+        run: |
+          sdkmanager "platforms;android-37.1" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
+
+      - name: Gradle 9.6
+        uses: gradle/actions/setup-gradle@v5.0.2
+        with:
+          gradle-version: '9.6.0'
+          cache-read-only: true
+
+      - name: Restore Opus cache
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/voica-deps/opus-1.6.1.tar.gz
+          key: voica-opus-${{ runner.os }}-1.6.1-6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1
+
+      - name: Prepare pinned Opus source
+        run: bash ci/prepare-opus-source.sh
+
+      - name: Build isolated Lab APK, never publish APK
+        run: |
+          set -euo pipefail
+          gradle :app:assembleM4bLab --configuration-cache --stacktrace
+          bash ci/verify-stage17-p2m4b-lab-apk.sh
+
+      - name: Fresh API31 AVD and read-only installation observations
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 31
+          target: default
+          arch: x86_64
+          profile: pixel_4
+          force-avd-creation: true
+          disable-animations: true
+          emulator-boot-timeout: 600
+          emulator-options: -no-snapshot -wipe-data -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          script: bash ci/stage17_p2m4b_cloud_observe.sh
+
+      - name: Upload non-authorizing observation report only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P2-M4B1-CLOUD-OBSERVATION-${{ github.run_id }}
+          path: build/m4b-cloud-evidence/
+          if-no-files-found: warn
+          retention-days: 1
