@@ -46,8 +46,15 @@ assert "journal.transition(" in sources[5].read_text()
 assert "Stage17P2M4BPhase.RELEASE_CONFIRMED_DURABLE" in sources[5].read_text()
 assert "if (!sendFakeCommand(c.WHAT_FAKE_CHILD_RELEASE_REQUEST, terminal))" in sources[5].read_text()
 assert "if (!sendFakeCommand(c.WHAT_FAKE_PARENT_RELEASE_REQUEST, ack))" in sources[5].read_text()
-assert "childReleaseAccepted &&" in sources[1].read_text()
-assert "!parentReleaseSent && connected" in sources[1].read_text()
+parent_release = main / "java/io/github/ioannes78/voica/Stage17P2M4BParentReleasePolicy.kt"
+assert parent_release.is_file()
+parent_policy = parent_release.read_text()
+for method in ("acceptsChildReleaseAck(", "mayObserveTerminal(",
+               "mayRequestChildRelease(", "mayReleaseParent("):
+    assert ("Stage17P2M4BParentReleasePolicy." + method) in sources[1].read_text()
+assert "childReleaseSent && !alreadyAccepted" in parent_policy
+assert "childReleaseAccepted && !alreadyReleased" in parent_policy
+assert (root / "app/src/test/java/io/github/ioannes78/voica/Stage17P2M4BParentReleasePolicyTest.kt").is_file()
 assert "Stage17P2M4BLifecycleSimulationTest" in (
     root / "app/src/test/java/io/github/ioannes78/voica/Stage17P2M4BLifecycleSimulationTest.kt"
 ).read_text()
