@@ -24,6 +24,13 @@ internal object Stage17P2M4BContract {
     const val WHAT_DENIED = 45
     const val WHAT_PROBE_PING = 46
     const val WHAT_PROBE_PONG = 47
+    // Mock-only ordered release handshake; disabled by B1 owner gate.
+    const val WHAT_FAKE_TERMINAL_REQUEST = 52
+    const val WHAT_FAKE_TERMINAL_OBSERVED = 53
+    const val WHAT_FAKE_CHILD_RELEASE_REQUEST = 54
+    const val WHAT_FAKE_CHILD_RELEASE_ACK = 55
+    const val WHAT_FAKE_PARENT_RELEASE_ACK = 56
+    const val WHAT_FAKE_PARENT_RELEASE_REQUEST = 57
     const val EXTRA_GENERATION = "generation"
     const val EXTRA_NONCE = "nonce"
     const val EXTRA_MODEL = "model"
