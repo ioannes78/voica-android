@@ -195,3 +195,10 @@ PR #37 must stay OPEN/DRAFT/UNMERGED; production main unchanged.
 - Exact-source CI `45201741072` confirmed the alternate official Maven Central host alone did not fix 14 Robolectric `MavenArtifactFetcher` download failures; the prior transient realtime test exception did not recur.
 - A documented Robolectric 4.17 / Conscrypt 2.6.0 XDH TLS handshake regression can cause these lazy Android runtime-jar failures. Added **JVM-test-only** strict `org.conscrypt:conscrypt-openjdk-uber:2.5.2` version constraint, leaving Android production runtime and the full test suite untouched.
 - The Conscrypt compatibility hypothesis is **not PASS until exact-source CI completes**. No M4B1 owner enrollment, seed, fault, JNI or GPU changes.
+
+## Continuation — confirmed Maven Central HTTP 429 and upstream Google mirror (2026-11-23)
+
+- CI `45203825006` diagnostic XML established exact root cause: `java.io.IOException: Server returned HTTP response code: 429` for `org.robolectric:android-all-instrumented:15-robolectric-13954326-i7` from `https://repo.maven.apache.org/maven2`. This is a host artifact rate-limit, not a B1 assertion failure.
+- Robolectric's own upstream `settings.gradle.kts` explicitly prefers `https://maven-central.storage-download.googleapis.com/maven2/` for `android-all-instrumented` because Maven Central returns HTTP 429 from heavy CI traffic. Configured **JVM Test task only** to download Robolectric runtime jars from Google's Central mirror, preserving SDK versions and all tests.
+- Removed the speculative Conscrypt `2.5.2` version constraint because the actual failure is HTTP 429, not XDH/TLS; no production/test dependency version needs downgrading. Maintained bounded failure diagnostics and no-test-skip policy.
+- Exact-source CI against this mirror change remains required before claiming green status. Unfulfilled M4B1 independent enrollment and real owner/Child lifecycle device gates are unchanged.
