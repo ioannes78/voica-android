@@ -242,4 +242,11 @@ dependencies {
     testImplementation("androidx.room:room-runtime:2.8.5")
     testImplementation("androidx.room:room-ktx:2.8.5")
     testImplementation("org.robolectric:robolectric:4.17")
+    // Robolectric 4.17 may install Conscrypt 2.6.0 into the JVM security
+    // provider chain; its XDH TLS handshake can fail during lazy android-all
+    // runtime downloads. Keep the workaround scoped to JVM unit tests.
+    testImplementation("org.conscrypt:conscrypt-openjdk-uber") {
+        version { strictly("2.5.2") }
+        because("Avoid Robolectric 4.17 test-only XDH handshake failure while fetching Android runtime jars")
+    }
 }
