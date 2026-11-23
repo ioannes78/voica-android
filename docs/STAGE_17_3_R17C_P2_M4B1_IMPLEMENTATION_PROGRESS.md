@@ -202,3 +202,12 @@ PR #37 must stay OPEN/DRAFT/UNMERGED; production main unchanged.
 - Robolectric's own upstream `settings.gradle.kts` explicitly prefers `https://maven-central.storage-download.googleapis.com/maven2/` for `android-all-instrumented` because Maven Central returns HTTP 429 from heavy CI traffic. Configured **JVM Test task only** to download Robolectric runtime jars from Google's Central mirror, preserving SDK versions and all tests.
 - Removed the speculative Conscrypt `2.5.2` version constraint because the actual failure is HTTP 429, not XDH/TLS; no production/test dependency version needs downgrading. Maintained bounded failure diagnostics and no-test-skip policy.
 - Exact-source CI against this mirror change remains required before claiming green status. Unfulfilled M4B1 independent enrollment and real owner/Child lifecycle device gates are unchanged.
+
+
+## Continuation — exact-source Google mirror CI confirmation (2026-11-24)
+
+- Independently rechecked GitHub PR #37: OPEN / DRAFT / UNMERGED; source HEAD `72fdf763b48c9224fc42856c8b3e6b18e8632470`; production `main` remains `28ec9a837c5b0debac8e6d32ab99e0cf8d80be12`.
+- Full Android PR CI run `45204447153` **SUCCESS** (attempt 1) at the exact source HEAD, confirming the Robolectric runtime artifact Google Maven Central mirror resolved the prior HTTP 429 test-infrastructure blocker without reducing test coverage.
+- Stage 17.3 Quality Diagnostic APK run `45204447199` **SUCCESS** (attempt 1) at the same source HEAD. Android Production Gate run `45204447184` was **SKIPPED**, not claimed as a production validation pass.
+- Source re-audit confirms `IPC_ADMISSION_ENABLED=false`, `FAULT_INJECTION_ENABLED=false`, Controller `trustedEnrollment=false`, and no Journal auto-seed. The one-shot claim is still limited to independently seeded `VERIFIED_NEVER_ARMED`, which has not been established for the current installation.
+- **Decision: source/CI subgate PASS; P2-M4B1 overall remains BLOCKED / NOT CLOSED.** API31 operator Binder PING/PONG is limited to one observed Parent exchange and does not authorize owner handoff, child ACK, journal release, process death, native/GPU/JNI, data reset, or PR merge. Independent operator-controlled never-armed provenance and device-bound one-time verification remain absent.
