@@ -187,6 +187,13 @@ tasks.register("verifyProductionSigningConfiguration") {
     }
 }
 
+// Robolectric fetches android-all-instrumented JARs at test execution time,
+// outside Gradle's normal dependency cache. Use the canonical Maven Central
+// host instead of Robolectric's repo1 default; do not skip or stub tests.
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
+}
+
 kotlin {
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_17)
