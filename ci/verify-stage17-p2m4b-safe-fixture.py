@@ -92,6 +92,13 @@ assert "Stage17P2M4BParentService::class.java" in probe_page
 assert "WHAT_PROBE_PING" in probe_page and "WHAT_PROBE_PONG" in probe_page
 assert "Stage17P2M4BProbePolicy.acceptsPong(" in probe_page
 assert "Stage17P2M4BProbePolicy.acceptsPing(" in sources[1].read_text()
+assert 'reportedParentPid = data.getInt(contract.EXTRA_PID, -1)' in probe_page
+assert 'controllerPid = Process.myPid()' in probe_page
+assert 'P2-M4B1_LAB_BINDER_PROBE_V1' in probe_page
+assert 'proof_scope=ONE_OBSERVED_BINDER_EXCHANGE_ONLY' in probe_page
+assert 'Copy local probe report' in probe_page
+assert 'ui.removeCallbacks(timeout)' in probe_page
+assert 'reportedParentPid > 0 && controllerPid != reportedParentPid' in probe_rules
 assert "WHAT_PROBE_PING" in sources[0].read_text()
 assert "WHAT_PROBE_PONG" in sources[0].read_text()
 for required in ("isLabPackage(packageName)", "senderUid == actualUid",
