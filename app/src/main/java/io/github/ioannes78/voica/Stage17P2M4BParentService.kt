@@ -120,7 +120,8 @@ class Stage17P2M4BParentService : Service() {
                     incomingGeneration, incomingNonce, supplied.getString(contract.EXTRA_MODEL),
                     supplied.getInt(contract.EXTRA_UID), Process.myUid(),
                 )
-                if (!contract.IPC_ADMISSION_ENABLED || msg.sendingUid != Process.myUid() ||
+                if (!contract.isLabPackage(packageName) ||
+                    !contract.IPC_ADMISSION_ENABLED || msg.sendingUid != Process.myUid() ||
                     !approved || armed || msg.replyTo == null) {
                     // No automatic retry, no second run, no native cleanup.
                     true
@@ -144,7 +145,7 @@ class Stage17P2M4BParentService : Service() {
     })
 
     override fun onBind(intent: Intent?): IBinder? =
-        if (contract.allowPackage(packageName) &&
+        if (contract.isLabPackage(packageName) &&
             Stage17P2M4BContract.currentProcessName(this) == contract.parentProcess(packageName)
         ) inbound.binder else null
 
