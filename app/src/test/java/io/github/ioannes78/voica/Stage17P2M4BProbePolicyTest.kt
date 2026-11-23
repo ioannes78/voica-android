@@ -20,11 +20,13 @@ class Stage17P2M4BProbePolicyTest {
     private fun pong(
         app: String = lab, process: String? = app, actualUid: Int = 10033,
         sendingUid: Int = 10033, reportedUid: Int = 10033,
+        controllerPid: Int = 201, reportedParentPid: Int = 202,
         reportedProcess: String? = Stage17P2M4BContract.parentProcess(app),
         nonce: String? = token, expectedToken: String = token,
         model: String? = Stage17P2M4BContract.FAKE_MODEL,
     ) = Stage17P2M4BProbePolicy.acceptsPong(
-        app, process, actualUid, sendingUid, reportedUid, reportedProcess,
+        app, process, actualUid, sendingUid, reportedUid,
+        controllerPid, reportedParentPid, reportedProcess,
         nonce, expectedToken, model,
     )
 
@@ -53,6 +55,9 @@ class Stage17P2M4BProbePolicyTest {
         assertFalse(pong(process = Stage17P2M4BContract.parentProcess(lab)))
         assertFalse(pong(sendingUid = 10034))
         assertFalse(pong(reportedUid = 10034))
+        assertFalse(pong(controllerPid = 202, reportedParentPid = 202))
+        assertFalse(pong(reportedParentPid = -1))
+        assertFalse(pong(controllerPid = 0))
         assertFalse(pong(reportedProcess = lab))
         assertFalse(pong(nonce = null))
         assertFalse(pong(nonce = "123e4567-e89b-12d3-a456-426614174001"))
