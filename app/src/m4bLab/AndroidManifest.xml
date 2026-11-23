@@ -12,6 +12,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- Non-exported Lab-only manual Binder liveness probe; not an owner admission. -->
+        <activity
+            android:name=".Stage17P2M4BBinderProbeActivity"
+            android:exported="false"
+            android:label="P2-M4B Binder Liveness" />
         <service
             android:name=".Stage17P2M4BParentService"
             android:exported="false"
