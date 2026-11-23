@@ -85,10 +85,8 @@ internal object Stage17P2M4BCodec {
     }
 
     fun claim(current: Stage17P2M4BRecord?, nonce: String): Stage17P2M4BRecord? {
-        if (current == null || current.phase !in setOf(
-                Stage17P2M4BPhase.VERIFIED_NEVER_ARMED,
-                Stage17P2M4BPhase.RELEASE_CONFIRMED_DURABLE,
-            ) || current.generation == Long.MAX_VALUE || current.nonce == nonce ||
+        if (current == null || current.phase != Stage17P2M4BPhase.VERIFIED_NEVER_ARMED ||
+            current.generation != 0L || current.nonce.isNotEmpty() ||
             !noncePattern.matches(nonce)
         ) return null
         return Stage17P2M4BRecord(current.generation + 1L, nonce, Stage17P2M4BPhase.INTENT_DURABLE)
@@ -106,9 +104,8 @@ internal object Stage17P2M4BCodec {
         else -> "DENY_INTERRUPTED_FAKE_OWNER"
     }
 
+    // B1 permits a single disposable owner attempt per independently
+    // enrolled test installation. A fake release never grants re-enrollment.
     fun blocked(current: Stage17P2M4BRecord?): Boolean =
-        current == null || current.phase !in setOf(
-            Stage17P2M4BPhase.VERIFIED_NEVER_ARMED,
-            Stage17P2M4BPhase.RELEASE_CONFIRMED_DURABLE,
-        )
+        current == null || current.phase != Stage17P2M4BPhase.VERIFIED_NEVER_ARMED
 }
