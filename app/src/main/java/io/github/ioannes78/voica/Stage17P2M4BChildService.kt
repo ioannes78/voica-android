@@ -20,7 +20,10 @@ class Stage17P2M4BChildService : Service() {
     private val contract = Stage17P2M4BContract
     private var admitted = false
     private val inbound = Messenger(Handler(Looper.getMainLooper()) { msg ->
-        if (msg.what == contract.WHAT_CHILD_ADMIT && !admitted) {
+        if (msg.what == contract.WHAT_CHILD_ADMIT &&
+            contract.IPC_ADMISSION_ENABLED &&
+            contract.isLabPackage(packageName) && !admitted
+        ) {
             val data = msg.data
             val ok = contract.validIdentity(
                 packageName, Stage17P2M4BContract.currentProcessName(this), contract.CHILD_SUFFIX,
@@ -50,7 +53,7 @@ class Stage17P2M4BChildService : Service() {
     })
 
     override fun onBind(intent: Intent?): IBinder? =
-        if (contract.allowPackage(packageName) &&
+        if (contract.isLabPackage(packageName) &&
             Stage17P2M4BContract.currentProcessName(this) == contract.childProcess(packageName)
         ) inbound.binder else null
 }
