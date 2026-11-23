@@ -83,6 +83,34 @@ class Stage17P2M4BParentService : Service() {
 
     private val inbound = Messenger(Handler(Looper.getMainLooper()) { msg ->
         when (msg.what) {
+            contract.WHAT_PROBE_PING -> {
+                // Independent, read-only Binder liveness probe. This must never
+                // arm a fake model, open owner Journal, or bind the child.
+                val data = msg.data
+                val token = data.getString(contract.EXTRA_NONCE)
+                val valid = Stage17P2M4BProbePolicy.acceptsPing(
+                    packageName = packageName,
+                    processName = contract.currentProcessName(this),
+                    actualUid = Process.myUid(),
+                    senderUid = msg.sendingUid,
+                    controllerProcess = data.getString(contract.EXTRA_PROCESS),
+                    token = token,
+                    model = data.getString(contract.EXTRA_MODEL),
+                    parentArmed = armed,
+                )
+                if (valid && msg.replyTo != null) {
+                    val reply = Message.obtain(null, contract.WHAT_PROBE_PONG)
+                    reply.data = Bundle().apply {
+                        putString(contract.EXTRA_NONCE, token)
+                        putString(contract.EXTRA_MODEL, contract.FAKE_MODEL)
+                        putString(contract.EXTRA_PROCESS, contract.parentProcess(packageName))
+                        putInt(contract.EXTRA_UID, Process.myUid())
+                        putInt(contract.EXTRA_PID, Process.myPid())
+                    }
+                    try { msg.replyTo?.send(reply) } catch (_: RemoteException) { }
+                }
+                true
+            }
             contract.WHAT_ARM -> {
                 val supplied = msg.data
                 val incomingGeneration = supplied.getLong(contract.EXTRA_GENERATION)
