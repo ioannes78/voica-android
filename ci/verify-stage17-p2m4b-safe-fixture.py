@@ -112,6 +112,9 @@ assert 'Stage17P2M4BAdmissionPolicy.canAdmit(' in controller
 assert 'trustedEnrollment = false' in controller, "B1 must not infer enrollment from journal or package"
 journal = sources[-2].read_text()
 codec = sources[-3].read_text()
+assert 'current.phase != Stage17P2M4BPhase.VERIFIED_NEVER_ARMED' in codec
+assert 'current.generation != 0L || current.nonce.isNotEmpty()' in codec
+assert 'current.phase !in setOf(' not in codec, "B1 must not re-admit a previously released owner"
 for required in ("commitAndVerify(", "val restored = try { recovered() }", "writeUncertain = true", "decodePersistedSnapshot(snapshot)"):
     assert required in journal, f"Missing fail-closed durable readback: {required}"
 assert "decodePersistedSnapshot(fields:" in codec
