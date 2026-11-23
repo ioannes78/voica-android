@@ -16,7 +16,7 @@ internal class Stage17P2M4BControllerJournal(private val context: Context) {
     }
 
     private fun requireController() {
-        check(Stage17P2M4BContract.isLabPackage(context.packageName))
+        check(Stage17P2M4BContract.allowPackage(context.packageName))
         check(Stage17P2M4BContract.currentProcessName(context) == context.packageName) {
             "P2-M4B controller journal is main-process-only"
         }
@@ -37,6 +37,7 @@ internal class Stage17P2M4BControllerJournal(private val context: Context) {
     /** One-time fresh installation fixture proof is deliberately NOT exposed by this class. */
     @Synchronized fun claim(nonce: String): Stage17P2M4BRecord? {
         requireController()
+        if (!Stage17P2M4BContract.isLabPackage(context.packageName)) return null
         val next = Stage17P2M4BCodec.claim(recovered(), nonce) ?: return null
         return commitAndVerify(next)
     }
@@ -45,6 +46,7 @@ internal class Stage17P2M4BControllerJournal(private val context: Context) {
         generation: Long, nonce: String, phase: Stage17P2M4BPhase,
     ): Stage17P2M4BRecord? {
         requireController()
+        if (!Stage17P2M4BContract.isLabPackage(context.packageName)) return null
         val next = Stage17P2M4BCodec.next(recovered(), generation, nonce, phase)
             ?: return null
         return commitAndVerify(next)
