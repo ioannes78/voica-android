@@ -20,7 +20,7 @@ import java.util.UUID
 
 /**
  * Isolated .m4blab ONLY, opt-in, non-destructive Binder liveness probe.
- * No Journal/Controller, WHAT_ARM, fake model owner, child, self-exit or native work.
+ * No Journal or controller ownership command, fake model owner, child, self-exit or native work.
  * A bound mock parent may be naturally stopped by Android after unbinding.
  */
 class Stage17P2M4BBinderProbeActivity : ComponentActivity() {
