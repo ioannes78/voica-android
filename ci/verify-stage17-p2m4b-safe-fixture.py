@@ -31,6 +31,26 @@ for required in ("ipcEnabled && !alreadyAdmitted", "isLabPackage(packageName)",
                  "claimedParentProcess == Stage17P2M4BContract.parentProcess(packageName)"):
     assert required in child_gate, f"Missing independent child admission policy: {required}"
 assert "Stage17P2M4BChildAdmissionPolicy.accepts(" in sources[2].read_text()
+child_release = main / "java/io/github/ioannes78/voica/Stage17P2M4BChildReleasePolicy.kt"
+assert child_release.is_file()
+assert "Stage17P2M4BChildReleasePolicy.accepts(" in sources[2].read_text()
+assert (root / "app/src/test/java/io/github/ioannes78/voica/Stage17P2M4BChildReleasePolicyTest.kt").is_file()
+for name in ("WHAT_FAKE_TERMINAL_REQUEST", "WHAT_FAKE_TERMINAL_OBSERVED",
+             "WHAT_FAKE_CHILD_RELEASE_REQUEST", "WHAT_FAKE_CHILD_RELEASE_ACK",
+             "WHAT_FAKE_PARENT_RELEASE_REQUEST", "WHAT_FAKE_PARENT_RELEASE_ACK"):
+    assert name in sources[0].read_text(), f"Missing fake-only contract message: {name}"
+    assert name in sources[5].read_text() or name in sources[1].read_text() or name in sources[2].read_text()
+assert "FAKE_OWNER_ACTIVE_COMMIT_FAILED" in sources[5].read_text()
+assert "FAKE_RELEASE_CONFIRM_COMMIT_FAILED" in sources[5].read_text()
+assert "journal.transition(" in sources[5].read_text()
+assert "Stage17P2M4BPhase.RELEASE_CONFIRMED_DURABLE" in sources[5].read_text()
+assert "if (!sendFakeCommand(c.WHAT_FAKE_CHILD_RELEASE_REQUEST, terminal))" in sources[5].read_text()
+assert "if (!sendFakeCommand(c.WHAT_FAKE_PARENT_RELEASE_REQUEST, ack))" in sources[5].read_text()
+assert "childReleaseAccepted &&" in sources[1].read_text()
+assert "!parentReleaseSent && connected" in sources[1].read_text()
+assert "Stage17P2M4BLifecycleSimulationTest" in (
+    root / "app/src/test/java/io/github/ioannes78/voica/Stage17P2M4BLifecycleSimulationTest.kt"
+).read_text()
 assert "ipcEnabled = contract.IPC_ADMISSION_ENABLED" in sources[2].read_text()
 assert "if (contract.isLabPackage(packageName) &&" in sources[1].read_text()
 assert "if (contract.isLabPackage(packageName) &&" in sources[2].read_text()
