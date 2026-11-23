@@ -258,3 +258,91 @@ jobs:
           path: app/build/outputs/apk/releaseQa/app-releaseQa.apk
           if-no-files-found: error
           retention-days: 1
+
+  m4b-lab-handoff:
+    name: Isolated M4B Lab QA APK Handoff
+    # Never publish on push/synchronize. An explicit PR-title edit is the
+    # handoff authorization; the ordinary fast gate keeps its no-upload rule.
+    if: >-
+      ${{
+        github.event_name == 'pull_request' &&
+        github.event.action == 'edited' &&
+        github.event.changes.title.from != null &&
+        startsWith(github.event.pull_request.title, '[M4B-LAB-APK]')
+      }}
+    concurrency:
+      group: m4b-lab-qa-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      VOICA_BUILD_GIT_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Checkout exact PR source
+        uses: actions/checkout@v5
+
+      - name: Enforce isolated Lab and no fault/owner admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ci/verify-stage17-p2m4b-safe-fixture.py
+          python3 -m unittest discover -s ci -p test_stage17_p2m4b_lab_preflight.py
+          python3 -m unittest discover -s ci -p test_stage17_p2m4b_lab_correlate.py
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+
+      - name: Install Android build and native toolchains
+        shell: bash
+        run: |
+          sdkmanager \
+            "platforms;android-37.1" \
+            "build-tools;36.0.0" \
+            "ndk;28.2.13676358" \
+            "cmake;3.22.1"
+
+      - name: Setup Gradle 9.6
+        uses: gradle/actions/setup-gradle@v5.0.2
+        with:
+          gradle-version: "9.6.0"
+          cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+
+      - name: Restore pinned Opus 1.6.1 source
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/voica-deps/opus-1.6.1.tar.gz
+          key: voica-opus-${{ runner.os }}-1.6.1-6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1
+
+      - name: Prefetch and verify Opus 1.6.1 source
+        shell: bash
+        run: bash ci/prepare-opus-source.sh
+
+      - name: Build one isolated QA-signed Lab APK
+        shell: bash
+        run: gradle :app:assembleM4bLab --configuration-cache --stacktrace
+
+      - name: Verify exact Lab APK before handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ci/verify-stage17-p2m4b-lab-apk.sh
+          sha256sum app/build/outputs/apk/m4bLab/app-m4bLab.apk |
+            tee app/build/outputs/apk/m4bLab/SHA256SUMS.txt
+
+      - name: Upload only isolated Lab QA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: P2-M4B1-LAB-${{ github.event.pull_request.head.sha }}
+          path: |
+            app/build/outputs/apk/m4bLab/app-m4bLab.apk
+            app/build/outputs/apk/m4bLab/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 1
