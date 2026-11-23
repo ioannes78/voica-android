@@ -189,3 +189,9 @@ PR #37 must stay OPEN/DRAFT/UNMERGED; production main unchanged.
 - One-shot fake owner claim hardening committed at `0cc5884d8102`. New full CI attempt 1 had 14 `MavenArtifactFetcher.java:130` Android runtime-jar network download failures and one separate pre-existing transient realtime audio test failure. Attempt 2 no longer reproduced the realtime test failure, but still had exactly 14 `MavenArtifactFetcher` runtime download failures. These were **not M4B1 policy assertion failures**; PR CI remained FAILED.
 - Pinned the Robolectric JVM Test task **runtime artifact repository URL** to canonical Maven Central host `https://repo.maven.apache.org/maven2` (instead of Robolectric default `repo1.maven.org`) in `app/build.gradle.kts`. This preserves the **full same test suite** and Gradle dependency verification; no test skip, mocking or application release behavior changed.
 - Treat this as a CI infrastructure remediation hypothesis until exact-source Android PR CI SUCCESS confirms it; do not mark P2-M4B1 closed. Underlying independently signed provisioning and real owner/Child/restart device evidence remain absent.
+
+## Continuation — test-only Conscrypt TLS workaround (2026-11-23)
+
+- Exact-source CI `45201741072` confirmed the alternate official Maven Central host alone did not fix 14 Robolectric `MavenArtifactFetcher` download failures; the prior transient realtime test exception did not recur.
+- A documented Robolectric 4.17 / Conscrypt 2.6.0 XDH TLS handshake regression can cause these lazy Android runtime-jar failures. Added **JVM-test-only** strict `org.conscrypt:conscrypt-openjdk-uber:2.5.2` version constraint, leaving Android production runtime and the full test suite untouched.
+- The Conscrypt compatibility hypothesis is **not PASS until exact-source CI completes**. No M4B1 owner enrollment, seed, fault, JNI or GPU changes.
