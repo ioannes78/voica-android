@@ -187,11 +187,14 @@ tasks.register("verifyProductionSigningConfiguration") {
     }
 }
 
-// Robolectric fetches android-all-instrumented JARs at test execution time,
-// outside Gradle's normal dependency cache. Use the canonical Maven Central
-// host instead of Robolectric's repo1 default; do not skip or stub tests.
+// Robolectric lazily fetches large android-all-instrumented runtime jars
+// outside Gradle's dependency cache. Maven Central rate limits shared CI IPs
+// with HTTP 429. Use the same Google-hosted Central mirror preferred upstream.
 tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
-    systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
+    systemProperty(
+        "robolectric.dependency.repo.url",
+        "https://maven-central.storage-download.googleapis.com/maven2",
+    )
 }
 
 kotlin {
@@ -242,11 +245,4 @@ dependencies {
     testImplementation("androidx.room:room-runtime:2.8.5")
     testImplementation("androidx.room:room-ktx:2.8.5")
     testImplementation("org.robolectric:robolectric:4.17")
-    // Robolectric 4.17 may install Conscrypt 2.6.0 into the JVM security
-    // provider chain; its XDH TLS handshake can fail during lazy android-all
-    // runtime downloads. Keep the workaround scoped to JVM unit tests.
-    testImplementation("org.conscrypt:conscrypt-openjdk-uber") {
-        version { strictly("2.5.2") }
-        because("Avoid Robolectric 4.17 test-only XDH handshake failure while fetching Android runtime jars")
-    }
 }
