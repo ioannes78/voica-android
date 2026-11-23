@@ -69,8 +69,21 @@ internal class Stage17P2M4BController(
     /** No usable seed exists in B1; never treat absence as a clean install. */
     fun requestAdmission() {
         handler.post {
-            if (closed || !mainProcess() || !c.IPC_ADMISSION_ENABLED) {
-                report("DENY_ADMISSION_DISABLED")
+            if (closed || !mainProcess()) {
+                report("DENY_WRONG_PROCESS_OR_CLOSED")
+                return@post
+            }
+            val allowed = Stage17P2M4BAdmissionPolicy.canAdmit(
+                appId = context.packageName,
+                processName = Stage17P2M4BContract.currentProcessName(context),
+                ipcAdmissionEnabled = c.IPC_ADMISSION_ENABLED,
+                // B1 does not yet have independent, device-bound enrollment
+                // attestation. In-app journal state or host JSON cannot grant it.
+                trustedEnrollment = false,
+                ownerRecord = journal.recovered(),
+            )
+            if (!allowed) {
+                report("DENY_NO_TRUSTED_LAB_ENROLLMENT_OR_IPC_DISABLED")
                 return@post
             }
             if (connection != null || active != null) {
