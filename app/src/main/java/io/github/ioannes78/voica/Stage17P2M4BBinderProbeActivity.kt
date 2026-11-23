@@ -1,10 +1,13 @@
 package io.github.ioannes78.voica
 
 import android.content.ComponentName
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.os.Bundle
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -31,7 +34,14 @@ class Stage17P2M4BBinderProbeActivity : ComponentActivity() {
     private var attempted = false
     private var finished = false
     private lateinit var status: TextView
+    private lateinit var details: TextView
     private lateinit var start: Button
+    private var probeToken: String? = null
+    private var parentPidObserved: Int? = null
+    private var startedAtMs: Long? = null
+    private val timeout = Runnable {
+        if (!finished) complete("DENY: Binder PONG timed out")
+    }
 
     private val replyTo = Messenger(Handler(Looper.getMainLooper()) { message ->
         val token = expectedToken
@@ -44,11 +54,14 @@ class Stage17P2M4BBinderProbeActivity : ComponentActivity() {
                     actualUid = Process.myUid(),
                     senderUid = message.sendingUid,
                     reportedUid = data.getInt(contract.EXTRA_UID, -1),
+                    controllerPid = Process.myPid(),
+                    reportedParentPid = data.getInt(contract.EXTRA_PID, -1),
                     reportedProcess = data.getString(contract.EXTRA_PROCESS),
                     token = data.getString(contract.EXTRA_NONCE),
                     expectedToken = token,
                     model = data.getString(contract.EXTRA_MODEL),
                 )
+            if (valid) parentPidObserved = data.getInt(contract.EXTRA_PID, -1)
             complete(if (valid) "PASS: isolated parent Binder PONG identity verified" else
                 "DENY: invalid, stale, or unexpected Binder callback")
         }
@@ -76,6 +89,20 @@ class Stage17P2M4BBinderProbeActivity : ComponentActivity() {
         })
         status = TextView(this).apply { text = "NOT RUN — no process has been bound" }
         root.addView(status)
+        details = TextView(this).apply {
+            text = "No test report yet. No service bound."
+            setTextIsSelectable(true)
+        }
+        root.addView(details)
+        root.addView(Button(this).apply {
+            text = "Copy local probe report"
+            setOnClickListener {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                clipboard?.setPrimaryClip(ClipData.newPlainText(
+                    "P2-M4B1 Binder probe report", details.text,
+                ))
+            }
+        })
         start = Button(this).apply {
             text = "Run one read-only Binder PING"
             setOnClickListener { runOnce() }
@@ -91,7 +118,9 @@ class Stage17P2M4BBinderProbeActivity : ComponentActivity() {
         attempted = true
         start.isEnabled = false
         status.text = "PING in progress (no owner admission)"
+        startedAtMs = System.currentTimeMillis()
         expectedToken = UUID.randomUUID().toString()
+        probeToken = expectedToken
         val conn = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
                 if (finished || connection !== this) return
@@ -137,15 +166,30 @@ class Stage17P2M4BBinderProbeActivity : ComponentActivity() {
             complete("DENY: unable to bind isolated parent")
             return
         }
-        ui.postDelayed({
-            if (!finished) complete("DENY: Binder PONG timed out")
-        }, 10_000L)
+        ui.postDelayed(timeout, 10_000L)
     }
 
     private fun complete(verdict: String) {
         if (finished) return
         finished = true
+        ui.removeCallbacks(timeout)
         if (::status.isInitialized) status.text = verdict
+        if (::details.isInitialized) details.text = buildString {
+            appendLine("P2-M4B1_LAB_BINDER_PROBE_V1")
+            appendLine("verdict=" + verdict)
+            appendLine("package=" + packageName)
+            appendLine("controller_pid=" + Process.myPid())
+            appendLine("parent_pid=" + (parentPidObserved?.toString() ?: "NOT_VERIFIED"))
+            appendLine("device_api=" + Build.VERSION.SDK_INT)
+            appendLine("start_epoch_ms=" + (startedAtMs?.toString() ?: "NOT_STARTED"))
+            appendLine("finish_epoch_ms=" + System.currentTimeMillis())
+            appendLine("probe_token=" + (probeToken ?: "NOT_STARTED"))
+            appendLine("owner_admission=false")
+            appendLine("journal_mutation=false")
+            appendLine("fault_injection=false")
+            appendLine("proof_scope=ONE_OBSERVED_BINDER_EXCHANGE_ONLY")
+            appendLine("not_proven=ENROLLMENT_OR_OWNER_RELEASE_OR_PROCESS_SURVIVAL")
+        }
         expectedToken = null
         val conn = connection
         connection = null
