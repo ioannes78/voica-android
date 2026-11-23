@@ -22,6 +22,10 @@ class Stage17P2M4BParentService : Service() {
     private var connected = false
     private var childAdmissionSent = false
     private var childReadyAccepted = false
+    private var terminalReported = false
+    private var childReleaseSent = false
+    private var childReleaseAccepted = false
+    private var parentReleaseSent = false
     private var generation = 0L
     private var nonce = ""
     private var controller: Messenger? = null
@@ -45,9 +49,22 @@ class Stage17P2M4BParentService : Service() {
                 suppliedProcess = data.getString(contract.EXTRA_PROCESS),
                 suppliedUid = data.getInt(contract.EXTRA_UID, -1),
             )
+        val releaseAccepted = msg.what == contract.WHAT_FAKE_CHILD_RELEASE_ACK &&
+            armed && childReadyAccepted && terminalReported &&
+            childReleaseSent && !childReleaseAccepted &&
+            contract.isLabPackage(packageName) &&
+            msg.sendingUid == Process.myUid() &&
+            data.getLong(contract.EXTRA_GENERATION) == generation &&
+            data.getString(contract.EXTRA_NONCE) == nonce &&
+            data.getString(contract.EXTRA_MODEL) == contract.FAKE_MODEL &&
+            data.getString(contract.EXTRA_PROCESS) == contract.childProcess(packageName) &&
+            data.getInt(contract.EXTRA_UID, -1) == Process.myUid()
         if (accepted) {
             childReadyAccepted = true
             report(contract.WHAT_CHILD_READY)
+        } else if (releaseAccepted) {
+            childReleaseAccepted = true
+            report(contract.WHAT_FAKE_CHILD_RELEASE_ACK)
         } else if (armed) {
             // A malformed, duplicate or stale reply must poison the Controller.
             report(contract.WHAT_DENIED)
@@ -77,8 +94,21 @@ class Stage17P2M4BParentService : Service() {
         }
         override fun onServiceDisconnected(name: ComponentName?) {
             child = null
-            report(contract.WHAT_DENIED)
+            if (!parentReleaseSent) report(contract.WHAT_DENIED)
         }
+    }
+
+    private fun matchesController(msg: Message): Boolean {
+        val data = msg.data
+        return contract.IPC_ADMISSION_ENABLED &&
+            contract.isLabPackage(packageName) && armed &&
+            contract.currentProcessName(this) == contract.parentProcess(packageName) &&
+            msg.sendingUid == Process.myUid() &&
+            data.getLong(contract.EXTRA_GENERATION) == generation &&
+            data.getString(contract.EXTRA_NONCE) == nonce &&
+            data.getString(contract.EXTRA_MODEL) == contract.FAKE_MODEL &&
+            data.getString(contract.EXTRA_PROCESS) == packageName &&
+            data.getInt(contract.EXTRA_UID, -1) == Process.myUid()
     }
 
     private val inbound = Messenger(Handler(Looper.getMainLooper()) { msg ->
@@ -122,7 +152,8 @@ class Stage17P2M4BParentService : Service() {
                 )
                 if (!contract.isLabPackage(packageName) ||
                     !contract.IPC_ADMISSION_ENABLED || msg.sendingUid != Process.myUid() ||
-                    !approved || armed || msg.replyTo == null) {
+                    !approved || supplied.getString(contract.EXTRA_PROCESS) != packageName ||
+                    armed || msg.replyTo == null) {
                     // No automatic retry, no second run, no native cleanup.
                     true
                 } else {
@@ -138,6 +169,45 @@ class Stage17P2M4BParentService : Service() {
                     if (!connected) report(contract.WHAT_DENIED)
                     true
                 }
+            }
+            contract.WHAT_FAKE_TERMINAL_REQUEST -> {
+                if (matchesController(msg) && childReadyAccepted &&
+                    !terminalReported && !childReleaseSent
+                ) {
+                    terminalReported = true
+                    report(contract.WHAT_FAKE_TERMINAL_OBSERVED)
+                } else if (armed) report(contract.WHAT_DENIED)
+                true
+            }
+            contract.WHAT_FAKE_CHILD_RELEASE_REQUEST -> {
+                if (matchesController(msg) && terminalReported && childReadyAccepted &&
+                    !childReleaseSent && child != null
+                ) {
+                    childReleaseSent = true
+                    val request = Message.obtain(null, contract.WHAT_FAKE_CHILD_RELEASE_REQUEST)
+                    request.data = identity()
+                    request.replyTo = childReceiver
+                    try {
+                        child?.send(request)
+                    } catch (_: RemoteException) {
+                        report(contract.WHAT_DENIED)
+                    }
+                } else if (armed) report(contract.WHAT_DENIED)
+                true
+            }
+            contract.WHAT_FAKE_PARENT_RELEASE_REQUEST -> {
+                if (matchesController(msg) && childReleaseAccepted &&
+                    !parentReleaseSent && connected
+                ) {
+                    parentReleaseSent = true
+                    // Bound fake Service release, never evidence of native teardown.
+                    unbindService(childConnection)
+                    connected = false
+                    child = null
+                    report(contract.WHAT_FAKE_PARENT_RELEASE_ACK)
+                    // Keep one-shot latches; a second arm cannot reuse this process.
+                } else if (armed) report(contract.WHAT_DENIED)
+                true
             }
             // No WHAT_EXIT in B1. Any unknown command is rejected.
             else -> true
