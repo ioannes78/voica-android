@@ -96,7 +96,7 @@ class Stage17P2M4BBinderProbeActivity : ComponentActivity() {
             override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
                 if (finished || connection !== this) return
                 if (name?.packageName != packageName ||
-                    name.className != Stage17P2M4BParentService::class.java.name ||
+                    name?.className != Stage17P2M4BParentService::class.java.name ||
                     binder == null
                 ) {
                     complete("DENY: wrong bound Service identity")
@@ -145,7 +145,7 @@ class Stage17P2M4BBinderProbeActivity : ComponentActivity() {
     private fun complete(verdict: String) {
         if (finished) return
         finished = true
-        status.text = verdict
+        if (::status.isInitialized) status.text = verdict
         expectedToken = null
         val conn = connection
         connection = null
