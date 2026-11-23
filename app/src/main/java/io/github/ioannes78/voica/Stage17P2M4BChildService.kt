@@ -19,6 +19,9 @@ import android.os.RemoteException
 class Stage17P2M4BChildService : Service() {
     private val contract = Stage17P2M4BContract
     private var admitted = false
+    private var released = false
+    private var generation = 0L
+    private var nonce = ""
     private val inbound = Messenger(Handler(Looper.getMainLooper()) { msg ->
         if (msg.what == contract.WHAT_CHILD_ADMIT) {
             val data = msg.data
@@ -38,6 +41,8 @@ class Stage17P2M4BChildService : Service() {
             )
             if (ok) {
                 admitted = true
+                generation = data.getLong(contract.EXTRA_GENERATION)
+                nonce = requireNotNull(data.getString(contract.EXTRA_NONCE))
                 val response = Message.obtain(null, contract.WHAT_CHILD_READY)
                 response.data = Bundle().apply {
                     putLong(contract.EXTRA_GENERATION, data.getLong(contract.EXTRA_GENERATION))
@@ -49,6 +54,40 @@ class Stage17P2M4BChildService : Service() {
                 }
                 try { msg.replyTo?.send(response) } catch (_: RemoteException) {
                     // Parent disappeared. No new fake model owner is admitted.
+                }
+            }
+        } else if (msg.what == contract.WHAT_FAKE_CHILD_RELEASE_REQUEST) {
+            val data = msg.data
+            val ok = Stage17P2M4BChildReleasePolicy.accepts(
+                packageName = packageName,
+                processName = contract.currentProcessName(this),
+                actualUid = Process.myUid(),
+                senderUid = msg.sendingUid,
+                ipcEnabled = contract.IPC_ADMISSION_ENABLED,
+                admitted = admitted,
+                alreadyReleased = released,
+                generation = generation,
+                nonce = nonce,
+                requestGeneration = data.getLong(contract.EXTRA_GENERATION),
+                requestNonce = data.getString(contract.EXTRA_NONCE),
+                requestModel = data.getString(contract.EXTRA_MODEL),
+                requestParentProcess = data.getString(contract.EXTRA_PROCESS),
+                requestUid = data.getInt(contract.EXTRA_UID, -1),
+                hasReplyChannel = msg.replyTo != null,
+            )
+            if (ok) {
+                released = true
+                val response = Message.obtain(null, contract.WHAT_FAKE_CHILD_RELEASE_ACK)
+                response.data = Bundle().apply {
+                    putLong(contract.EXTRA_GENERATION, generation)
+                    putString(contract.EXTRA_NONCE, nonce)
+                    putString(contract.EXTRA_MODEL, contract.FAKE_MODEL)
+                    putString(contract.EXTRA_PROCESS, contract.childProcess(packageName))
+                    putInt(contract.EXTRA_UID, Process.myUid())
+                    putInt(contract.EXTRA_PID, Process.myPid())
+                }
+                try { msg.replyTo?.send(response) } catch (_: RemoteException) {
+                    // No owner release may be inferred when parent callback is lost.
                 }
             }
         }
