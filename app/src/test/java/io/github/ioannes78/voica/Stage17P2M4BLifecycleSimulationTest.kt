@@ -73,11 +73,12 @@ class Stage17P2M4BLifecycleSimulationTest {
                 assertTrue(Stage17P2M4BCodec.blocked(store.load()))
             }
         }
-        assertFalse(Stage17P2M4BCodec.blocked(store.load()))
+        // A fully acknowledged fake release is durable historical evidence,
+        // but never a second-run authorization for the same disposable fixture.
+        assertTrue(Stage17P2M4BCodec.blocked(store.load()))
         val historical = requireNotNull(store.load())
         assertEquals(1L, historical.generation)
-        assertEquals(Stage17P2M4BPhase.INTENT_DURABLE,
-            Stage17P2M4BCodec.claim(historical, nonce2)?.phase)
+        assertNull(Stage17P2M4BCodec.claim(historical, nonce2))
     }
 
     @Test fun simulatedCrashAtAnyUnreleasedPhaseDoesNotBecomeClean() {
