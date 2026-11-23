@@ -80,6 +80,32 @@ page = read_only.read_text()
 for forbidden in ("requestAdmission(", "bindService(", "killProcess(", "putBoolean(", "KEY_SEEDED", ".clear(", ".remove("):
     assert forbidden not in page, f"Read-only QA page must not mutate ownership: {forbidden}"
 assert "readOnlyDryRun()" in page
+probe_source = main / "java/io/github/ioannes78/voica/Stage17P2M4BBinderProbeActivity.kt"
+probe_policy = main / "java/io/github/ioannes78/voica/Stage17P2M4BProbePolicy.kt"
+probe_test = root / "app/src/test/java/io/github/ioannes78/voica/Stage17P2M4BProbePolicyTest.kt"
+assert all(p.is_file() for p in (probe_source, probe_policy, probe_test))
+probe_page = probe_source.read_text()
+probe_rules = probe_policy.read_text()
+assert "Stage17P2M4BBinderProbeActivity::class.java" in page
+assert "isLabPackage(packageName)" in page
+assert "Stage17P2M4BParentService::class.java" in probe_page
+assert "WHAT_PROBE_PING" in probe_page and "WHAT_PROBE_PONG" in probe_page
+assert "Stage17P2M4BProbePolicy.acceptsPong(" in probe_page
+assert "Stage17P2M4BProbePolicy.acceptsPing(" in sources[1].read_text()
+assert "WHAT_PROBE_PING" in sources[0].read_text()
+assert "WHAT_PROBE_PONG" in sources[0].read_text()
+for required in ("isLabPackage(packageName)", "senderUid == actualUid",
+                 "reportedUid == actualUid", "token == expectedToken",
+                 "model == Stage17P2M4BContract.FAKE_MODEL", "!parentArmed"):
+    assert required in probe_rules, f"Missing read-only Binder probe identity requirement: {required}"
+for forbidden in ("Stage17P2M4BControllerJournal", "Stage17P2M4BController(",
+                  "requestAdmission(", "WHAT_ARM", "WHAT_CHILD_ADMIT",
+                  "killProcess(", "System.loadLibrary", ".clear(", "KEY_SEEDED"):
+    assert forbidden not in probe_page, f"Lab liveness probe must not arm or mutate owner: {forbidden}"
+forbidden_prod = qa.read_text() + releaseqa.read_text()
+assert "Stage17P2M4BBinderProbeActivity" not in forbidden_prod
+assert 'android:name=".Stage17P2M4BBinderProbeActivity"' in lab.read_text()
+assert 'android:exported="false"' in lab.read_text()
 assert "Stage17P2M4BReadOnlyActivity" in (main / "java/io/github/ioannes78/voica/Stage16BQaHubActivity.kt").read_text()
 for path in (qa, releaseqa, lab):
     data = path.read_text()
