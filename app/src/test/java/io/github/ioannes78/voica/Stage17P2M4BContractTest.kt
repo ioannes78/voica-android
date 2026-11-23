@@ -135,7 +135,10 @@ class Stage17P2M4BContractTest {
         for (next in steps) {
             rec = requireNotNull(Stage17P2M4BCodec.next(rec, 1L, nonce, next))
         }
-        assertFalse(Stage17P2M4BCodec.blocked(rec))
+        assertTrue(Stage17P2M4BCodec.blocked(rec))
+        assertNull(Stage17P2M4BCodec.claim(
+            rec, "123e4567-e89b-12d3-a456-426614174001",
+        ))
     }
 
     @Test fun reopenNeverTreatsInterruptedOwnerAsClean() {
