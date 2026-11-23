@@ -136,6 +136,36 @@ jobs:
             --configuration-cache \
             --stacktrace
 
+      - name: Diagnose first Robolectric unit-test failure without bypassing tests
+        if: failure()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          folder = Path("app/build/test-results/testDebugUnitTest")
+          count = 0
+          for path in sorted(folder.glob("TEST-*.xml")):
+              try:
+                  root = ET.parse(path).getroot()
+              except (ET.ParseError, OSError):
+                  continue
+              for case in root.findall(".//testcase"):
+                  failure = case.find("failure")
+                  if failure is None:
+                      continue
+                  detail = failure.get("message", "") + "\n" + (failure.text or "")
+                  if "MavenArtifactFetcher" in detail or "RealtimeCanonicalAudioPipeline" in detail:
+                      print("FAILURE_CLASS:", case.get("classname", "unknown"))
+                      print(detail[:5000])
+                      count += 1
+                      if count >= 2:
+                          break
+              if count >= 2:
+                  break
+          print("Bounded Robolectric diagnostic completed; no test verdict changed.")
+          PY
+
       - name: Verify isolated P2-M4B Lab APK without publishing it
         shell: bash
         run: |
