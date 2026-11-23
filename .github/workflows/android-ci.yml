@@ -157,7 +157,12 @@ jobs:
                   detail = failure.get("message", "") + "\n" + (failure.text or "")
                   if "MavenArtifactFetcher" in detail or "RealtimeCanonicalAudioPipeline" in detail:
                       print("FAILURE_CLASS:", case.get("classname", "unknown"))
-                      print(detail[:5000])
+                      print("ROOT_CAUSE_CHAIN:")
+                      for line in detail.splitlines():
+                          if ("Caused by:" in line or
+                              "Failed to fetch maven artifact" in line or
+                              "SSLException" in line or "FileNotFoundException" in line):
+                              print(line[:500])
                       count += 1
                       if count >= 2:
                           break
