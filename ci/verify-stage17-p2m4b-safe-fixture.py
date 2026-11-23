@@ -34,7 +34,10 @@ assert "Stage17P2M4BChildAdmissionPolicy.accepts(" in sources[2].read_text()
 assert "ipcEnabled = contract.IPC_ADMISSION_ENABLED" in sources[2].read_text()
 assert "if (contract.isLabPackage(packageName) &&" in sources[1].read_text()
 assert "if (contract.isLabPackage(packageName) &&" in sources[2].read_text()
-assert "check(Stage17P2M4BContract.isLabPackage(context.packageName))" in sources[4].read_text()
+assert "check(Stage17P2M4BContract.allowPackage(context.packageName))" in sources[4].read_text()
+assert sources[4].read_text().count(
+    "if (!Stage17P2M4BContract.isLabPackage(context.packageName)) return null"
+) == 2, "Historical QA can inspect Journal, but claim/transition must deny writes"
 assert (root / "app/src/test/java/io/github/ioannes78/voica/Stage17P2M4BChildAdmissionPolicyTest.kt").is_file()
 assert "Stage17P2M4BChildAckPolicyTest" in (
     root / "app/src/test/java/io/github/ioannes78/voica/Stage17P2M4BChildAckPolicyTest.kt"
