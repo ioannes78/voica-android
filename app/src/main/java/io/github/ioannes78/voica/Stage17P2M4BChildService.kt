@@ -20,20 +20,23 @@ class Stage17P2M4BChildService : Service() {
     private val contract = Stage17P2M4BContract
     private var admitted = false
     private val inbound = Messenger(Handler(Looper.getMainLooper()) { msg ->
-        if (msg.what == contract.WHAT_CHILD_ADMIT &&
-            contract.IPC_ADMISSION_ENABLED &&
-            contract.isLabPackage(packageName) && !admitted
-        ) {
+        if (msg.what == contract.WHAT_CHILD_ADMIT) {
             val data = msg.data
-            val ok = contract.validIdentity(
-                packageName, Stage17P2M4BContract.currentProcessName(this), contract.CHILD_SUFFIX,
-                data.getLong(contract.EXTRA_GENERATION),
-                data.getString(contract.EXTRA_NONCE),
-                data.getString(contract.EXTRA_MODEL),
-                data.getInt(contract.EXTRA_UID), Process.myUid(),
-            ) && data.getString(contract.EXTRA_PROCESS) == contract.parentProcess(packageName) &&
-                msg.replyTo != null
-            if (ok && msg.sendingUid == Process.myUid()) {
+            val ok = Stage17P2M4BChildAdmissionPolicy.accepts(
+                packageName = packageName,
+                currentProcess = contract.currentProcessName(this),
+                actualUid = Process.myUid(),
+                senderUid = msg.sendingUid,
+                ipcEnabled = contract.IPC_ADMISSION_ENABLED,
+                alreadyAdmitted = admitted,
+                generation = data.getLong(contract.EXTRA_GENERATION),
+                nonce = data.getString(contract.EXTRA_NONCE),
+                model = data.getString(contract.EXTRA_MODEL),
+                claimedUid = data.getInt(contract.EXTRA_UID),
+                claimedParentProcess = data.getString(contract.EXTRA_PROCESS),
+                hasReplyChannel = msg.replyTo != null,
+            )
+            if (ok) {
                 admitted = true
                 val response = Message.obtain(null, contract.WHAT_CHILD_READY)
                 response.data = Bundle().apply {
