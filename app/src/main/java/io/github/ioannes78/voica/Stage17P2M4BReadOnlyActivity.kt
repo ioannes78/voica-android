@@ -1,6 +1,7 @@
 package io.github.ioannes78.voica
 
 import androidx.activity.ComponentActivity
+import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -58,6 +59,17 @@ class Stage17P2M4BReadOnlyActivity : ComponentActivity() {
             setOnClickListener { broker?.readOnlyDryRun() }
         }
         root.addView(refresh)
+        // A separate, explicit, non-exported Lab-only page may bind the fake
+        // parent for a PING/PONG. This read-only journal page never binds itself.
+        if (Stage17P2M4BContract.isLabPackage(packageName)) {
+            root.addView(Button(this).apply {
+                text = "Open isolated Binder liveness probe"
+                setOnClickListener {
+                    startActivity(Intent(this@Stage17P2M4BReadOnlyActivity,
+                        Stage17P2M4BBinderProbeActivity::class.java))
+                }
+            })
+        }
         setContentView(root)
         broker = Stage17P2M4BController(applicationContext) { report ->
             ui.post {
