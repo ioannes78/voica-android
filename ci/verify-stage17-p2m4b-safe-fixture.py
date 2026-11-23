@@ -23,6 +23,19 @@ for required in ("senderUid == actualUid", "!alreadyAccepted", "admissionSent",
                  "childProcess(packageName)", "suppliedNonce == nonce"):
     assert required in ack, f"Missing one-shot child ACK guard: {required}"
 assert "Stage17P2M4BChildAckPolicy.accepts(" in sources[1].read_text()
+child_admission = main / "java/io/github/ioannes78/voica/Stage17P2M4BChildAdmissionPolicy.kt"
+assert child_admission.is_file()
+child_gate = child_admission.read_text()
+for required in ("ipcEnabled && !alreadyAdmitted", "isLabPackage(packageName)",
+                 "senderUid == actualUid", "hasReplyChannel",
+                 "claimedParentProcess == Stage17P2M4BContract.parentProcess(packageName)"):
+    assert required in child_gate, f"Missing independent child admission policy: {required}"
+assert "Stage17P2M4BChildAdmissionPolicy.accepts(" in sources[2].read_text()
+assert "ipcEnabled = contract.IPC_ADMISSION_ENABLED" in sources[2].read_text()
+assert "if (contract.isLabPackage(packageName) &&" in sources[1].read_text()
+assert "if (contract.isLabPackage(packageName) &&" in sources[2].read_text()
+assert "check(Stage17P2M4BContract.isLabPackage(context.packageName))" in sources[4].read_text()
+assert (root / "app/src/test/java/io/github/ioannes78/voica/Stage17P2M4BChildAdmissionPolicyTest.kt").is_file()
 assert "Stage17P2M4BChildAckPolicyTest" in (
     root / "app/src/test/java/io/github/ioannes78/voica/Stage17P2M4BChildAckPolicyTest.kt"
 ).read_text()
