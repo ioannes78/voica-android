@@ -280,6 +280,8 @@ jobs:
     steps:
       - name: Checkout exact PR source
         uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Enforce isolated Lab and no fault/owner admission
         shell: bash
