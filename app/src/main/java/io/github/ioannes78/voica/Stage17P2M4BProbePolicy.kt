@@ -27,6 +27,8 @@ internal object Stage17P2M4BProbePolicy {
         actualUid: Int,
         senderUid: Int,
         reportedUid: Int,
+        controllerPid: Int,
+        reportedParentPid: Int,
         reportedProcess: String?,
         token: String?,
         expectedToken: String,
@@ -35,6 +37,7 @@ internal object Stage17P2M4BProbePolicy {
         Stage17P2M4BContract.isLabPackage(packageName) &&
             processName == packageName &&
             actualUid > 0 && senderUid == actualUid && reportedUid == actualUid &&
+            controllerPid > 0 && reportedParentPid > 0 && controllerPid != reportedParentPid &&
             reportedProcess == Stage17P2M4BContract.parentProcess(packageName) &&
             noncePattern.matches(expectedToken) && token == expectedToken &&
             model == Stage17P2M4BContract.FAKE_MODEL
