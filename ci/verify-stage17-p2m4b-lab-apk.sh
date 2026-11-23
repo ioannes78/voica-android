@@ -55,6 +55,11 @@ assert launchers == [read_only], f"Wrong Lab launcher(s): {launchers}"
 assert read_only in components, "Read-only diagnostics not registered"
 assert components[read_only][1].get(android + "exported") == "true"
 assert not any(n.endswith(".MainActivity") for n in components), "Product MainActivity must be absent"
+probe = class_namespace + ".Stage17P2M4BBinderProbeActivity"
+assert probe in components, "Lab Binder probe Activity missing"
+assert components[probe][0] == "activity", "Lab Binder probe must be Activity"
+assert components[probe][1].get(android + "exported") == "false", "Lab Binder probe must never be exported"
+assert not components[probe][1].findall("intent-filter"), "Lab Binder probe must have no external intent filters"
 
 for service_name, suffix in (
     ("Stage17P2M4BParentService", ":stage17_m4b_parent"),
