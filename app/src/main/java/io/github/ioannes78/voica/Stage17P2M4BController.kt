@@ -165,6 +165,19 @@ internal class Stage17P2M4BController(
         }
     }
 
+    private fun sendFakeCommand(what: Int, record: Stage17P2M4BRecord): Boolean {
+        // Journal transition must be synchronously committed before command send.
+        val recipient = remote ?: return false
+        val message = Message.obtain(null, what)
+        message.data = identity(record)
+        return try {
+            recipient.send(message)
+            true
+        } catch (_: RemoteException) {
+            false
+        }
+    }
+
     private fun identity(record: Stage17P2M4BRecord) = Bundle().apply {
         putLong(c.EXTRA_GENERATION, record.generation)
         putString(c.EXTRA_NONCE, record.nonce)
@@ -208,7 +221,57 @@ internal class Stage17P2M4BController(
                     active = next
                     childReady = true
                     report("CHILD_ADMITTED_DURABLE / FAKE_ONLY")
+                    val running = journal.transition(
+                        next.generation, next.nonce, Stage17P2M4BPhase.FAKE_OWNER_ACTIVE,
+                    )
+                    if (running == null) {
+                        poison("FAKE_OWNER_ACTIVE_COMMIT_FAILED")
+                    } else {
+                        active = running
+                        if (!sendFakeCommand(c.WHAT_FAKE_TERMINAL_REQUEST, running)) {
+                            poison("FAKE_TERMINAL_REQUEST_IPC_FAILED")
+                        } else report("FAKE_OWNER_ACTIVE_DURABLE")
+                    }
                 } else poison("CHILD_ADMISSION_COMMIT_FAILED_OR_OUT_OF_ORDER")
+            }
+            c.WHAT_FAKE_TERMINAL_OBSERVED -> {
+                if (!parentReady || !childReady ||
+                    rec.phase != Stage17P2M4BPhase.FAKE_OWNER_ACTIVE
+                ) return poison("FAKE_TERMINAL_OUT_OF_ORDER")
+                val terminal = journal.transition(
+                    rec.generation, rec.nonce, Stage17P2M4BPhase.TERMINAL_FAKE_OBSERVED,
+                ) ?: return poison("FAKE_TERMINAL_COMMIT_FAILED")
+                active = terminal
+                if (!sendFakeCommand(c.WHAT_FAKE_CHILD_RELEASE_REQUEST, terminal)) {
+                    poison("FAKE_CHILD_RELEASE_REQUEST_IPC_FAILED")
+                } else report("TERMINAL_FAKE_OBSERVED_DURABLE")
+            }
+            c.WHAT_FAKE_CHILD_RELEASE_ACK -> {
+                if (rec.phase != Stage17P2M4BPhase.TERMINAL_FAKE_OBSERVED) {
+                    return poison("CHILD_RELEASE_ACK_OUT_OF_ORDER")
+                }
+                val ack = journal.transition(
+                    rec.generation, rec.nonce, Stage17P2M4BPhase.CHILD_RELEASE_ACK_FAKE_OBSERVED,
+                ) ?: return poison("CHILD_RELEASE_ACK_COMMIT_FAILED")
+                active = ack
+                if (!sendFakeCommand(c.WHAT_FAKE_PARENT_RELEASE_REQUEST, ack)) {
+                    poison("PARENT_RELEASE_REQUEST_IPC_FAILED")
+                } else report("CHILD_RELEASE_ACK_FAKE_DURABLE")
+            }
+            c.WHAT_FAKE_PARENT_RELEASE_ACK -> {
+                if (rec.phase != Stage17P2M4BPhase.CHILD_RELEASE_ACK_FAKE_OBSERVED) {
+                    return poison("PARENT_RELEASE_ACK_OUT_OF_ORDER")
+                }
+                val ack = journal.transition(
+                    rec.generation, rec.nonce, Stage17P2M4BPhase.PARENT_RELEASE_ACK_FAKE_OBSERVED,
+                ) ?: return poison("PARENT_RELEASE_ACK_COMMIT_FAILED")
+                active = ack
+                val released = journal.transition(
+                    ack.generation, ack.nonce, Stage17P2M4BPhase.RELEASE_CONFIRMED_DURABLE,
+                ) ?: return poison("FAKE_RELEASE_CONFIRM_COMMIT_FAILED")
+                report("RELEASE_CONFIRMED_DURABLE / FAKE_ONLY / NO_NATIVE_PROOF")
+                active = null
+                detach()
             }
             else -> poison("UNEXPECTED_PARENT_CALLBACK")
         }
