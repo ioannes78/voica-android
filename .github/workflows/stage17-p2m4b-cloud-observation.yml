@@ -26,9 +26,9 @@ jobs:
         (github.event_name == 'workflow_dispatch' &&
          github.ref_name == 'stage17-fully-offline-intelligence')
       }}
-    # Linux hosted runners have no usable KVM here; use Intel macOS Hypervisor.Framework.
-    # The repository is public; this avoids TCG software boot on Linux.
-    runs-on: macos-15-intel
+    # The Lab APK is arm64-v8a-only. Use Apple Silicon macOS so the API31 AVD
+    # runs the same ABI natively under Hypervisor.Framework (no ARM translation).
+    runs-on: macos-15
     timeout-minutes: 55
     env:
       VOICA_BUILD_GIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -91,7 +91,7 @@ jobs:
         with:
           api-level: 31
           target: default
-          arch: x86_64
+          arch: arm64-v8a
           profile: pixel_4
           force-avd-creation: true
           disable-animations: true
