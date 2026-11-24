@@ -26,15 +26,14 @@ jobs:
         (github.event_name == 'workflow_dispatch' &&
          github.ref_name == 'stage17-fully-offline-intelligence')
       }}
-    runs-on: ubuntu-24.04
+    # Linux hosted runners have no usable KVM here; use Intel macOS Hypervisor.Framework.
+    # The repository is public; this avoids TCG software boot on Linux.
+    runs-on: macos-15-intel
     timeout-minutes: 55
     env:
       VOICA_BUILD_GIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       LAB_APK: app/build/outputs/apk/m4bLab/app-m4bLab.apk
       EVIDENCE: build/m4b-cloud-evidence
-      # GitHub Linux runner on 2026-11-23 lacked /dev/kvm; emulator v37.3
-      # explicitly requires this opt-in for -accel off software TCG.
-      ANDROID_I_WANT_MY_TCG: 'yes'
 
     steps:
       - name: Checkout exact source
@@ -87,7 +86,7 @@ jobs:
           gradle :app:assembleM4bLab --configuration-cache --stacktrace
           bash ci/verify-stage17-p2m4b-lab-apk.sh
 
-      - name: Fresh API31 AVD and read-only installation observations
+      - name: Fresh API31 AVD with native Hypervisor and read-only installation observations
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 31
