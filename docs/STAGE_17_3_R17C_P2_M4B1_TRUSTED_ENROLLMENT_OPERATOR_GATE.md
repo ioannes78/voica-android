@@ -41,3 +41,11 @@ Before implementing any one-time seed, an independent QA operator must supply ev
 - Source/JVM CI PASS and PING/PONG PASS may be retained as narrower milestones but are **not substitutes** for the four closure gates.
 
 The next actionable external dependency is a separately audited fresh test fixture with operator-signed never-armed provenance. Source-only implementation cannot manufacture this fact.
+
+## 2026-11-24 B1-1 signed-evidence design probe (NOT trusted enrollment)
+
+Source `Stage17P2M4BGrantEvidenceInspection.kt` and synthetic JVM tests were added as a **pure, unconnected inspection layer**. The component checks domain-separated, length-prefixed signed ECDSA grant and consumption-receipt fields: exact Lab package identity, APK / package-signer / source SHA-256, installation challenge, short validity window, one grant ID, distinct grant/ledger public keys, positive ledger sequence and chronologically ordered consumption. Mismatch, tampering, missing signatures, wrong package and expired evidence reject. A matching pair yields only `SIGNATURES_AND_FIELDS_COHERENT_NOT_AN_ENROLLMENT`.
+
+**Security limitation:** The inspection API accepts caller-provided public keys and is not a trust anchor; the synthetic private keys in unit tests prove only parser/crypto behavior. It cannot prove which independent operator issued a grant, whether an installation was previously armed, whether the off-device ledger sequence is globally unique or already consumed, or whether device state was restored. It provides **no** `trustedEnrollment=true` value and is not wired to `Stage17P2M4BController` or `Stage17P2M4BControllerJournal`. CI source guards enforce that isolation. No seed or ownership transition is introduced.
+
+**Requirements before implementation of actual authorization:** independent root-key provisioning and rotation policy, independently audited first-install history, hardware/user/installation challenge binding, a non-restorable transactional one-time ledger with durable consumption/readback, on-device verifier with replay-safe transaction coordination, negative device tests, independent review and explicit QA approval. Keep all admission and fault switches false until these separate requirements are met. B1-1 remains **BLOCKED**; B1-2/B1-3 remain not device-verified; B1-4 remains NO-GO.
