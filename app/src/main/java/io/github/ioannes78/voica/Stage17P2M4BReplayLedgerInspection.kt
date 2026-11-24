@@ -3,6 +3,7 @@ package io.github.ioannes78.voica
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.security.PublicKey
+import java.security.interfaces.ECPublicKey
 import java.security.Signature
 
 /**
@@ -54,7 +55,10 @@ internal object Stage17P2M4BReplayLedgerInspection {
         observedPackage: String,
         observedAtEpochSec: Long,
     ): Result {
-        if (checkpointPublicKey == null || checkpointPublicKey.algorithm != "EC" ||
+        val key = checkpointPublicKey as? ECPublicKey ?: return Result.REJECTED
+        if (key.params.curve.field.fieldSize != 256 ||
+            key.params.order.bitLength() != 256 ||
+            key.params.cofactor != 1 ||
             checkpoint.signature.isEmpty()
         ) return Result.REJECTED
         if (checkpoint.packageName != Stage17P2M4BContract.LAB_PACKAGE ||
