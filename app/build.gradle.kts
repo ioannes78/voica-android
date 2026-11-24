@@ -165,6 +165,17 @@ android {
     }
 }
 
+// P2-M4B1 disposable Lab runs only Kotlin/Java Binder and Journal mocks.
+// Exclude ALL packaged JNI shared objects from this exact build type only,
+// making the isolated QA-signed .m4blab APK installable on x86_64 Android AVDs.
+// Production, debug, qa and releaseQa keep their existing native libraries and
+// arm64-v8a filter. This does not validate any native model runtime.
+androidComponents {
+    onVariants(selector().withBuildType("m4bLab")) { variant ->
+        variant.packaging.jniLibs.excludes.add("**/*.so")
+    }
+}
+
 tasks.register("verifyProductionSigningConfiguration") {
     group = "verification"
     description = "Fails unless the complete non-QA production signing configuration is present."
