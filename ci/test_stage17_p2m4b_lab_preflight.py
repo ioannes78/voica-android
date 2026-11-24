@@ -30,10 +30,13 @@ class LabPreflightTest(unittest.TestCase):
                 return "Signer #1 certificate SHA-256 digest: " + certificate
             if argv[-1] == "get-state":
                 return "device"
-            if argv[-2:] == ["path", module.LAB]:
-                return "package:/data/app/lab/base.apk" if lab_installed else ""
-            if argv[-2:] == ["path", module.LEGACY_QA]:
-                return "package:/data/app/qa/base.apk" if qa_installed else ""
+            if argv[-4:-1] == ["list", "packages", "--user"] and argv[-1] == "0":
+                raise AssertionError(f"Unexpected package-list argument order: {argv}")
+            if argv[-4:] == ["pm", "list", "packages", "--user"] and argv[-2] == "0":
+                package = argv[-1]
+                present = (lab_installed if package == module.LAB else
+                           qa_installed if package == module.LEGACY_QA else False)
+                return "package:" + package if present else ""
             raise AssertionError(f"Unexpected command: {argv}")
         return run
 
@@ -42,7 +45,8 @@ class LabPreflightTest(unittest.TestCase):
             self.assertTrue(
                 argv[0] in ("apkanalyzer", "apksigner") or
                 argv[1:4] == ["-s", "serial1", "get-state"] or
-                argv[1:4] == ["-s", "serial1", "shell"] and argv[4:6] == ["pm", "path"],
+                argv[1:4] == ["-s", "serial1", "shell"] and
+                argv[4:8] == ["pm", "list", "packages", "--user"],
                 argv,
             )
         self.assertEqual(5, len(self.commands))
