@@ -240,4 +240,22 @@ assert "trustedEnrollment = false" in controller
 assert "IPC_ADMISSION_ENABLED = false" in sources[0].read_text()
 assert "FAULT_INJECTION_ENABLED = false" in sources[0].read_text()
 
+# The replay evidence helper models ordering only. A signed checkpoint
+# from a caller-supplied key is NOT an authoritative, atomic external ledger.
+replay_path = main / "java/io/github/ioannes78/voica/Stage17P2M4BReplayLedgerInspection.kt"
+replay_test_path = root / "app/src/test/java/io/github/ioannes78/voica/Stage17P2M4BReplayLedgerInspectionTest.kt"
+assert replay_path.is_file() and replay_test_path.is_file()
+replay_source = replay_path.read_text()
+for required in ("WENZHI_P2_M4B1_LEDGER_CHECKPOINT_V1",
+                 "ORDER_CONSISTENT_NOT_REPLAY_PROOF", "SHA256withECDSA",
+                 "previousSequence + 1L", "Stage17P2M4BContract.LAB_PACKAGE"):
+    assert required in replay_source, f"Missing non-authorizing replay model: {required}"
+for forbidden in ("getSharedPreferences(", "requestAdmission(", "journal.claim(",
+                  "KEY_SEEDED", "bindService(", "killProcess(", "trustedEnrollment = true"):
+    assert forbidden not in replay_source, f"Replay inspection must remain pure: {forbidden}"
+for production_class in (controller, admission, sources[0].read_text()):
+    assert "Stage17P2M4BReplayLedgerInspection" not in production_class, (
+        "External ledger must NEVER be simulated as local admission authority"
+    )
+
 print("P2-M4B1 static process/native/manifest/poison-isolation gate: PASS")
