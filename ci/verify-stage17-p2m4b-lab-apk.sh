@@ -83,8 +83,7 @@ test "$certificate" = "3df9c619ad0d06f2fabb24232420bf056ca2d8ea9413e7f776669a591
 
 # The isolated Binder-only Lab must not package any native .so binaries.
 # A single unexpected native library invalidates cross-ABI cloud observations.
-if unzip -Z1 "$apk" | grep -E '^lib/[^/]+/[^/]+[.]so
-; then
+if unzip -Z1 "$apk" | grep -E '^lib/[^/]+/[^/]+[.]so$'; then
   echo "DENY: M4B Lab APK contains native JNI libraries" >&2
   exit 2
 fi
