@@ -70,6 +70,24 @@ class Stage17P2M4BReplayLedgerInspectionTest {
         ))
     }
 
+    @Test fun nonP256CheckpointPublicKeyRejectsEvenWithValidSignature() {
+        val p384 = KeyPairGenerator.getInstance("EC").apply { initialize(384) }.generateKeyPair()
+        val unsigned = signed().copy(signature = byteArrayOf())
+        val p384Signature = Signature.getInstance("SHA256withECDSA").run {
+            initSign(p384.private)
+            update(policy.checkpointPayload(unsigned))
+            sign()
+        }
+        val validP384 = unsigned.copy(signature = p384Signature)
+        assertEquals(
+            Stage17P2M4BReplayLedgerInspection.Result.REJECTED,
+            policy.inspect(
+                validP384, receipt(), p384.public,
+                Stage17P2M4BContract.LAB_PACKAGE, now,
+            ),
+        )
+    }
+
     @Test fun signaturesAndChronologyRejectAmbiguity() {
         val denied = Stage17P2M4BReplayLedgerInspection.Result.REJECTED
         val otherKey = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
