@@ -26,11 +26,14 @@ jobs:
          github.ref_name == 'stage17-fully-offline-intelligence')
       }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 55
     env:
       VOICA_BUILD_GIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       LAB_APK: app/build/outputs/apk/m4bLab/app-m4bLab.apk
       EVIDENCE: build/m4b-cloud-evidence
+      # GitHub Linux runner on 2026-11-23 lacked /dev/kvm; emulator v37.3
+      # explicitly requires this opt-in for -accel off software TCG.
+      ANDROID_I_WANT_MY_TCG: 'yes'
 
     steps:
       - name: Checkout exact source
@@ -92,7 +95,7 @@ jobs:
           profile: pixel_4
           force-avd-creation: true
           disable-animations: true
-          emulator-boot-timeout: 600
+          emulator-boot-timeout: 900
           emulator-options: -no-snapshot -wipe-data -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
           script: bash ci/stage17_p2m4b_cloud_observe.sh
 
