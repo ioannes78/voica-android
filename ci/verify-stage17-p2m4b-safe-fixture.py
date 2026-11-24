@@ -219,4 +219,25 @@ assert "runs-on: macos-15-intel" in cloud_workflow
 assert "arch: x86_64" in cloud_workflow
 assert "arch: arm64-v8a" not in cloud_workflow
 
+# B1-1 evidence inspection MUST remain unconnected to trusted enrollment or
+# controller journals: self-signed test grants are not provenance.
+grant_inspection_path = main / "java/io/github/ioannes78/voica/Stage17P2M4BGrantEvidenceInspection.kt"
+grant_test_path = root / "app/src/test/java/io/github/ioannes78/voica/Stage17P2M4BGrantEvidenceInspectionTest.kt"
+assert grant_inspection_path.is_file() and grant_test_path.is_file()
+grant_inspection = grant_inspection_path.read_text()
+for required in ("SHA256withECDSA", "SIGNATURES_AND_FIELDS_COHERENT_NOT_AN_ENROLLMENT",
+                 "WENZHI_P2_M4B1_LEDGER_CONSUMPTION_V1",
+                 "WENZHI_P2_M4B1_GRANT_V1", "REJECTED"):
+    assert required in grant_inspection, f"Missing non-authorizing grant evidence contract: {required}"
+for forbidden in ("getSharedPreferences(", "requestAdmission(", "journal.claim(",
+                  "KEY_SEEDED", "bindService(", "killProcess(", "trustedEnrollment = true"):
+    assert forbidden not in grant_inspection, f"Evidence inspector must remain read-only: {forbidden}"
+for production_class in (controller, admission, sources[0].read_text()):
+    assert "Stage17P2M4BGrantEvidenceInspection" not in production_class, (
+        "Evidence inspection must NOT be wired into the admission controller"
+    )
+assert "trustedEnrollment = false" in controller
+assert "IPC_ADMISSION_ENABLED = false" in sources[0].read_text()
+assert "FAULT_INJECTION_ENABLED = false" in sources[0].read_text()
+
 print("P2-M4B1 static process/native/manifest/poison-isolation gate: PASS")
