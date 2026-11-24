@@ -1,6 +1,6 @@
 # Stage 17.3 R17C P2-M4B1 — code-only safe fixture progress
 
-**Status: PARTIAL IMPLEMENTATION / CI PENDING / NO DEVICE TEST / NO FAULT INJECTION / DO NOT DISTRIBUTE APK AS M4B QA HANDOFF.**
+**Current decision (2026-11-24): DEFERRED / PARTIAL IMPLEMENTATION / B1-4 NO-GO / NOT CLOSED. Historical entries below retain their original point-in-time facts. No owner admission, no fault injection, no device ownership QA.**
 
 Source baseline: P2-M4B0 design 8639188e996fe14eb041eb83e2cb45fde7849098.
 
@@ -211,3 +211,11 @@ PR #37 must stay OPEN/DRAFT/UNMERGED; production main unchanged.
 - Stage 17.3 Quality Diagnostic APK run `45204447199` **SUCCESS** (attempt 1) at the same source HEAD. Android Production Gate run `45204447184` was **SKIPPED**, not claimed as a production validation pass.
 - Source re-audit confirms `IPC_ADMISSION_ENABLED=false`, `FAULT_INJECTION_ENABLED=false`, Controller `trustedEnrollment=false`, and no Journal auto-seed. The one-shot claim is still limited to independently seeded `VERIFIED_NEVER_ARMED`, which has not been established for the current installation.
 - **Decision: source/CI subgate PASS; P2-M4B1 overall remains BLOCKED / NOT CLOSED.** API31 operator Binder PING/PONG is limited to one observed Parent exchange and does not authorize owner handoff, child ACK, journal release, process death, native/GPU/JNI, data reset, or PR merge. Independent operator-controlled never-armed provenance and device-bound one-time verification remain absent.
+
+## Decision — P2-M4B1 deferred, Stage 17 mainline planning resumed (2026-11-24)
+
+The user explicitly chose to defer P2-M4B1 because no dedicated Android QA handset or independently audited enrollment/ledger authority is available. Do **not** label B1-1 through B1-4 PASS or CLOSED. Keep P2-M4B1 mock classes, JVM tests and installation-only evidence without arming the controller. `IPC_ADMISSION_ENABLED=false`, `FAULT_INJECTION_ENABLED=false`, `trustedEnrollment=false`; P2-M3 old `.qa` Poison immutable. PR #37 Draft/unmerged; production `main` unchanged.
+
+The independent external issuer/atomic ledger, trusted first-install history, on-device enrollment/seed verifier and real device Parent/Child/release/reopen QA are outstanding. Full transition rationale and reactivation criteria: `docs/STAGE_17_3_R17C_P2_M4B1_DEFERRAL_HANDOFF.md`.
+
+**Stage 17 mainline:** start 17.4 *requirements and architecture planning only*, based on `docs/STAGE_17_4_OFFLINE_QA_AUDIO_CITATION_REQUIREMENTS_V1.md`. Stage 17.3's separate product real-device QA and Freeze/Handoff are still outstanding; this is not permission to claim 17.3 CLOSED or bypass the original product-stage prerequisite for 17.4 implementation.
