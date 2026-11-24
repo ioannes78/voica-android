@@ -73,7 +73,7 @@ preflight = (root / "ci/stage17_p2m4b_lab_preflight.py").read_text()
 for expected in ('PREINSTALL_ABSENCE_OBSERVED', 'POSTINSTALL_PRESENCE_OBSERVED',
                  '"never_armed_proven": False', '"owner_seed_authorized": False',
                  '"ipc_admission_authorized": False', '"fault_injection_authorized": False',
-                 '"manifest", "application-id"', '"pm", "path"'):
+                 '"manifest", "application-id"', '"pm", "list", "packages", "--user"'):
     assert expected in preflight, f"Missing non-authoritative Lab preflight boundary: {expected}"
 assert 'read_apk_signer(apk, signer)' in preflight
 assert '[signer, "verify", "--print-certs", str(apk)]' in preflight
