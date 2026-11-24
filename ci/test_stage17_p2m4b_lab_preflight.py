@@ -30,10 +30,8 @@ class LabPreflightTest(unittest.TestCase):
                 return "Signer #1 certificate SHA-256 digest: " + certificate
             if argv[-1] == "get-state":
                 return "device"
-            if argv[-4:-1] == ["list", "packages", "--user"] and argv[-1] == "0":
-                raise AssertionError(f"Unexpected package-list argument order: {argv}")
-            if argv[-4:] == ["pm", "list", "packages", "--user"] and argv[-2] == "0":
-                package = argv[-1]
+            if argv[4:9] == ["pm", "list", "packages", "--user", "0"]:
+                package = argv[9]
                 present = (lab_installed if package == module.LAB else
                            qa_installed if package == module.LEGACY_QA else False)
                 return "package:" + package if present else ""
