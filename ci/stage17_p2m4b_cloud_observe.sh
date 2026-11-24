@@ -26,17 +26,19 @@ mkdir -p "$EVIDENCE"
 deadline=$((SECONDS + 240))
 serial=""
 while (( SECONDS < deadline )); do
-  mapfile -t emulators < <(adb devices | awk 'NR>1 && $1 ~ /^emulator-/ && ($2=="device" || $2=="offline") {print $1}')
-  if (( ${#emulators[@]} != 1 )); then
-    if (( ${#emulators[@]} > 1 )); then
-      echo "DENY: more than one emulator is attached" >&2
-      adb devices -l >&2 || true
-      exit 2
-    fi
+  # macOS ships Bash 3.2; avoid mapfile/readarray (Bash 4+ only).
+  emulator_list="$(adb devices | awk 'NR>1 && $1 ~ /^emulator-/ && ($2=="device" || $2=="offline") {print $1}')"
+  emulator_count="$(printf '%s\n' "$emulator_list" | awk 'NF {n++} END {print n+0}')"
+  if [[ "$emulator_count" -gt 1 ]]; then
+    echo "DENY: more than one emulator is attached" >&2
+    adb devices -l >&2 || true
+    exit 2
+  fi
+  if [[ "$emulator_count" -ne 1 ]]; then
     sleep 5
     continue
   fi
-  serial="${emulators[0]}"
+  serial="$emulator_list"
   state="$(adb -s "$serial" get-state 2>/dev/null || true)"
   if [[ "$state" == "device" ]]; then
     boot="$(adb -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
