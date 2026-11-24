@@ -3,7 +3,6 @@ package io.github.ioannes78.voica
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.security.PublicKey
-import java.security.interfaces.ECPublicKey
 import java.security.Signature
 
 /**
@@ -71,19 +70,8 @@ internal object Stage17P2M4BGrantEvidenceInspection {
         ),
     )
 
-    // P-256 parameters are a structural prerequisite, NOT an issuer trust root.
-    // The actual issuer key fingerprint must later be pinned by an independent
-    // authority; a random P-256 public key is never enrollment evidence.
-    private fun p256Key(key: PublicKey): Boolean {
-        val ec = key as? ECPublicKey ?: return false
-        val params = ec.params ?: return false
-        return params.curve.field.fieldSize == 256 &&
-            params.order.bitLength() == 256 &&
-            params.cofactor == 1
-    }
-
     private fun validSignature(key: PublicKey, data: ByteArray, signature: ByteArray): Boolean {
-        if (signature.isEmpty() || !p256Key(key)) return false
+        if (signature.isEmpty() || !Stage17P2M4BEcKeyShape.isP256(key)) return false
         return try {
             val verifier = Signature.getInstance("SHA256withECDSA")
             verifier.initVerify(key)
