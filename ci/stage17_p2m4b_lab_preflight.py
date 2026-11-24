@@ -8,6 +8,7 @@ import argparse
 import hashlib
 import json
 import re
+import shlex
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,7 +21,11 @@ QA_CERT_SHA256 = "3df9c619ad0d06f2fabb24232420bf056ca2d8ea9413e7f776669a591974f2
 def call(argv):
     done = subprocess.run(argv, capture_output=True, text=True, timeout=20, check=False)
     if done.returncode:
-        raise RuntimeError(f"Read-only check failed: {argv[0]} (exit={done.returncode})")
+        detail = (done.stderr or done.stdout or "").strip().replace("\n", " ")
+        command = shlex.join(str(part) for part in argv)
+        raise RuntimeError(
+            f"Read-only check failed: {command} (exit={done.returncode}); {detail[:500]}"
+        )
     return done.stdout.strip()
 
 
@@ -54,10 +59,18 @@ def observe(stage, serial, apk, adb="adb", analyzer="apkanalyzer",
     if state != "device":
         raise ValueError("Device must be online and authorized")
     def installed(package):
-        paths = call([adb, "-s", serial, "shell", "pm", "path", package])
-        if paths and not all(line.startswith("package:") for line in paths.splitlines()):
-            raise ValueError("Unexpected pm path response; fail closed")
-        return bool(paths)
+        # `pm path` can return exit=1 for an absent package on some Android
+        # builds. `pm list packages` is read-only and returns exit=0 for both
+        # present and absent packages; compare exact package lines to avoid
+        # substring matches.
+        listing = call([
+            adb, "-s", serial, "shell", "pm", "list", "packages", "--user", "0", package
+        ])
+        lines = listing.splitlines() if listing else []
+        if any(not line.startswith("package:") for line in lines):
+            raise ValueError("Unexpected pm list packages response; fail closed")
+        found = {line[len("package:"):] for line in lines}
+        return package in found
     lab_installed = installed(LAB)
     legacy_installed = installed(LEGACY_QA)
     if stage == "before" and lab_installed:
