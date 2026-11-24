@@ -153,7 +153,7 @@ Direct V1 当前冻结 contract：
 
 经用户明确授权，Stage 17.3 的隔离 FAKE Owner Binder QA 子项 `P2-M4B1` 设置为 **DEFERRED / NOT CLOSED / B1-4 NO-GO**。其独立可信注册、Parent→Child Owner 交接、异常释放及最终签署证据未完成。保留现有只读 Lab / JVM / 云端安装观察成果，不启用 `IPC_ADMISSION_ENABLED`、`FAULT_INJECTION_ENABLED` 或 `trustedEnrollment`；不清理历史 P2-M3 Poison，不修改生产运行时。正式交接：`docs/STAGE_17_3_R17C_P2_M4B1_DEFERRAL_HANDOFF.md`。
 
-**Stage 17 主线恢复的是 Stage 17.4 需求与架构规划，尚非自动批准生产实现。** Stage 17.3 的原有真机回归与 Freeze/Handoff 仍需另行完成，不能把 P2-M4B1 延期解释成 Stage 17.3 CLOSED。若计划在 Stage 17.3 Freeze 前开始 17.4 代码实现，必须明确修改并审批原有阶段依赖规则。
+**历史决定：Stage 17 主线恢复的是 Stage 17.4 需求与架构规划，尚非自动批准生产实现。** Stage 17.3 的原有真机回归与 Freeze/Handoff 仍需另行完成，不能把 P2-M4B1 延期解释成 Stage 17.3 CLOSED。若计划在 Stage 17.3 Freeze 前开始 17.4 代码实现，必须明确修改并审批原有阶段依赖规则。
 
 Stage 17.4 离线问答/音频证据回链应复用现有应用级单一 LLM runtime、canonical transcript timeline 与本地检索基础，不依赖 P2-M4B1 的独立 Binder Owner 实验。
 
@@ -161,7 +161,9 @@ Stage 17.4 离线问答/音频证据回链应复用现有应用级单一 LLM run
 
 # Stage 17.4 — Offline Q&A + Audio Citation
 
-状态：**RESERVED / NOT STARTED**
+状态：**P0 DOCUMENTED / RESTRICTED IMPLEMENTATION AUTHORIZED / PRODUCT QA GATED**
+
+2026-11-24 用户另行批准方案 B；依赖修订以 `docs/STAGE_17_4_DEPENDENCY_REVISION.md` 为准。17.3 核心真机 QA/Freeze 仍是 17.4 正式真机验收和关闭的前置条件。
 
 目标：用户可以针对当前录音/转写提问，并获得可点击回到原始语音位置的证据。
 
@@ -283,4 +285,4 @@ Stage 17 核心链不得把 transcript、summary、prompt、question、audio 或
 - local retrieval quality；
 - embedding（仅在需要时）。
 
-Stage 17.3 Freeze 后才继续 17.4；Stage 17 全部目标完成后再进入后续本地智能阶段。
+按已批准方案 B，17.4 受限编码可先行；17.3 核心真机 QA / Freeze 后才进入 17.4 正式真机验收及关闭。Stage 17 全部目标完成后再进入后续本地智能阶段。
