@@ -30,6 +30,11 @@ jobs:
     # runs the same ABI natively under Hypervisor.Framework (no ARM translation).
     runs-on: macos-15
     timeout-minutes: 55
+    # Only one disposable emulator observation per PR/ref; a newer exact HEAD
+    # supersedes older runs, which must not be treated as current evidence.
+    concurrency:
+      group: stage17-p2m4b-cloud-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
     env:
       VOICA_BUILD_GIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       LAB_APK: app/build/outputs/apk/m4bLab/app-m4bLab.apk
