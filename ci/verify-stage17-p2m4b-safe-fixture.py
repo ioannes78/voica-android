@@ -205,4 +205,14 @@ application = (main / "java/io/github/ioannes78/voica/VoicaApplication.kt").read
 for suffix in ("parentProcess(applicationId)", "childProcess(applicationId)"):
     assert suffix in application, "Lightweight QA process must not load AppContainer"
 assert 'stage17_p2m1_mock_owner_journal' not in "\n".join(p.read_text() for p in sources)
+
+# The cloud AVD ABI must match the exact Lab APK ABI filter.
+cloud_workflow = (root / ".github/workflows/stage17-p2m4b-cloud-observation.yml").read_text()
+app_gradle = (root / "app/build.gradle.kts").read_text()
+assert 'abiFilters += "arm64-v8a"' in app_gradle
+assert "runs-on: macos-15" in cloud_workflow
+assert "runs-on: macos-15-intel" not in cloud_workflow
+assert "arch: arm64-v8a" in cloud_workflow
+assert "arch: x86_64" not in cloud_workflow
+
 print("P2-M4B1 static process/native/manifest/poison-isolation gate: PASS")
