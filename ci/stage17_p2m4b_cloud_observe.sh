@@ -7,16 +7,55 @@ set -euo pipefail
 : "${VOICA_BUILD_GIT_SHA:?missing exact source SHA}"
 mkdir -p "$EVIDENCE"
 
-adb wait-for-device
-serial="$(adb devices | awk 'NR>1 && $2=="device" {print $1}')"
-if [[ -z "$serial" || "$serial" == *$'\n'* || "$serial" != emulator-* ]]; then
-  echo "DENY: requires exactly one online local emulator" >&2
+# Resolve Android SDK tools explicitly; do not rely on the default PATH.
+sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+: "${sdk:?missing Android SDK root}"
+mkdir -p "$EVIDENCE"
+
+# Capture host hypervisor and ADB state before waiting for the new emulator.
+{
+  echo "observed_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "runner_os=$(uname -a)"
+  "$sdk/emulator/emulator" -accel-check || true
+  adb start-server || true
+  adb devices -l || true
+} > "$EVIDENCE/emulator-startup.txt" 2>&1
+
+# The action normally waits for boot, but fail closed with a bounded readiness
+# loop rather than treating an ADB transport in "offline" state as ready.
+deadline=$((SECONDS + 240))
+serial=""
+while (( SECONDS < deadline )); do
+  mapfile -t emulators < <(adb devices | awk 'NR>1 && $1 ~ /^emulator-/ && ($2=="device" || $2=="offline") {print $1}')
+  if (( ${#emulators[@]} != 1 )); then
+    if (( ${#emulators[@]} > 1 )); then
+      echo "DENY: more than one emulator is attached" >&2
+      adb devices -l >&2 || true
+      exit 2
+    fi
+    sleep 5
+    continue
+  fi
+  serial="${emulators[0]}"
+  state="$(adb -s "$serial" get-state 2>/dev/null || true)"
+  if [[ "$state" == "device" ]]; then
+    boot="$(adb -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+    if [[ "$boot" == "1" ]]; then
+      break
+    fi
+  fi
+  sleep 5
+done
+if [[ -z "$serial" || "$(adb -s "$serial" get-state 2>/dev/null || true)" != "device" || "$(adb -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)" != "1" ]]; then
+  {
+    echo "DENY: emulator did not become ADB-online with sys.boot_completed=1"
+    adb devices -l || true
+    adb -s "$serial" shell getprop sys.boot_completed || true
+  } | tee "$EVIDENCE/emulator-readiness-failure.txt" >&2
   exit 2
 fi
 
 # Resolve build-tools executables explicitly; do not rely on the default PATH.
-sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
-: "${sdk:?missing Android SDK root}"
 analyzer="$sdk/cmdline-tools/latest/bin/apkanalyzer"
 if [[ ! -x "$analyzer" ]]; then
   analyzer="$sdk/tools/bin/apkanalyzer"
