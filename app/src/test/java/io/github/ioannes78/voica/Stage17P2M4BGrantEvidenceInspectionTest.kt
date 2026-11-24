@@ -110,6 +110,13 @@ class Stage17P2M4BGrantEvidenceInspectionTest {
             installationChallenge = "123e4567-e89b-12d3-a456-426614174099"))))
     }
 
+    @Test fun exactCurveGuardRequiresSecp256r1() {
+        assertEquals(true, Stage17P2M4BEcKeyShape.isP256(grantKey.public))
+        assertEquals(true, Stage17P2M4BEcKeyShape.isP256(ledgerKey.public))
+        val p384 = KeyPairGenerator.getInstance("EC").apply { initialize(384) }.generateKeyPair()
+        assertEquals(false, Stage17P2M4BEcKeyShape.isP256(p384.public))
+    }
+
     @Test fun ecP384KeysMustNotBeTreatedAsP256Evidence() {
         val denied = Stage17P2M4BGrantEvidenceInspection.Result.REJECTED
         val p384 = KeyPairGenerator.getInstance("EC").apply { initialize(384) }.generateKeyPair()
