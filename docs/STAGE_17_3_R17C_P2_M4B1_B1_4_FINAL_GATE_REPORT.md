@@ -35,3 +35,11 @@ Do not modify the historical `.qa` P2-M3 sticky poison or clear its app data.
 Keep `IPC_ADMISSION_ENABLED=false` and `FAULT_INJECTION_ENABLED=false` until the independently reviewed authorization mechanism and separately approved device QA are available.
 No fake surrogate-parent self-exit in B1; no native model, GPU/AUTO or JNI tests; no PR #37 merge.
 If evidence remains missing, maintain **B1 IN PROGRESS / B1-4 NO-GO**, not CLOSED.
+
+## 2026-11-24 evidence update — cloud installation sub-check only
+
+At exact source `3739ac3cb98d5cf99b7f1325fe177c0c0af969ca`, Android PR CI `45365486378`, Stage 17.3 Quality Diagnostic APK `45365486011`, and API31 x86_64 native-free Lab cloud observation `45365485994` all completed **SUCCESS**. The cloud report archive SHA-256 is `283e7c17a6904cde5472cd3365d7d5576867f7d68b1588004305642239aa14a4` (GitHub artifact ID `14906904251`, retention one day). Host-observed `.m4blab` package absence before installation and presence after installation correlate to the same APK SHA-256 `22d7fe10d7f0c6e9deecdef7edf13fb50fbc49b671486388860cd4d95eeb9c50`, pinned QA signer and emulator serial. All recorded authorization fields remain **false**.
+
+**Decision:** `Cloud API31 installation observation = PASS`, while `B1-1 trusted enrollment = BLOCKED`, `B1-2 real Binder ownership = NOT VERIFIED`, `B1-3 durable release/reopen/interruption = NOT VERIFIED`, and `B1-4 = NO-GO / NOT CLOSED`. The cloud observation verdict is expressly `OBSERVATIONS_CORRELATED_NOT_AN_ENROLLMENT`. This test used an intentionally native-free disposable x86_64 Lab variant; it proves neither ARM64 production behavior nor audited never-armed history. Do not seed an owner or enable IPC admission based on this result.
+
+The independent operator-signed one-use enrollment, external anti-replay ledger, on-device grant verifier, scoped real-device lifecycle test and independent signoff are still missing. Details and exact evidence references: `docs/STAGE_17_3_R17C_P2_M4B1_CLOUD_ANDROID_OBSERVATION.md`.
