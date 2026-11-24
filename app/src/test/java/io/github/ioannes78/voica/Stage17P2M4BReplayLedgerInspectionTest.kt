@@ -38,7 +38,7 @@ class Stage17P2M4BReplayLedgerInspectionTest {
 
     @Test fun coherentSignedSequenceIsNotReplayAuthorization() {
         assertEquals(
-            policy.Result.ORDER_CONSISTENT_NOT_REPLAY_PROOF,
+            Stage17P2M4BReplayLedgerInspection.Result.ORDER_CONSISTENT_NOT_REPLAY_PROOF,
             policy.inspect(
                 signed(), receipt(), key.public,
                 Stage17P2M4BContract.LAB_PACKAGE, now,
@@ -49,7 +49,7 @@ class Stage17P2M4BReplayLedgerInspectionTest {
     }
 
     @Test fun missingDuplicateAndOutOfOrderSequenceReject() {
-        val denied = policy.Result.REJECTED
+        val denied = Stage17P2M4BReplayLedgerInspection.Result.REJECTED
         for (sequence in listOf(0L, 4L, 6L, Long.MAX_VALUE)) {
             assertEquals(denied, policy.inspect(
                 signed(), receipt(sequence), key.public,
@@ -71,7 +71,7 @@ class Stage17P2M4BReplayLedgerInspectionTest {
     }
 
     @Test fun signaturesAndChronologyRejectAmbiguity() {
-        val denied = policy.Result.REJECTED
+        val denied = Stage17P2M4BReplayLedgerInspection.Result.REJECTED
         val otherKey = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
         assertEquals(denied, policy.inspect(
             signed(), receipt(), otherKey.public,
