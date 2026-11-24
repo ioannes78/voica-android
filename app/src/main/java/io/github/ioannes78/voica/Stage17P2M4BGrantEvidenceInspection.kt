@@ -70,9 +70,9 @@ internal object Stage17P2M4BGrantEvidenceInspection {
         ),
     )
 
-    private fun validSignature(key: PublicKey, data: ByteArray, signature: ByteArray): Boolean =
-        try {
-            if (signature.isEmpty() || key.algorithm != "EC") return false
+    private fun validSignature(key: PublicKey, data: ByteArray, signature: ByteArray): Boolean {
+        if (signature.isEmpty() || key.algorithm != "EC") return false
+        return try {
             val verifier = Signature.getInstance("SHA256withECDSA")
             verifier.initVerify(key)
             verifier.update(data)
@@ -80,6 +80,7 @@ internal object Stage17P2M4BGrantEvidenceInspection {
         } catch (_: Exception) {
             false
         }
+    }
 
     private fun sha256Hex(value: String): Boolean =
         value.length == 64 && value.all { it in '0'..'9' || it in 'a'..'f' }
