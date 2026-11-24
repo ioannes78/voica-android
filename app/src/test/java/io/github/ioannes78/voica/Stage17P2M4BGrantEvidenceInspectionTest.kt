@@ -110,6 +110,22 @@ class Stage17P2M4BGrantEvidenceInspectionTest {
             installationChallenge = "123e4567-e89b-12d3-a456-426614174099"))))
     }
 
+    @Test fun ecP384KeysMustNotBeTreatedAsP256Evidence() {
+        val denied = Stage17P2M4BGrantEvidenceInspection.Result.REJECTED
+        val p384 = KeyPairGenerator.getInstance("EC").apply { initialize(384) }.generateKeyPair()
+        val grantUnsigned = grant().copy(signature = byteArrayOf())
+        val forgedGrant = grantUnsigned.copy(
+            signature = sign(p384, policy.grantPayload(grantUnsigned)),
+        )
+        assertEquals(denied, inspect(grant = forgedGrant, signedBy = p384))
+
+        val receiptUnsigned = receipt().copy(signature = byteArrayOf())
+        val forgedReceipt = receiptUnsigned.copy(
+            signature = sign(p384, policy.receiptPayload(receiptUnsigned)),
+        )
+        assertEquals(denied, inspect(receipt = forgedReceipt, consumedBy = p384))
+    }
+
     @Test fun substitutedPublicKeyAndMissingLedgerSignatureReject() {
         val invalid = Stage17P2M4BGrantEvidenceInspection.Result.REJECTED
         val otherKey = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
