@@ -48,3 +48,22 @@ Provide a short-lived GitHub-hosted fresh Android API31 AVD as a disposable test
 - The workflow now uses per-PR concurrency to cancel stale runs when a newer exact source is queued. That is a CI resource/lifecycle protection, **not** a resolution of host HVF support.
 - Next environment decision (requires explicit infrastructure availability): independently managed native ARM64 Android physical device / supported virtualized cloud device farm with controlled fresh install, no restoration, externally audited provisioning, and an authorization ledger; alternatively independently review a truly Java/Kotlin-only Lab artifact for an x86_64 guest, without weakening the production ABI or claiming native runtime equivalence.
 - No owner-seed mechanism, signed independent authorization, anti-replay ledger or device-side grant verifier currently exists. The host's own GitHub run JSON cannot serve as the independent enrollment authority. Keep `IPC_ADMISSION_ENABLED=false` and `FAULT_INJECTION_ENABLED=false`; keep PR #37 Draft and unmerged.
+
+## Verified x86_64 native-free Lab installation observation — 2026-11-24
+
+**PASS: narrowly scoped ephemeral API31 installation observation; NOT enrollment, owner grant, or B1 final gate.**
+
+- Exact source HEAD: `3739ac3cb98d5cf99b7f1325fe177c0c0af969ca`.
+- GitHub Actions run: `45365485994`, Cloud Emulator Observation **SUCCESS**. Separate exact-source Android PR CI `45365486378` **SUCCESS** and Stage 17.3 Quality Diagnostic APK `45365486011` **SUCCESS**. Production Gate is **SKIPPED**, not PASS.
+- Evidence artifact: `P2-M4B1-CLOUD-OBSERVATION-45365485994`, GitHub artifact ID `14906904251`, one-day retention. Downloaded archive SHA-256 `283e7c17a6904cde5472cd3365d7d5576867f7d68b1588004305642239aa14a4`.
+- Device: one ephemeral `emulator-5554` using Android API31, `Android SDK built for x86_64`. Emulator boot log records Hypervisor.Framework available.
+- Application ID: `io.github.ioannes78.voica.m4blab`. Binary APK SHA-256 `22d7fe10d7f0c6e9deecdef7edf13fb50fbc49b671486388860cd4d95eeb9c50`. QA signer SHA-256 `3df9c619ad0d06f2fabb24232420bf056ca2d8ea9413e7f776669a591974f288`.
+- `before.json` (2026-11-24 09:49:01 UTC) reports Lab package absent; `after.json` (09:49:19 UTC) reports Lab package installed. Both report existing historical `.qa` package absent from this ephemeral emulator, **not** absent on the operator's handset.
+- Independently rechecked locally: same source SHA, package ID, APK hash, signer and device serial, strictly ordered timestamps, Android API31, before absent, after present, and all four fields `never_armed_proven`, `owner_seed_authorized`, `ipc_admission_authorized`, `fault_injection_authorized` are `false` in each of `before.json`, `after.json`, `correlation.json`, `environment.json`. All checks PASS.
+- `correlation.json` exact verdict: `OBSERVATIONS_CORRELATED_NOT_AN_ENROLLMENT`. `VERDICT.txt` explicitly says `B1-1/B1-2/B1-3/B1-4 NOT CLOSED`.
+- The `m4bLab` APK used for this x86_64 observation has **no packaged .so files** by a strict binary gate. It does not test ARM64 native model behavior or end-to-end Binder owner handoff.
+- No app launch, seed, owner grant, child handoff, process exit, fault injection, GPU/JNI, model inference, or old `.qa` data mutation was performed.
+
+**Gate update:** Close only the `Cloud API31 install observation` sub-check as **PASS**. B1-1 independent trusted enrollment remains **BLOCKED**; B1-2 and B1-3 real lifecycle tests remain **NOT VERIFIED**; B1-4 remains **NO-GO / NOT CLOSED**. Never upgrade observational evidence into independently signed never-armed provenance.
+
+Next dependency: independent operator-owned fresh-fixture provenance, installation-bound one-use signed grant with off-device anti-replay consumption, reviewed on-device verifier, and separately authorized device lifecycle QA. The public CI QA signing key must not serve as an enrollment authority.
