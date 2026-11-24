@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/stage17-p2m4b-cloud-observation.yml"
+      - "ci/stage17_p2m4b_cloud_observe.sh"
       - "ci/stage17_p2m4b_lab_preflight.py"
       - "ci/stage17_p2m4b_lab_correlate.py"
       - "ci/verify-stage17-p2m4b-safe-fixture.py"
