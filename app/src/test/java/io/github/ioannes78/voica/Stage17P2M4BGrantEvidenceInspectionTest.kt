@@ -86,4 +86,38 @@ class Stage17P2M4BGrantEvidenceInspectionTest {
         val missingLedger = receipt().copy(signature = byteArrayOf())
         assertEquals(invalid, inspect(receipt = missingLedger))
     }
+    @Test fun independentlySignedButInconsistentTimeAndIdentityReject() {
+        val invalid = Stage17P2M4BGrantEvidenceInspection.Result.REJECTED
+        // Re-sign to prove negative checks are structural, not merely a bad
+        // signature inherited from copy(). No test key is a trusted authority.
+        fun reSign(input: Stage17P2M4BGrantEvidenceInspection.Grant): Stage17P2M4BGrantEvidenceInspection.Grant =
+            input.copy(signature = sign(grantKey, policy.grantPayload(input)))
+        fun reSignReceipt(input: Stage17P2M4BGrantEvidenceInspection.ConsumptionReceipt): Stage17P2M4BGrantEvidenceInspection.ConsumptionReceipt =
+            input.copy(signature = sign(ledgerKey, policy.receiptPayload(input)))
+
+        assertEquals(invalid, inspect(grant = reSign(grant().copy(expiresAtEpochSec = now - 51L))))
+        assertEquals(invalid, inspect(grant = reSign(grant().copy(expiresAtEpochSec = now + 601L))))
+        assertEquals(invalid, inspect(grant = reSign(grant().copy(issuedAtEpochSec = now + 1L))))
+        assertEquals(invalid, inspect(grant = reSign(grant().copy(installationChallenge =
+            "123e4567-e89b-12d3-a456-426614174099"))))
+        assertEquals(invalid, inspect(grant = reSign(grant().copy(packageSignerSha256 = hexA))))
+        assertEquals(invalid, inspect(grant = reSign(grant().copy(apkSha256 = "A".repeat(64)))))
+        assertEquals(invalid, inspect(grant = reSign(grant().copy(grantId = "malformed"))))
+        assertEquals(invalid, inspect(receipt = reSignReceipt(receipt().copy(ledgerSequence = 0L))))
+        assertEquals(invalid, inspect(receipt = reSignReceipt(receipt().copy(
+            consumedAtEpochSec = now - 51L))))
+        assertEquals(invalid, inspect(receipt = reSignReceipt(receipt().copy(
+            installationChallenge = "123e4567-e89b-12d3-a456-426614174099"))))
+    }
+
+    @Test fun substitutedPublicKeyAndMissingLedgerSignatureReject() {
+        val invalid = Stage17P2M4BGrantEvidenceInspection.Result.REJECTED
+        val otherKey = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+        assertEquals(invalid, inspect(signedBy = otherKey))
+        assertEquals(invalid, inspect(consumedBy = otherKey))
+        assertEquals(invalid, inspect(receipt = receipt().copy(signature = byteArrayOf())))
+        // Same key for grant and consumption is forbidden even for test evidence.
+        assertEquals(invalid, inspect(consumedBy = grantKey))
+    }
+
 }
