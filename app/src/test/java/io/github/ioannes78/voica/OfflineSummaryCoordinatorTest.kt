@@ -398,6 +398,56 @@ class OfflineSummaryCoordinatorTest {
         }
     }
 
+    @Test
+    fun sharedAdmissionBlocksSummaryStartAndResumeBeforeInputAndQaUntilCleanup() = runBlocking {
+        val appScope = appScope()
+        val admission = OfflineAiTaskAdmission()
+        try {
+            val entered = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            var resolves = 0
+            val coordinator = coordinator(
+                scope = appScope,
+                persistence = FakePersistence(),
+                taskAdmission = admission,
+                resolveInput = { resolves++; input() },
+                generateLocal = { _, _ ->
+                    entered.complete(Unit)
+                    release.await()
+                    generation(validJson())
+                },
+            )
+            val qa = checkNotNull(admission.tryAcquire(OfflineAiTaskAdmission.Kind.QA, "another"))
+            assertTrue(coordinator.start(RECORDING_ID) is OfflineSummaryStartOutcome.Rejected)
+            assertTrue(coordinator.resume(RECORDING_ID, "saved") is OfflineSummaryStartOutcome.Rejected)
+            assertEquals(0, resolves)
+            assertTrue(admission.release(qa))
+            assertTrue(coordinator.start(RECORDING_ID) is OfflineSummaryStartOutcome.Started)
+            entered.await()
+            assertTrue(coordinator.start("another") is OfflineSummaryStartOutcome.Rejected)
+            assertTrue(coordinator.resume("another", "saved") is OfflineSummaryStartOutcome.Rejected)
+            assertEquals(null, admission.tryAcquire(OfflineAiTaskAdmission.Kind.QA, "another"))
+            release.complete(Unit)
+            assertEquals(OfflineSummaryRunPhase.COMPLETED, awaitTerminal(coordinator).phase)
+            withTimeout(5000) {
+                while (admission.current() != null) kotlinx.coroutines.yield()
+            }
+            assertTrue(admission.tryAcquire(OfflineAiTaskAdmission.Kind.QA, "another") != null)
+        } finally {
+            appScope.cancel()
+        }
+    }
+
+    @Test
+    fun rejectedApplicationScopeDoesNotLeakAdmission() = runBlocking {
+        val appScope = appScope()
+        appScope.cancel()
+        val admission = OfflineAiTaskAdmission()
+        val coordinator = coordinator(scope = appScope, persistence = FakePersistence(), taskAdmission = admission)
+        assertTrue(coordinator.start(RECORDING_ID) is OfflineSummaryStartOutcome.Rejected)
+        assertEquals(null, admission.current())
+    }
+
     private suspend fun assertRuntimeFailureMaps(
         failureCode: LocalLlmFailureCode,
         expected: OfflineSummaryFailureCode,
@@ -441,6 +491,7 @@ class OfflineSummaryCoordinatorTest {
             { _, _ -> generation(validJson()) },
         onCompleted: suspend (String, String) -> Unit = { _, _ -> },
         criticalTaskReason: () -> String? = { null },
+        taskAdmission: OfflineAiTaskAdmission = OfflineAiTaskAdmission(),
     ): OfflineSummaryCoordinator =
         OfflineSummaryCoordinator(
             scope = scope,
@@ -450,6 +501,7 @@ class OfflineSummaryCoordinatorTest {
             persistence = persistence,
             onCompleted = onCompleted,
             criticalTaskReason = criticalTaskReason,
+            taskAdmission = taskAdmission,
         )
 
     private suspend fun awaitTerminal(coordinator: OfflineSummaryCoordinator): OfflineSummaryRunState =

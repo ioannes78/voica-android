@@ -416,6 +416,8 @@ class AppContainer(
             realtimeState = stage16ARealtimeRuntime.state,
         )
 
+    internal val offlineAiTaskAdmission = OfflineAiTaskAdmission()
+
     val offlineSummaryCoordinator =
         createOfflineSummaryCoordinator(
             application = application,

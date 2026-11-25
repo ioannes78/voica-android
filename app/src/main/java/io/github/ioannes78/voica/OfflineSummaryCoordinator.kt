@@ -41,8 +41,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /** Product run phase for the single Stage 17 offline-summary coordinator. */
@@ -269,9 +267,10 @@ class OfflineSummaryCoordinator internal constructor(
     private val promptRenderer: OfflineSummaryPromptRenderer = OfflineSummaryPromptRenderer(),
     private val repairPromptRenderer: OfflineSummaryRepairPromptRenderer = OfflineSummaryRepairPromptRenderer(),
     private val budgetGate: OfflineSummaryDirectBudgetGate = OfflineSummaryDirectBudgetGate(),
+    private val taskAdmission: OfflineAiTaskAdmission = OfflineAiTaskAdmission(),
 ) {
-    private val ownershipMutex = Mutex()
-    private val activeRecordingIds = mutableSetOf<String>()
+    private val ownershipLock = Any()
+    private val activeLeases = mutableMapOf<String, OfflineAiTaskAdmission.Lease>()
     private val activeJobs = mutableMapOf<String, Job>()
     private val mutableState = MutableStateFlow<Map<String, OfflineSummaryRunState>>(emptyMap())
 
@@ -284,10 +283,11 @@ class OfflineSummaryCoordinator internal constructor(
         criticalTaskReason()?.let { reason ->
             return OfflineSummaryStartOutcome.Rejected(OfflineSummaryFailureCode.RESOURCE_BLOCKED, reason)
         }
-        if (!acquireOwnership(normalizedRecordingId)) {
+        val lease = acquireOwnership(normalizedRecordingId)
+        if (lease == null) {
             return OfflineSummaryStartOutcome.Rejected(
                 OfflineSummaryFailureCode.RUNTIME_BUSY,
-                "该录音的离线总结正在生成",
+                "本地 AI 任务正在运行，请完成后再试",
             )
         }
 
@@ -308,7 +308,7 @@ class OfflineSummaryCoordinator internal constructor(
                     phase = OfflineSummaryRunPhase.PREPARING,
                 ),
             )
-            startOwnedJob(normalizedRecordingId) {
+            startOwnedJob(normalizedRecordingId, lease) {
                 executeNew(
                     recordingId = normalizedRecordingId,
                     summaryId = summaryId,
@@ -317,7 +317,7 @@ class OfflineSummaryCoordinator internal constructor(
             }
             OfflineSummaryStartOutcome.Started(summaryId)
         } catch (cancelled: CancellationException) {
-            withContext(NonCancellable) { releaseOwnership(normalizedRecordingId) }
+            releaseOwnership(normalizedRecordingId, lease)
             throw cancelled
         } catch (error: Throwable) {
             val failure = classifyFailure(error)
@@ -325,7 +325,7 @@ class OfflineSummaryCoordinator internal constructor(
                 runCatching { persistence.fail(summaryId, failure.code, failure.message) }
                 putFailedState(normalizedRecordingId, summaryId, failure)
             }
-            withContext(NonCancellable) { releaseOwnership(normalizedRecordingId) }
+            releaseOwnership(normalizedRecordingId, lease)
             OfflineSummaryStartOutcome.Rejected(failure.code, failure.message)
         }
     }
@@ -343,10 +343,11 @@ class OfflineSummaryCoordinator internal constructor(
         criticalTaskReason()?.let { reason ->
             return OfflineSummaryStartOutcome.Rejected(OfflineSummaryFailureCode.RESOURCE_BLOCKED, reason)
         }
-        if (!acquireOwnership(normalizedRecordingId)) {
+        val lease = acquireOwnership(normalizedRecordingId)
+        if (lease == null) {
             return OfflineSummaryStartOutcome.Rejected(
                 OfflineSummaryFailureCode.RUNTIME_BUSY,
-                "该录音的离线总结正在运行",
+                "本地 AI 任务正在运行，请完成后再试",
             )
         }
 
@@ -361,7 +362,7 @@ class OfflineSummaryCoordinator internal constructor(
                     message = "从已验证检查点继续",
                 ),
             )
-            startOwnedJob(normalizedRecordingId) {
+            startOwnedJob(normalizedRecordingId, lease) {
                 executeResume(
                     recordingId = normalizedRecordingId,
                     summaryId = normalizedSummaryId,
@@ -370,12 +371,12 @@ class OfflineSummaryCoordinator internal constructor(
             }
             OfflineSummaryStartOutcome.Started(normalizedSummaryId)
         } catch (cancelled: CancellationException) {
-            withContext(NonCancellable) { releaseOwnership(normalizedRecordingId) }
+            releaseOwnership(normalizedRecordingId, lease)
             throw cancelled
         } catch (error: Throwable) {
             val failure = classifyFailure(error)
             putFailedState(normalizedRecordingId, normalizedSummaryId, failure)
-            withContext(NonCancellable) { releaseOwnership(normalizedRecordingId) }
+            releaseOwnership(normalizedRecordingId, lease)
             OfflineSummaryStartOutcome.Rejected(failure.code, failure.message)
         }
     }
@@ -383,7 +384,7 @@ class OfflineSummaryCoordinator internal constructor(
     suspend fun cancel(recordingId: String): Boolean {
         val normalizedRecordingId = recordingId.trim()
         if (normalizedRecordingId.isEmpty()) return false
-        val job = ownershipMutex.withLock { activeJobs[normalizedRecordingId] } ?: return false
+        val job = synchronized(ownershipLock) { activeJobs[normalizedRecordingId] } ?: return false
         job.cancel(CancellationException("USER_CANCELLED_OFFLINE_SUMMARY"))
         return true
     }
@@ -607,8 +608,6 @@ class OfflineSummaryCoordinator internal constructor(
                     repairAttempted = repairAttempted,
                 )
             }
-        } finally {
-            withContext(NonCancellable) { releaseOwnership(recordingId) }
         }
     }
 
@@ -695,8 +694,6 @@ class OfflineSummaryCoordinator internal constructor(
                     repairAttempted = repairAttempted,
                 )
             }
-        } finally {
-            withContext(NonCancellable) { releaseOwnership(recordingId) }
         }
     }
 
@@ -785,22 +782,31 @@ class OfflineSummaryCoordinator internal constructor(
         return input
     }
 
-    private suspend fun startOwnedJob(
+    private fun startOwnedJob(
         recordingId: String,
+        lease: OfflineAiTaskAdmission.Lease,
         block: suspend () -> Unit,
     ) {
         val job = scope.launch(start = CoroutineStart.LAZY) { block() }
-        ownershipMutex.withLock { activeJobs[recordingId] = job }
+        synchronized(ownershipLock) { activeJobs[recordingId] = job }
         if (!job.start()) {
             throw OfflineSummaryCoordinatorException(
                 OfflineSummaryFailureCode.UNKNOWN,
                 "应用级离线总结执行器不可用",
             )
         }
+        // Completion is after all coroutine cleanup, including cancellation before entry.
+        // Registration after start is safe: completed jobs invoke the handler immediately.
+        job.invokeOnCompletion { releaseOwnership(recordingId, lease) }
     }
 
-    private suspend fun acquireOwnership(recordingId: String): Boolean =
-        ownershipMutex.withLock { activeRecordingIds.add(recordingId) }
+    private fun acquireOwnership(recordingId: String): OfflineAiTaskAdmission.Lease? =
+        synchronized(ownershipLock) {
+            val lease = taskAdmission.tryAcquire(OfflineAiTaskAdmission.Kind.SUMMARY, recordingId)
+                ?: return@synchronized null
+            activeLeases[recordingId] = lease
+            lease
+        }
 
     private fun requireResourcesAvailable() {
         criticalTaskReason()?.let { reason ->
@@ -856,10 +862,12 @@ class OfflineSummaryCoordinator internal constructor(
         )
     }
 
-    private suspend fun releaseOwnership(recordingId: String) {
-        ownershipMutex.withLock {
+    private fun releaseOwnership(recordingId: String, lease: OfflineAiTaskAdmission.Lease) {
+        synchronized(ownershipLock) {
+            if (activeLeases[recordingId] !== lease) return@synchronized
             activeJobs.remove(recordingId)
-            activeRecordingIds.remove(recordingId)
+            activeLeases.remove(recordingId)
+            taskAdmission.release(lease)
         }
     }
 
@@ -1038,6 +1046,7 @@ internal fun createOfflineSummaryCoordinator(
         },
         criticalTaskReason = { container.offlineSummaryCriticalTaskReason() },
         longRunner = longRunner,
+        taskAdmission = container.offlineAiTaskAdmission,
     )
 }
 
