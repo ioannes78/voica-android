@@ -83,4 +83,55 @@ class OfflineQaRetrievalTest {
         assertEquals(12, result.allowedRefs.size)
         result.candidates.forEach { assertEquals(source.resolve(it.anchor.ref)?.excerpt, it.excerpt) }
     }
+
+    private fun history(s: OfflineQaSnapshot, vararg claims: OfflineQaClaim): List<OfflineQaHistoryTurn> {
+        val context = OfflineQaContext(OfflineQaRequest(s.source, "会议任务"), s, s.evidence.map { it.anchor.ref })
+        return listOf(OfflineQaHistoryTurn(OfflineQaResult(context, OfflineQaStatus.ANSWERED, claims.toList())))
+    }
+
+    @Test fun ordinalFollowUpRetrievesCurrentSourceAndNotOtherTask() {
+        val s = snapshot("设备采购由李明负责", "提交项目预算由张华负责", "生产线验收由王工负责", "项目预算审批由财务负责")
+        val h = history(s, OfflineQaClaim("设备采购", listOf("S00001")), OfflineQaClaim("提交项目预算", listOf("S00002")))
+        val request = OfflineQaRequest(s.source, "第二项由谁负责？")
+        val result = OfflineQaRetrieval(OfflineQaRetrievalConfig(neighborRadius = 0)).retrieve(request, s, h)
+        assertEquals("S00002", result.candidates.first().anchor.ref)
+        assertTrue("S00004" in result.allowedRefs)
+        assertTrue("S00001" !in result.allowedRefs)
+        assertTrue("S00003" !in result.allowedRefs)
+        assertEquals(request.question, result.request.question)
+    }
+
+    @Test fun demonstrativeOnlyResolvesSingleLatestClaim() {
+        val s = snapshot("项目预算50万元", "设备采购")
+        val h = history(s, OfflineQaClaim("项目预算", listOf("S00001")))
+        val retrieval = OfflineQaRetrieval(OfflineQaRetrievalConfig(neighborRadius = 0))
+        assertEquals(setOf("S00001"), retrieval.retrieve(OfflineQaRequest(s.source, "多少钱？"), s, h).allowedRefs)
+        val ambiguous = history(s, OfflineQaClaim("项目预算", listOf("S00001")), OfflineQaClaim("设备采购", listOf("S00002")))
+        assertTrue(retrieval.retrieve(OfflineQaRequest(s.source, "多少钱？"), s, ambiguous).candidates.isEmpty())
+        assertTrue(retrieval.retrieve(OfflineQaRequest(s.source, "第五项呢？"), s, h).candidates.isEmpty())
+    }
+
+    @Test fun standaloneQuestionDoesNotInheritHistoryAndScopeStillApplies() {
+        val s = snapshot("项目预算50万元", "设备采购由李明负责")
+        val h = history(s, OfflineQaClaim("项目预算", listOf("S00001")))
+        val retrieval = OfflineQaRetrieval(OfflineQaRetrievalConfig(neighborRadius = 0))
+        assertEquals(setOf("S00002"), retrieval.retrieve(OfflineQaRequest(s.source, "设备采购"), s, h).allowedRefs)
+        assertTrue(retrieval.retrieve(OfflineQaRequest(s.source, "多少钱？", speakerId = "b"), s, h).candidates.isEmpty())
+        assertTrue(retrieval.retrieve(OfflineQaRequest(s.source, "多少钱？", sampleRange = OfflineQaSampleRange(100, 200)), s, h).candidates.isEmpty())
+    }
+
+    @Test fun staleHistoryRejectedEvenIfIdsMatch() {
+        val s = snapshot("项目预算50万元")
+        val old = snapshot("项目预算60万元")
+        val h = history(old, OfflineQaClaim("项目预算", listOf("S00001")))
+        assertTrue(runCatching { OfflineQaRetrieval().retrieve(OfflineQaRequest(s.source, "多少钱？"), s, h) }.exceptionOrNull() is IllegalArgumentException)
+    }
+
+    @Test fun latestRefusalDoesNotReviveOlderHistory() {
+        val s = snapshot("项目预算50万元")
+        val h = history(s, OfflineQaClaim("项目预算", listOf("S00001")))
+        val empty = OfflineQaContext(OfflineQaRequest(s.source, "火星殖民"), s, emptyList())
+        val refusal = OfflineQaHistoryTurn(OfflineQaResult(empty, OfflineQaStatus.INSUFFICIENT_EVIDENCE, emptyList()))
+        assertTrue(OfflineQaRetrieval().retrieve(OfflineQaRequest(s.source, "多少钱？"), s, h + refusal).candidates.isEmpty())
+    }
 }

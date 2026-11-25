@@ -38,7 +38,7 @@ internal class OfflineQaCoordinator(
             if (snapshot.source != request.source || history.any { it.result.context.request.source != request.source }) {
                 return OfflineQaOutcome.Failed(OfflineQaFailureCode.SOURCE_CHANGED)
             }
-            val context = retrieval.retrieve(request, snapshot)
+            val context = retrieval.retrieve(request, snapshot, history)
             val packed = packer.pack(snapshot, context, history)
             val result = when (packed) {
                 OfflineQaPackingResult.NoCandidates ->

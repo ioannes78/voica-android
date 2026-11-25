@@ -16,15 +16,33 @@ data class OfflineQaRetrievalConfig(
  * No source text is truncated here; P3 owns the prompt budget.
  */
 class OfflineQaRetrieval(private val config: OfflineQaRetrievalConfig = OfflineQaRetrievalConfig()) {
-    fun retrieve(request: OfflineQaRequest, snapshot: OfflineQaSnapshot): OfflineQaContext {
+    fun retrieve(
+        request: OfflineQaRequest,
+        snapshot: OfflineQaSnapshot,
+        history: List<OfflineQaHistoryTurn> = emptyList(),
+    ): OfflineQaContext {
         require(request.source == snapshot.source)
+        require(history.all { it.result.context.request.source == snapshot.source })
+        val followUp = OfflineQaFollowUp.resolve(request.question, history)
+        if (followUp is OfflineQaFollowUp.Unresolved) return OfflineQaContext(request, snapshot, emptyList())
         val query = OfflineQaLexicalTokenizer.features(request.question, question = true)
+        val hint = (followUp as? OfflineQaFollowUp.Resolved)?.let {
+            OfflineQaLexicalTokenizer.features(it.claim.text, question = true)
+        }
+        val anchors = (followUp as? OfflineQaFollowUp.Resolved)?.claim?.evidenceIds.orEmpty().toSet()
         val eligible = snapshot.evidence.mapIndexedNotNull { index, evidence ->
             if (inScope(request, evidence)) IndexedEvidence(index, evidence) else null
         }
         val seeds = eligible.mapNotNull { entry ->
-            val score = score(query, OfflineQaLexicalTokenizer.features(entry.evidence.excerpt))
-            if (score > 0) Scored(entry, score) else null
+            val document = OfflineQaLexicalTokenizer.features(entry.evidence.excerpt)
+            val direct = score(query, document)
+            val contextual = hint?.let { score(it, document) } ?: 0
+            val anchored = entry.evidence.anchor.ref in anchors
+            // In a referential question, generic words such as "负责" alone are not enough.
+            val relevance = if (hint == null) direct else if (anchored || contextual > 0) {
+                direct + contextual * 2 + if (anchored) 12 else 0
+            } else 0
+            if (relevance > 0) Scored(entry, relevance) else null
         }.sortedWith(compareByDescending<Scored> { it.score }.thenBy { it.entry.index })
         val selected = linkedSetOf<String>()
         // Keep all higher-ranked direct hits ahead of contextual neighbors.
