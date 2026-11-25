@@ -272,6 +272,56 @@ class TranscriptionRepositoryTest {
         )
     }
 
+
+    @Test
+    fun offlineQaResolverTracksCurrentSelectionAndRejectsStaleEvidence() = runBlocking {
+        val first = completeQaTranscript("项目预算50万元")
+        val resolver = OfflineQaEvidenceResolver(database)
+        val snapshot = resolver.loadCurrent("rec-1")
+        assertEquals(first, snapshot.source.transcriptionId)
+        assertEquals("项目预算50万元", resolver.resolveCurrent(snapshot.source, "S00001").excerpt)
+        val second = completeQaTranscript("项目预算60万元")
+        val selection = Stage12CContentRepository(database)
+        selection.setCurrentTranscriptionVersion("rec-1", second)
+        assertEquals(second, resolver.loadCurrent("rec-1").source.transcriptionId)
+        assertEquals(io.github.ioannes78.voica.ai.OfflineQaFailureCode.SOURCE_CHANGED,
+            (runCatching { resolver.requireCurrent(snapshot.source) }.exceptionOrNull() as OfflineQaSourceException).code)
+        selection.setCurrentTranscriptionVersion("rec-1", first)
+        assertEquals(snapshot.source, resolver.requireCurrent(snapshot.source).source)
+        assertEquals(io.github.ioannes78.voica.ai.OfflineQaFailureCode.INVALID_EVIDENCE,
+            (runCatching { resolver.resolveCurrent(snapshot.source, "S99999") }.exceptionOrNull() as OfflineQaSourceException).code)
+    }
+
+    @Test
+    fun offlineQaResolverRejectsMissingAndChangedCanonicalMetadata() = runBlocking {
+        val resolver = OfflineQaEvidenceResolver(database)
+        assertEquals(io.github.ioannes78.voica.ai.OfflineQaFailureCode.SOURCE_UNAVAILABLE,
+            (runCatching { resolver.loadCurrent("missing") }.exceptionOrNull() as OfflineQaSourceException).code)
+        completeQaTranscript("项目预算50万元")
+        val snapshot = resolver.loadCurrent("rec-1")
+        val dao = database.recordingDao()
+        val asset = checkNotNull(dao.findAsset("rec-1", AudioAssetRole.CANONICAL_WAV))
+        dao.upsertAsset(asset.copy(sha256 = "d".repeat(64)))
+        assertEquals(io.github.ioannes78.voica.ai.OfflineQaFailureCode.SOURCE_CHANGED,
+            (runCatching { resolver.requireCurrent(snapshot.source) }.exceptionOrNull() as OfflineQaSourceException).code)
+        dao.upsertAsset(asset.copy(integrityState = AudioIntegrityState.MISSING))
+        assertEquals(io.github.ioannes78.voica.ai.OfflineQaFailureCode.SOURCE_UNAVAILABLE,
+            (runCatching { resolver.loadCurrent("rec-1") }.exceptionOrNull() as OfflineQaSourceException).code)
+    }
+
+    private suspend fun completeQaTranscript(text: String): String {
+        val id = repository.create(request(mode = TranscriptionModeValue.FAST))
+        repository.transition(id, TranscriptionStateValue.VAD_ANALYZING)
+        repository.transition(id, TranscriptionStateValue.FIRST_PASS_TRANSCRIBING)
+        repository.transition(id, TranscriptionStateValue.PUNCTUATING)
+        repository.persistCompleted(id, listOf(TranscriptSegmentWrite(
+            segmentIndex = 0, startSampleIndex = 0, endSampleIndexExclusive = 8000,
+            firstPassRawText = text, secondPassRawText = null, finalText = text,
+            detectedLanguage = "zh", confidence = null, tokens = emptyList(),
+        )))
+        return id
+    }
+
     private suspend fun seedCanonicalRecording() {
         val dao = database.recordingDao()
         dao.insertRecordingIgnore(

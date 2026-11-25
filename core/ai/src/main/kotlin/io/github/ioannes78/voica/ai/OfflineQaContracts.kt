@@ -90,7 +90,10 @@ class OfflineQaSnapshot private constructor(
         /** Versioned, length-prefixed UTF-8 encoding; null differs from empty. */
         private fun digest(input: StructuredTranscriptInput): String {
             val hash = MessageDigest.getInstance("SHA-256")
-            DataOutputStream(DigestOutputStream(OutputStream.nullOutputStream(), hash)).use { out ->
+            DataOutputStream(DigestOutputStream(object : OutputStream() {
+                override fun write(b: Int) = Unit
+                override fun write(b: ByteArray, off: Int, len: Int) = Unit
+            }, hash)).use { out ->
                 fun field(value: String?) {
                     if (value == null) {
                         out.writeInt(-1)
