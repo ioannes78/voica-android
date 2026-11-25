@@ -418,6 +418,9 @@ class AppContainer(
 
     internal val offlineAiTaskAdmission = OfflineAiTaskAdmission()
 
+    internal val offlineQaEvidenceResolver = io.github.ioannes78.voica.database.OfflineQaEvidenceResolver(recordingDatabase)
+    internal val offlineQaCoordinator = createOfflineQaCoordinator(application, this, offlineQaEvidenceResolver)
+
     val offlineSummaryCoordinator =
         createOfflineSummaryCoordinator(
             application = application,
