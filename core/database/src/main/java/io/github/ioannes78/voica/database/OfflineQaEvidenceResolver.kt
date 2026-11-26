@@ -1,6 +1,7 @@
 package io.github.ioannes78.voica.database
 
 import androidx.room.withTransaction
+import kotlinx.coroutines.CancellationException
 import io.github.ioannes78.voica.ai.OfflineQaEvidence
 import io.github.ioannes78.voica.ai.OfflineQaFailureCode
 import io.github.ioannes78.voica.ai.OfflineQaSnapshot
@@ -60,6 +61,8 @@ class OfflineQaEvidenceResolver(private val database: VoicaDatabase) {
             builder.buildSnapshot(effective.transcriptionId, effective.revisionId)
         } catch (_: IllegalArgumentException) {
             unavailable()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: IllegalStateException) {
             unavailable()
         }
