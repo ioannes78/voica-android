@@ -90,4 +90,64 @@ class OfflineQaCoordinatorTest {
         assertTrue(runCatching { c.ask(request) }.exceptionOrNull() is CancellationException)
         assertNull(gate.current())
     }
+
+    @Test fun structuralRepairRunsOnlyOnceWithOriginalEvidenceAndLease() = runBlocking {
+        var calls = 0
+        var reads = 0
+        val c = coordinator(read = { reads++; source }, generate = { prompt, config ->
+            calls++
+            assertEquals(OfflineAiTaskAdmission.Kind.QA, gate.current()?.kind)
+            assertTrue(config.responseJsonSchema!!.contains("S00001"))
+            if (calls == 1) generation("{}") else {
+                assertTrue(prompt.startsWith(OfflineQaRepairPolicy.INSTRUCTION))
+                assertTrue(prompt.contains("项目预算50万元"))
+                generation()
+            }
+        })
+        assertTrue(c.ask(request) is OfflineQaOutcome.Answer)
+        assertEquals(2, calls)
+        assertEquals(4, reads)
+        assertNull(gate.current())
+    }
+
+    @Test fun repeatedInvalidStructureAndBadEvidenceDoNotRetryIndefinitely() = runBlocking {
+        var calls = 0
+        assertEquals(OfflineQaOutcome.Failed(OfflineQaFailureCode.INVALID_OUTPUT),
+            coordinator(generate = { _, _ -> calls++; generation("{}") }).ask(request))
+        assertEquals(2, calls)
+        calls = 0
+        assertEquals(OfflineQaOutcome.Failed(OfflineQaFailureCode.INVALID_EVIDENCE),
+            coordinator(generate = { _, _ -> calls++; generation(valid.replace("S00001", "S99999")) }).ask(request))
+        assertEquals(1, calls)
+        assertNull(gate.current())
+    }
+
+    @Test fun protectedTaskOrPoisonAfterGenerationPreventsRepairAndPublication() = runBlocking {
+        var calls = 0
+        var blocked = false
+        assertEquals(OfflineQaOutcome.Failed(OfflineQaFailureCode.RESOURCE_BLOCKED),
+            coordinator(critical = { if (blocked) "recording" else null }, generate = { _, _ ->
+                calls++; blocked = true; generation()
+            }).ask(request))
+        assertEquals(1, calls)
+        var state = LocalLlmRuntimeState.IDLE
+        assertEquals(OfflineQaOutcome.Failed(OfflineQaFailureCode.RUNTIME_POISONED),
+            coordinator(state = { state }, generate = { _, _ ->
+                calls++; state = LocalLlmRuntimeState.POISONED; generation("{}")
+            }).ask(request))
+        assertEquals(2, calls)
+        assertNull(gate.current())
+    }
+
+    @Test fun staleSourceBeforeRepairPreventsSecondInference() = runBlocking {
+        var calls = 0
+        var reads = 0
+        val c = coordinator(read = {
+            if (++reads == 3) throw io.github.ioannes78.voica.database.OfflineQaSourceException(OfflineQaFailureCode.SOURCE_CHANGED)
+            source
+        }, generate = { _, _ -> calls++; generation("{}") })
+        assertEquals(OfflineQaOutcome.Failed(OfflineQaFailureCode.SOURCE_CHANGED), c.ask(request))
+        assertEquals(1, calls)
+        assertNull(gate.current())
+    }
 }

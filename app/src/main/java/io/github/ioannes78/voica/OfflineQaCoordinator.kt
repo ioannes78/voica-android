@@ -8,6 +8,8 @@ import io.github.ioannes78.voica.localllm.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 internal sealed interface OfflineQaOutcome {
     data class Answer(val result: OfflineQaResult) : OfflineQaOutcome
@@ -38,8 +40,11 @@ internal class OfflineQaCoordinator(
             if (snapshot.source != request.source || history.any { it.result.context.request.source != request.source }) {
                 return OfflineQaOutcome.Failed(OfflineQaFailureCode.SOURCE_CHANGED)
             }
-            val context = retrieval.retrieve(request, snapshot, history)
-            val packed = packer.pack(snapshot, context, history)
+            val (context, packed) = withContext(Dispatchers.Default) {
+                val retrieved = retrieval.retrieve(request, snapshot, history)
+                currentCoroutineContext().ensureActive()
+                retrieved to packer.pack(snapshot, retrieved, history)
+            }
             val result = when (packed) {
                 OfflineQaPackingResult.NoCandidates ->
                     OfflineQaResult(context, OfflineQaStatus.INSUFFICIENT_EVIDENCE, emptyList())
@@ -51,23 +56,12 @@ internal class OfflineQaCoordinator(
                     requireCurrentIdentity(request.source)
                     currentCoroutineContext().ensureActive()
                     checkAdmission()
-                    val generated = generate(packed.prompt, LocalLlmRuntimeConfig(
-                        backendPolicy = LocalLlmBackendPolicy.AUTO,
-                        maxNumTokens = OfflineQaPromptContract.RUNTIME_MAX_TOKENS,
-                        maxOutputTokens = OfflineQaPromptContract.MAX_OUTPUT_TOKENS,
-                        speculativeDecoding = false,
-                        responseJsonSchema = packed.responseJsonSchema,
-                    ))
-                    checkRuntimeIdle()
-                    if (generated.modelIdentity != model ||
-                        generated.backendResolution.resolvedBackend != LocalLlmBackend.CPU ||
-                        generated.backendResolution.fallbackAttempted
-                    ) return OfflineQaOutcome.Failed(OfflineQaFailureCode.MODEL_NOT_READY)
-                    OfflineQaResponseCodec.decode(generated.text, packed.context)
+                    generateValidated(packed, model)
                 }
             }
             requireCurrentIdentity(request.source)
             currentCoroutineContext().ensureActive()
+            checkAdmission()
             return OfflineQaOutcome.Answer(result)
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -97,6 +91,48 @@ internal class OfflineQaCoordinator(
             return OfflineQaOutcome.Failed(OfflineQaFailureCode.GENERATION_FAILED)
         } finally {
             admission.release(lease)
+        }
+    }
+
+    private suspend fun generateValidated(
+        packed: OfflineQaPackingResult.Ready,
+        model: LocalLlmModelIdentity,
+    ): OfflineQaResult {
+        val config = LocalLlmRuntimeConfig(
+            backendPolicy = LocalLlmBackendPolicy.AUTO,
+            maxNumTokens = OfflineQaPromptContract.RUNTIME_MAX_TOKENS,
+            maxOutputTokens = OfflineQaPromptContract.MAX_OUTPUT_TOKENS,
+            speculativeDecoding = false,
+            responseJsonSchema = packed.responseJsonSchema,
+        )
+        suspend fun attempt(prompt: String): OfflineQaResult {
+            currentCoroutineContext().ensureActive()
+            checkAdmission()
+            val generated = generate(prompt, config)
+            currentCoroutineContext().ensureActive()
+            checkAdmission()
+            if (generated.modelIdentity != model ||
+                generated.backendResolution.resolvedBackend != LocalLlmBackend.CPU ||
+                generated.backendResolution.fallbackAttempted
+            ) throw AdmissionFailure(OfflineQaFailureCode.MODEL_NOT_READY)
+            return OfflineQaResponseCodec.decode(generated.text, packed.context)
+        }
+
+        return try {
+            attempt(packed.prompt)
+        } catch (error: OfflineQaOutputException) {
+            if (!OfflineQaRepairPolicy.mayRepair(error.code, 0, runtimeState() == LocalLlmRuntimeState.IDLE)) throw error
+            val repair = OfflineQaRepairPolicy.INSTRUCTION + "\n" + packed.prompt
+            val estimator = ConservativeOfflineSummaryTokenEstimator
+            val estimate = estimator.estimateTokens(repair).toLong() +
+                estimator.estimateTokens(packed.responseJsonSchema).toLong()
+            // Do not shrink the evidence or change the allowlist during a repair.
+            if (estimate > OfflineQaPromptContract.MAX_ESTIMATED_INPUT) throw error
+            requireCurrentIdentity(packed.context.request.source)
+            currentCoroutineContext().ensureActive()
+            checkAdmission()
+            if (verifyModel() != model) throw AdmissionFailure(OfflineQaFailureCode.MODEL_NOT_READY)
+            attempt(repair)
         }
     }
 
