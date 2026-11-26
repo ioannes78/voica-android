@@ -80,4 +80,35 @@ class OfflineQaPromptTest {
         assertTrue(runCatching { OfflineQaContextPacker().pack(s, context(s), listOf(old)) }.exceptionOrNull() is IllegalArgumentException)
         assertTrue(runCatching { OfflineQaContextPacker().pack(other, context(s)) }.exceptionOrNull() is IllegalArgumentException)
     }
+
+    @Test fun followUpKeepsReferentEvenWhenLowerRankedEvidenceMustBeDropped() {
+        val s = snapshot("项目预算", "设备采购")
+        val prior = OfflineQaHistoryTurn(OfflineQaResult(context(s), OfflineQaStatus.ANSWERED,
+            listOf(OfflineQaClaim("项目预算", listOf("S00001")))))
+        val estimator = object : OfflineSummaryTokenEstimator {
+            override val id = "FOLLOW_UP_BUDGET"
+            override fun estimateTokens(text: String): Int = when {
+                text.startsWith("{") -> 100
+                text.contains("previousAnswersNotEvidence") && text.contains("S00002") -> 2500
+                else -> 2000
+            }
+        }
+        val packed = ready(OfflineQaContextPacker(estimator).pack(s, context(s, "多少钱？"), listOf(prior)))
+        assertEquals(setOf("S00001"), packed.context.allowedRefs)
+        assertEquals(0, packed.omittedHistoryTurns)
+        assertTrue(packed.prompt.contains("previousAnswersNotEvidence"))
+    }
+
+    @Test fun followUpFailsClosedWhenMandatoryHistoryCannotFit() {
+        val s = snapshot("项目预算")
+        val prior = OfflineQaHistoryTurn(OfflineQaResult(context(s), OfflineQaStatus.ANSWERED,
+            listOf(OfflineQaClaim("项目预算", listOf("S00001")))))
+        val estimator = object : OfflineSummaryTokenEstimator {
+            override val id = "HISTORY_TOO_LARGE"
+            override fun estimateTokens(text: String): Int =
+                if (text.contains("previousAnswersNotEvidence")) 2529 else 100
+        }
+        assertEquals(OfflineQaPackingResult.BudgetExceeded,
+            OfflineQaContextPacker(estimator).pack(s, context(s, "多少钱？"), listOf(prior)))
+    }
 }

@@ -2,7 +2,7 @@ package io.github.ioannes78.voica
 
 import io.github.ioannes78.voica.ai.*
 import io.github.ioannes78.voica.localllm.*
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.*
 import kotlinx.coroutines.CancellationException
 import org.junit.Assert.*
 import org.junit.Test
@@ -147,6 +147,75 @@ class OfflineQaCoordinatorTest {
             source
         }, generate = { _, _ -> calls++; generation("{}") })
         assertEquals(OfflineQaOutcome.Failed(OfflineQaFailureCode.SOURCE_CHANGED), c.ask(request))
+        assertEquals(1, calls)
+        assertNull(gate.current())
+    }
+
+    @Test fun cancellationRetainsLeaseUntilNonCancellableCleanupFinishes() = runBlocking {
+        val entered = CompletableDeferred<Unit>()
+        val cleaning = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val c = coordinator(generate = { _, _ ->
+            try {
+                entered.complete(Unit)
+                awaitCancellation()
+            } finally {
+                withContext(NonCancellable) {
+                    cleaning.complete(Unit)
+                    release.await()
+                }
+            }
+        })
+        val job = launch { c.ask(request) }
+        try {
+            withTimeout(5000) { entered.await() }
+            job.cancel()
+            withTimeout(5000) { cleaning.await() }
+            assertNull(gate.tryAcquire(OfflineAiTaskAdmission.Kind.SUMMARY, "other"))
+            assertEquals(OfflineQaOutcome.Failed(OfflineQaFailureCode.RUNTIME_BUSY), coordinator().ask(request))
+        } finally {
+            release.complete(Unit)
+            job.cancelAndJoin()
+        }
+        assertNull(gate.current())
+    }
+
+    @Test fun unconfirmedReleaseBlocksRepair() = runBlocking {
+        var state = LocalLlmRuntimeState.IDLE
+        var calls = 0
+        val c = coordinator(state = { state }, generate = { _, _ ->
+            calls++
+            state = LocalLlmRuntimeState.RELEASING
+            generation("{}")
+        })
+        assertEquals(OfflineQaOutcome.Failed(OfflineQaFailureCode.RUNTIME_BUSY), c.ask(request))
+        assertEquals(1, calls)
+        assertNull(gate.current())
+    }
+
+    @Test fun repairBudgetOverflowDoesNotInvokeSecondGeneration() = runBlocking {
+        // Find a real packed prompt that fits initially but not with the fixed repair prefix.
+        val estimator = ConservativeOfflineSummaryTokenEstimator
+        val candidate = (1000..2400).asSequence().mapNotNull { n ->
+            val s = OfflineQaSnapshot.from(StructuredTranscriptInput(
+                recordingId = "r", transcriptionId = "t", inputContentDigest = "a".repeat(64),
+                transcriptionMode = "HIGH_QUALITY", canonicalAssetId = "asset", canonicalSha256 = "b".repeat(64),
+                canonicalProfileId = "CANONICAL_PCM16_16000_MONO_WAV_V1", totalSampleCount = 100,
+                languageConfig = "zh", alignmentId = null,
+                units = listOf(StructuredTranscriptUnit(EvidenceSourceRef("S00001",
+                    TranscriptEvidenceSourceKind.TRANSCRIPT_SEGMENT, "seg", null, null, null,
+                    false, false, 0, 100), "项目预算50万元" + "字".repeat(n), "zh")),
+            ))
+            val q = OfflineQaRequest(s.source, request.question)
+            val packed = OfflineQaContextPacker().pack(s, OfflineQaRetrieval().retrieve(q, s)) as? OfflineQaPackingResult.Ready
+                ?: return@mapNotNull null
+            val repairCost = estimator.estimateTokens(OfflineQaRepairPolicy.INSTRUCTION + "\n" + packed.prompt) +
+                estimator.estimateTokens(packed.responseJsonSchema)
+            if (repairCost > OfflineQaPromptContract.MAX_ESTIMATED_INPUT) s to q else null
+        }.first()
+        var calls = 0
+        val c = coordinator(read = { candidate.first }, generate = { _, _ -> calls++; generation("{}") })
+        assertEquals(OfflineQaOutcome.Failed(OfflineQaFailureCode.INVALID_OUTPUT), c.ask(candidate.second))
         assertEquals(1, calls)
         assertNull(gate.current())
     }

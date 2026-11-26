@@ -15,6 +15,7 @@ import io.github.ioannes78.voica.localllm.LocalLlmDiagnostics
 import io.github.ioannes78.voica.localllm.LocalLlmGenerationResult
 import io.github.ioannes78.voica.localllm.LocalLlmModelIdentity
 import io.github.ioannes78.voica.localllm.LocalLlmRuntimeConfig
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -127,6 +128,39 @@ class OfflineSummaryLongRoutingTest {
         }
     }
 
+    @Test
+    fun longStartAndResumeHoldSharedAdmissionAcrossNodeGap() = runBlocking {
+        for (resume in listOf(false, true)) {
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+            val admission = OfflineAiTaskAdmission()
+            val gap = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            try {
+                val runner = FakeLongRunner().apply {
+                    betweenNodes = { gap.complete(Unit); release.await() }
+                }
+                val coordinator = OfflineSummaryCoordinator(
+                    scope = scope, resolveInput = { longInput() }, verifyModelReady = { modelIdentity() },
+                    generateLocal = { _, _ -> error("direct not allowed") },
+                    persistence = FakePersistence(), onCompleted = { _, _ -> }, criticalTaskReason = { null },
+                    longRunner = runner, taskAdmission = admission,
+                )
+                val outcome = if (resume) coordinator.resume(RECORDING_ID, SUMMARY_ID) else coordinator.start(RECORDING_ID)
+                assertTrue(outcome is OfflineSummaryStartOutcome.Started)
+                withTimeout(5000) { gap.await() }
+                assertEquals(null, admission.tryAcquire(OfflineAiTaskAdmission.Kind.QA, "other"))
+                release.complete(Unit)
+                assertEquals(OfflineSummaryRunPhase.COMPLETED, awaitTerminal(coordinator).phase)
+                withTimeout(5000) { while (admission.current() != null) kotlinx.coroutines.yield() }
+                val qa = checkNotNull(admission.tryAcquire(OfflineAiTaskAdmission.Kind.QA, "other"))
+                assertTrue(admission.release(qa))
+            } finally {
+                release.complete(Unit)
+                scope.cancel()
+            }
+        }
+    }
+
     private suspend fun awaitTerminal(coordinator: OfflineSummaryCoordinator): OfflineSummaryRunState =
         withTimeout(5_000L) {
             coordinator.state
@@ -145,6 +179,7 @@ class OfflineSummaryLongRoutingTest {
         var prepareResumeCalls = 0
         var lastDirectEstimate = 0
         var reconcileCount = 0
+        var betweenNodes: suspend () -> Unit = {}
 
         override suspend fun executeNew(
             summaryId: String,
@@ -156,6 +191,7 @@ class OfflineSummaryLongRoutingTest {
             newExecutions += 1
             lastDirectEstimate = directPromptEstimatedTokens
             onProgress(OfflineSummaryLongProgressUpdate(OfflineSummaryRunPhase.ANALYZING, "long"))
+            betweenNodes()
             onProgress(OfflineSummaryLongProgressUpdate(OfflineSummaryRunPhase.VALIDATING, "final"))
             return OfflineSummaryLongRunResult(generation(finalJson()), repairAttempted = false)
         }
@@ -176,6 +212,7 @@ class OfflineSummaryLongRoutingTest {
         ): OfflineSummaryLongRunResult {
             resumeExecutions += 1
             onProgress(OfflineSummaryLongProgressUpdate(OfflineSummaryRunPhase.ANALYZING, "resume"))
+            betweenNodes()
             return OfflineSummaryLongRunResult(generation(finalJson()), repairAttempted = false)
         }
 

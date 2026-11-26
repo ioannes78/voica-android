@@ -4,7 +4,7 @@ import kotlinx.serialization.json.*
 
 /** Separate QA envelope; never changes the frozen summary budget or runtime preset. */
 object OfflineQaPromptContract {
-    const val PROMPT_VERSION = 174101
+    const val PROMPT_VERSION = 174102
     const val SCHEMA_VERSION = 1
     const val RUNTIME_MAX_TOKENS = 4000
     const val MAX_OUTPUT_TOKENS = 1024
@@ -67,6 +67,11 @@ class OfflineQaContextPacker(
         require(history.all { it.result.context.request.source == snapshot.source })
         if (retrieved.candidates.isEmpty()) return OfflineQaPackingResult.NoCandidates
 
+        val followUp = OfflineQaFollowUp.resolve(retrieved.request.question, history)
+        if (followUp is OfflineQaFollowUp.Unresolved) return OfflineQaPackingResult.NoCandidates
+        // For a resolved follow-up, the latest turn is mandatory, not optional decoration.
+        // Preserve its claim order so ordinal questions retain their meaning.
+        val requiredHistory = if (followUp is OfflineQaFollowUp.Resolved) history.takeLast(1) else emptyList()
         val selected = mutableListOf<String>()
         // A prefix preserves ranking; do not silently substitute lower-ranked evidence
         // when an indivisible higher-ranked candidate cannot fit.
@@ -74,15 +79,15 @@ class OfflineQaContextPacker(
             val trial = selected + candidate.anchor.ref
             val context = OfflineQaContext(retrieved.request, snapshot, trial)
             val omitted = retrieved.candidates.size - trial.size
-            if (render(context, emptyList(), omitted, history.size) == null) break
+            if (render(context, requiredHistory, omitted, history.size - requiredHistory.size) == null) break
             selected.add(candidate.anchor.ref)
         }
         if (selected.isEmpty()) return OfflineQaPackingResult.BudgetExceeded
         val context = OfflineQaContext(retrieved.request, snapshot, selected)
         val omitted = retrieved.candidates.size - selected.size
-        var kept = emptyList<OfflineQaHistoryTurn>()
+        var kept = requiredHistory
         // Most recent turns first; keep a contiguous suffix, never truncate a turn.
-        for (turn in history.takeLast(OfflineQaPromptContract.MAX_HISTORY_TURNS).asReversed()) {
+        for (turn in history.dropLast(requiredHistory.size).takeLast(OfflineQaPromptContract.MAX_HISTORY_TURNS - requiredHistory.size).asReversed()) {
             val trial = listOf(turn) + kept
             if (render(context, trial, omitted, history.size - trial.size) == null) break
             kept = trial
