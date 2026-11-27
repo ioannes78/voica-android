@@ -106,6 +106,7 @@ class AndroidPlaybackController(
     /** Dedicated evidence command; regular playback APIs remain unchanged. */
     suspend fun playVerifiedEvidence(
         expected: EvidencePlaybackExpectation,
+        beforeStart: () -> Unit = {},
         requireCurrent: suspend () -> Boolean,
     ): Boolean = environmentMutex.withLock {
         if (released) return@withLock false
@@ -115,7 +116,7 @@ class AndroidPlaybackController(
         focusPolicy.cancelResume()
         var success = false
         try {
-            success = core.playVerifiedEvidence(expected) {
+            success = core.playVerifiedEvidence(expected, beforeStart) {
                 interruptionEpoch.get() == epoch && requireCurrent() &&
                     interruptionEpoch.get() == epoch
             }

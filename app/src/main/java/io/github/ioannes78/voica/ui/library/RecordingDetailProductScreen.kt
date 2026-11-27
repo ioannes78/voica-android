@@ -73,6 +73,7 @@ import io.github.ioannes78.voica.database.TranscriptionEntity
 import io.github.ioannes78.voica.database.TranscriptionStateValue
 import io.github.ioannes78.voica.ui.ai.AiSummaryContentViewModel
 import io.github.ioannes78.voica.ui.ai.AiSummaryProductCard
+import io.github.ioannes78.voica.ui.ai.OfflineQaEvidencePlaybackCoordinator
 import io.github.ioannes78.voica.ui.ai.OfflineQaScreen
 import io.github.ioannes78.voica.ui.ai.OfflineQaSession
 import io.github.ioannes78.voica.ui.ai.AiSummaryViewModel
@@ -446,7 +447,14 @@ internal fun RecordingDetailProductScreen(
         val session = remember(recording.id, resolver, coordinator) {
             OfflineQaSession(recording.id, qaScope, resolver::loadCurrent, coordinator::ask)
         }
+        val evidencePlayback = remember(resolver, application.container.playbackController) {
+            OfflineQaEvidencePlaybackCoordinator(
+                resolver::requireCurrent,
+                application.container.playbackController::playVerifiedEvidence,
+            )
+        }
         OfflineQaScreen(
+            evidencePlayback = evidencePlayback,
             recordingName = recording.displayName,
             session = session,
             requireCurrent = resolver::requireCurrent,

@@ -33,11 +33,13 @@ class ServiceBackedPlaybackController(
         requireCurrent: suspend () -> Boolean,
     ): Boolean {
         val runtime = delegate as? AndroidPlaybackController ?: return false
-        // Start service only after the atomic command succeeds; starting it while
-        // IDLE can cause the existing observer to stop itself during long hashing.
-        val played = runtime.playVerifiedEvidence(expected, requireCurrent)
-        if (played) PlaybackForegroundService.ensureStarted(appContext)
-        return played
+        // Request foreground service at the commit point, before any audio starts.
+        // A synchronous start failure aborts the core transaction and closes its session.
+        return runtime.playVerifiedEvidence(
+            expected,
+            beforeStart = { PlaybackForegroundService.ensureStarted(appContext) },
+            requireCurrent = requireCurrent,
+        )
     }
 
     override suspend fun play() {

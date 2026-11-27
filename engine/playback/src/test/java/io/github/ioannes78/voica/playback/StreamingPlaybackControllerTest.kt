@@ -300,6 +300,24 @@ class StreamingPlaybackControllerTest {
         } finally { controller.release() }
     }
 
+    @Test
+    fun evidenceStartHookFailureClosesSessionWithoutWritingAudio() = runTest {
+        val bytes = ByteArray(444)
+        val sink = FakeSink()
+        val controller = StreamingPlaybackController(
+            sourceResolver = FakeResolver(bytes), sinkFactory = PlaybackAudioSinkFactory { sink },
+            scope = this, ioDispatcher = StandardTestDispatcher(testScheduler),
+        )
+        try {
+            assertTrue(!controller.playVerifiedEvidence(evidenceExpectation(bytes),
+                beforeStart = { throw IllegalStateException("service denied") }) { true })
+            runCurrent()
+            assertTrue(sink.closed)
+            assertTrue(sink.writes.isEmpty())
+            assertEquals(PlaybackState.IDLE, controller.snapshot.value.state)
+        } finally { controller.release() }
+    }
+
     private class FakeResolver(
         private val bytes: ByteArray,
         private val sampleCount: Long = 200L,

@@ -28,6 +28,7 @@ internal fun OfflineQaScreen(
     session: OfflineQaSession,
     requireCurrent: suspend (OfflineQaSourceIdentity) -> OfflineQaSnapshot,
     onBack: () -> Unit,
+    evidencePlayback: OfflineQaEvidencePlaybackCoordinator,
     modifier: Modifier = Modifier,
 ) {
     val state by session.state.collectAsState()
@@ -37,13 +38,16 @@ internal fun OfflineQaScreen(
     var copyNotice by remember(session) { mutableStateOf<String?>(null) }
     var copyBusy by remember(session) { mutableStateOf(false) }
     var clearDialog by remember(session) { mutableStateOf(false) }
+    var playbackBusy by remember(session) { mutableStateOf(false) }
+    var playbackNotice by remember(session) { mutableStateOf<String?>(null) }
+    var playbackJob by remember(session) { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val listState = rememberLazyListState()
-    val ready = state.phase == OfflineQaSessionPhase.READY
+    val ready = state.phase == OfflineQaSessionPhase.READY && !playbackBusy
     val active = state.phase == OfflineQaSessionPhase.RUNNING || state.phase == OfflineQaSessionPhase.CANCELLING
     val validInput = input.isNotBlank() && input.trim().codePointCount(0, input.trim().length) <= OfflineQaRequest.MAX_QUESTION_CODE_POINTS
 
     LaunchedEffect(session) { session.refresh() }
-    DisposableEffect(session) { onDispose { session.close() } }
+    DisposableEffect(session) { onDispose { playbackJob?.cancel(); session.close() } }
     LaunchedEffect(state.turns.size, state.pendingQuestion, state.turns.lastOrNull()) {
         if (state.turns.isNotEmpty() || state.pendingQuestion != null) {
             val index = state.turns.size + if (state.pendingQuestion != null) 0 else -1
@@ -51,7 +55,7 @@ internal fun OfflineQaScreen(
         }
     }
     fun submit(text: String) {
-        if (session.submit(text)) { input = ""; copyNotice = null }
+        if (!playbackBusy && session.submit(text)) { input = ""; copyNotice = null; playbackNotice = null }
     }
     Column(modifier.fillMaxSize().imePadding().padding(horizontal = 12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -87,7 +91,26 @@ internal fun OfflineQaScreen(
             items(state.turns) { turn ->
                 QaQuestion(turn.question)
                 when (val outcome = turn.outcome) {
-                    is OfflineQaOutcome.Answer -> QaAnswer(outcome.result, copyEnabled = ready && !copyBusy, onCopy = {
+                    is OfflineQaOutcome.Answer -> QaAnswer(outcome.result, copyEnabled = ready && !copyBusy,
+                        playbackEnabled = ready && !copyBusy, onPlay = { ref ->
+                            if (!playbackBusy) {
+                                playbackBusy = true
+                                playbackNotice = "正在核验原声证据…"
+                                playbackJob = scope.launch {
+                                    try {
+                                        playbackNotice = when (evidencePlayback.play(turn, ref) { session.state.value }) {
+                                            QaEvidencePlayOutcome.STARTED -> "已定位原声证据，可在播放器控制"
+                                            QaEvidencePlayOutcome.BUSY -> "正在处理其他回听请求"
+                                            QaEvidencePlayOutcome.STALE -> {
+                                                session.invalidate()
+                                                "证据来源已变化，请重新加载"
+                                            }
+                                            QaEvidencePlayOutcome.REJECTED -> "原声校验或播放准入失败，未启动回听"
+                                        }
+                                    } finally { playbackBusy = false }
+                                }
+                            }
+                        }, onCopy = {
                         copyBusy = true
                         scope.launch {
                             try {
@@ -133,6 +156,8 @@ internal fun OfflineQaScreen(
             else -> if (state.failure == OfflineQaFailureCode.CANCELLED) Text("已取消")
         }
         copyNotice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        playbackNotice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        if (playbackBusy) TextButton(onClick = { playbackJob?.cancel(); playbackNotice = "已取消回听请求" }) { Text("取消回听") }
         Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(value = input, onValueChange = {
@@ -145,7 +170,7 @@ internal fun OfflineQaScreen(
     }
     if (clearDialog) AlertDialog(onDismissRequest = { clearDialog = false },
         title = { Text("清空问答？") }, text = { Text("当前页面的问答历史将被清除。") },
-        confirmButton = { TextButton(onClick = { session.clear(); input = ""; copyNotice = null; clearDialog = false }) { Text("清空") } },
+        confirmButton = { TextButton(onClick = { playbackJob?.cancel(); session.clear(); input = ""; copyNotice = null; playbackNotice = null; clearDialog = false }) { Text("清空") } },
         dismissButton = { TextButton(onClick = { clearDialog = false }) { Text("保留") } })
 }
 
@@ -160,7 +185,7 @@ private fun QaQuestion(question: String) {
 }
 
 @Composable
-private fun QaAnswer(result: OfflineQaResult, copyEnabled: Boolean, onCopy: () -> Unit) {
+private fun QaAnswer(result: OfflineQaResult, copyEnabled: Boolean, playbackEnabled: Boolean, onPlay: (String) -> Unit, onCopy: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("闻知", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
@@ -184,7 +209,7 @@ private fun QaAnswer(result: OfflineQaResult, copyEnabled: Boolean, onCopy: () -
                         Text(speaker, style = MaterialTheme.typography.labelSmall)
                         Text(evidence.excerpt, style = MaterialTheme.typography.bodySmall)
                         if (evidence.isManualRevision) Text("人工修订文本 · 非原声逐字证明", style = MaterialTheme.typography.labelSmall)
-                        Text("原声回听暂不可用", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        TextButton(onClick = { onPlay(ref) }, enabled = playbackEnabled) { Text("回听原声") }
                     }
                 }
             }

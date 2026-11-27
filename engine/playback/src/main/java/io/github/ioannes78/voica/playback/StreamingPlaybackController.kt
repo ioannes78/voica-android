@@ -161,6 +161,7 @@ class StreamingPlaybackController(
      */
     suspend fun playVerifiedEvidence(
         expected: EvidencePlaybackExpectation,
+        beforeStart: () -> Unit = {},
         requireCurrent: suspend () -> Boolean,
     ): Boolean = mutex.withLock {
         ensureNotReleased()
@@ -219,6 +220,8 @@ class StreamingPlaybackController(
                 seekGeneration = seek,
                 discontinuityGeneration = discontinuity,
             ))
+            beforeStart()
+            currentCoroutineContext().ensureActive()
             sink.play()
             startWriterLocked(current)
             startPositionObserverLocked(current)
