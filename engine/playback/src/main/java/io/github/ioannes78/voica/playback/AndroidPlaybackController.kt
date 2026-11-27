@@ -13,6 +13,10 @@ import android.os.Handler
 import android.os.Looper
 import androidx.core.content.ContextCompat
 import io.github.ioannes78.voica.audio.AudioSourceResolver
+import io.github.ioannes78.voica.audio.EvidencePlaybackExpectation
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicLong
 import io.github.ioannes78.voica.audio.PlaybackController
 import io.github.ioannes78.voica.audio.PlaybackError
 import io.github.ioannes78.voica.audio.PlaybackErrorCategory
@@ -39,14 +43,17 @@ class AndroidPlaybackController(
     )
     private val focusPolicy = PlaybackFocusPolicy()
     private var released = false
+    private val interruptionEpoch = AtomicLong(0L)
 
     private val audioFocus = PlaybackAudioFocusManager(appContext) { change ->
+        if (change != FocusChange.GAIN) interruptionEpoch.incrementAndGet()
         scope.launch { handleAudioFocusChange(change) }
     }
 
     private val noisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
+                interruptionEpoch.incrementAndGet()
                 PlaybackOutputDiagnostics.environmentEvent("BECOMING_NOISY")
                 scope.launch { handleNoisyOutput() }
             }
@@ -94,6 +101,33 @@ class AndroidPlaybackController(
 
     override suspend fun load(recordingId: String) {
         core.load(recordingId)
+    }
+
+    /** Dedicated evidence command; regular playback APIs remain unchanged. */
+    suspend fun playVerifiedEvidence(
+        expected: EvidencePlaybackExpectation,
+        requireCurrent: suspend () -> Boolean,
+    ): Boolean = environmentMutex.withLock {
+        if (released) return@withLock false
+        val epoch = interruptionEpoch.get()
+        val previousPlaying = core.snapshot.value.state == PlaybackState.PLAYING
+        if (!audioFocus.request()) return@withLock false
+        focusPolicy.cancelResume()
+        var success = false
+        try {
+            success = core.playVerifiedEvidence(expected) {
+                interruptionEpoch.get() == epoch && requireCurrent() &&
+                    interruptionEpoch.get() == epoch
+            }
+            success
+        } finally {
+            if (!success) withContext(NonCancellable) {
+                // Failed preflight can retain a previously playing session and its focus.
+                if (!previousPlaying || core.snapshot.value.state != PlaybackState.PLAYING) {
+                    audioFocus.abandon()
+                }
+            }
+        }
     }
 
     override suspend fun play() {

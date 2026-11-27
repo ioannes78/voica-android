@@ -19,6 +19,8 @@ import io.github.ioannes78.voica.database.RecordingLibraryRepository
 import java.io.File
 import java.security.MessageDigest
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -33,32 +35,38 @@ class RoomAudioSourceResolver(
     ): PlaybackAudioSource? {
         val resolved = resolveCanonicalAsset(recordingId) ?: return null
         if (!repository.isRecordingActive(recordingId)) return null
-        val handle = withContext(ioDispatcher) {
-            FileSeekableAudioHandle(resolved.file)
+        // Keep ownership visible even when withContext discards a result on cancellation.
+        var opened: FileSeekableAudioHandle? = null
+        try {
+            withContext(ioDispatcher) {
+                opened = FileSeekableAudioHandle(resolved.file)
+            }
+            if (!repository.isRecordingActive(recordingId)) return null
+            currentCoroutineContext().ensureActive()
+            val wav = resolved.wavInfo
+            val source = PlaybackAudioSource(
+                descriptor = PlaybackAudioSourceDescriptor(
+                    recordingId = recordingId,
+                    assetId = resolved.asset.assetId,
+                    container = AudioContainerKind.WAV,
+                    durationUs = wav.durationUs,
+                    sampleRateHz = wav.sampleRateHz,
+                    channelCount = wav.channelCount,
+                    seekable = true,
+                    lengthBytes = resolved.asset.sizeBytes,
+                    bitsPerSample = wav.bitsPerSample,
+                    pcmDataOffsetBytes = wav.dataOffset,
+                    pcmDataSizeBytes = wav.dataSizeBytes,
+                    bytesPerFrame = wav.blockAlign,
+                    totalSampleCount = wav.frameCount,
+                ),
+                handle = checkNotNull(opened),
+            )
+            opened = null
+            return source
+        } finally {
+            opened?.close()
         }
-        if (!repository.isRecordingActive(recordingId)) {
-            handle.close()
-            return null
-        }
-        val wav = resolved.wavInfo
-        return PlaybackAudioSource(
-            descriptor = PlaybackAudioSourceDescriptor(
-                recordingId = recordingId,
-                assetId = resolved.asset.assetId,
-                container = AudioContainerKind.WAV,
-                durationUs = wav.durationUs,
-                sampleRateHz = wav.sampleRateHz,
-                channelCount = wav.channelCount,
-                seekable = true,
-                lengthBytes = resolved.asset.sizeBytes,
-                bitsPerSample = wav.bitsPerSample,
-                pcmDataOffsetBytes = wav.dataOffset,
-                pcmDataSizeBytes = wav.dataSizeBytes,
-                bytesPerFrame = wav.blockAlign,
-                totalSampleCount = wav.frameCount,
-            ),
-            handle = handle,
-        )
     }
 
     override suspend fun resolvePcmSource(
