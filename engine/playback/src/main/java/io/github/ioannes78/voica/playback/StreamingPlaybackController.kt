@@ -1,5 +1,8 @@
 package io.github.ioannes78.voica.playback
 
+import io.github.ioannes78.voica.audio.EvidencePlaybackExpectation
+import io.github.ioannes78.voica.audio.EvidencePlaybackVerification
+import io.github.ioannes78.voica.audio.VerifiedEvidencePlaybackSource
 import io.github.ioannes78.voica.audio.AudioContainerKind
 import io.github.ioannes78.voica.audio.AudioSourceResolver
 import io.github.ioannes78.voica.audio.CanonicalPcmProfile
@@ -15,6 +18,9 @@ import io.github.ioannes78.voica.audio.sampleIndexToPcmByteOffset
 import io.github.ioannes78.voica.audio.sampleIndexToTimeUs
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -144,6 +150,91 @@ class StreamingPlaybackController(
                     ),
                 ),
             )
+        }
+    }
+
+    /**
+     * QA-only atomic command. The verified handle becomes the actual session source.
+     * The caller must supply current-lineage validation and hold Android audio-focus
+     * admission before calling this method. No other controller command can enter
+     * the core mutex until the transaction returns.
+     */
+    suspend fun playVerifiedEvidence(
+        expected: EvidencePlaybackExpectation,
+        requireCurrent: suspend () -> Boolean,
+    ): Boolean = mutex.withLock {
+        ensureNotReleased()
+        var opened: PlaybackAudioSource? = null
+        var allocatedSink: PlaybackAudioSink? = null
+        var replacing = false
+        var installed = false
+        var started = false
+        try {
+            if (!requireCurrent()) return@withLock false
+            val source = sourceResolver.resolvePlaybackSource(expected.recordingId)
+                ?: return@withLock false
+            opened = source
+            if (VerifiedEvidencePlaybackSource.verify(source, expected) !=
+                EvidencePlaybackVerification.VERIFIED) return@withLock false
+            if (!requireCurrent()) return@withLock false
+            currentCoroutineContext().ensureActive()
+            val descriptor = source.descriptor
+            if (validateDescriptor(descriptor) != null) return@withLock false
+            val sink = sinkFactory.create(descriptor)
+            allocatedSink = sink
+            // A rejected preflight leaves the previous playback session intact.
+            replacing = true
+            unloadLocked(nextState = PlaybackState.PREPARING)
+            val target = expected.startSampleIndex
+            val tracker = PlaybackPositionTracker().also {
+                it.rebase(target, sink.position().framePosition)
+            }
+            val current = Session(
+                generation = playbackGeneration.incrementAndGet(),
+                source = source,
+                sink = sink,
+                totalSamples = expected.totalSampleCount,
+                tracker = tracker,
+                sourceSampleCursor = AtomicLong(target),
+                submittedSample = AtomicLong(target),
+            )
+            session = current
+            installed = true
+            opened = null
+            allocatedSink = null
+            if (!requireCurrent()) return@withLock false
+            currentCoroutineContext().ensureActive()
+            // Fresh sink and source: initialize the cursor directly rather than
+            // invoke the independently coalesced ordinary seek command.
+            val seek = latestSeekRequest.incrementAndGet()
+            val discontinuity = mutableSnapshot.value.discontinuityGeneration + 1L
+            publish(PlaybackSnapshot(
+                recordingId = expected.recordingId,
+                sourceAssetId = expected.assetId,
+                state = PlaybackState.READY,
+                positionSampleIndex = target,
+                positionUs = sampleIndexToTimeUs(target, CanonicalPcmProfile.SAMPLE_RATE_HZ),
+                durationSampleCount = expected.totalSampleCount,
+                durationUs = sampleIndexToTimeUs(expected.totalSampleCount, CanonicalPcmProfile.SAMPLE_RATE_HZ),
+                seekGeneration = seek,
+                discontinuityGeneration = discontinuity,
+            ))
+            sink.play()
+            startWriterLocked(current)
+            startPositionObserverLocked(current)
+            publish(mutableSnapshot.value.copy(state = PlaybackState.PLAYING))
+            started = true
+            true
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            false
+        } finally {
+            if (!started) withContext(NonCancellable) {
+                if (replacing || installed) unloadLocked(nextState = PlaybackState.IDLE)
+                runCatching { allocatedSink?.close() }
+                runCatching { opened?.handle?.close() }
+            }
         }
     }
 
