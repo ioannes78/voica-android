@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -11,11 +12,26 @@ interface AiSummaryDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertSummary(summary: AiSummaryEntity)
 
+    @Update
+    suspend fun updateSummary(summary: AiSummaryEntity): Int
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertEvidence(evidence: List<AiSummaryEvidenceEntity>)
 
     @Query("SELECT * FROM ai_summaries WHERE id = :summaryId LIMIT 1")
     suspend fun findSummary(summaryId: String): AiSummaryEntity?
+
+    @Query(
+        """
+        SELECT * FROM ai_summaries
+        WHERE promptVersion = :promptVersion AND status IN (:statuses)
+        ORDER BY createdAtMs ASC
+        """,
+    )
+    suspend fun loadByPromptVersionAndStatuses(
+        promptVersion: Int,
+        statuses: List<String>,
+    ): List<AiSummaryEntity>
 
     @Query(
         """

@@ -1,0 +1,59 @@
+# Stage 17.3 R17C P2-M4B1 — Trusted enrollment gate and final closure evidence
+
+**Status: GATE NOT SATISFIED. Not an authorization to seed, admit a fake owner, or inject a fault.**
+Repository: ioannes78/voica-android, development PR #37 (Draft/unmerged).
+The P2-M3 sticky mock poison in the old `.qa` package is immutable historical evidence.
+
+## 1. Facts that are and are not verified
+
+- An operator-supplied Android API31 report proves one scoped `.m4blab` Controller → disposable Parent Binder PING/PONG exchange. It reports distinct PIDs 14477/17787, 1,038 ms end-to-end. **The sample proves no owner release, child admission or prior clean installation.**
+- An existing `.m4blab` install and absence of a Journal, by themselves, cannot prove first-ever use, absence of Android backup/restore, or that no other APK with the public QA signing key was ever installed.
+- The CI public QA signing certificate is *not an enrollment authority*. Host read-only preflight and pair correlation intentionally always output `never_armed_proven=false`.
+- The Android production/legacy QA package, old P2-M3 Journal, current independent Lab package, and any new disposable provisioning fixture must not share owner state.
+
+## 2. Separate, independently reviewed provisioning evidence (not yet available)
+
+Before implementing any one-time seed, an independent QA operator must supply evidence from a **new controlled disposable Android user/emulator/test installation** that has never held an M4B owner. The operator must document:
+
+1. Dedicated device/emulator or new Android user/profile identity and immutable exact setup/build provenance, not just the app reporting an empty SharedPreferences file.
+2. A freshly provisioned test package/UID with no app restore; backup disabled in merged APK; observed package absence before a controlled first install; an audit trail establishing the test fixture history independently of app-reported state.
+3. The exact APK SHA-256, application ID, pinned QA signing certificate SHA-256, source HEAD, installed package identity and process identities.
+4. A one-time grant signed/approved by an independent operator, bound to an installation-specific challenge and a single fresh fixture. The private authorization credential **must not be in source, the shipped APK, or public CI artifact**.
+5. A durable non-resettable (relative to the test operator's independent ledger) grant-consumption record. App uninstallation, restored data, altered APK, expired grant, repeated grant or any prior owner activity must reject; never reissue after Poison without a separate reviewed fixture.
+6. A reviewed device-side grant-verification implementation and synchronous exact readback of the verified never-armed seed. All ambiguous cases reject.
+
+**These requirements are not currently implemented.** Do not reinterpret the existing operator PING/PONG report, `pm path`, `firstInstallTime`, installer name, public QA signature, or self-generated JSON as a cryptographic provenance grant. No current handset operation is requested.
+
+## 3. Four explicit B1 closure gates
+
+| Gate | Required result | Status |
+| --- | --- | --- |
+| 1: External never-armed provenance + one-time enrollment | independently reviewed proof, anti-replay, durable one-time seed and device readback | BLOCKED — no independent grant or verifier |
+| 2: Mock Parent → Child ownership handoff | armed intent durable before bind, exact UID/process/generation/nonce/model, authenticated ACKs, never two owners | SOURCE CODE ONLY; IPC admission disabled |
+| 3: Normal fake release / restart / uncertain commit | actual Android ordered terminal/child ACK/parent ACK, durable release; test interruption and deny on reopen | JVM simulation available; DEVICE NOT VERIFIED |
+| 4: Final B1 signoff | exact-source CI plus verified device evidence and no regression/Poison changes; closure report | NOT MET |
+
+## 4. Stop criteria
+
+- Keep `Stage17P2M4BContract.IPC_ADMISSION_ENABLED=false`, `FAULT_INJECTION_ENABLED=false`, and Controller `trustedEnrollment=false` until the independent grant system is implemented, reviewed and proven.
+- No main-process termination, no disposable-parent forced exit, no child restart, and no native/JNI/GPU/model manager integration in B1.
+- If any source mutation enables admission before grant verification or an APK upgrade touches the legacy `.qa` Poison, STOP and do not claim a QA PASS.
+- Source/JVM CI PASS and PING/PONG PASS may be retained as narrower milestones but are **not substitutes** for the four closure gates.
+
+The next actionable external dependency is a separately audited fresh test fixture with operator-signed never-armed provenance. Source-only implementation cannot manufacture this fact.
+
+## 2026-11-24 B1-1 signed-evidence design probe (NOT trusted enrollment)
+
+Source `Stage17P2M4BGrantEvidenceInspection.kt` and synthetic JVM tests were added as a **pure, unconnected inspection layer**. The component checks domain-separated, length-prefixed signed ECDSA grant and consumption-receipt fields: exact Lab package identity, APK / package-signer / source SHA-256, installation challenge, short validity window, one grant ID, distinct grant/ledger public keys, positive ledger sequence and chronologically ordered consumption. Mismatch, tampering, missing signatures, wrong package and expired evidence reject. A matching pair yields only `SIGNATURES_AND_FIELDS_COHERENT_NOT_AN_ENROLLMENT`.
+
+**Security limitation:** The inspection API accepts caller-provided public keys and is not a trust anchor; the synthetic private keys in unit tests prove only parser/crypto behavior. It cannot prove which independent operator issued a grant, whether an installation was previously armed, whether the off-device ledger sequence is globally unique or already consumed, or whether device state was restored. It provides **no** `trustedEnrollment=true` value and is not wired to `Stage17P2M4BController` or `Stage17P2M4BControllerJournal`. CI source guards enforce that isolation. No seed or ownership transition is introduced.
+
+**Requirements before implementation of actual authorization:** independent root-key provisioning and rotation policy, independently audited first-install history, hardware/user/installation challenge binding, a non-restorable transactional one-time ledger with durable consumption/readback, on-device verifier with replay-safe transaction coordination, negative device tests, independent review and explicit QA approval. Keep all admission and fault switches false until these separate requirements are met. B1-1 remains **BLOCKED**; B1-2/B1-3 remain not device-verified; B1-4 remains NO-GO.
+
+## 2026-11-24 B1-1 replay-ledger sequence inspection (non-authorizing)
+
+Added `Stage17P2M4BReplayLedgerInspection.kt`, JVM tests, and a static exclusion guard. It accepts a caller-supplied signed checkpoint and a separately reported consumption receipt, checking domain-separated ECDSA signature syntax, exact isolated Lab package, sequence adjacency (`receipt.ledgerSequence = previousSequence + 1` without overflow), different immediately preceding grant ID, and chronological consistency. Duplicate, skipped, overflowed, negative, altered-signature, wrong-key and wrong-package evidence rejects. Success yields only `ORDER_CONSISTENT_NOT_REPLAY_PROOF`.
+
+**This is NOT a functioning external ledger or real anti-replay mechanism.** A stale but correctly signed checkpoint, a copied receipt, concurrent consumption on a different process, rolled-back storage or a self-issued key can all appear consistent. The real external ledger must atomically reserve and consume one grant, require uniqueness of both grant ID and installation challenge across the full ledger (not merely the preceding entry), commit durably before acknowledgment, supply independently trusted freshness and monotonic sequence evidence, and fail closed during network outages or ambiguous acknowledgments. Authority public keys must be provisioned and reviewed independently of the QA APK and CI. No locally constructed example may count as independently audited never-armed evidence.
+
+The new inspector is not referenced by the Controller, Journal or admission policy; source guards enforce that. `IPC_ADMISSION_ENABLED=false`, `FAULT_INJECTION_ENABLED=false`, `trustedEnrollment=false`. B1-1 trusted enrollment remains blocked pending independent operator infrastructure, external attestation, reviewed device-side binding and actual one-time ledger; B1-4 remains NO-GO.

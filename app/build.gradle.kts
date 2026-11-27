@@ -112,6 +112,15 @@ android {
             signingConfig = signingConfigs.getByName("qa")
             matchingFallbacks += listOf("debug")
         }
+        create("m4bLab") {
+            // P2-M4B1: separate disposable installation, never an in-place .qa upgrade.
+            // This build stays non-destructive: Binder admission and fault injection are disabled.
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".m4blab"
+            versionNameSuffix = "-m4b-lab"
+            signingConfig = signingConfigs.getByName("qa")
+            matchingFallbacks += listOf("debug")
+        }
         getByName("release") {
             isDebuggable = false
             isMinifyEnabled = true
@@ -156,6 +165,17 @@ android {
     }
 }
 
+// P2-M4B1 disposable Lab runs only Kotlin/Java Binder and Journal mocks.
+// Exclude ALL packaged JNI shared objects from this exact build type only,
+// making the isolated QA-signed .m4blab APK installable on x86_64 Android AVDs.
+// Production, debug, qa and releaseQa keep their existing native libraries and
+// arm64-v8a filter. This does not validate any native model runtime.
+androidComponents {
+    onVariants(selector().withBuildType("m4bLab")) { variant ->
+        variant.packaging.jniLibs.excludes.add("**/*.so")
+    }
+}
+
 tasks.register("verifyProductionSigningConfiguration") {
     group = "verification"
     description = "Fails unless the complete non-QA production signing configuration is present."
@@ -178,6 +198,16 @@ tasks.register("verifyProductionSigningConfiguration") {
     }
 }
 
+// Robolectric lazily fetches large android-all-instrumented runtime jars
+// outside Gradle's dependency cache. Maven Central rate limits shared CI IPs
+// with HTTP 429. Use the same Google-hosted Central mirror preferred upstream.
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    systemProperty(
+        "robolectric.dependency.repo.url",
+        "https://maven-central.storage-download.googleapis.com/maven2",
+    )
+}
+
 kotlin {
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_17)
@@ -198,6 +228,7 @@ dependencies {
     implementation(project(":engine:playback"))
     implementation(project(":engine:sherpa"))
     implementation(project(":engine:fsmn"))
+    implementation(project(":engine:local-llm"))
 
     implementation("androidx.core:core-ktx:1.19.1")
     implementation("androidx.activity:activity-compose:1.13.0")

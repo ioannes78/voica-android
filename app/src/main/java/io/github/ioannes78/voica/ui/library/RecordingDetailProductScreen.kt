@@ -41,6 +41,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -72,6 +73,9 @@ import io.github.ioannes78.voica.database.TranscriptionEntity
 import io.github.ioannes78.voica.database.TranscriptionStateValue
 import io.github.ioannes78.voica.ui.ai.AiSummaryContentViewModel
 import io.github.ioannes78.voica.ui.ai.AiSummaryProductCard
+import io.github.ioannes78.voica.ui.ai.OfflineQaEvidencePlaybackCoordinator
+import io.github.ioannes78.voica.ui.ai.OfflineQaScreen
+import io.github.ioannes78.voica.ui.ai.OfflineQaSession
 import io.github.ioannes78.voica.ui.ai.AiSummaryViewModel
 import io.github.ioannes78.voica.ui.annotation.TimelineAnnotationComposerButton
 import io.github.ioannes78.voica.ui.annotation.TimelineAnnotationDetailDialog
@@ -224,7 +228,8 @@ internal fun RecordingDetailProductScreen(
     val transcriptListState = rememberLazyListState()
     var highlightedSearchDocumentId by remember(recording.id) { mutableStateOf<String?>(null) }
 
-    BackHandler(onBack = onBack)
+    var offlineQaOpen by remember(recording.id, navigationRequestToken) { mutableStateOf(false) }
+    BackHandler { if (offlineQaOpen) offlineQaOpen = false else onBack() }
 
     val transcriptionState by transcriptionViewModel.runState.collectAsState()
     val document by transcriptionViewModel.document.collectAsState()
@@ -435,6 +440,29 @@ internal fun RecordingDetailProductScreen(
         onDestinationChanged(selectedTab.toDestination())
     }
 
+    if (offlineQaOpen && selectedTab == ProductDetailTab.TRANSCRIPT && !candidatePreview && recordingDocument != null) {
+        val qaScope = rememberCoroutineScope()
+        val resolver = application.container.offlineQaEvidenceResolver
+        val coordinator = application.container.offlineQaCoordinator
+        val session = remember(recording.id, resolver, coordinator) {
+            OfflineQaSession(recording.id, qaScope, resolver::loadCurrent, coordinator::ask)
+        }
+        val evidencePlayback = remember(resolver, application.container.playbackController) {
+            OfflineQaEvidencePlaybackCoordinator(
+                resolver::requireCurrent,
+                application.container.playbackController::playVerifiedEvidence,
+            )
+        }
+        OfflineQaScreen(
+            evidencePlayback = evidencePlayback,
+            recordingName = recording.displayName,
+            session = session,
+            requireCurrent = resolver::requireCurrent,
+            onBack = { offlineQaOpen = false },
+            modifier = Modifier.padding(padding),
+        )
+        return
+    }
     Column(
         modifier =
             Modifier
@@ -682,6 +710,11 @@ internal fun RecordingDetailProductScreen(
                                             showTranscriptAnnotations = !showTranscriptAnnotations
                                         },
                                     )
+                                    OutlinedButton(
+                                        onClick = { offlineQaOpen = true },
+                                        enabled = canonicalReady && !transcriptContentState.loading,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) { Text("离线问答 · 基于当前转写") }
                                 }
                             } else {
                                 item(key = "candidate-preview-label") {

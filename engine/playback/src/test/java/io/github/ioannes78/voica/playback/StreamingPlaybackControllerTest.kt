@@ -1,6 +1,13 @@
 package io.github.ioannes78.voica.playback
 
+import io.github.ioannes78.voica.audio.EvidencePlaybackExpectation
+import io.github.ioannes78.voica.audio.CanonicalPcmProfile
 import io.github.ioannes78.voica.audio.AudioContainerKind
+import java.security.MessageDigest
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancelAndJoin
 import io.github.ioannes78.voica.audio.AudioSourceResolver
 import io.github.ioannes78.voica.audio.PlaybackAudioSource
 import io.github.ioannes78.voica.audio.PlaybackAudioSourceDescriptor
@@ -172,6 +179,145 @@ class StreamingPlaybackControllerTest {
         runCurrent()
     }
 
+    private fun evidenceExpectation(bytes: ByteArray, start: Long = 150L): EvidencePlaybackExpectation =
+        EvidencePlaybackExpectation("recording-1", "asset-1",
+            MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") {
+                (it.toInt() and 255).toString(16).padStart(2, '0')
+            }, CanonicalPcmProfile.PROFILE_ID, 200L, start, 200L)
+
+    @Test
+    fun evidenceTransactionUsesVerifiedHandleAndExactFirstSample() = runTest {
+        val bytes = ByteArray(44 + 400)
+        for (i in 0 until 200) bytes[44 + i * 2] = i.toByte()
+        val sink = FakeSink()
+        var opens = 0
+        val resolver = FakeResolver(bytes)
+        val controller = StreamingPlaybackController(
+            sourceResolver = object : AudioSourceResolver {
+                override suspend fun resolvePlaybackSource(recordingId: String): PlaybackAudioSource {
+                    opens++
+                    return resolver.resolvePlaybackSource(recordingId)
+                }
+            },
+            sinkFactory = PlaybackAudioSinkFactory { sink }, scope = this,
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+        )
+        try {
+            assertTrue(controller.playVerifiedEvidence(evidenceExpectation(bytes)) { true })
+            assertEquals(1, opens)
+            assertEquals("asset-1", controller.snapshot.value.sourceAssetId)
+            assertEquals(150L, controller.snapshot.value.positionSampleIndex)
+            runCurrent()
+            assertEquals(150, sink.writes.first()[0].toInt() and 255)
+        } finally { controller.release() }
+    }
+
+    @Test
+    fun rejectedEvidencePreservesExistingSessionAndClosesCandidate() = runTest {
+        val bytes = ByteArray(444)
+        val candidate = ByteArrayHandle(bytes)
+        var opens = 0
+        val resolver = FakeResolver(bytes)
+        val controller = StreamingPlaybackController(
+            sourceResolver = object : AudioSourceResolver {
+                override suspend fun resolvePlaybackSource(recordingId: String): PlaybackAudioSource {
+                    opens++
+                    val source = resolver.resolvePlaybackSource(recordingId)
+                    if (opens == 1) return source
+                    source.handle.close()
+                    return source.copy(handle = candidate)
+                }
+            },
+            sinkFactory = PlaybackAudioSinkFactory { FakeSink() }, scope = this,
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+        )
+        try {
+            controller.load("previous")
+            assertTrue(!controller.playVerifiedEvidence(evidenceExpectation(bytes).copy(sha256 = "f".repeat(64))) { true })
+            assertEquals("previous", controller.snapshot.value.recordingId)
+            assertTrue(candidate.closed)
+        } finally { controller.release() }
+    }
+
+    @Test
+    fun evidenceTransactionSerializesConcurrentLoad() = runTest {
+        val bytes = ByteArray(444)
+        val entered = CompletableDeferred<Unit>()
+        val resume = CompletableDeferred<Unit>()
+        var checks = 0
+        val controller = StreamingPlaybackController(
+            sourceResolver = FakeResolver(bytes), sinkFactory = PlaybackAudioSinkFactory { FakeSink() },
+            scope = this, ioDispatcher = StandardTestDispatcher(testScheduler),
+        )
+        try {
+            val qa = async {
+                controller.playVerifiedEvidence(evidenceExpectation(bytes)) {
+                    if (++checks == 3) { entered.complete(Unit); resume.await() }
+                    true
+                }
+            }
+            entered.await()
+            val other = launch { controller.load("other") }
+            runCurrent()
+            assertTrue(!other.isCompleted)
+            resume.complete(Unit)
+            assertTrue(qa.await())
+            other.join()
+            assertEquals("other", controller.snapshot.value.recordingId)
+        } finally { resume.complete(Unit); controller.release() }
+    }
+
+    @Test
+    fun cancellationAfterInstallClosesVerifiedSession() = runTest {
+        val bytes = ByteArray(444)
+        val candidate = ByteArrayHandle(bytes)
+        val sink = FakeSink()
+        val entered = CompletableDeferred<Unit>()
+        var checks = 0
+        val controller = StreamingPlaybackController(
+            sourceResolver = object : AudioSourceResolver {
+                override suspend fun resolvePlaybackSource(recordingId: String): PlaybackAudioSource {
+                    val source = FakeResolver(bytes).resolvePlaybackSource(recordingId)
+                    source.handle.close()
+                    return source.copy(handle = candidate)
+                }
+            },
+            sinkFactory = PlaybackAudioSinkFactory { sink }, scope = this,
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+        )
+        try {
+            val job = launch {
+                controller.playVerifiedEvidence(evidenceExpectation(bytes)) {
+                    if (++checks == 3) { entered.complete(Unit); kotlinx.coroutines.awaitCancellation() }
+                    true
+                }
+            }
+            entered.await()
+            job.cancelAndJoin()
+            assertTrue(candidate.closed)
+            assertTrue(sink.closed)
+            assertEquals(PlaybackState.IDLE, controller.snapshot.value.state)
+        } finally { controller.release() }
+    }
+
+    @Test
+    fun evidenceStartHookFailureClosesSessionWithoutWritingAudio() = runTest {
+        val bytes = ByteArray(444)
+        val sink = FakeSink()
+        val controller = StreamingPlaybackController(
+            sourceResolver = FakeResolver(bytes), sinkFactory = PlaybackAudioSinkFactory { sink },
+            scope = this, ioDispatcher = StandardTestDispatcher(testScheduler),
+        )
+        try {
+            assertTrue(!controller.playVerifiedEvidence(evidenceExpectation(bytes),
+                beforeStart = { throw IllegalStateException("service denied") }) { true })
+            runCurrent()
+            assertTrue(sink.closed)
+            assertTrue(sink.writes.isEmpty())
+            assertEquals(PlaybackState.IDLE, controller.snapshot.value.state)
+        } finally { controller.release() }
+    }
+
     private class FakeResolver(
         private val bytes: ByteArray,
         private val sampleCount: Long = 200L,
@@ -205,7 +351,8 @@ class StreamingPlaybackControllerTest {
         private val bytes: ByteArray,
     ) : SeekableAudioHandle {
         override val lengthBytes: Long = bytes.size.toLong()
-        private var closed = false
+        var closed = false
+            private set
 
         override fun readAt(
             offset: Long,
@@ -235,7 +382,8 @@ class StreamingPlaybackControllerTest {
         var flushCount = 0
         var totalWrittenBytes = 0
         val writes = mutableListOf<ByteArray>()
-        private var closed = false
+        var closed = false
+            private set
 
         override val underrunCount: Int = 0
 

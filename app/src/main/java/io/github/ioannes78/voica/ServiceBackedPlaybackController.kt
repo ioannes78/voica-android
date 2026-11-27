@@ -2,6 +2,8 @@ package io.github.ioannes78.voica
 
 import android.content.Context
 import io.github.ioannes78.voica.audio.PlaybackController
+import io.github.ioannes78.voica.audio.EvidencePlaybackExpectation
+import io.github.ioannes78.voica.playback.AndroidPlaybackController
 import io.github.ioannes78.voica.audio.PlaybackSnapshot
 import io.github.ioannes78.voica.audio.PlaybackState
 import kotlinx.coroutines.flow.StateFlow
@@ -23,6 +25,21 @@ class ServiceBackedPlaybackController(
 
     override suspend fun load(recordingId: String) {
         delegate.load(recordingId)
+    }
+
+    /** Only the existing Android runtime can execute the verified transaction. */
+    internal suspend fun playVerifiedEvidence(
+        expected: EvidencePlaybackExpectation,
+        requireCurrent: suspend () -> Boolean,
+    ): Boolean {
+        val runtime = delegate as? AndroidPlaybackController ?: return false
+        // Request foreground service at the commit point, before any audio starts.
+        // A synchronous start failure aborts the core transaction and closes its session.
+        return runtime.playVerifiedEvidence(
+            expected,
+            beforeStart = { PlaybackForegroundService.ensureStarted(appContext) },
+            requireCurrent = requireCurrent,
+        )
     }
 
     override suspend fun play() {
